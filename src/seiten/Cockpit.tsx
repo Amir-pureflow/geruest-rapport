@@ -33,6 +33,7 @@ interface OffenerAuftrag {
   baustelle_id: string;
   taetigkeit: string;
   besteller_name: string;
+  geplant_fuer: string | null;
 }
 
 type ZellStatus = 'leer' | 'gruen' | 'gelb' | 'rot' | 'frei';
@@ -94,7 +95,7 @@ export function Cockpit() {
         .lte('tagesmeldung.datum', bisIso),
       supabase
         .from('zusatzauftrag')
-        .select('id,baustelle_id,taetigkeit,besteller_name')
+        .select('id,baustelle_id,taetigkeit,besteller_name,geplant_fuer')
         .eq('status', 'offen'),
     ]);
     if (z.data) setEintraege(z.data as unknown as Eintrag[]);
@@ -116,6 +117,14 @@ export function Cockpit() {
     for (const a of auftraege) if (!m.has(a.baustelle_id)) m.set(a.baustelle_id, a);
     return m;
   }, [auftraege]);
+
+  /** Ein offener Auftrag macht nur den GEPLANTEN Tag verdächtig — nicht die ganze Woche. */
+  function passenderAuftrag(baustelleId: string | undefined, datum: string): OffenerAuftrag | undefined {
+    if (!baustelleId) return undefined;
+    const a = auftragProBaustelle.get(baustelleId);
+    if (!a) return undefined;
+    return a.geplant_fuer === null || a.geplant_fuer === datum ? a : undefined;
+  }
 
   // Matrix: Person → Tag → Einträge
   const personen = useMemo(() => {
@@ -143,7 +152,7 @@ export function Cockpit() {
       (e) =>
         e.tagesmeldung.abweichung_typ !== null ||
         e.tagesmeldung.wer_hats_gewollt === 'kunde' ||
-        (e.tagesmeldung.baustelle && auftragProBaustelle.has(e.tagesmeldung.baustelle.id)),
+        passenderAuftrag(e.tagesmeldung.baustelle?.id, e.tagesmeldung.datum) !== undefined,
     );
     if (verdacht) return 'gelb';
     if (liste.every((e) => e.status === 'freigegeben')) return 'frei';
@@ -160,7 +169,7 @@ export function Cockpit() {
       const ausloeser: string[] = [];
       if (tm.abweichung_typ) ausloeser.push(`Team meldet «${tm.abweichung_typ}»`);
       if (tm.wer_hats_gewollt === 'kunde') ausloeser.push('Team: der Kunde wollte es');
-      const auftrag = tm.baustelle ? auftragProBaustelle.get(tm.baustelle.id) : undefined;
+      const auftrag = passenderAuftrag(tm.baustelle?.id, tm.datum);
       if (auftrag)
         ausloeser.push(`offener Zusatzauftrag: ${auftrag.taetigkeit} (${auftrag.besteller_name})`);
       if (ausloeser.length === 0) continue;
