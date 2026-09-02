@@ -1,0 +1,37 @@
+{
+  "quelle": "SGUV Regie-Tarife 2026/27, von Arbnor mitgegeben (Meeting 22.08.2026)",
+  "gueltig_von": "2026-04-01",
+  "gueltig_bis": "2027-03-31",
+  "hinweis_mwst": "Alle Ansätze ohne Mehrwertsteuer",
+  "personal": [
+    { "code": "bauf",       "bezeichnung": "Bauführer/in",              "ansatz_rappen": 16800, "einheit": "h" },
+    { "code": "objekt",     "bezeichnung": "Objektleiter/in",           "ansatz_rappen": 12900, "einheit": "h" },
+    { "code": "gruppe",     "bezeichnung": "Gruppenleiter/in",          "ansatz_rappen": 12100, "einheit": "h" },
+    { "code": "monteur",    "bezeichnung": "Gerüstmonteur/in",          "ansatz_rappen": 10800, "einheit": "h" },
+    { "code": "mitarbeiter","bezeichnung": "Gerüstbaumitarbeiter/in",   "ansatz_rappen": 10000, "einheit": "h" },
+    { "code": "lern3",      "bezeichnung": "Lernende 3. Lehrjahr",      "ansatz_rappen": 7800,  "einheit": "h" },
+    { "code": "lern2",      "bezeichnung": "Lernende 2. Lehrjahr",      "ansatz_rappen": 6200,  "einheit": "h" },
+    { "code": "lern1",      "bezeichnung": "Lernende 1. Lehrjahr",      "ansatz_rappen": 5300,  "einheit": "h" }
+  ],
+  "fahrzeuge": [
+    { "code": "lieferwagen_35",  "bezeichnung": "Lieferwagen bis 3,5 t",              "ansatz_rappen": 16500, "einheit": "h" },
+    { "code": "transporter_8",   "bezeichnung": "Mannschaftstransporter bis 8 Pers.", "ansatz_rappen": 14200, "einheit": "h" },
+    { "code": "lkw_16",          "bezeichnung": "Lastwagen bis 16 t",                 "ansatz_rappen": 21500, "einheit": "h" },
+    { "code": "lkw_16_kran",     "bezeichnung": "Lastwagen bis 16 t mit Kran",        "ansatz_rappen": 31400, "einheit": "h" },
+    { "code": "lkw_32",          "bezeichnung": "Lastwagen bis 32 t",                 "ansatz_rappen": 26700, "einheit": "h" },
+    { "code": "lkw_32_kran",     "bezeichnung": "Lastwagen bis 32 t mit Kran",        "ansatz_rappen": 35500, "einheit": "h" },
+    { "code": "zug_4wd_6",       "bezeichnung": "Zugfahrzeug 4WD bis 6 t",            "ansatz_rappen": 15400, "einheit": "h" },
+    { "code": "anhaenger_12",    "bezeichnung": "Anhänger 2-achsig bis 12 t",         "ansatz_rappen": 9500,  "einheit": "h" },
+    { "code": "pw_km",           "bezeichnung": "Personenwagen (pro km)",             "ansatz_rappen": 160,   "einheit": "km" },
+    { "code": "pw_h",            "bezeichnung": "Personenwagen (pro Stunde)",         "ansatz_rappen": 14200, "einheit": "h" },
+    { "code": "bohrhammer_24",   "bezeichnung": "Bohrhammer bis Ø 24 mm",             "ansatz_rappen": 3300,  "einheit": "h" }
+  ],
+  "zuschlaege": {
+    "etappe_min_rappen": 28000,
+    "etappe_hinweis": "Bei Teilmontagen, Teildemontagen und nachträglichen Arbeiten: mindestens Fr. 280.– pro Etappe",
+    "materialmiete_prozent": 9,
+    "materialmiete_hinweis": "Pauschal 9 % vom Regiebetrag, pro Monat. OFFEN: Anwendung auf Kurzeinsätze mit Arbnor klären (Frage 17 im Konzept)",
+    "demontage_anteil_prozent": 50,
+    "demontage_hinweis": "Demontage-Anteil 50 % der Montage, wird mit dieser zusammen fakturiert. OFFEN: konkrete Anwendung beim Fall «versetzen» klären"
+  }
+}
