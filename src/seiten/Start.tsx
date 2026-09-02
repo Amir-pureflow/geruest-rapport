@@ -51,6 +51,7 @@ export function Start() {
         <nav className="grid gap-3">
           <NavKarte zu="/erfassung" titel="Erfassung" text="Teamgerät — ein Knopf für den normalen Tag" />
           <NavKarte zu="/cockpit" titel="Wochenübersicht" text="Prüfen und freigeben, statt telefonieren" />
+          <NavKarte zu="/regie" titel="Regierapporte" text="Versand, Zustellnachweis und Fristen" />
           <NavKarte zu="/b/demo-token" titel="Kundenlink" text="So bestätigt die Bauleitung — ohne Konto" />
         </nav>
 

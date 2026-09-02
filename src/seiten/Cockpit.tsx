@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Shell } from '../ui/Shell';
 import { supabase } from '../lib/supabase';
 import { minutenBetrag, formatChf, tarifNachCode } from '../lib/tarif';
@@ -75,6 +76,7 @@ export function Cockpit() {
   const [gewaehlt, setGewaehlt] = useState<{ mit: string; datum: string } | null>(null);
   const [userId, setUserId] = useState<string | null>(null);
   const [laedt, setLaedt] = useState(true);
+  const navigiere = useNavigate();
 
   const vonIso = iso(wochenStart);
   const bisIso = iso(addTage(wochenStart, 6));
@@ -227,6 +229,43 @@ export function Cockpit() {
     void laden();
   }
 
+  /** Gelbe Karte → Regierapport-Entwurf: Positionen aus den Zeiteinträgen, Betrag nach SGUV. */
+  async function regierapportErstellen(fall: { meldung: Eintrag['tagesmeldung']; eintraege: Eintrag[] }) {
+    if (!supabase) return;
+    const bs = fall.meldung.baustelle;
+    if (!bs) return;
+    const { data: r, error } = await supabase
+      .from('regierapport')
+      .insert({
+        baustelle_id: bs.id,
+        zusatzauftrag_id: auftragProBaustelle.get(bs.id)?.id ?? null,
+        betrag_rappen: betragVorgerechnet(fall.eintraege),
+      })
+      .select('id')
+      .single();
+    if (error || !r) return;
+    await supabase.from('regie_position').insert(
+      fall.eintraege.map((e) => {
+        const min = e.normal_min + e.ueber_min;
+        let ansatz = 10800;
+        try {
+          ansatz = tarifNachCode(e.mitarbeiter.funktion).ansatz_rappen;
+        } catch {
+          /* unbekannte Funktion → Monteursansatz */
+        }
+        return {
+          regierapport_id: r.id,
+          tarif_code: e.mitarbeiter.funktion,
+          bezeichnung: `${e.mitarbeiter.name} · ${stunden(min)} h`,
+          menge_hundertstel: Math.round((min * 100) / 60),
+          ansatz_rappen: ansatz,
+          betrag_rappen: minutenBetrag(min, ansatz),
+        };
+      }),
+    );
+    navigiere(`/regie/${r.id}`);
+  }
+
   const detail = gewaehlt
     ? personen.find(([id]) => id === gewaehlt.mit)?.[1].tage.get(gewaehlt.datum) ?? []
     : [];
@@ -371,7 +410,11 @@ export function Cockpit() {
                         </span>
                         <span className="text-xs text-ink3"> vorgerechnet</span>
                       </span>
-                      <button type="button" disabled className="btn-ghost opacity-50" title="Phase 4">
+                      <button
+                        type="button"
+                        onClick={() => void regierapportErstellen({ meldung, eintraege: liste })}
+                        className="btn-ghost border-accent text-accent-deep"
+                      >
                         → Regierapport
                       </button>
                     </div>

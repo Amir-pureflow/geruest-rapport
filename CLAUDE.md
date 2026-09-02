@@ -110,7 +110,9 @@ supabase/migrations/          Schema; RLS-Policies folgen als eigene Migration
 ## Offene Entscheidungen (nicht raten — nachfragen oder Annahme markieren)
 
 - Transkriptions-Anbieter (Spike mit echten Aufnahmen de/ar/pl/en ausstehend)
-- Mailanbieter + Absender-Domain (SPF/DKIM)
+- Mail: **entschieden (03.09.)** — Resend, Absender pureflow-ai.com für den Pilot
+  (DNS via Vercel); vor echten Bauleitungs-Mails Wechsel auf die Domain der
+  Gerüstfirma (Arbnor = IT, zwei DNS-Einträge).
 - SORBA hat **keinen Import** (Arbnor, 27.08.) — die Rasteransicht ist der Endzustand,
   kein SORBA-spezifischer Exportcode nötig. Offen: woher kommt der Vorgangscode?
 - Tariffragen: Demontage-Anteil 50 % beim «Versetzen»; Materialmiete 9 %
