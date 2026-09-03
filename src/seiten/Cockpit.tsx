@@ -24,9 +24,14 @@ interface Eintrag {
     normalfall: boolean;
     abweichung_typ: string | null;
     wer_hats_gewollt: string | null;
+    transkript: string | null;
+    audio_pfad: string | null;
+    audio_sekunden: number | null;
     baustelle: { id: string; konto_nr: string; bezeichnung: string | null } | null;
   };
 }
+
+interface Team { id: string; bezeichnung: string }
 
 interface OffenerAuftrag {
   id: string;
@@ -78,6 +83,20 @@ export function Cockpit() {
   const [userId, setUserId] = useState<string | null>(null);
   const [laedt, setLaedt] = useState(true);
   const navigiere = useNavigate();
+  const [teams, setTeams] = useState<Team[]>([]);
+  const [teamId, setTeamId] = useState<string>(() => localStorage.getItem('cockpit-team') ?? '');
+  const [audio, setAudio] = useState<{ meldung: string; url: string } | null>(null);
+
+  useEffect(() => {
+    if (!supabase) return;
+    void supabase.from('team').select('id,bezeichnung').eq('aktiv', true).then(({ data }) => {
+      if (!data) return;
+      const s = data.sort((a, b) => a.bezeichnung.localeCompare(b.bezeichnung, 'de', { numeric: true }));
+      setTeams(s);
+      setTeamId((t) => (t && (t === 'alle' || s.some((x) => x.id === t)) ? t : s[0]?.id ?? 'alle'));
+    });
+  }, []);
+  useEffect(() => { if (teamId) localStorage.setItem('cockpit-team', teamId); }, [teamId]);
 
   const vonIso = iso(wochenStart);
   const bisIso = iso(addTage(wochenStart, 6));
@@ -86,13 +105,16 @@ export function Cockpit() {
     if (!supabase) return;
     setLaedt(true);
     const [z, a] = await Promise.all([
-      supabase
-        .from('zeiteintrag')
-        .select(
-          'id,normal_min,ueber_min,status,mitarbeiter:mitarbeiter_id(id,name,funktion,typ),tagesmeldung:tagesmeldung_id!inner(id,datum,normalfall,abweichung_typ,wer_hats_gewollt,baustelle:baustelle_id(id,konto_nr,bezeichnung))',
-        )
-        .gte('tagesmeldung.datum', vonIso)
-        .lte('tagesmeldung.datum', bisIso),
+      (() => {
+        const q = supabase
+          .from('zeiteintrag')
+          .select(
+            'id,normal_min,ueber_min,status,mitarbeiter:mitarbeiter_id(id,name,funktion,typ),tagesmeldung:tagesmeldung_id!inner(id,datum,normalfall,abweichung_typ,wer_hats_gewollt,transkript,audio_pfad,audio_sekunden,baustelle:baustelle_id(id,konto_nr,bezeichnung))',
+          )
+          .gte('tagesmeldung.datum', vonIso)
+          .lte('tagesmeldung.datum', bisIso);
+        return teamId === 'alle' || !teamId ? q : q.eq('tagesmeldung.team_id', teamId);
+      })(),
       supabase
         .from('zusatzauftrag')
         .select('id,baustelle_id,taetigkeit,besteller_name,geplant_fuer')
@@ -101,11 +123,17 @@ export function Cockpit() {
     if (z.data) setEintraege(z.data as unknown as Eintrag[]);
     if (a.data) setAuftraege(a.data);
     setLaedt(false);
-  }, [vonIso, bisIso]);
+  }, [vonIso, bisIso, teamId]);
 
   useEffect(() => {
-    void laden();
-  }, [laden]);
+    if (teamId) void laden();
+  }, [laden, teamId]);
+
+  async function anhoeren(meldungId: string, pfad: string) {
+    if (!supabase) return;
+    const { data } = await supabase.storage.from('anhaenge').createSignedUrl(pfad, 300);
+    if (data?.signedUrl) setAudio({ meldung: meldungId, url: data.signedUrl });
+  }
 
   useEffect(() => {
     if (!supabase) return;
@@ -293,6 +321,11 @@ export function Cockpit() {
           </div>
         </header>
 
+        <select value={teamId} onChange={(e) => setTeamId(e.target.value)} className="field w-auto py-1.5 text-sm">
+          {teams.map((t) => <option key={t.id} value={t.id}>{t.bezeichnung}</option>)}
+          <option value="alle">alle Teams</option>
+        </select>
+
         {personen.length === 0 ? (
           <div className="card text-sm text-ink3">
             {laedt ? 'Lädt …' : 'Keine Einträge in dieser Woche.'}
@@ -411,6 +444,19 @@ export function Cockpit() {
                         <li key={a}>• {a}</li>
                       ))}
                     </ul>
+                    {meldung.transkript && (
+                      <p className="mt-2 rounded-[10px] bg-surface px-3 py-2 text-sm italic text-ink2">«{meldung.transkript}»</p>
+                    )}
+                    {(meldung.audio_pfad || meldung.audio_sekunden) && (
+                      <div className="mt-2 flex items-center gap-2">
+                        {meldung.audio_pfad ? (
+                          <button type="button" onClick={() => void anhoeren(meldung.id, meldung.audio_pfad!)} className="btn-ghost">▶ Sprachnotiz{meldung.audio_sekunden ? ` · ${meldung.audio_sekunden} Sek.` : ''}</button>
+                        ) : (
+                          <span className="font-mono text-[11px] text-ink3">Sprachnotiz {meldung.audio_sekunden} Sek. (Demo — keine Aufnahme hinterlegt)</span>
+                        )}
+                        {audio?.meldung === meldung.id && <audio controls autoPlay src={audio.url} className="h-8 flex-1" />}
+                      </div>
+                    )}
                     <div className="mt-2 flex items-center justify-between">
                       <span className="text-sm">
                         {stunden(liste.reduce((s, e) => s + e.normal_min + e.ueber_min, 0))} h ·{' '}

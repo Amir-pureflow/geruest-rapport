@@ -21,8 +21,10 @@ export default defineConfig({
         display: 'standalone',
         background_color: '#EDF1F0',
         theme_color: '#EDF1F0',
-        // TODO: Icons ergänzen (192/512 px), bevor das erste Gerät eingerichtet wird
-        icons: [],
+        icons: [
+          { src: '/icon-192.png', sizes: '192x192', type: 'image/png' },
+          { src: '/icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'any maskable' },
+        ],
       },
       workbox: {
         globPatterns: ['**/*.{js,css,html,svg,png,woff2}'],

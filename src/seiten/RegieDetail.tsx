@@ -21,7 +21,7 @@ interface Rapport {
   empfaenger_email: string | null;
   anhang_pfad: string | null;
   link_token: string;
-  baustelle: { bezeichnung: string | null; konto_nr: string } | null;
+  baustelle: { bezeichnung: string | null; konto_nr: string; kunde: { email: string | null; ansprechperson: string | null } | null } | null;
 }
 
 interface Position {
@@ -63,7 +63,7 @@ export function RegieDetail() {
     const [r, p, l] = await Promise.all([
       supabase
         .from('regierapport')
-        .select('id,status,betrag_rappen,frist_bis,versendet_am,bestaetigt_am,empfaenger_email,anhang_pfad,link_token,baustelle:baustelle_id(bezeichnung,konto_nr)')
+        .select('id,status,betrag_rappen,frist_bis,versendet_am,bestaetigt_am,empfaenger_email,anhang_pfad,link_token,baustelle:baustelle_id(bezeichnung,konto_nr,kunde:kunde_id(email,ansprechperson))')
         .eq('id', id)
         .single(),
       supabase.from('regie_position').select('id,tarif_code,bezeichnung,betrag_rappen').eq('regierapport_id', id),
@@ -73,6 +73,7 @@ export function RegieDetail() {
       const rp = r.data as unknown as Rapport;
       setRapport(rp);
       if (rp.empfaenger_email) setEmpfaenger(rp.empfaenger_email);
+      else if (rp.baustelle?.kunde?.email) setEmpfaenger(rp.baustelle.kunde.email);
     }
     if (p.data) setPositionen(p.data);
     if (l.data) setLogs(l.data);

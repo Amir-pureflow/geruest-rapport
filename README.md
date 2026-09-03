@@ -32,23 +32,30 @@ cp .env.example .env    # Supabase-URL + Anon-Key eintragen
    `fixtures/baustellen.csv` (nicht eingecheckt, enthält Kundendaten)
    und über Table Editor → Import in `baustelle` laden.
 
-## Was in Phase 0 schon läuft
+## Stand — was läuft (September 2026)
 
-- Tarifrechner mit Tests: SGUV 2026/27 aus `fixtures/`, Rappen-Integer,
-  Referenzfall «Gerüst versetzen» = Fr. 955.93
-- Offline-Queue: grüner Knopf unter `/erfassung` schreibt in IndexedDB,
-  Auto-Flush bei Netz-Rückkehr (Upsert auf `client_uuid`, doppelt senden ist harmlos)
-- PWA-Grundgerüst (installierbar; Icons fehlen noch), drei Routen als Platzhalter
-- Vollständiges DB-Schema mit RLS (Übergangs-Policies, siehe TODO in der Migration)
+| Bereich | Stand |
+|---|---|
+| Login | Magic Link, kein Passwort |
+| Zusatzarbeit (Stufe 1) | Formular in 20 Sek., Tipp-Suche über die 217 Konten, offline-fähig |
+| Team-Erfassung (Phase 2) | Teamgerät: Baustellen-Kacheln aus Plan und Historie, Anwesenheit, Stunden-Pfeile, öV/km, Abweichung → «Wer wollte das?» → Sprachnotiz, offline-Queue mit Audio-Upload |
+| Wochenübersicht (Phase 3) | Matrix pro Team, benannte Auslöser statt Urteile, Sammelfreigabe, ±30-Min-Korrektur mit Protokoll, Sprachnotiz-Wiedergabe |
+| Regierapport (Phase 4) | Aus der gelben Karte → Entwurf → Versand (Resend), fester Betreff, Zustell-Chronik, Frist, Kundenlink ohne Login |
+| Export (Phase 5) | SORBA-Rasteransicht (kein Import möglich → sehend tippen), Excel mit Lohn / Temporärbüro / Raster |
+| Board | Jahresplan Team × KW, Verschiebungen werden protokolliert |
+| Verwaltung | Mitarbeitende, Teams mit Chefmonteur, Kunden mit Bauleitungs-Mail, Baustellen mit Fertigstellungsmeldung |
+| Demo-Betrieb | Ein Klick: 75 Mitarbeitende, 20 Teams, 30 Kunden, 5 Wochen Meldungen, Regie in allen Stadien (`Verwaltung → Demo`) |
+| Sprache (Phase 6) | Aufnahme + Wiedergabe fertig; Transkription/Übersetzung folgt nach dem Anbieter-Spike |
 
-## Nächste Schritte (Bauplan §5)
+Tests: `npm test` — Tarifrechner (12) und Demo-Struktur (8).
 
-1. ~~Phase 1 — Zusatzauftrag~~ ✅ gebaut (02.09.): Magic-Link-Login, Formular mit Suche über die echten 217 Konten, Offline-Queue, Liste mit Status offen→ausgeführt→abgerechnet.
-2. Phase 2 — Erfassung mit Vorbelegung, Abweichungsfluss, Audio
-3. Phase 3 — Wochenübersicht mit Prüfquellen und Freigabe
-4. Phase 4 — Regie-Ausgang: Mail (Resend/Postmark + Webhooks), Frist, Kundenlink
-5. Phase 5 — Export: SORBA-Rasteransicht + CSV/Excel
-6. Phase 6 — Sprache (erst nach dem Spike mit echten Aufnahmen de/ar/pl/en)
+## Vor der ersten Vorführung
+
+1. Migration `0005_stammdaten.sql` im SQL-Editor ausführen (einmalig)
+2. `Verwaltung → Demo → Demo-Betrieb laden` — dauert ~20 Sekunden
+3. Auf dem Teamgerät `/erfassung` ein Team wählen; auf dem Bauführer-Gerät `/cockpit`
+
+Kunden-Mails im Demo-Betrieb enden auf `.example` — aus der Demo geht nie eine Mail an fremde Adressen.
 
 ## Hinweise
 

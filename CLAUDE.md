@@ -97,15 +97,24 @@ ist immer Deutsch. **Kein Dialekt-Thema: es geht um Hochdeutsch + Fremdsprachen.
 ## Dateikarte
 
 ```
-src/seiten/Erfassung.tsx      Teamgerät: Knopf, Symbole, «Wer wollte das?»
-src/seiten/Cockpit.tsx        Bauführer: Wochenübersicht, Ampel, Freigabe
-src/seiten/Bestaetigung.tsx   Kundenlink /b/:token — ohne Login
-src/lib/db.ts                 Dexie-Schema + Offline-Queue + Flush
-src/lib/tarif.ts              SGUV-Tarifrechner (Rappen-Integer) + Tests
-src/lib/supabase.ts           Client (null-sicher, wenn .env fehlt)
-fixtures/                     Tarife (echt) + Baustellen (Beispiel, ersetzen!)
-supabase/migrations/          Schema; RLS-Policies folgen als eigene Migration
+src/seiten/Start.tsx              Dashboard mit Kennzahlen
+src/seiten/Zusatzauftrag.tsx      Stufe 1: Kundenbestellung in 20 Sek. (offline)
+src/seiten/Erfassung.tsx          Teamgerät: Kacheln, Anwesenheit, Pfeile, Symbole, Sprachnotiz
+src/seiten/Cockpit.tsx            Wochenübersicht: Ampel, Freigabe, Korrektur, Regieverdacht
+src/seiten/RegieListe/Detail.tsx  Regierapporte: Positionen, Anhang, Versand, Chronik
+src/seiten/Export.tsx             SORBA-Raster + Excel (Lohn, Temporärbüro)
+src/seiten/Board.tsx              Jahresplan Team × KW, Verschiebungen → planaenderung
+src/seiten/verwaltung/*           Mitarbeitende, Teams, Kunden, Baustellen, Demo
+src/seiten/Bestaetigung.tsx       Kundenlink /b/:token — ohne Login (Edge Function)
+src/lib/db.ts                     Dexie-Queue: Meldungen + Zeiteinträge + Audio, Zusatzaufträge
+src/lib/tarif.ts                  SGUV-Tarifrechner (Rappen-Integer) + Tests
+src/lib/demo.ts                   Deterministischer Demo-Betrieb + Tests
+src/lib/datum.ts                  Wochen-/Datumshelfer
+supabase/migrations/              0001 Schema · 0002 Bezeichnung · 0003 Auftrag-UUID · 0004 Versand · 0005 Stammdaten
 ```
+
+Edge Functions `regierapport-senden` und `bestaetigung` sind über den Connector deployt;
+ihr Quellcode gehört noch ins Repo (supabase/functions/) — nachholen, sobald erreichbar.
 
 ## Offene Entscheidungen (nicht raten — nachfragen oder Annahme markieren)
 

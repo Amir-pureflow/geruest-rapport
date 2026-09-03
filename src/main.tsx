@@ -11,6 +11,9 @@ import { Anmelden } from './seiten/Anmelden';
 import { Zusatzauftrag } from './seiten/Zusatzauftrag';
 import { RegieListe } from './seiten/RegieListe';
 import { RegieDetail } from './seiten/RegieDetail';
+import { Export } from './seiten/Export';
+import { Board } from './seiten/Board';
+import { Verwaltung } from './seiten/verwaltung/Verwaltung';
 import { startAutoFlush, flushNachSupabase } from './lib/db';
 import { supabase } from './lib/supabase';
 
@@ -50,6 +53,9 @@ function App() {
         {eingeloggt && <Route path="/cockpit" element={<Cockpit />} />}
         {eingeloggt && <Route path="/regie" element={<RegieListe />} />}
         {eingeloggt && <Route path="/regie/:id" element={<RegieDetail />} />}
+        {eingeloggt && <Route path="/export" element={<Export />} />}
+        {eingeloggt && <Route path="/board" element={<Board />} />}
+        {eingeloggt && <Route path="/verwaltung" element={<Verwaltung />} />}
         {!eingeloggt && <Route path="*" element={<Anmelden />} />}
       </Routes>
     </BrowserRouter>
