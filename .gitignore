@@ -9,3 +9,5 @@ dev-dist/
 
 # Kundendaten — nie einchecken
 fixtures/baustellen.csv
+
+.vercel

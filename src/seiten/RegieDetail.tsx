@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState, type ChangeEvent } from 'rea
 import { useParams } from 'react-router-dom';
 import { Shell } from '../ui/Shell';
 import { supabase } from '../lib/supabase';
-import { formatChf, materialmiete, ETAPPE_MIN_RAPPEN } from '../lib/tarif';
+import { formatChf, materialmiete, tarifNachCode, ETAPPE_MIN_RAPPEN } from '../lib/tarif';
 
 /**
  * Phase 4 — der einzelne Regierapport:
@@ -89,6 +89,7 @@ export function RegieDetail() {
   );
   const mieteZeile = positionen.find((p) => p.tarif_code === 'materialmiete');
   const etappeZeile = positionen.find((p) => p.tarif_code === 'etappe');
+  const fahrzeugZeile = positionen.find((p) => p.tarif_code === 'lieferwagen_35');
   const total = basis + (mieteZeile?.betrag_rappen ?? 0);
   const entwurf = rapport?.status === 'entwurf';
 
@@ -126,6 +127,25 @@ export function RegieDetail() {
         menge_hundertstel: 100,
         ansatz_rappen: ETAPPE_MIN_RAPPEN,
         betrag_rappen: ETAPPE_MIN_RAPPEN,
+      });
+    }
+    await betragAktualisieren();
+  }
+
+  /** Der Lieferwagen ist im Regiefall eine Preisposition wie eine Arbeitsstunde — und wird heute leicht vergessen. */
+  async function fahrzeugUmschalten() {
+    if (!supabase || !id || !entwurf) return;
+    if (fahrzeugZeile) {
+      await supabase.from('regie_position').delete().eq('id', fahrzeugZeile.id);
+    } else {
+      const ansatz = tarifNachCode('lieferwagen_35').ansatz_rappen;
+      await supabase.from('regie_position').insert({
+        regierapport_id: id,
+        tarif_code: 'lieferwagen_35',
+        bezeichnung: 'Lieferwagen bis 3,5 t · 1.0 h',
+        menge_hundertstel: 100,
+        ansatz_rappen: ansatz,
+        betrag_rappen: ansatz,
       });
     }
     await betragAktualisieren();
@@ -228,7 +248,10 @@ export function RegieDetail() {
             ))}
           </div>
           {entwurf && (
-            <div className="mt-3 flex gap-2">
+            <div className="mt-3 flex flex-wrap gap-2">
+              <button type="button" onClick={() => void fahrzeugUmschalten()} className={'chip ' + (fahrzeugZeile ? 'chip-on' : '')}>
+                Lieferwagen 1 h
+              </button>
               <button type="button" onClick={() => void etappeUmschalten()} className={'chip ' + (etappeZeile ? 'chip-on' : '')}>
                 Etappenzuschlag
               </button>
