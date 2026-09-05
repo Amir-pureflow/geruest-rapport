@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState, type ChangeEvent } from 'rea
 import { useParams } from 'react-router-dom';
 import { Shell } from '../ui/Shell';
 import { supabase } from '../lib/supabase';
-import { formatChf, materialmiete, tarifNachCode, ETAPPE_MIN_RAPPEN } from '../lib/tarif';
+import { formatChf, materialmiete, tarifNachCode, positionBetrag, ETAPPE_MIN_RAPPEN } from '../lib/tarif';
 
 /**
  * Phase 4 — der einzelne Regierapport:
@@ -28,8 +28,12 @@ interface Position {
   id: string;
   tarif_code: string;
   bezeichnung: string;
+  menge_hundertstel: number;
+  ansatz_rappen: number;
   betrag_rappen: number;
 }
+
+const FIXE_POSITIONEN = new Set(['etappe', 'materialmiete']);
 
 interface LogZeile {
   id: string;
@@ -66,7 +70,7 @@ export function RegieDetail() {
         .select('id,status,betrag_rappen,frist_bis,versendet_am,bestaetigt_am,empfaenger_email,anhang_pfad,link_token,baustelle:baustelle_id(bezeichnung,konto_nr,kunde:kunde_id(email,ansprechperson))')
         .eq('id', id)
         .single(),
-      supabase.from('regie_position').select('id,tarif_code,bezeichnung,betrag_rappen').eq('regierapport_id', id),
+      supabase.from('regie_position').select('id,tarif_code,bezeichnung,menge_hundertstel,ansatz_rappen,betrag_rappen').eq('regierapport_id', id),
       supabase.from('zustellung_log').select('id,ereignis,zeitpunkt,an').eq('regierapport_id', id).order('zeitpunkt'),
     ]);
     if (r.data) {
@@ -148,6 +152,20 @@ export function RegieDetail() {
         betrag_rappen: ansatz,
       });
     }
+    await betragAktualisieren();
+  }
+
+  /**
+   * «Wie viel davon ist Regie?» — das entscheidet der Bauführer, nicht das System.
+   * Stunden pro Position in Halbstundenschritten anpassen; Betrag rechnet nach Tarif.
+   */
+  async function stundenAnpassen(p: Position, deltaHundertstel: number) {
+    if (!supabase || !id || !entwurf) return;
+    const menge = Math.max(0, p.menge_hundertstel + deltaHundertstel);
+    if (menge === p.menge_hundertstel) return;
+    const betrag = positionBetrag({ code: p.tarif_code, bezeichnung: p.bezeichnung, mengeHundertstel: menge, ansatzRappen: p.ansatz_rappen });
+    const bezeichnung = p.bezeichnung.replace(/\d+(\.\d)? h$/, `${(menge / 100).toFixed(1)} h`);
+    await supabase.from('regie_position').update({ menge_hundertstel: menge, betrag_rappen: betrag, bezeichnung }).eq('id', p.id);
     await betragAktualisieren();
   }
 
@@ -241,9 +259,17 @@ export function RegieDetail() {
           <p className="lbl">Positionen · SGUV 2026/27</p>
           <div className="divide-y divide-line">
             {positionen.map((p) => (
-              <div key={p.id} className="flex items-baseline justify-between gap-2 py-1.5 text-sm">
-                <span>{p.bezeichnung}</span>
-                <span className="font-mono tabular-nums">{formatChf(p.betrag_rappen)}</span>
+              <div key={p.id} className="flex items-center justify-between gap-2 py-1.5 text-sm">
+                <span className="min-w-0 truncate">{p.bezeichnung}</span>
+                <span className="flex flex-none items-center gap-1.5">
+                  {entwurf && !FIXE_POSITIONEN.has(p.tarif_code) && (
+                    <>
+                      <button type="button" onClick={() => void stundenAnpassen(p, -50)} className="btn-ghost px-2 py-0.5" title="−0.5 h">−</button>
+                      <button type="button" onClick={() => void stundenAnpassen(p, 50)} className="btn-ghost px-2 py-0.5" title="+0.5 h">+</button>
+                    </>
+                  )}
+                  <span className="w-24 text-right font-mono tabular-nums">{formatChf(p.betrag_rappen)}</span>
+                </span>
               </div>
             ))}
           </div>
@@ -268,6 +294,7 @@ export function RegieDetail() {
           </div>
           <p className="mt-1 text-[11px] text-ink3">
             Vorgerechnet als Entscheidungshilfe — der verbindliche Beleg ist das SORBA-Dokument im Anhang.
+            {entwurf && ' Mit − / + nur die Stunden stehen lassen, die wirklich Zusatzarbeit waren.'}
           </p>
         </section>
 

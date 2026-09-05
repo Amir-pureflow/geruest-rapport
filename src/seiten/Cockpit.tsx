@@ -480,22 +480,31 @@ export function Cockpit() {
                         {audio?.meldung === meldung.id && <audio controls autoPlay src={audio.url} className="h-8 flex-1" />}
                       </div>
                     )}
-                    <div className="mt-2 flex items-center justify-between">
-                      <span className="text-sm">
-                        {stunden(liste.reduce((s, e) => s + e.normal_min + e.ueber_min, 0))} h ·{' '}
-                        <span className="font-mono font-semibold text-accent-deep">
-                          {formatChf(betragVorgerechnet(liste))}
+                    {meldung.normalfall ? (
+                      /* Normaler Tag mit offenem Auftrag: die 8 h sind Aufbau (Offerte), nicht Regie.
+                         Regie entsteht nur aus dem gemeldeten Extra — sonst beim Team nachfragen. */
+                      <p className="mt-2 rounded-[10px] border border-dashed border-amber-400 px-3 py-2 text-xs text-ink2">
+                        Normaler Arbeitstag ({stunden(liste.reduce((s, e) => s + e.normal_min + e.ueber_min, 0))} h) — das ist Aufbau aus der Offerte, keine Regie.
+                        Der Zusatzauftrag war für diesen Tag geplant, aber <b>das Team hat keine Zusatzarbeit gemeldet</b>: nachfragen, ob sie ausgeführt wurde.
+                      </p>
+                    ) : (
+                      <div className="mt-2 flex items-center justify-between">
+                        <span className="text-sm">
+                          {stunden(liste.reduce((s, e) => s + e.normal_min + e.ueber_min, 0))} h Zusatzarbeit ·{' '}
+                          <span className="font-mono font-semibold text-accent-deep">
+                            {formatChf(betragVorgerechnet(liste))}
+                          </span>
+                          <span className="text-xs text-ink3"> vorgerechnet</span>
                         </span>
-                        <span className="text-xs text-ink3"> vorgerechnet</span>
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => void regierapportErstellen({ meldung, eintraege: liste })}
-                        className="btn-ghost border-accent text-accent-deep"
-                      >
-                        → Regierapport
-                      </button>
-                    </div>
+                        <button
+                          type="button"
+                          onClick={() => void regierapportErstellen({ meldung, eintraege: liste })}
+                          className="btn-ghost border-accent text-accent-deep"
+                        >
+                          → Regierapport
+                        </button>
+                      </div>
+                    )}
                   </div>
                 ))}
               </section>
