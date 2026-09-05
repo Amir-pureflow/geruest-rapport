@@ -27,6 +27,7 @@ interface Eintrag {
     transkript: string | null;
     audio_pfad: string | null;
     audio_sekunden: number | null;
+    team: { id: string; bezeichnung: string } | null;
     baustelle: { id: string; konto_nr: string; bezeichnung: string | null } | null;
   };
 }
@@ -93,7 +94,7 @@ export function Cockpit() {
       if (!data) return;
       const s = data.sort((a, b) => a.bezeichnung.localeCompare(b.bezeichnung, 'de', { numeric: true }));
       setTeams(s);
-      setTeamId((t) => (t && (t === 'alle' || s.some((x) => x.id === t)) ? t : s[0]?.id ?? 'alle'));
+      setTeamId((t) => (t && (t === 'alle' || s.some((x) => x.id === t)) ? t : 'alle'));
     });
   }, []);
   useEffect(() => { if (teamId) localStorage.setItem('cockpit-team', teamId); }, [teamId]);
@@ -109,7 +110,7 @@ export function Cockpit() {
         const q = supabase
           .from('zeiteintrag')
           .select(
-            'id,normal_min,ueber_min,status,mitarbeiter:mitarbeiter_id(id,name,funktion,typ),tagesmeldung:tagesmeldung_id!inner(id,datum,normalfall,abweichung_typ,wer_hats_gewollt,transkript,audio_pfad,audio_sekunden,baustelle:baustelle_id(id,konto_nr,bezeichnung))',
+            'id,normal_min,ueber_min,status,mitarbeiter:mitarbeiter_id(id,name,funktion,typ),tagesmeldung:tagesmeldung_id!inner(id,datum,normalfall,abweichung_typ,wer_hats_gewollt,transkript,audio_pfad,audio_sekunden,team:team_id(id,bezeichnung),baustelle:baustelle_id(id,konto_nr,bezeichnung))',
           )
           .gte('tagesmeldung.datum', vonIso)
           .lte('tagesmeldung.datum', bisIso);
@@ -158,19 +159,33 @@ export function Cockpit() {
   const personen = useMemo(() => {
     const m = new Map<
       string,
-      { name: string; typ: string; funktion: string; tage: Map<string, Eintrag[]> }
+      { name: string; typ: string; funktion: string; teamName: string; tage: Map<string, Eintrag[]> }
     >();
     for (const e of eintraege) {
       const p =
         m.get(e.mitarbeiter.id) ??
-        { name: e.mitarbeiter.name, typ: e.mitarbeiter.typ, funktion: e.mitarbeiter.funktion, tage: new Map() };
+        { name: e.mitarbeiter.name, typ: e.mitarbeiter.typ, funktion: e.mitarbeiter.funktion, teamName: e.tagesmeldung.team?.bezeichnung ?? 'ohne Team', tage: new Map() };
       const liste = p.tage.get(e.tagesmeldung.datum) ?? [];
       liste.push(e);
       p.tage.set(e.tagesmeldung.datum, liste);
       m.set(e.mitarbeiter.id, p);
     }
-    return [...m.entries()].sort((a, b) => a[1].name.localeCompare(b[1].name));
+    return [...m.entries()].sort((a, b) =>
+      a[1].teamName.localeCompare(b[1].teamName, 'de', { numeric: true }) || a[1].name.localeCompare(b[1].name),
+    );
   }, [eintraege]);
+
+  // Gruppen für die Matrix: eine Kopfzeile pro Team, damit mehrere Teams lesbar bleiben
+  const gruppen = useMemo(() => {
+    const g: { team: string; leute: typeof personen }[] = [];
+    for (const eintrag of personen) {
+      const t = eintrag[1].teamName;
+      const letzte = g[g.length - 1];
+      if (letzte && letzte.team === t) letzte.leute.push(eintrag);
+      else g.push({ team: t, leute: [eintrag] });
+    }
+    return g;
+  }, [personen]);
 
   function zellStatus(liste: Eintrag[] | undefined): ZellStatus {
     if (!liste || liste.length === 0) return 'leer';
@@ -322,8 +337,8 @@ export function Cockpit() {
         </header>
 
         <select value={teamId} onChange={(e) => setTeamId(e.target.value)} className="field w-auto py-1.5 text-sm">
+          <option value="alle">Alle Teams</option>
           {teams.map((t) => <option key={t.id} value={t.id}>{t.bezeichnung}</option>)}
-          <option value="alle">alle Teams</option>
         </select>
 
         {personen.length === 0 ? (
@@ -346,7 +361,14 @@ export function Cockpit() {
                   </tr>
                 </thead>
                 <tbody>
-                  {personen.map(([mitId, p]) => (
+                  {gruppen.map((g) => [
+                    <tr key={'kopf-' + g.team} className="border-b border-line bg-steel-soft/60">
+                      <td colSpan={TAGE.length + 1} className="px-3 py-1.5 font-display text-[12px] font-bold uppercase tracking-wider text-steel">
+                        {g.team}
+                        <span className="ml-2 font-mono text-[10px] font-normal normal-case tracking-normal text-ink3">{g.leute.length} Personen</span>
+                      </td>
+                    </tr>,
+                    ...g.leute.map(([mitId, p]) => (
                     <tr key={mitId} className="border-b border-line last:border-b-0">
                       <td className="px-3 py-2 font-medium whitespace-nowrap">
                         {p.name}
@@ -375,7 +397,8 @@ export function Cockpit() {
                         );
                       })}
                     </tr>
-                  ))}
+                    )),
+                  ])}
                 </tbody>
               </table>
             </section>
