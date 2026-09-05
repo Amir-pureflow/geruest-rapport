@@ -14,7 +14,14 @@ interface QueueEintrag {
   client_uuid: string;
   payload: Record<string, unknown>;
   erstellt: number;
-  status: 'lokal' | 'gesendet';
+  status: 'lokal' | 'gesendet' | 'verworfen';
+}
+
+export interface FlushErgebnis {
+  gesendet: number;
+  fehler: number;
+  /** Letzte Fehlermeldung des Servers — wird dem Nutzer gezeigt statt verschluckt. */
+  fehlerText?: string;
 }
 
 export type LokaleMeldung = QueueEintrag;
@@ -106,64 +113,85 @@ export async function offeneMeldungen(): Promise<LokaleMeldung[]> {
   return db.meldungen.where('status').equals('lokal').sortBy('erstellt');
 }
 
-async function flushAuftraege(client: SupabaseClient): Promise<{ gesendet: number; fehler: number }> {
+async function flushAuftraege(client: SupabaseClient): Promise<FlushErgebnis> {
   const offene = await db.auftraege.where('status').equals('lokal').sortBy('erstellt');
   let gesendet = 0;
+  let fehler = 0;
+  let fehlerText: string | undefined;
   for (const e of offene) {
-    const { error } = await client
-      .from('zusatzauftrag')
-      .upsert({ ...e.payload, client_uuid: e.client_uuid }, { onConflict: 'client_uuid', ignoreDuplicates: true });
-    if (error) return { gesendet, fehler: offene.length - gesendet };
-    await db.auftraege.update(e.client_uuid, { status: 'gesendet' });
-    gesendet += 1;
+    try {
+      const { error } = await client
+        .from('zusatzauftrag')
+        .upsert({ ...e.payload, client_uuid: e.client_uuid }, { onConflict: 'client_uuid', ignoreDuplicates: true });
+      if (error) { fehler += 1; fehlerText = error.message; continue; }
+      await db.auftraege.update(e.client_uuid, { status: 'gesendet' });
+      gesendet += 1;
+    } catch (err) {
+      fehler += 1;
+      fehlerText = err instanceof Error ? err.message : String(err);
+    }
   }
-  return { gesendet, fehler: 0 };
+  return { gesendet, fehler, fehlerText };
 }
 
 /**
  * Meldung in drei idempotenten Schritten: Kopfzeile, Zeiteinträge, Sprachnotiz.
  * Bricht ein Schritt ab, wiederholt der nächste Flush ab dort — nichts wird doppelt.
  */
-async function flushMeldungen(client: SupabaseClient): Promise<{ gesendet: number; fehler: number }> {
+async function flushMeldungen(client: SupabaseClient): Promise<FlushErgebnis> {
   const offene = await db.meldungen.where('status').equals('lokal').sortBy('erstellt');
   let gesendet = 0;
+  let fehler = 0;
+  let fehlerText: string | undefined;
   for (const e of offene) {
-    const p = e.payload as unknown as MeldungPayload;
-    const { eintraege, ...kopf } = p;
-    const { error: e1 } = await client
-      .from('tagesmeldung')
-      .upsert({ ...kopf, client_uuid: e.client_uuid }, { onConflict: 'client_uuid', ignoreDuplicates: true });
-    if (e1) return { gesendet, fehler: offene.length - gesendet };
-
-    if (eintraege.length > 0) {
-      const { error: e2 } = await client
-        .from('zeiteintrag')
-        .upsert(eintraege.map((z) => ({ ...z, tagesmeldung_id: p.id })), { onConflict: 'id', ignoreDuplicates: true });
-      if (e2) return { gesendet, fehler: offene.length - gesendet };
+    const p = e.payload as unknown as Partial<MeldungPayload>;
+    // Alt-Einträge aus frühen Tests (anderes Format) dürfen die Warteschlange nicht blockieren
+    if (typeof p.id !== 'string' || !Array.isArray(p.eintraege)) {
+      await db.meldungen.update(e.client_uuid, { status: 'verworfen' });
+      continue;
     }
+    try {
+      const { eintraege, ...kopf } = p as MeldungPayload;
+      const { error: e1 } = await client
+        .from('tagesmeldung')
+        .upsert({ ...kopf, client_uuid: e.client_uuid }, { onConflict: 'client_uuid', ignoreDuplicates: true });
+      if (e1) { fehler += 1; fehlerText = e1.message; continue; }
 
-    const audio = await db.audio.get(e.client_uuid);
-    if (audio) {
-      const pfad = `audio/${e.client_uuid}.webm`;
-      const { error: e3 } = await client.storage.from('anhaenge').upload(pfad, audio.blob, { upsert: true, contentType: audio.blob.type || 'audio/webm' });
-      if (e3) return { gesendet, fehler: offene.length - gesendet };
-      await client.from('tagesmeldung').update({ audio_pfad: pfad }).eq('client_uuid', e.client_uuid);
-      await db.audio.delete(e.client_uuid);
+      if (eintraege.length > 0) {
+        const { error: e2 } = await client
+          .from('zeiteintrag')
+          .upsert(eintraege.map((z) => ({ ...z, tagesmeldung_id: p.id })), { onConflict: 'id', ignoreDuplicates: true });
+        if (e2) { fehler += 1; fehlerText = e2.message; continue; }
+      }
+
+      const audio = await db.audio.get(e.client_uuid);
+      if (audio) {
+        const pfad = `audio/${e.client_uuid}.webm`;
+        const { error: e3 } = await client.storage.from('anhaenge').upload(pfad, audio.blob, { upsert: true, contentType: audio.blob.type || 'audio/webm' });
+        if (e3) { fehler += 1; fehlerText = 'Sprachnotiz: ' + e3.message; continue; }
+        await client.from('tagesmeldung').update({ audio_pfad: pfad }).eq('client_uuid', e.client_uuid);
+        await db.audio.delete(e.client_uuid);
+      }
+
+      await db.meldungen.update(e.client_uuid, { status: 'gesendet' });
+      gesendet += 1;
+    } catch (err) {
+      fehler += 1;
+      fehlerText = err instanceof Error ? err.message : String(err);
     }
-
-    await db.meldungen.update(e.client_uuid, { status: 'gesendet' });
-    gesendet += 1;
   }
-  return { gesendet, fehler: 0 };
+  return { gesendet, fehler, fehlerText };
 }
 
 /** Alle lokalen Einträge zum Server schieben. */
-export async function flushNachSupabase(
-  client: SupabaseClient,
-): Promise<{ gesendet: number; fehler: number }> {
+export async function flushNachSupabase(client: SupabaseClient): Promise<FlushErgebnis> {
   const m = await flushMeldungen(client);
   const a = await flushAuftraege(client);
-  return { gesendet: m.gesendet + a.gesendet, fehler: m.fehler + a.fehler };
+  return {
+    gesendet: m.gesendet + a.gesendet,
+    fehler: m.fehler + a.fehler,
+    fehlerText: m.fehlerText ?? a.fehlerText,
+  };
 }
 
 /** Beim App-Start registrieren: sendet bei Netz-Rückkehr automatisch. */

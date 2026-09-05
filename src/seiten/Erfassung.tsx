@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
 import { Shell } from '../ui/Shell';
 import { supabase } from '../lib/supabase';
-import { enqueueMeldung, flushNachSupabase, offeneMeldungen, type MeldungPayload } from '../lib/db';
+import { enqueueMeldung, flushNachSupabase, offeneMeldungen, offeneAnzahl, type MeldungPayload } from '../lib/db';
 import { addTage, iso, lang } from '../lib/datum';
 
 /**
@@ -83,6 +83,7 @@ export function Erfassung() {
   const [hinweis, setHinweis] = useState('');
   const [heuteGemeldet, setHeuteGemeldet] = useState<{ bezeichnung: string; normalfall: boolean; lokal: boolean }[]>([]);
   const [userId, setUserId] = useState<string | null>(null);
+  const [wartend, setWartend] = useState(0);
   const recorder = useRef<MediaRecorder | null>(null);
   const ticker = useRef<number | null>(null);
 
@@ -94,6 +95,7 @@ export function Erfassung() {
     if (!supabase) return;
     void supabase.from('team').select('id,bezeichnung,fahrzeug').eq('aktiv', true).order('bezeichnung').then(({ data }) => data && setTeams(data));
     void supabase.auth.getUser().then(({ data }) => setUserId(data.user?.id ?? null));
+    void offeneAnzahl().then(setWartend);
   }, []);
 
   const heutigeLaden = useCallback(async () => {
@@ -191,10 +193,22 @@ export function Erfassung() {
       }),
     };
     await enqueueMeldung(payload, normal ? undefined : aufnahme?.blob);
-    if (supabase && navigator.onLine) void flushNachSupabase(supabase).then(() => void heutigeLaden());
-    else void heutigeLaden();
-    setGespeichert(normal ? 'Gespeichert ✓' : 'Abweichung gespeichert ✓');
-    setTimeout(() => setGespeichert(null), 2500);
+    setGespeichert('Lokal gespeichert …');
+    if (supabase && navigator.onLine) {
+      const erg = await flushNachSupabase(supabase);
+      if (erg.fehler > 0) {
+        // Ehrlich bleiben: auf dem Gerät ist es sicher, aber der Server hat abgelehnt — Grund zeigen
+        setHinweis(`Auf dem Gerät gespeichert, aber noch nicht gesendet: ${erg.fehlerText ?? 'unbekannter Fehler'}`);
+        setGespeichert('Lokal gespeichert — Senden fehlgeschlagen');
+      } else {
+        setGespeichert(normal ? 'Gespeichert ✓' : 'Abweichung gespeichert ✓');
+      }
+    } else {
+      setGespeichert('Gespeichert — wird gesendet, sobald Netz da ist');
+    }
+    void heutigeLaden();
+    void offeneAnzahl().then(setWartend);
+    setTimeout(() => setGespeichert(null), 3500);
     setAbweichung(null); setWer(null); setAufnahme(null); setAbMin(60); setAbLeute(new Set());
     setSchritt('tag');
   }
@@ -349,7 +363,10 @@ export function Erfassung() {
               {team?.bezeichnung ?? 'Team'}{team?.fahrzeug ? ` · ${team.fahrzeug}` : ''} · ändern
             </button>
           </div>
-          <span className="font-mono text-xs text-ink3">{navigator.onLine ? 'online' : 'offline'}</span>
+          <span className="font-mono text-xs text-ink3">
+            {navigator.onLine ? 'online' : 'offline'}
+            {wartend > 0 && <span className="ml-2 rounded bg-accent-soft px-1.5 py-0.5 font-semibold text-accent-deep">{wartend} wartet</span>}
+          </span>
         </header>
 
         <section>

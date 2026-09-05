@@ -4,6 +4,7 @@ import { Shell } from '../ui/Shell';
 import { formatChf } from '../lib/tarif';
 import { supabase } from '../lib/supabase';
 import { addTage, iso, lang, montag } from '../lib/datum';
+import { flushNachSupabase, offeneAnzahl } from '../lib/db';
 
 interface Kennzahlen {
   offeneAuftraege: number;
@@ -40,6 +41,7 @@ function Kachel({ zu, wert, label, warn }: { zu: string; wert: string; label: st
 
 export function Start() {
   const [k, setK] = useState<Kennzahlen | null>(null);
+  const [wartend, setWartend] = useState<{ anzahl: number; grund?: string } | null>(null);
   const heute = new Date();
 
   useEffect(() => {
@@ -49,6 +51,15 @@ export function Start() {
     const monatsStart = iso(new Date(heute.getFullYear(), heute.getMonth(), 1, 12));
     const wochenStart = iso(montag(heute));
     void (async () => {
+      // Erst die lokale Warteschlange leeren, dann zählen — sonst zählt das Dashboard hinterher
+      if (navigator.onLine) {
+        const erg = await flushNachSupabase(c);
+        const rest = await offeneAnzahl();
+        setWartend(rest > 0 ? { anzahl: rest, grund: erg.fehlerText } : null);
+      } else {
+        const rest = await offeneAnzahl();
+        setWartend(rest > 0 ? { anzahl: rest } : null);
+      }
       const [za, zaHeute, tm, teams, zp, ro, ru, rm] = await Promise.all([
         c.from('zusatzauftrag').select('id', { count: 'exact', head: true }).eq('status', 'offen'),
         c.from('zusatzauftrag').select('id', { count: 'exact', head: true }).eq('status', 'offen').eq('geplant_fuer', heuteIso),
@@ -89,6 +100,13 @@ export function Start() {
           <span className="block font-display text-lg font-extrabold">+ Zusatzarbeit</span>
           <span className="mt-0.5 block text-sm text-white/85">Kundenbestellung festhalten, während er noch am Telefon ist — 20 Sekunden</span>
         </Link>
+
+        {wartend && (
+          <div className="rounded-[12px] border border-accent/40 bg-accent-soft px-4 py-3 text-sm text-accent-deep">
+            <strong>{wartend.anzahl} Meldung{wartend.anzahl === 1 ? '' : 'en'} auf diesem Gerät noch nicht gesendet.</strong>
+            {wartend.grund ? ` Grund: ${wartend.grund}` : ' Wird gesendet, sobald Netz da ist.'}
+          </div>
+        )}
 
         {k && (
           <div className="grid grid-cols-2 gap-2.5">
