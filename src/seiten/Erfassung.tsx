@@ -71,7 +71,9 @@ export function Erfassung() {
   const [teamMin, setTeamMin] = useState(STANDARD_MIN);
   const [anw, setAnw] = useState<Record<string, Anwesenheit>>({});
   const [anreiseOffen, setAnreiseOffen] = useState<string | null>(null);
-  const [schritt, setSchritt] = useState<Schritt>(teamId ? 'tag' : 'team');
+  // Über die Startseite (/erfassung?wahl) immer zuerst das Team zeigen — zum Testen mehrerer Teams im selben Browser.
+  // Das Teamgerät selbst öffnet /erfassung ohne Parameter und landet direkt beim Tag.
+  const [schritt, setSchritt] = useState<Schritt>(teamId && !new URLSearchParams(window.location.search).has('wahl') ? 'tag' : 'team');
   const [abweichung, setAbweichung] = useState<Abweichung | null>(null);
   const [wer, setWer] = useState<Wer | null>(null);
   const [abMin, setAbMin] = useState(60);
@@ -263,8 +265,8 @@ export function Erfassung() {
           <p className="text-sm text-ink3">Einmal wählen — das Gerät merkt es sich.</p>
           <div className="grid grid-cols-2 gap-2">
             {teams.map((t) => (
-              <button key={t.id} type="button" onClick={() => teamWaehlen(t.id)} className="chip py-4 text-base">
-                {t.bezeichnung}
+              <button key={t.id} type="button" onClick={() => teamWaehlen(t.id)} className={'py-4 text-base ' + (t.id === teamId ? 'chip chip-on' : 'chip')}>
+                {t.bezeichnung}{t.id === teamId ? ' · zuletzt' : ''}
               </button>
             ))}
           </div>
