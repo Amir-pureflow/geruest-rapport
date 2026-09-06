@@ -209,11 +209,11 @@ export function Erfassung() {
     if (normal) {
       const gleiche = heuteGemeldet.filter((m) => m.baustelle_id === baustelle.id && m.normalfall);
       if (gleiche.some((m) => m.freigegeben)) {
-        setHinweis(`Für ${baustelle.bezeichnung} ist heute schon eine Meldung freigegeben. Änderungen macht der Bauführer in der Wochenübersicht.`);
+        setHinweis(`Für ${baustelle.bezeichnung ?? baustelle.konto_nr} ist heute schon eine Meldung freigegeben. Änderungen macht der Bauführer in der Wochenübersicht.`);
         return;
       }
       if (gleiche.length > 0 && !ersetzen) {
-        setDoppelt({ bezeichnung: baustelle.bezeichnung, anzahl: gleiche.length });
+        setDoppelt({ bezeichnung: baustelle.bezeichnung ?? baustelle.konto_nr, anzahl: gleiche.length });
         return;
       }
       setDoppelt(null);
