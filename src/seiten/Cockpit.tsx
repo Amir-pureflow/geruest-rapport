@@ -116,10 +116,11 @@ export function Cockpit() {
           .lte('tagesmeldung.datum', bisIso);
         return teamId === 'alle' || !teamId ? q : q.eq('tagesmeldung.team_id', teamId);
       })(),
+      // Sicht: nur bestellt/gemeldet — wer schon einen Regierapport hat, wird nicht nochmals verdächtig
       supabase
-        .from('zusatzauftrag')
+        .from('zusatzauftrag_stand')
         .select('id,baustelle_id,taetigkeit,besteller_name,geplant_fuer')
-        .eq('status', 'offen'),
+        .in('stand', ['bestellt', 'gemeldet']),
     ]);
     if (z.data) setEintraege(z.data as unknown as Eintrag[]);
     if (a.data) setAuftraege(a.data);

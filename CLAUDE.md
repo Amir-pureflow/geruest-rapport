@@ -74,6 +74,14 @@ ist immer Deutsch. **Kein Dialekt-Thema: es geht um Hochdeutsch + Fremdsprachen.
 9. Sprachcode kommt aus dem Mitarbeiterprofil (`sprache`), wird nie automatisch
    pro Aufnahme geraten.
 
+## Zusatzauftrag: Stand wird abgeleitet, nie geklickt (06.09.)
+
+Gespeichert wird nur `offen` oder `erledigt_ohne_regie` (Pflichtgrund + wer + wann).
+Die Sicht `zusatzauftrag_stand` leitet ab: bestellt → gemeldet (Team-Abweichung auf der
+Baustelle) → im Regierapport → beim Kunden → bestätigt. **Kein «abgerechnet» in der App** —
+die Rechnung entsteht in SORBA, das kann die App nicht wissen. Listen und Zähler lesen
+die Sicht, nicht die Tabelle.
+
 ## Nicht bauen
 
 - SORBA ersetzen oder in SORBA schreiben (kein DB-Write, keine UI-Automation)
@@ -111,7 +119,7 @@ src/lib/db.ts                     Dexie-Queue: Meldungen + Zeiteinträge + Audio
 src/lib/tarif.ts                  SGUV-Tarifrechner (Rappen-Integer) + Tests
 src/lib/demo.ts                   Deterministischer Demo-Betrieb + Tests
 src/lib/datum.ts                  Wochen-/Datumshelfer
-supabase/migrations/              0001 Schema · 0002 Bezeichnung · 0003 Auftrag-UUID · 0004 Versand · 0005 Stammdaten
+supabase/migrations/              0001 Schema · 0002 Bezeichnung · 0003 Auftrag-UUID · 0004 Versand · 0005 Stammdaten · 0006 Auftrag-Stand (Sicht)
 ```
 
 Edge Functions `regierapport-senden` und `bestaetigung` sind über den Connector deployt;

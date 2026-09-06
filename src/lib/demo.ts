@@ -100,7 +100,7 @@ export interface BaustelleUpdate { id: string; konto_nr: string; bezeichnung: st
 export interface JahresplanRow { id: string; baustelle_id: string; team_id: string; von: string; bis: string }
 export interface TagesmeldungRow { id: string; client_uuid: string; team_id: string; datum: string; baustelle_id: string; normalfall: boolean; abweichung_typ: string | null; wer_hats_gewollt: string | null; transkript: string | null; audio_sekunden: number | null; erfasst_von: string; erfasst_am: string; status: 'offen' | 'freigegeben' }
 export interface ZeiteintragRow { id: string; tagesmeldung_id: string; mitarbeiter_id: string; normal_min: number; ueber_min: number; oev: boolean; km: number; baustelle_id: string; konto_nr: string; status: 'offen' | 'freigegeben' }
-export interface ZusatzauftragRow { id: string; client_uuid: string; baustelle_id: string; besteller_name: string; besteller_rolle: string; bestellt_am: string; kanal: string; taetigkeit: string; geplant_fuer: string; notiz: string | null; status: 'offen' | 'ausgefuehrt' | 'abgerechnet' }
+export interface ZusatzauftragRow { id: string; client_uuid: string; baustelle_id: string; besteller_name: string; besteller_rolle: string; bestellt_am: string; kanal: string; taetigkeit: string; geplant_fuer: string; notiz: string | null; status: 'offen' | 'erledigt_ohne_regie'; erledigt_grund?: 'abgesagt' | 'pauschale' | 'kulanz' | 'doppelt' | null; erledigt_am?: string | null; erledigt_von?: string | null }
 export interface RegierapportRow { id: string; zusatzauftrag_id: string | null; baustelle_id: string; nummer: string; status: string; betrag_rappen: number; frist_bis: string | null; erstellt_am: string; versendet_am: string | null; bestaetigt_am: string | null; empfaenger_email: string }
 export interface RegiePositionRow { id: string; regierapport_id: string; tarif_code: string; bezeichnung: string; menge_hundertstel: number; ansatz_rappen: number; betrag_rappen: number }
 export interface ZustellungRow { id: string; regierapport_id: string; an: string; ereignis: string; zeitpunkt: string }
@@ -343,7 +343,7 @@ export function erzeugeDemoBetrieb(opts: { baustellen: BaustelleQuelle[]; heute:
       id: z.uuid(), client_uuid: z.uuid(), baustelle_id: ka.baustelle.id,
       besteller_name: k.ansprechperson, besteller_rolle: 'Bauleitung', bestellt_am: ts(addTage(tag, -1), z.int(8, 16), z.int(0, 59)),
       kanal: z.chance(0.7) ? 'telefon' : 'mail', taetigkeit: z.chance(0.8) ? TAET[ka.typ] ?? 'anderes' : 'ergaenzen',
-      geplant_fuer: ka.meldung.datum, notiz: null, status: 'ausgefuehrt',
+      geplant_fuer: ka.meldung.datum, notiz: null, status: 'offen', // Stand «gemeldet»/«im Regierapport» ergibt sich aus den Daten
     };
     zusatzauftraege.push(za);
     if (alterTage < 1) continue; // ganz frisch: noch kein Rapport
@@ -386,7 +386,6 @@ export function erzeugeDemoBetrieb(opts: { baustellen: BaustelleQuelle[]; heute:
       erstellt_am: ts(erstellt, 9, z.int(0, 59)), versendet_am: status === 'entwurf' ? null : ts(versendet, 10, z.int(0, 59)),
       bestaetigt_am: bestaetigt ? ts(bestaetigt, 14, z.int(0, 59)) : null, empfaenger_email: k.email,
     });
-    if (status === 'bestaetigt') za.status = 'abgerechnet';
 
     if (status !== 'entwurf') {
       const an = k.email;
@@ -416,6 +415,17 @@ export function erzeugeDemoBetrieb(opts: { baustellen: BaustelleQuelle[]; heute:
       status: 'offen',
     });
   });
+
+  // Ein Auftrag, der bestellt war, aber nie Regie wurde (Kunde hat abgesagt) — mit Grund, wer, wann
+  {
+    const bs = z.pick(grosse);
+    const k = kundeVon(bs);
+    zusatzauftraege.push({
+      id: z.uuid(), client_uuid: z.uuid(), baustelle_id: bs.id, besteller_name: k.ansprechperson, besteller_rolle: 'Bauleitung',
+      bestellt_am: ts(addTage(heute, -6), 9, 15), kanal: 'telefon', taetigkeit: 'versetzen', geplant_fuer: iso(addTage(heute, -4)),
+      notiz: 'Fenstermontage verschoben', status: 'erledigt_ohne_regie', erledigt_grund: 'abgesagt', erledigt_am: ts(addTage(heute, -5), 16, 40), erledigt_von: opts.userId,
+    });
+  }
 
   return { mitarbeiter, teams, teamMitglieder, kunden, baustellen, jahresplan, meldungen, eintraege, zusatzauftraege, regierapporte, positionen, zustellungen, freigaben };
 }

@@ -61,8 +61,8 @@ export function Start() {
         setWartend(rest > 0 ? { anzahl: rest } : null);
       }
       const [za, zaHeute, tm, teams, zp, ro, ru, rm] = await Promise.all([
-        c.from('zusatzauftrag').select('id', { count: 'exact', head: true }).eq('status', 'offen'),
-        c.from('zusatzauftrag').select('id', { count: 'exact', head: true }).eq('status', 'offen').eq('geplant_fuer', heuteIso),
+        c.from('zusatzauftrag_stand').select('id', { count: 'exact', head: true }).in('stand', ['bestellt', 'gemeldet']),
+        c.from('zusatzauftrag_stand').select('id', { count: 'exact', head: true }).eq('stand', 'bestellt').eq('geplant_fuer', heuteIso),
         c.from('tagesmeldung').select('team_id').eq('datum', heuteIso),
         c.from('team').select('id', { count: 'exact', head: true }).eq('aktiv', true),
         c.from('zeiteintrag').select('id,tagesmeldung!inner(datum)', { count: 'exact', head: true }).eq('status', 'offen').lt('tagesmeldung.datum', wochenStart),

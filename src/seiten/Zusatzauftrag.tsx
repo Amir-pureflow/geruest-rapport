@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { Shell } from '../ui/Shell';
 import { supabase } from '../lib/supabase';
+import { ausIso, kurz } from '../lib/datum';
 import {
   enqueueZusatzauftrag,
   flushNachSupabase,
@@ -20,6 +22,7 @@ interface Baustelle {
   bezeichnung: string | null;
 }
 
+/** Zeile aus der Sicht zusatzauftrag_stand — der Stand ist abgeleitet, nicht geklickt. */
 interface Auftrag {
   id: string;
   besteller_name: string;
@@ -27,9 +30,19 @@ interface Auftrag {
   taetigkeit: string;
   geplant_fuer: string | null;
   bestellt_am: string;
-  status: string;
+  status: 'offen' | 'erledigt_ohne_regie';
   notiz: string | null;
-  baustelle: { konto_nr: string; bezeichnung: string | null } | null;
+  konto_nr: string;
+  baustelle_bezeichnung: string | null;
+  stand: 'bestellt' | 'gemeldet' | 'im_regierapport' | 'beim_kunden' | 'bestaetigt' | 'erledigt_ohne_regie';
+  gemeldet_am: string | null;
+  gemeldet_von_team: string | null;
+  regierapport_id: string | null;
+  regierapport_nummer: string | null;
+  regierapport_status: string | null;
+  ohne_meldung: boolean;
+  erledigt_grund: string | null;
+  erledigt_am: string | null;
 }
 
 const TAETIGKEITEN = [
@@ -47,17 +60,33 @@ const KANAELE = [
   ['vor_ort', 'vor Ort'],
 ] as const;
 
-const STATUS_LABEL: Record<string, string> = {
-  offen: 'offen',
-  ausgefuehrt: 'ausgeführt',
-  abgerechnet: 'abgerechnet',
+// Stand kommt aus Meldung und Regierapport (Sicht zusatzauftrag_stand). Einziger Handgriff: «erledigt ohne Regie».
+const STAND_LABEL: Record<Auftrag['stand'], string> = {
+  bestellt: 'bestellt',
+  gemeldet: 'gemeldet',
+  im_regierapport: 'im Regierapport',
+  beim_kunden: 'beim Kunden',
+  bestaetigt: 'bestätigt',
+  erledigt_ohne_regie: 'erledigt ohne Regie',
 };
 
-const STATUS_STIL: Record<string, string> = {
-  offen: 'bg-accent-soft text-accent-deep',
-  ausgefuehrt: 'bg-steel-soft text-steel',
-  abgerechnet: 'bg-good-soft text-good-deep',
+const STAND_STIL: Record<Auftrag['stand'], string> = {
+  bestellt: 'bg-accent-soft text-accent-deep',
+  gemeldet: 'bg-amber-100 text-amber-900',
+  im_regierapport: 'bg-steel-soft text-steel',
+  beim_kunden: 'bg-steel-soft text-steel',
+  bestaetigt: 'bg-good-soft text-good-deep',
+  erledigt_ohne_regie: 'bg-ground text-ink3',
 };
+
+const GRUENDE = [
+  ['abgesagt', 'Kunde hat abgesagt'],
+  ['pauschale', 'war in der Pauschale'],
+  ['kulanz', 'kulant, ohne Rechnung'],
+  ['doppelt', 'doppelt erfasst'],
+] as const;
+
+const GRUND_LABEL: Record<string, string> = Object.fromEntries(GRUENDE);
 
 // Baustellenliste lokal vorhalten, damit das Formular auch ohne Netz aufgeht.
 // Kommt Netz zurück, wird der Cache beim nächsten Laden erneuert.
@@ -76,14 +105,16 @@ export function Zusatzauftrag() {
   const [fehler, setFehler] = useState('');
   const [liste, setListe] = useState<Auftrag[]>([]);
   const [lokal, setLokal] = useState<LokalerAuftrag[]>([]);
+  const [erledigen, setErledigen] = useState<string | null>(null); // Auftrag, für den gerade der Grund gewählt wird
+  const [userId, setUserId] = useState<string | null>(null);
 
   async function ladeListe() {
     void offeneAuftraege().then(setLokal);
     if (!supabase) return;
     const { data } = await supabase
-      .from('zusatzauftrag')
+      .from('zusatzauftrag_stand')
       .select(
-        'id,besteller_name,kanal,taetigkeit,geplant_fuer,bestellt_am,status,notiz,baustelle(konto_nr,bezeichnung)',
+        'id,besteller_name,kanal,taetigkeit,geplant_fuer,bestellt_am,status,notiz,konto_nr,baustelle_bezeichnung,stand,gemeldet_am,gemeldet_von_team,regierapport_id,regierapport_nummer,regierapport_status,ohne_meldung,erledigt_grund,erledigt_am',
       )
       .order('bestellt_am', { ascending: false })
       .limit(50);
@@ -114,6 +145,7 @@ export function Zusatzauftrag() {
         });
     }
     void ladeListe();
+    if (supabase) void supabase.auth.getUser().then(({ data }) => setUserId(data.user?.id ?? null));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -160,10 +192,24 @@ export function Zusatzauftrag() {
     void ladeListe();
   }
 
-  async function statusWeiter(a: Auftrag) {
+  /** Der einzige Handgriff: bestellt, aber es gibt keine Regie — mit Pflichtgrund, wer, wann. */
+  async function ohneRegieErledigen(a: Auftrag, grund: string) {
     if (!supabase) return;
-    const naechster = a.status === 'offen' ? 'ausgefuehrt' : 'abgerechnet';
-    await supabase.from('zusatzauftrag').update({ status: naechster }).eq('id', a.id);
+    await supabase
+      .from('zusatzauftrag')
+      .update({ status: 'erledigt_ohne_regie', erledigt_grund: grund, erledigt_am: new Date().toISOString(), erledigt_von: userId })
+      .eq('id', a.id);
+    setErledigen(null);
+    void ladeListe();
+  }
+
+  /** Versehentlich erledigt → wieder offen; der Stand ergibt sich dann wieder aus den Daten. */
+  async function wiederOeffnen(a: Auftrag) {
+    if (!supabase) return;
+    await supabase
+      .from('zusatzauftrag')
+      .update({ status: 'offen', erledigt_grund: null, erledigt_am: null, erledigt_von: null })
+      .eq('id', a.id);
     void ladeListe();
   }
 
@@ -309,22 +355,22 @@ export function Zusatzauftrag() {
           )}
 
           {liste.map((a) => (
-            <div key={a.id} className="card">
+            <div key={a.id} className={'card ' + (a.ohne_meldung ? 'border-accent/40' : '')}>
               <div className="flex items-baseline justify-between gap-2">
                 <span className="font-display text-[15px] font-bold">
-                  {a.baustelle?.bezeichnung ?? '—'}
+                  {a.baustelle_bezeichnung ?? a.konto_nr}
                 </span>
                 <span
                   className={
                     'rounded-md px-1.5 py-0.5 font-mono text-[11px] font-semibold ' +
-                    (STATUS_STIL[a.status] ?? 'bg-ground text-ink3')
+                    (STAND_STIL[a.stand] ?? 'bg-ground text-ink3')
                   }
                 >
-                  {STATUS_LABEL[a.status] ?? a.status}
+                  {STAND_LABEL[a.stand] ?? a.stand}
                 </span>
               </div>
               <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-ink2">
-                {a.baustelle && <span className="knr">{a.baustelle.konto_nr}</span>}
+                <span className="knr">{a.konto_nr}</span>
                 <span>{a.taetigkeit}</span>
                 <span className="text-ink3">·</span>
                 <span>{a.besteller_name}</span>
@@ -341,13 +387,47 @@ export function Zusatzauftrag() {
                   </>
                 )}
               </p>
-              {a.status !== 'abgerechnet' && (
-                <button
-                  type="button"
-                  onClick={() => void statusWeiter(a)}
-                  className="btn-ghost mt-2.5"
-                >
-                  {a.status === 'offen' ? '→ ausgeführt' : '→ abgerechnet'}
+
+              {/* Woher der Stand kommt — benannte Quelle statt Urteil */}
+              <p className="mt-1.5 text-xs text-ink3">
+                {a.stand === 'gemeldet' && a.gemeldet_am && (
+                  <>gemeldet am {kurz(ausIso(a.gemeldet_am))}{a.gemeldet_von_team ? ` von ${a.gemeldet_von_team}` : ''} — Regierapport in der Wochenübersicht erstellen</>
+                )}
+                {(a.stand === 'im_regierapport' || a.stand === 'beim_kunden' || a.stand === 'bestaetigt') && a.regierapport_id && (
+                  <Link to={`/regie/${a.regierapport_id}`} className="font-semibold text-steel">
+                    Regierapport {a.regierapport_nummer ?? ''} ›
+                  </Link>
+                )}
+                {a.stand === 'bestellt' && a.ohne_meldung && (
+                  <span className="font-semibold text-accent-deep">geplant {a.geplant_fuer ? kurz(ausIso(a.geplant_fuer)) : ''}, bis jetzt keine Meldung vom Team — nachfragen?</span>
+                )}
+                {a.stand === 'bestellt' && !a.ohne_meldung && <>wartet auf die Meldung des Teams</>}
+                {a.stand === 'erledigt_ohne_regie' && (
+                  <>{GRUND_LABEL[a.erledigt_grund ?? ''] ?? a.erledigt_grund}{a.erledigt_am ? ` · ${kurz(new Date(a.erledigt_am))}` : ''}</>
+                )}
+              </p>
+
+              {(a.stand === 'bestellt' || a.stand === 'gemeldet') && erledigen !== a.id && (
+                <button type="button" onClick={() => setErledigen(a.id)} className="btn-ghost mt-2.5 text-xs">
+                  erledigt ohne Regie …
+                </button>
+              )}
+              {erledigen === a.id && (
+                <div className="mt-2.5 space-y-2 rounded-[12px] bg-ground p-3">
+                  <p className="text-xs font-semibold">Warum gibt es keine Regie?</p>
+                  <div className="grid grid-cols-2 gap-1.5">
+                    {GRUENDE.map(([code, text]) => (
+                      <button key={code} type="button" onClick={() => void ohneRegieErledigen(a, code)} className="chip text-xs">
+                        {text}
+                      </button>
+                    ))}
+                  </div>
+                  <button type="button" onClick={() => setErledigen(null)} className="text-xs text-ink3">Abbrechen</button>
+                </div>
+              )}
+              {a.stand === 'erledigt_ohne_regie' && (
+                <button type="button" onClick={() => void wiederOeffnen(a)} className="btn-ghost mt-2.5 text-xs">
+                  wieder öffnen
                 </button>
               )}
             </div>
