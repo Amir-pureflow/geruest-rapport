@@ -7,6 +7,9 @@ import { minutenBetrag, formatChf, tarifNachCode } from '../lib/tarif';
 /**
  * Phase 3 — Wochenübersicht des Bauführers.
  *
+ * Aufbau (07.09.): zuerst alle Teams als Zeilen mit Wochenampel Mo–So, sortiert nach
+ * «wo ist etwas zu tun», dann per Klick die Personen eines Teams. Kein Dropdown.
+ *
  * Harte Regel #1: Das System sagt NIE «diese Stunden sind falsch».
  * Jede Markierung nennt ihre Quelle («weicht ab von X», «offener Zusatzauftrag»)
  * — entscheiden tut der Bauführer. Jede Korrektur landet im freigabe_log.
@@ -32,7 +35,7 @@ interface Eintrag {
   };
 }
 
-interface Team { id: string; bezeichnung: string }
+interface Team { id: string; bezeichnung: string; chefmonteur: { name: string } | null }
 
 interface OffenerAuftrag {
   id: string;
@@ -43,9 +46,12 @@ interface OffenerAuftrag {
 }
 
 type ZellStatus = 'leer' | 'gruen' | 'gelb' | 'rot' | 'frei';
+type Filter = 'alle' | 'anschauen' | 'offen' | 'fertig';
 
 const TAGE = ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'];
 const ZEHN_STUNDEN_MIN = 600;
+/** Rang für «schlechtester Status des Tages» und für die Sortierung der Teams. */
+const RANG: Record<ZellStatus, number> = { rot: 4, gelb: 3, gruen: 2, frei: 1, leer: 0 };
 
 function montag(d: Date): Date {
   const x = new Date(d);
@@ -67,10 +73,23 @@ function ch(d: Date): string {
 function stunden(min: number): string {
   return (min / 60).toFixed(1);
 }
+function kurzName(name: string): string {
+  const teile = name.trim().split(' ');
+  return teile.length > 1 ? `${teile[0][0]}. ${teile.slice(1).join(' ')}` : name;
+}
 
 const ZELL_STIL: Record<ZellStatus, string> = {
   leer: 'text-ink3',
   gruen: 'bg-surface',
+  frei: 'bg-good-soft text-good-deep',
+  gelb: 'bg-amber-100 text-amber-900',
+  rot: 'bg-accent-soft text-accent-deep font-semibold',
+};
+
+/** Team-Kästchen: gleiche Farben, aber auf grauem Grund, damit «grün» als Fläche lesbar ist. */
+const TEAM_ZELL_STIL: Record<ZellStatus, string> = {
+  leer: 'bg-ground text-ink3',
+  gruen: 'bg-surface ring-1 ring-line',
   frei: 'bg-good-soft text-good-deep',
   gelb: 'bg-amber-100 text-amber-900',
   rot: 'bg-accent-soft text-accent-deep font-semibold',
@@ -84,6 +103,7 @@ export function Cockpit() {
     return heute.getDay() === 1 || heute.getDay() === 2 ? addTage(dieseWoche, -7) : dieseWoche;
   });
   const istAktuelleWoche = iso(wochenStart) === iso(montag(new Date()));
+  const istVorwoche = iso(wochenStart) < iso(montag(new Date()));
   const [eintraege, setEintraege] = useState<Eintrag[]>([]);
   const [auftraege, setAuftraege] = useState<OffenerAuftrag[]>([]);
   const [gewaehlt, setGewaehlt] = useState<{ mit: string; datum: string } | null>(null);
@@ -91,19 +111,26 @@ export function Cockpit() {
   const [laedt, setLaedt] = useState(true);
   const navigiere = useNavigate();
   const [teams, setTeams] = useState<Team[]>([]);
-  const [teamId, setTeamId] = useState<string>(() => localStorage.getItem('cockpit-team') ?? '');
+  const [filter, setFilter] = useState<Filter>('alle');
+  // Aufgeklapptes Team — die Tagesübersicht («Woche prüfen ›») setzt denselben Schlüssel
+  const [offenesTeam, setOffenesTeam] = useState<string | null>(() => {
+    const t = localStorage.getItem('cockpit-team');
+    return t && t !== 'alle' ? t : null;
+  });
   const [audio, setAudio] = useState<{ meldung: string; url: string } | null>(null);
 
   useEffect(() => {
     if (!supabase) return;
-    void supabase.from('team').select('id,bezeichnung').eq('aktiv', true).then(({ data }) => {
+    void supabase.from('team').select('id,bezeichnung,chefmonteur:chefmonteur_id(name)').eq('aktiv', true).then(({ data }) => {
       if (!data) return;
-      const s = data.sort((a, b) => a.bezeichnung.localeCompare(b.bezeichnung, 'de', { numeric: true }));
+      const s = (data as unknown as Team[]).sort((a, b) => a.bezeichnung.localeCompare(b.bezeichnung, 'de', { numeric: true }));
       setTeams(s);
-      setTeamId((t) => (t && (t === 'alle' || s.some((x) => x.id === t)) ? t : 'alle'));
     });
   }, []);
-  useEffect(() => { if (teamId) localStorage.setItem('cockpit-team', teamId); }, [teamId]);
+  useEffect(() => {
+    if (offenesTeam) localStorage.setItem('cockpit-team', offenesTeam);
+    else localStorage.removeItem('cockpit-team');
+  }, [offenesTeam]);
 
   const vonIso = iso(wochenStart);
   const bisIso = iso(addTage(wochenStart, 6));
@@ -112,16 +139,13 @@ export function Cockpit() {
     if (!supabase) return;
     setLaedt(true);
     const [z, a] = await Promise.all([
-      (() => {
-        const q = supabase
-          .from('zeiteintrag')
-          .select(
-            'id,normal_min,ueber_min,status,mitarbeiter:mitarbeiter_id(id,name,funktion,typ),tagesmeldung:tagesmeldung_id!inner(id,datum,normalfall,abweichung_typ,wer_hats_gewollt,transkript,audio_pfad,audio_sekunden,team:team_id(id,bezeichnung),baustelle:baustelle_id(id,konto_nr,bezeichnung))',
-          )
-          .gte('tagesmeldung.datum', vonIso)
-          .lte('tagesmeldung.datum', bisIso);
-        return teamId === 'alle' || !teamId ? q : q.eq('tagesmeldung.team_id', teamId);
-      })(),
+      supabase
+        .from('zeiteintrag')
+        .select(
+          'id,normal_min,ueber_min,status,mitarbeiter:mitarbeiter_id(id,name,funktion,typ),tagesmeldung:tagesmeldung_id!inner(id,datum,normalfall,abweichung_typ,wer_hats_gewollt,transkript,audio_pfad,audio_sekunden,team:team_id(id,bezeichnung),baustelle:baustelle_id(id,konto_nr,bezeichnung))',
+        )
+        .gte('tagesmeldung.datum', vonIso)
+        .lte('tagesmeldung.datum', bisIso),
       // Sicht: nur bestellt/gemeldet — wer schon einen Regierapport hat, wird nicht nochmals verdächtig
       supabase
         .from('zusatzauftrag_stand')
@@ -131,11 +155,11 @@ export function Cockpit() {
     if (z.data) setEintraege(z.data as unknown as Eintrag[]);
     if (a.data) setAuftraege(a.data);
     setLaedt(false);
-  }, [vonIso, bisIso, teamId]);
+  }, [vonIso, bisIso]);
 
   useEffect(() => {
-    if (teamId) void laden();
-  }, [laden, teamId]);
+    void laden();
+  }, [laden]);
 
   async function anhoeren(meldungId: string, pfad: string) {
     if (!supabase) return;
@@ -162,37 +186,23 @@ export function Cockpit() {
     return a.geplant_fuer === null || a.geplant_fuer === datum ? a : undefined;
   }
 
-  // Matrix: Person → Tag → Einträge
+  // Matrix: Person → Tag → Einträge (mit Team-Zuordnung)
   const personen = useMemo(() => {
     const m = new Map<
       string,
-      { name: string; typ: string; funktion: string; teamName: string; tage: Map<string, Eintrag[]> }
+      { name: string; typ: string; funktion: string; teamId: string; teamName: string; tage: Map<string, Eintrag[]> }
     >();
     for (const e of eintraege) {
       const p =
         m.get(e.mitarbeiter.id) ??
-        { name: e.mitarbeiter.name, typ: e.mitarbeiter.typ, funktion: e.mitarbeiter.funktion, teamName: e.tagesmeldung.team?.bezeichnung ?? 'ohne Team', tage: new Map() };
+        { name: e.mitarbeiter.name, typ: e.mitarbeiter.typ, funktion: e.mitarbeiter.funktion, teamId: e.tagesmeldung.team?.id ?? '', teamName: e.tagesmeldung.team?.bezeichnung ?? 'ohne Team', tage: new Map() };
       const liste = p.tage.get(e.tagesmeldung.datum) ?? [];
       liste.push(e);
       p.tage.set(e.tagesmeldung.datum, liste);
       m.set(e.mitarbeiter.id, p);
     }
-    return [...m.entries()].sort((a, b) =>
-      a[1].teamName.localeCompare(b[1].teamName, 'de', { numeric: true }) || a[1].name.localeCompare(b[1].name),
-    );
+    return [...m.entries()].sort((a, b) => a[1].name.localeCompare(b[1].name));
   }, [eintraege]);
-
-  // Gruppen für die Matrix: eine Kopfzeile pro Team, damit mehrere Teams lesbar bleiben
-  const gruppen = useMemo(() => {
-    const g: { team: string; leute: typeof personen }[] = [];
-    for (const eintrag of personen) {
-      const t = eintrag[1].teamName;
-      const letzte = g[g.length - 1];
-      if (letzte && letzte.team === t) letzte.leute.push(eintrag);
-      else g.push({ team: t, leute: [eintrag] });
-    }
-    return g;
-  }, [personen]);
 
   function zellStatus(liste: Eintrag[] | undefined): ZellStatus {
     if (!liste || liste.length === 0) return 'leer';
@@ -233,6 +243,75 @@ export function Cockpit() {
     return faelle;
   }, [eintraege, auftragProBaustelle]);
 
+  const wochenTage = useMemo(() => TAGE.map((_, i) => iso(addTage(wochenStart, i))), [wochenStart]);
+
+  /**
+   * Eine Zeile pro Team: Tageskästchen (Summe + schlechtester Status), Baustellen der Woche,
+   * offene Einträge, Statuswort. Teams ohne Meldung stehen auch drin — die fehlen sonst.
+   */
+  const teamZeilen = useMemo(() => {
+    type Zeile = {
+      team: Team;
+      tage: { datum: string; min: number; status: ZellStatus }[];
+      leute: typeof personen;
+      baustellen: { konto_nr: string; bezeichnung: string | null }[];
+      offen: number;
+      gruene: Eintrag[];
+      totalMin: number;
+      schlimmster: ZellStatus;
+      wort: string;
+      rang: number;
+    };
+    const zeilen: Zeile[] = teams.map((team) => {
+      const leute = personen.filter(([, p]) => p.teamId === team.id);
+      const tage = wochenTage.map((datum) => {
+        let min = 0;
+        let status: ZellStatus = 'leer';
+        for (const [, p] of leute) {
+          const liste = p.tage.get(datum);
+          if (!liste) continue;
+          min += liste.reduce((s, e) => s + e.normal_min + e.ueber_min, 0);
+          const st = zellStatus(liste);
+          if (RANG[st] > RANG[status]) status = st;
+        }
+        return { datum, min, status };
+      });
+      const alle = leute.flatMap(([, p]) => [...p.tage.values()].flat());
+      const bsMap = new Map<string, { konto_nr: string; bezeichnung: string | null }>();
+      for (const e of alle) if (e.tagesmeldung.baustelle) bsMap.set(e.tagesmeldung.baustelle.konto_nr, e.tagesmeldung.baustelle);
+      const offen = alle.filter((e) => e.status === 'offen').length;
+      const gruene = leute.flatMap(([, p]) => [...p.tage.values()].flatMap((liste) => (zellStatus(liste) === 'gruen' ? liste.filter((e) => e.status === 'offen') : [])));
+      const totalMin = alle.reduce((s, e) => s + e.normal_min + e.ueber_min, 0);
+      const schlimmster = tage.reduce<ZellStatus>((s, t) => (RANG[t.status] > RANG[s] ? t.status : s), 'leer');
+      let wort: string;
+      let rang: number;
+      if (schlimmster === 'rot') { wort = 'über 10 h'; rang = 0; }
+      else if (schlimmster === 'gelb') { wort = 'Regieverdacht'; rang = 0; }
+      else if (alle.length === 0) { wort = 'keine Meldung'; rang = 3; }
+      else if (offen > 0) { wort = `${offen} offen`; rang = 1; }
+      else { wort = 'fertig'; rang = 2; }
+      return { team, tage, leute, baustellen: [...bsMap.values()], offen, gruene, totalMin, schlimmster, wort, rang };
+    });
+    return zeilen.sort((a, b) => a.rang - b.rang || a.team.bezeichnung.localeCompare(b.team.bezeichnung, 'de', { numeric: true }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [teams, personen, wochenTage, auftragProBaustelle]);
+
+  const zaehler = useMemo(() => ({
+    gemeldet: teamZeilen.filter((z) => z.leute.length > 0).length,
+    anschauen: teamZeilen.filter((z) => z.rang === 0).length,
+    offen: teamZeilen.filter((z) => z.rang <= 1 && z.offen > 0).length,
+    fertig: teamZeilen.filter((z) => z.rang === 2).length,
+  }), [teamZeilen]);
+
+  const sichtbar = useMemo(() => teamZeilen.filter((z) => {
+    if (filter === 'anschauen') return z.rang === 0;
+    if (filter === 'offen') return z.rang <= 1 && z.offen > 0;
+    if (filter === 'fertig') return z.rang === 2;
+    return true;
+  }), [teamZeilen, filter]);
+
+  const gruene = useMemo(() => sichtbar.flatMap((z) => z.gruene), [sichtbar]);
+
   function betragVorgerechnet(liste: Eintrag[]): number {
     return liste.reduce((s, e) => {
       let ansatz = 10800; // Rückfall Gerüstmonteur/in
@@ -244,17 +323,6 @@ export function Cockpit() {
       return s + minutenBetrag(e.normal_min + e.ueber_min, ansatz);
     }, 0);
   }
-
-  const gruene = useMemo(
-    () =>
-      personen.flatMap(([, p]) =>
-        [...p.tage.values()].flatMap((liste) =>
-          zellStatus(liste) === 'gruen' ? liste.filter((e) => e.status === 'offen') : [],
-        ),
-      ),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [personen, auftragProBaustelle],
-  );
 
   async function freigeben(liste: Eintrag[]) {
     if (!supabase || !userId || liste.length === 0) return;
@@ -329,194 +397,248 @@ export function Cockpit() {
     ? personen.find(([id]) => id === gewaehlt.mit)?.[1].tage.get(gewaehlt.datum) ?? []
     : [];
 
+  function teamUmschalten(id: string) {
+    setGewaehlt(null);
+    setOffenesTeam((t) => (t === id ? null : id));
+  }
+
+  const chips: { key: Filter; label: string; n: number }[] = [
+    { key: 'alle', label: 'Alle', n: teamZeilen.length },
+    { key: 'anschauen', label: 'Zum Anschauen', n: zaehler.anschauen },
+    { key: 'offen', label: 'Offen', n: zaehler.offen },
+    { key: 'fertig', label: 'Fertig', n: zaehler.fertig },
+  ];
+
   return (
     <Shell zurueck>
-      <div className="space-y-5">
+      <div className="space-y-4">
         <header className="flex items-center justify-between">
           <h1 className="font-display text-2xl font-bold">Woche</h1>
           <div className="flex items-center gap-2">
             <button type="button" className="btn-ghost" onClick={() => setWochenStart(addTage(wochenStart, -7))}>‹</button>
             <span className="font-mono text-xs text-ink2">
-              {ch(wochenStart)}–{ch(addTage(wochenStart, 6))}{istAktuelleWoche ? '' : iso(wochenStart) < iso(montag(new Date())) ? ' · Vorwoche' : ''}
+              {ch(wochenStart)}–{ch(addTage(wochenStart, 6))}{istVorwoche ? ' · Vorwoche' : ''}
             </span>
             <button type="button" className="btn-ghost" onClick={() => setWochenStart(addTage(wochenStart, 7))}>›</button>
           </div>
         </header>
 
-        <select value={teamId} onChange={(e) => setTeamId(e.target.value)} className="field w-auto py-1.5 text-sm">
-          <option value="alle">Alle Teams</option>
-          {teams.map((t) => <option key={t.id} value={t.id}>{t.bezeichnung}</option>)}
-        </select>
+        {!laedt && teams.length > 0 && (
+          <p className="text-sm text-ink2">
+            <strong>{zaehler.gemeldet} von {teams.length} Teams</strong> haben gemeldet
+            {zaehler.anschauen > 0 && <> · <span className="font-semibold text-accent-deep">{zaehler.anschauen} zum Anschauen</span></>}
+            {gruene.length > 0 && filter === 'alle' && <> · {gruene.length} grün zum Freigeben</>}
+          </p>
+        )}
 
-        {personen.length === 0 ? (
-          <div className="card text-sm text-ink3">
-            {laedt ? 'Lädt …' : istAktuelleWoche ? 'Noch keine Meldungen in dieser Woche — sie kommen abends von den Teams. Vorwoche: ‹' : 'Keine Einträge in dieser Woche.'}
-          </div>
+        <div className="flex flex-wrap gap-1.5">
+          {chips.map((c) => (
+            <button
+              key={c.key}
+              type="button"
+              onClick={() => setFilter(c.key)}
+              className={'px-3 py-1.5 text-xs ' + (filter === c.key ? 'chip chip-on' : 'chip')}
+            >
+              {c.label} <span className="ml-1 font-mono opacity-70">{c.n}</span>
+            </button>
+          ))}
+        </div>
+
+        {laedt ? (
+          <div className="card text-sm text-ink3">Lädt …</div>
+        ) : teams.length === 0 ? (
+          <div className="card text-sm text-ink3">Keine Teams angelegt — Verwaltung → Teams.</div>
+        ) : istAktuelleWoche && eintraege.length === 0 ? (
+          <div className="card text-sm text-ink3">Noch keine Meldungen in dieser Woche — sie kommen abends von den Teams. Vorwoche: ‹</div>
+        ) : sichtbar.length === 0 ? (
+          <div className="card text-sm text-ink3">Nichts in dieser Auswahl.</div>
         ) : (
-          <>
-            <section className="card overflow-x-auto p-0">
-              <table className="w-full min-w-[430px] text-sm">
-                <thead>
-                  <tr className="border-b border-line text-left">
-                    <th className="px-3 py-2 font-mono text-[11px] font-semibold uppercase tracking-wider text-ink3">Person</th>
-                    {TAGE.map((t, i) => (
-                      <th key={t} className="px-1 py-2 text-center font-mono text-[11px] font-semibold uppercase tracking-wider text-ink3">
-                        {t}
-                        <span className="block text-[9px] font-normal">{ch(addTage(wochenStart, i))}</span>
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {gruppen.map((g) => [
-                    <tr key={'kopf-' + g.team} className="border-b border-line bg-steel-soft/60">
-                      <td colSpan={TAGE.length + 1} className="px-3 py-1.5 font-display text-[12px] font-bold uppercase tracking-wider text-steel">
-                        {g.team}
-                        <span className="ml-2 font-mono text-[10px] font-normal normal-case tracking-normal text-ink3">{g.leute.length} Personen</span>
-                      </td>
-                    </tr>,
-                    ...g.leute.map(([mitId, p]) => (
-                    <tr key={mitId} className="border-b border-line last:border-b-0">
-                      <td className="px-3 py-2 font-medium whitespace-nowrap">
-                        {p.name}
-                        {p.typ === 'temporaer' && <span className="ml-1 text-[10px] text-ink3">temp</span>}
-                      </td>
-                      {TAGE.map((_, i) => {
-                        const datum = iso(addTage(wochenStart, i));
-                        const liste = p.tage.get(datum);
-                        const st = zellStatus(liste);
-                        const summe = liste?.reduce((s, e) => s + e.normal_min + e.ueber_min, 0) ?? 0;
-                        const aktiv = gewaehlt?.mit === mitId && gewaehlt.datum === datum;
-                        return (
-                          <td key={datum} className="p-0.5 text-center">
-                            <button
-                              type="button"
-                              onClick={() => setGewaehlt(aktiv ? null : { mit: mitId, datum })}
-                              className={
-                                'w-full rounded-md px-1 py-1.5 font-mono text-xs tabular-nums transition ' +
-                                ZELL_STIL[st] +
-                                (aktiv ? ' ring-2 ring-accent' : '')
-                              }
-                            >
-                              {st === 'leer' ? '–' : stunden(summe)}
-                            </button>
-                          </td>
-                        );
-                      })}
-                    </tr>
-                    )),
-                  ])}
-                </tbody>
-              </table>
-            </section>
+          <section className="card overflow-hidden p-0">
+            {/* Kopfzeile mit den Wochentagen — einmal, nicht pro Team */}
+            <div className="grid grid-cols-[minmax(0,1fr)_repeat(7,2.1rem)_3rem] items-end gap-x-0.5 border-b border-line px-3 py-2 sm:grid-cols-[minmax(0,1fr)_repeat(7,2.5rem)_3.5rem]">
+              <span className="font-mono text-[11px] font-semibold uppercase tracking-wider text-ink3">Team</span>
+              {TAGE.map((t, i) => (
+                <span key={t} className="text-center font-mono text-[10px] font-semibold uppercase text-ink3">
+                  {t}<span className="block text-[9px] font-normal">{ch(addTage(wochenStart, i))}</span>
+                </span>
+              ))}
+              <span className="text-right font-mono text-[10px] font-semibold uppercase text-ink3">Std</span>
+            </div>
 
-            <p className="flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-ink3">
-              <span><span className="mr-1 inline-block h-2 w-2 rounded-sm bg-good-soft ring-1 ring-good/40" />freigegeben</span>
-              <span><span className="mr-1 inline-block h-2 w-2 rounded-sm bg-amber-200" />Regieverdacht</span>
-              <span><span className="mr-1 inline-block h-2 w-2 rounded-sm bg-accent-soft ring-1 ring-accent/40" />über 10 h — anschauen</span>
-              <span>– kein Eintrag</span>
-            </p>
-
-            {gruene.length > 0 && (
-              <button type="button" className="cta cta-good" onClick={() => void freigeben(gruene)}>
-                Alles Grüne freigeben ({gruene.length})
-              </button>
-            )}
-
-            {gewaehlt && detail.length > 0 && (
-              <section className="card space-y-3">
-                <p className="lbl mb-0">
-                  {personen.find(([id]) => id === gewaehlt.mit)?.[1].name} · {gewaehlt.datum}
-                </p>
-                {detail.map((e) => (
-                  <div key={e.id} className="flex items-center justify-between gap-2 border-b border-line pb-2.5 last:border-b-0 last:pb-0">
-                    <span className="min-w-0 text-sm">
-                      <span className="block truncate font-medium">
-                        {e.tagesmeldung.baustelle?.bezeichnung ?? 'ohne Baustelle'}
+            {sichtbar.map((z) => {
+              const auf = offenesTeam === z.team.id;
+              const faelle = verdachtsfaelle.filter((f) => f.meldung.team?.id === z.team.id);
+              return (
+                <div key={z.team.id} className={'border-b border-line last:border-b-0 ' + (auf ? 'bg-steel-soft/30' : '')}>
+                  <button
+                    type="button"
+                    onClick={() => teamUmschalten(z.team.id)}
+                    className="grid w-full grid-cols-[minmax(0,1fr)_repeat(7,2.1rem)_3rem] items-center gap-x-0.5 px-3 py-2 text-left sm:grid-cols-[minmax(0,1fr)_repeat(7,2.5rem)_3.5rem]"
+                  >
+                    <span className="min-w-0 pr-2">
+                      <span className="block truncate font-display text-[14px] font-bold">
+                        {z.team.bezeichnung}
+                        {z.team.chefmonteur && <span className="ml-1.5 font-body text-xs font-normal text-ink3">{kurzName(z.team.chefmonteur.name)}</span>}
                       </span>
-                      {e.tagesmeldung.baustelle && (
-                        <span className="knr">{e.tagesmeldung.baustelle.konto_nr}</span>
-                      )}
-                    </span>
-                    <span className="flex items-center gap-1.5">
-                      <button type="button" className="btn-ghost px-2.5" onClick={() => void korrigieren(e, -30)}>−</button>
-                      <span className="w-12 text-center font-mono text-sm tabular-nums">
-                        {stunden(e.normal_min + e.ueber_min)} h
-                      </span>
-                      <button type="button" className="btn-ghost px-2.5" onClick={() => void korrigieren(e, 30)}>+</button>
-                      {e.status === 'offen' ? (
-                        <button type="button" className="btn-ghost text-good-deep" onClick={() => void freigeben([e])}>✓</button>
-                      ) : (
-                        <span className="px-1 text-good" title="freigegeben">✓</span>
-                      )}
-                    </span>
-                  </div>
-                ))}
-                <p className="text-[11px] text-ink3">
-                  Jede Korrektur wird protokolliert: wer, wann, von, auf.
-                </p>
-              </section>
-            )}
-
-            {verdachtsfaelle.length > 0 && (
-              <section className="space-y-2.5">
-                <h2 className="lbl mb-0">Regieverdacht</h2>
-                {verdachtsfaelle.map(({ meldung, eintraege: liste, ausloeser }) => (
-                  <div key={meldung.id} className="card border-amber-300 bg-amber-50">
-                    <div className="flex items-baseline justify-between gap-2">
-                      <span className="font-display text-[15px] font-bold">
-                        {meldung.baustelle?.bezeichnung ?? '—'}
-                      </span>
-                      <span className="font-mono text-xs text-ink3">{meldung.datum}</span>
-                    </div>
-                    <ul className="mt-1 space-y-0.5 text-xs text-ink2">
-                      {ausloeser.map((a) => (
-                        <li key={a}>• {a}</li>
-                      ))}
-                    </ul>
-                    {meldung.transkript && (
-                      <p className="mt-2 rounded-[10px] bg-surface px-3 py-2 text-sm italic text-ink2">«{meldung.transkript}»</p>
-                    )}
-                    {(meldung.audio_pfad || meldung.audio_sekunden) && (
-                      <div className="mt-2 flex items-center gap-2">
-                        {meldung.audio_pfad ? (
-                          <button type="button" onClick={() => void anhoeren(meldung.id, meldung.audio_pfad!)} className="btn-ghost">▶ Sprachnotiz{meldung.audio_sekunden ? ` · ${meldung.audio_sekunden} Sek.` : ''}</button>
-                        ) : (
-                          <span className="font-mono text-[11px] text-ink3">Sprachnotiz {meldung.audio_sekunden} Sek. (Demo — keine Aufnahme hinterlegt)</span>
-                        )}
-                        {audio?.meldung === meldung.id && <audio controls autoPlay src={audio.url} className="h-8 flex-1" />}
-                      </div>
-                    )}
-                    {meldung.normalfall ? (
-                      /* Normaler Tag mit offenem Auftrag: die 8 h sind Aufbau (Offerte), nicht Regie.
-                         Regie entsteht nur aus dem gemeldeten Extra — sonst beim Team nachfragen. */
-                      <p className="mt-2 rounded-[10px] border border-dashed border-amber-400 px-3 py-2 text-xs text-ink2">
-                        Normaler Arbeitstag ({stunden(liste.reduce((s, e) => s + e.normal_min + e.ueber_min, 0))} h) — das ist Aufbau aus der Offerte, keine Regie.
-                        Der Zusatzauftrag war für diesen Tag geplant, aber <b>das Team hat keine Zusatzarbeit gemeldet</b>: nachfragen, ob sie ausgeführt wurde.
-                      </p>
-                    ) : (
-                      <div className="mt-2 flex items-center justify-between">
-                        <span className="text-sm">
-                          {stunden(liste.reduce((s, e) => s + e.normal_min + e.ueber_min, 0))} h Zusatzarbeit ·{' '}
-                          <span className="font-mono font-semibold text-accent-deep">
-                            {formatChf(betragVorgerechnet(liste))}
-                          </span>
-                          <span className="text-xs text-ink3"> vorgerechnet</span>
+                      <span className="block truncate text-[11px] text-ink3">
+                        {z.baustellen.length === 0
+                          ? '—'
+                          : z.baustellen.length <= 2
+                            ? z.baustellen.map((b) => `${b.konto_nr} ${b.bezeichnung ?? ''}`.trim()).join(' · ')
+                            : `${z.baustellen.length} Baustellen`}
+                        <span className={'ml-1.5 font-semibold ' + (z.rang === 0 ? 'text-accent-deep' : z.rang === 2 ? 'text-good-deep' : 'text-ink2')}>
+                          {z.wort}{z.rang === 0 ? ' ›' : ''}
                         </span>
-                        <button
-                          type="button"
-                          onClick={() => void regierapportErstellen({ meldung, eintraege: liste })}
-                          className="btn-ghost border-accent text-accent-deep"
-                        >
-                          → Regierapport
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </section>
-            )}
-          </>
+                      </span>
+                    </span>
+                    {z.tage.map((t) => (
+                      <span
+                        key={t.datum}
+                        className={'block rounded-md py-1.5 text-center font-mono text-[11px] tabular-nums ' + TEAM_ZELL_STIL[t.status]}
+                      >
+                        {t.status === 'leer' ? '–' : t.status === 'frei' ? '✓' : Math.round(t.min / 60)}
+                      </span>
+                    ))}
+                    <span className="text-right font-mono text-xs tabular-nums text-ink2">{z.totalMin > 0 ? stunden(z.totalMin) : '–'}</span>
+                  </button>
+
+                  {auf && (
+                    <div className="space-y-3 border-t border-line bg-surface px-3 py-3">
+                      {z.leute.length === 0 ? (
+                        <p className="text-sm text-ink3">Dieses Team hat in dieser Woche nichts gemeldet.</p>
+                      ) : (
+                        <>
+                          <div className="overflow-x-auto">
+                            <table className="w-full min-w-[430px] text-sm">
+                              <tbody>
+                                {z.leute.map(([mitId, p]) => (
+                                  <tr key={mitId} className="border-b border-line last:border-b-0">
+                                    <td className="py-1.5 pr-2 font-medium whitespace-nowrap">
+                                      {p.name}
+                                      {p.typ === 'temporaer' && <span className="ml-1 text-[10px] text-ink3">temp</span>}
+                                    </td>
+                                    {wochenTage.map((datum) => {
+                                      const liste = p.tage.get(datum);
+                                      const st = zellStatus(liste);
+                                      const summe = liste?.reduce((s, e) => s + e.normal_min + e.ueber_min, 0) ?? 0;
+                                      const aktiv = gewaehlt?.mit === mitId && gewaehlt.datum === datum;
+                                      return (
+                                        <td key={datum} className="p-0.5 text-center">
+                                          <button
+                                            type="button"
+                                            onClick={() => setGewaehlt(aktiv ? null : { mit: mitId, datum })}
+                                            className={'w-full rounded-md px-1 py-1.5 font-mono text-xs tabular-nums transition ' + ZELL_STIL[st] + (aktiv ? ' ring-2 ring-accent' : '')}
+                                          >
+                                            {st === 'leer' ? '–' : stunden(summe)}
+                                          </button>
+                                        </td>
+                                      );
+                                    })}
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+
+                          {gewaehlt && detail.length > 0 && z.leute.some(([id]) => id === gewaehlt.mit) && (
+                            <div className="rounded-[12px] bg-ground p-3 space-y-2.5">
+                              <p className="lbl mb-0">
+                                {personen.find(([id]) => id === gewaehlt.mit)?.[1].name} · {ch(new Date(gewaehlt.datum + 'T12:00:00'))}
+                              </p>
+                              {detail.map((e) => (
+                                <div key={e.id} className="flex items-center justify-between gap-2 border-b border-line pb-2 last:border-b-0 last:pb-0">
+                                  <span className="min-w-0 text-sm">
+                                    <span className="block truncate font-medium">{e.tagesmeldung.baustelle?.bezeichnung ?? 'ohne Baustelle'}</span>
+                                    {e.tagesmeldung.baustelle && <span className="knr">{e.tagesmeldung.baustelle.konto_nr}</span>}
+                                  </span>
+                                  <span className="flex items-center gap-1.5">
+                                    <button type="button" className="btn-ghost px-2.5" onClick={() => void korrigieren(e, -30)}>−</button>
+                                    <span className="w-12 text-center font-mono text-sm tabular-nums">{stunden(e.normal_min + e.ueber_min)} h</span>
+                                    <button type="button" className="btn-ghost px-2.5" onClick={() => void korrigieren(e, 30)}>+</button>
+                                    {e.status === 'offen' ? (
+                                      <button type="button" className="btn-ghost text-good-deep" onClick={() => void freigeben([e])}>✓</button>
+                                    ) : (
+                                      <span className="px-1 text-good" title="freigegeben">✓</span>
+                                    )}
+                                  </span>
+                                </div>
+                              ))}
+                              <p className="text-[11px] text-ink3">Jede Korrektur wird protokolliert: wer, wann, von, auf.</p>
+                            </div>
+                          )}
+
+                          {faelle.map(({ meldung, eintraege: liste, ausloeser }) => (
+                            <div key={meldung.id} className="rounded-[12px] border border-amber-300 bg-amber-50 p-3">
+                              <div className="flex items-baseline justify-between gap-2">
+                                <span className="font-display text-[14px] font-bold">Regieverdacht · {meldung.baustelle?.bezeichnung ?? '—'}</span>
+                                <span className="font-mono text-xs text-ink3">{ch(new Date(meldung.datum + 'T12:00:00'))}</span>
+                              </div>
+                              <ul className="mt-1 space-y-0.5 text-xs text-ink2">
+                                {ausloeser.map((a) => <li key={a}>• {a}</li>)}
+                              </ul>
+                              {meldung.transkript && (
+                                <p className="mt-2 rounded-[10px] bg-surface px-3 py-2 text-sm italic text-ink2">«{meldung.transkript}»</p>
+                              )}
+                              {(meldung.audio_pfad || meldung.audio_sekunden) && (
+                                <div className="mt-2 flex items-center gap-2">
+                                  {meldung.audio_pfad ? (
+                                    <button type="button" onClick={() => void anhoeren(meldung.id, meldung.audio_pfad!)} className="btn-ghost">▶ Sprachnotiz{meldung.audio_sekunden ? ` · ${meldung.audio_sekunden} Sek.` : ''}</button>
+                                  ) : (
+                                    <span className="font-mono text-[11px] text-ink3">Sprachnotiz {meldung.audio_sekunden} Sek. (Demo — keine Aufnahme hinterlegt)</span>
+                                  )}
+                                  {audio?.meldung === meldung.id && <audio controls autoPlay src={audio.url} className="h-8 flex-1" />}
+                                </div>
+                              )}
+                              {meldung.normalfall ? (
+                                /* Normaler Tag mit offenem Auftrag: die 8 h sind Aufbau (Offerte), nicht Regie.
+                                   Regie entsteht nur aus dem gemeldeten Extra — sonst beim Team nachfragen. */
+                                <p className="mt-2 rounded-[10px] border border-dashed border-amber-400 px-3 py-2 text-xs text-ink2">
+                                  Normaler Arbeitstag ({stunden(liste.reduce((s, e) => s + e.normal_min + e.ueber_min, 0))} h) — das ist Aufbau aus der Offerte, keine Regie.
+                                  Der Zusatzauftrag war für diesen Tag geplant, aber <b>das Team hat keine Zusatzarbeit gemeldet</b>: nachfragen, ob sie ausgeführt wurde.
+                                </p>
+                              ) : (
+                                <div className="mt-2 flex items-center justify-between gap-2">
+                                  <span className="text-sm">
+                                    {stunden(liste.reduce((s, e) => s + e.normal_min + e.ueber_min, 0))} h Zusatzarbeit ·{' '}
+                                    <span className="font-mono font-semibold text-accent-deep">{formatChf(betragVorgerechnet(liste))}</span>
+                                    <span className="text-xs text-ink3"> vorgerechnet</span>
+                                  </span>
+                                  <button type="button" onClick={() => void regierapportErstellen({ meldung, eintraege: liste })} className="btn-ghost shrink-0 border-accent text-accent-deep">
+                                    → Regierapport
+                                  </button>
+                                </div>
+                              )}
+                            </div>
+                          ))}
+
+                          {z.gruene.length > 0 && (
+                            <button type="button" className="btn-ghost w-full border-good text-good-deep" onClick={() => void freigeben(z.gruene)}>
+                              Grüne von {z.team.bezeichnung} freigeben ({z.gruene.length})
+                            </button>
+                          )}
+                        </>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </section>
+        )}
+
+        {!laedt && sichtbar.length > 0 && (
+          <p className="flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-ink3">
+            <span><span className="mr-1 inline-block h-2 w-2 rounded-sm bg-good-soft ring-1 ring-good/40" />freigegeben</span>
+            <span><span className="mr-1 inline-block h-2 w-2 rounded-sm bg-amber-200" />Regieverdacht</span>
+            <span><span className="mr-1 inline-block h-2 w-2 rounded-sm bg-accent-soft ring-1 ring-accent/40" />über 10 h — anschauen</span>
+            <span>– kein Eintrag · Zahl = Teamstunden am Tag</span>
+          </p>
+        )}
+
+        {gruene.length > 0 && (
+          <button type="button" className="cta cta-good" onClick={() => void freigeben(gruene)}>
+            Alles Grüne freigeben ({gruene.length})
+          </button>
         )}
       </div>
     </Shell>
