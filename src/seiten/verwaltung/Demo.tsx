@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '../../lib/supabase';
 import { demoLaden, demoZuruecksetzen, type DemoZusammenfassung } from '../../lib/demo';
+import { lokaleWarteschlangeLeeren } from '../../lib/db';
 
 /**
  * Demo-Betrieb: ein kompletter Gerüstbaubetrieb auf Knopfdruck —
@@ -30,6 +31,8 @@ export function Demo() {
       const r = await demoLaden(supabase, userId, log);
       setErgebnis(r);
       localStorage.removeItem('teamgeraet-team-id');
+      await lokaleWarteschlangeLeeren();
+      log('Lokale Warteschlange dieses Geräts geleert.');
     } catch (e) {
       setFehler((e as Error).message);
     }
@@ -38,7 +41,12 @@ export function Demo() {
   async function leeren() {
     if (!supabase) return;
     setLaeuft(true); setFehler(''); setErgebnis(null); setProtokoll([]);
-    try { await demoZuruecksetzen(supabase, log); } catch (e) { setFehler((e as Error).message); }
+    try {
+      await demoZuruecksetzen(supabase, log);
+      localStorage.removeItem('teamgeraet-team-id');
+      await lokaleWarteschlangeLeeren();
+      log('Lokale Warteschlange dieses Geräts geleert.');
+    } catch (e) { setFehler((e as Error).message); }
     setLaeuft(false); setBestaetigen(null);
   }
 

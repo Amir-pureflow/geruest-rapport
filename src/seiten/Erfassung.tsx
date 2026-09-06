@@ -93,7 +93,17 @@ export function Erfassung() {
 
   useEffect(() => {
     if (!supabase) return;
-    void supabase.from('team').select('id,bezeichnung,fahrzeug').eq('aktiv', true).order('bezeichnung').then(({ data }) => data && setTeams(data));
+    void supabase.from('team').select('id,bezeichnung,fahrzeug').eq('aktiv', true).order('bezeichnung').then(({ data }) => {
+      if (!data) return;
+      setTeams(data);
+      // Gespeichertes Team gibt es nicht mehr (z. B. nach Demo-Neustart) → Team neu wählen lassen
+      const gespeichert = localStorage.getItem(TEAM_KEY);
+      if (gespeichert && !data.some((t) => t.id === gespeichert)) {
+        localStorage.removeItem(TEAM_KEY);
+        setTeamId(null);
+        setSchritt('team');
+      }
+    });
     void supabase.auth.getUser().then(({ data }) => setUserId(data.user?.id ?? null));
     void offeneAnzahl().then(setWartend);
   }, []);
@@ -192,16 +202,18 @@ export function Erfassung() {
         return { id: crypto.randomUUID(), mitarbeiter_id: p.id, normal_min: Math.min(min, 480), ueber_min: Math.max(0, min - 480), oev: normal ? a.oev : false, km: normal ? a.km : 0, baustelle_id: baustelle.id, konto_nr: baustelle.konto_nr };
       }),
     };
-    await enqueueMeldung(payload, normal ? undefined : aufnahme?.blob);
+    const clientUuid = await enqueueMeldung(payload, normal ? undefined : aufnahme?.blob);
     setGespeichert('Lokal gespeichert …');
     if (supabase && navigator.onLine) {
       const erg = await flushNachSupabase(supabase);
-      if (erg.fehler > 0) {
+      const dieseIstDurch = (await offeneMeldungen()).every((m) => m.client_uuid !== clientUuid);
+      if (dieseIstDurch) {
+        setGespeichert(normal ? 'Gespeichert ✓' : 'Abweichung gespeichert ✓');
+        if (erg.verworfen > 0) setHinweis(`${erg.verworfen} alte Meldung${erg.verworfen === 1 ? '' : 'en'} aussortiert: ${erg.fehlerText ?? ''}`);
+      } else {
         // Ehrlich bleiben: auf dem Gerät ist es sicher, aber der Server hat abgelehnt — Grund zeigen
         setHinweis(`Auf dem Gerät gespeichert, aber noch nicht gesendet: ${erg.fehlerText ?? 'unbekannter Fehler'}`);
         setGespeichert('Lokal gespeichert — Senden fehlgeschlagen');
-      } else {
-        setGespeichert(normal ? 'Gespeichert ✓' : 'Abweichung gespeichert ✓');
       }
     } else {
       setGespeichert('Gespeichert — wird gesendet, sobald Netz da ist');

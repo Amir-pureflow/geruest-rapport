@@ -104,7 +104,7 @@ export function Start() {
         {wartend && (
           <div className="rounded-[12px] border border-accent/40 bg-accent-soft px-4 py-3 text-sm text-accent-deep">
             <strong>{wartend.anzahl} Meldung{wartend.anzahl === 1 ? '' : 'en'} auf diesem Gerät noch nicht gesendet.</strong>
-            {wartend.grund ? ` Grund: ${wartend.grund}` : ' Wird gesendet, sobald Netz da ist.'}
+            {wartend.grund ? ` ${wartend.grund}` : ' Wird gesendet, sobald Netz da ist.'}
           </div>
         )}
 
