@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
 import { Shell } from '../ui/Shell';
 import { supabase } from '../lib/supabase';
-import { enqueueMeldung, flushNachSupabase, offeneMeldungen, offeneAnzahl, type MeldungPayload } from '../lib/db';
+import { enqueueMeldung, flushNachSupabase, offeneMeldungen, offeneAnzahl, lokaleMeldungEntfernen, type MeldungPayload } from '../lib/db';
 import { addTage, iso, lang } from '../lib/datum';
 
 /**
@@ -83,7 +83,9 @@ export function Erfassung() {
   const [sekunden, setSekunden] = useState(0);
   const [gespeichert, setGespeichert] = useState<string | null>(null);
   const [hinweis, setHinweis] = useState('');
-  const [heuteGemeldet, setHeuteGemeldet] = useState<{ bezeichnung: string; normalfall: boolean; lokal: boolean }[]>([]);
+  const [heuteGemeldet, setHeuteGemeldet] = useState<{ bezeichnung: string; baustelle_id: string; normalfall: boolean; lokal: boolean; schluessel: string; freigegeben: boolean }[]>([]);
+  // Gleiche Baustelle heute schon gemeldet → erst nachfragen, statt still eine zweite Meldung anzulegen
+  const [doppelt, setDoppelt] = useState<{ bezeichnung: string; anzahl: number } | null>(null);
   const [userId, setUserId] = useState<string | null>(null);
   const [wartend, setWartend] = useState(0);
   const recorder = useRef<MediaRecorder | null>(null);
@@ -115,12 +117,12 @@ export function Erfassung() {
     const lokal = (await offeneMeldungen()).filter((m) => (m.payload as unknown as MeldungPayload).team_id === teamId && (m.payload as unknown as MeldungPayload).datum === heuteIso);
     const liste: typeof heuteGemeldet = lokal.map((m) => {
       const p = m.payload as unknown as MeldungPayload;
-      return { bezeichnung: kacheln.concat(alleGeplanten).find((b) => b.id === p.baustelle_id)?.bezeichnung ?? 'Baustelle', normalfall: p.normalfall, lokal: true };
+      return { bezeichnung: kacheln.concat(alleGeplanten).find((b) => b.id === p.baustelle_id)?.bezeichnung ?? 'Baustelle', baustelle_id: p.baustelle_id, normalfall: p.normalfall, lokal: true, schluessel: m.client_uuid, freigegeben: false };
     });
     if (supabase) {
-      const { data } = await supabase.from('tagesmeldung').select('normalfall,baustelle:baustelle_id(bezeichnung)').eq('team_id', teamId).eq('datum', heuteIso);
-      for (const d of (data ?? []) as unknown as { normalfall: boolean; baustelle: { bezeichnung: string | null } | null }[]) {
-        liste.push({ bezeichnung: d.baustelle?.bezeichnung ?? 'Baustelle', normalfall: d.normalfall, lokal: false });
+      const { data } = await supabase.from('tagesmeldung').select('id,normalfall,baustelle_id,baustelle:baustelle_id(bezeichnung),zeiteintrag(status)').eq('team_id', teamId).eq('datum', heuteIso);
+      for (const d of (data ?? []) as unknown as { id: string; normalfall: boolean; baustelle_id: string; baustelle: { bezeichnung: string | null } | null; zeiteintrag: { status: string }[] }[]) {
+        liste.push({ bezeichnung: d.baustelle?.bezeichnung ?? 'Baustelle', baustelle_id: d.baustelle_id, normalfall: d.normalfall, lokal: false, schluessel: d.id, freigegeben: d.zeiteintrag.some((z) => z.status === 'freigegeben') });
       }
     }
     setHeuteGemeldet(liste);
@@ -189,10 +191,34 @@ export function Erfassung() {
     setAnw((alt) => Object.fromEntries(Object.entries(alt).map(([k, a]) => [k, { ...a, min: v }])));
   }
 
-  async function speichern(normal: boolean) {
+  /** Frühere Normal-Meldungen für dieselbe Baustelle heute entfernen — lokal und auf dem Server (nur solange nichts freigegeben ist). */
+  async function fruehereEntfernen(baustelleId: string) {
+    const alte = heuteGemeldet.filter((m) => m.baustelle_id === baustelleId && m.normalfall && !m.freigegeben);
+    for (const m of alte) {
+      if (m.lokal) { await lokaleMeldungEntfernen(m.schluessel); continue; }
+      if (!supabase) continue;
+      await supabase.from('zeiteintrag').delete().eq('tagesmeldung_id', m.schluessel).eq('status', 'offen');
+      await supabase.from('tagesmeldung').delete().eq('id', m.schluessel);
+    }
+  }
+
+  async function speichern(normal: boolean, ersetzen = false) {
     if (!baustelle) { setHinweis('Zuerst die Baustelle antippen.'); return; }
     if (dabei.length === 0) { setHinweis('Niemand angehakt.'); return; }
     setHinweis('');
+    if (normal) {
+      const gleiche = heuteGemeldet.filter((m) => m.baustelle_id === baustelle.id && m.normalfall);
+      if (gleiche.some((m) => m.freigegeben)) {
+        setHinweis(`Für ${baustelle.bezeichnung} ist heute schon eine Meldung freigegeben. Änderungen macht der Bauführer in der Wochenübersicht.`);
+        return;
+      }
+      if (gleiche.length > 0 && !ersetzen) {
+        setDoppelt({ bezeichnung: baustelle.bezeichnung, anzahl: gleiche.length });
+        return;
+      }
+      setDoppelt(null);
+      if (ersetzen) await fruehereEntfernen(baustelle.id);
+    }
     const beteiligt = normal ? dabei : dabei.filter((p) => abLeute.has(p.id));
     const payload: MeldungPayload = {
       id: crypto.randomUUID(), team_id: teamId!, datum: heuteIso, baustelle_id: baustelle.id,
@@ -454,6 +480,20 @@ export function Erfassung() {
           <p className="lbl">Wie lange — alle</p>
           <Stepper wert={teamMin} setWert={setzeTeamMin} schritt={30} min={30} format={(v) => (v / 60).toFixed(1) + ' h'} />
         </section>
+
+        {doppelt && (
+          <section className="card space-y-3 border-accent/40">
+            <p className="text-sm">
+              <strong>Für {doppelt.bezeichnung} habt ihr heute schon gemeldet</strong>
+              {doppelt.anzahl > 1 ? ` (${doppelt.anzahl}-mal)` : ''}. Nochmals speichern ersetzt die frühere Meldung.
+            </p>
+            <div className="grid grid-cols-2 gap-2">
+              <button type="button" className="btn-ghost py-3" onClick={() => setDoppelt(null)}>Abbrechen</button>
+              <button type="button" className="cta py-3" onClick={() => void speichern(true, true)}>Ersetzen</button>
+            </div>
+            <p className="text-[11px] text-ink3">Wart ihr heute auf einer zweiten Baustelle? Dann oben die andere Baustelle antippen.</p>
+          </section>
+        )}
 
         <button type="button" onClick={() => void speichern(true)} className="cta cta-good py-5">
           {gespeichert ?? '✓ Alles wie geplant'}

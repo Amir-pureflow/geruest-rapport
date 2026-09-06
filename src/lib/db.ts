@@ -223,6 +223,11 @@ async function flushMeldungen(client: SupabaseClient): Promise<FlushErgebnis> {
   return { gesendet, fehler, verworfen, fehlerText };
 }
 
+/** Eine noch nicht gesendete Meldung samt Sprachnotiz vom Gerät entfernen (Ersetzen einer Doppelmeldung). */
+export async function lokaleMeldungEntfernen(clientUuid: string): Promise<void> {
+  await Promise.all([db.meldungen.delete(clientUuid), db.audio.delete(clientUuid)]);
+}
+
 /** Lokale Warteschlange komplett leeren — nach Demo-Neustart zeigen alte Einträge ins Leere. */
 export async function lokaleWarteschlangeLeeren(): Promise<void> {
   await Promise.all([db.meldungen.clear(), db.audio.clear(), db.auftraege.clear()]);
