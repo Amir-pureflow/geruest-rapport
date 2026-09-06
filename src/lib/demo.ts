@@ -101,7 +101,7 @@ export interface JahresplanRow { id: string; baustelle_id: string; team_id: stri
 export interface TagesmeldungRow { id: string; client_uuid: string; team_id: string; datum: string; baustelle_id: string; normalfall: boolean; abweichung_typ: string | null; wer_hats_gewollt: string | null; transkript: string | null; audio_sekunden: number | null; erfasst_von: string; erfasst_am: string; status: 'offen' | 'freigegeben' }
 export interface ZeiteintragRow { id: string; tagesmeldung_id: string; mitarbeiter_id: string; normal_min: number; ueber_min: number; oev: boolean; km: number; baustelle_id: string; konto_nr: string; status: 'offen' | 'freigegeben' }
 export interface ZusatzauftragRow { id: string; client_uuid: string; baustelle_id: string; besteller_name: string; besteller_rolle: string; bestellt_am: string; kanal: string; taetigkeit: string; geplant_fuer: string; notiz: string | null; status: 'offen' | 'erledigt_ohne_regie'; erledigt_grund?: 'abgesagt' | 'pauschale' | 'kulanz' | 'doppelt' | null; erledigt_am?: string | null; erledigt_von?: string | null }
-export interface RegierapportRow { id: string; zusatzauftrag_id: string | null; baustelle_id: string; nummer: string; status: string; betrag_rappen: number; frist_bis: string | null; erstellt_am: string; versendet_am: string | null; bestaetigt_am: string | null; empfaenger_email: string }
+export interface RegierapportRow { id: string; zusatzauftrag_id: string | null; tagesmeldung_id: string | null; baustelle_id: string; nummer: string; status: string; betrag_rappen: number; frist_bis: string | null; erstellt_am: string; versendet_am: string | null; bestaetigt_am: string | null; empfaenger_email: string }
 export interface RegiePositionRow { id: string; regierapport_id: string; tarif_code: string; bezeichnung: string; menge_hundertstel: number; ansatz_rappen: number; betrag_rappen: number }
 export interface ZustellungRow { id: string; regierapport_id: string; an: string; ereignis: string; zeitpunkt: string }
 export interface FreigabeLogRow { id: string; zeiteintrag_id: string; wer: string; wann: string; feld: string; alt: string; neu: string }
@@ -381,7 +381,7 @@ export function erzeugeDemoBetrieb(opts: { baustellen: BaustelleQuelle[]; heute:
     const bestaetigt = status === 'bestaetigt' ? addTage(versendet, z.int(0, 2)) : null;
 
     regierapporte.push({
-      id: rid, zusatzauftrag_id: za.id, baustelle_id: ka.baustelle.id, nummer: `RR-2026-${String(nummer++).padStart(4, '0')}`,
+      id: rid, zusatzauftrag_id: za.id, tagesmeldung_id: ka.meldung.id, baustelle_id: ka.baustelle.id, nummer: `RR-2026-${String(nummer++).padStart(4, '0')}`,
       status, betrag_rappen: basis + miete, frist_bis: status === 'entwurf' ? null : iso(frist),
       erstellt_am: ts(erstellt, 9, z.int(0, 59)), versendet_am: status === 'entwurf' ? null : ts(versendet, 10, z.int(0, 59)),
       bestaetigt_am: bestaetigt ? ts(bestaetigt, 14, z.int(0, 59)) : null, empfaenger_email: k.email,

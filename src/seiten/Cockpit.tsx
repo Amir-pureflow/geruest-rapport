@@ -97,7 +97,11 @@ const TEAM_ZELL_STIL: Record<ZellStatus, string> = {
 
 export function Cockpit() {
   // Montag/Dienstag prüft der Bauführer die Vorwoche (Arbnor, 27.08.) — dann dort starten, nicht in der leeren neuen Woche
+  // Aufruf mit ?woche=JJJJ-MM-TT&team=<id> (z. B. vom Regierapport «Ursprung») springt direkt dorthin.
+  const params = new URLSearchParams(window.location.search);
   const [wochenStart, setWochenStart] = useState<Date>(() => {
+    const w = params.get('woche');
+    if (w && /^\d{4}-\d{2}-\d{2}$/.test(w)) return montag(new Date(w + 'T12:00:00'));
     const heute = new Date();
     const dieseWoche = montag(heute);
     return heute.getDay() === 1 || heute.getDay() === 2 ? addTage(dieseWoche, -7) : dieseWoche;
@@ -114,7 +118,7 @@ export function Cockpit() {
   const [filter, setFilter] = useState<Filter>('alle');
   // Aufgeklapptes Team — die Tagesübersicht («Woche prüfen ›») setzt denselben Schlüssel
   const [offenesTeam, setOffenesTeam] = useState<string | null>(() => {
-    const t = localStorage.getItem('cockpit-team');
+    const t = params.get('team') ?? localStorage.getItem('cockpit-team');
     return t && t !== 'alle' ? t : null;
   });
   const [audio, setAudio] = useState<{ meldung: string; url: string } | null>(null);
@@ -366,6 +370,7 @@ export function Cockpit() {
       .insert({
         baustelle_id: bs.id,
         zusatzauftrag_id: auftragProBaustelle.get(bs.id)?.id ?? null,
+        tagesmeldung_id: fall.meldung.id, // Ursprung — vom Rapport zurück zur Meldung
         betrag_rappen: betragVorgerechnet(fall.eintraege),
       })
       .select('id')

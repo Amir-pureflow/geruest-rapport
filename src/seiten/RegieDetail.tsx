@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, type ChangeEvent } from 'react';
-import { useParams } from 'react-router-dom';
+import { Link, useParams } from 'react-router-dom';
 import { Shell } from '../ui/Shell';
 import { supabase } from '../lib/supabase';
 import { formatChf, materialmiete, tarifNachCode, positionBetrag, ETAPPE_MIN_RAPPEN } from '../lib/tarif';
@@ -22,6 +22,36 @@ interface Rapport {
   anhang_pfad: string | null;
   link_token: string;
   baustelle: { bezeichnung: string | null; konto_nr: string; kunde: { email: string | null; ansprechperson: string | null } | null } | null;
+  /** Ursprung: die Tagesmeldung, aus der der Rapport gerechnet wurde (bei alten Rapporten evtl. leer). */
+  tagesmeldung: {
+    id: string;
+    datum: string;
+    abweichung_typ: string | null;
+    wer_hats_gewollt: string | null;
+    transkript: string | null;
+    audio_pfad: string | null;
+    audio_sekunden: number | null;
+    team: { id: string; bezeichnung: string; chefmonteur: { name: string } | null } | null;
+    zeiteintrag: { normal_min: number; ueber_min: number; status: string; mitarbeiter: { name: string } | null }[];
+  } | null;
+  zusatzauftrag: { besteller_name: string; kanal: string; taetigkeit: string; geplant_fuer: string | null; bestellt_am: string; notiz: string | null } | null;
+}
+
+const STATUS_TEXT: Record<string, string> = {
+  entwurf: 'Entwurf',
+  versendet: 'versendet',
+  bestaetigt: 'bestätigt',
+  rueckfrage: 'Rückfrage',
+  frist_abgelaufen: 'Frist abgelaufen',
+};
+
+const ABWEICHUNG_TEXT: Record<string, string> = { zusaetzlich: 'zusätzliche Arbeit', warten: 'Wartezeit', kaputt: 'etwas kaputt' };
+const WER_TEXT: Record<string, string> = { kunde: 'der Kunde wollte es', chef: 'der Chef wollte es', niemand: 'niemand hat es verlangt' };
+const KANAL_TEXT: Record<string, string> = { telefon: 'per Telefon', mail: 'per Mail', vor_ort: 'vor Ort' };
+
+function tagKurz(isoDatum: string): string {
+  const d = new Date(isoDatum + 'T12:00:00');
+  return `${['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa'][d.getDay()]} ${d.getDate()}.${d.getMonth() + 1}.${d.getFullYear()}`;
 }
 
 interface Position {
@@ -61,13 +91,20 @@ export function RegieDetail() {
   const [sendet, setSendet] = useState(false);
   const [fehler, setFehler] = useState('');
   const [kopiert, setKopiert] = useState(false);
+  const [audioUrl, setAudioUrl] = useState<string | null>(null);
+
+  async function sprachnotizAnhoeren(pfad: string) {
+    if (!supabase) return;
+    const { data } = await supabase.storage.from('anhaenge').createSignedUrl(pfad, 300);
+    if (data?.signedUrl) setAudioUrl(data.signedUrl);
+  }
 
   const laden = useCallback(async () => {
     if (!supabase || !id) return;
     const [r, p, l] = await Promise.all([
       supabase
         .from('regierapport')
-        .select('id,status,betrag_rappen,frist_bis,versendet_am,bestaetigt_am,empfaenger_email,anhang_pfad,link_token,baustelle:baustelle_id(bezeichnung,konto_nr,kunde:kunde_id(email,ansprechperson))')
+        .select('id,status,betrag_rappen,frist_bis,versendet_am,bestaetigt_am,empfaenger_email,anhang_pfad,link_token,baustelle:baustelle_id(bezeichnung,konto_nr,kunde:kunde_id(email,ansprechperson)),tagesmeldung:tagesmeldung_id(id,datum,abweichung_typ,wer_hats_gewollt,transkript,audio_pfad,audio_sekunden,team:team_id(id,bezeichnung,chefmonteur:chefmonteur_id(name)),zeiteintrag(normal_min,ueber_min,status,mitarbeiter:mitarbeiter_id(name))),zusatzauftrag:zusatzauftrag_id(besteller_name,kanal,taetigkeit,geplant_fuer,bestellt_am,notiz)')
         .eq('id', id)
         .single(),
       supabase.from('regie_position').select('id,tarif_code,bezeichnung,menge_hundertstel,ansatz_rappen,betrag_rappen').eq('regierapport_id', id),
@@ -248,12 +285,74 @@ export function RegieDetail() {
           </h1>
           <p className="mt-1 flex items-center gap-2 text-sm text-ink3">
             {rapport.baustelle && <span className="knr">{rapport.baustelle.konto_nr}</span>}
-            <span>{rapport.status === 'entwurf' ? 'Entwurf' : rapport.status}</span>
+            <span>{STATUS_TEXT[rapport.status] ?? rapport.status}</span>
             {rapport.frist_bis && rapport.status === 'versendet' && (
               <span>· Frist bis {rapport.frist_bis}</span>
             )}
           </p>
         </header>
+
+        {/* Ursprung: woher die Zahlen kommen — Tagesmeldung des Teams und die Bestellung des Kunden */}
+        {(rapport.tagesmeldung || rapport.zusatzauftrag) && (
+          <section className="card space-y-3">
+            <p className="lbl mb-0">Ursprung</p>
+            {rapport.tagesmeldung && (() => {
+              const m = rapport.tagesmeldung;
+              const total = m.zeiteintrag.reduce((s, z) => s + z.normal_min + z.ueber_min, 0);
+              return (
+                <div className="space-y-1.5 text-sm">
+                  <p>
+                    <strong>Tagesmeldung {tagKurz(m.datum)}</strong>
+                    {m.team && <> · {m.team.bezeichnung}{m.team.chefmonteur ? ` (${m.team.chefmonteur.name})` : ''}</>}
+                  </p>
+                  <p className="text-ink2">
+                    Team meldet: <strong>{ABWEICHUNG_TEXT[m.abweichung_typ ?? ''] ?? m.abweichung_typ ?? '—'}</strong>
+                    {m.wer_hats_gewollt && <> · {WER_TEXT[m.wer_hats_gewollt] ?? m.wer_hats_gewollt}</>}
+                  </p>
+                  {m.zeiteintrag.length > 0 && (
+                    <p className="text-ink2">
+                      {m.zeiteintrag.map((z) => `${z.mitarbeiter?.name ?? '?'} ${((z.normal_min + z.ueber_min) / 60).toFixed(1)} h`).join(' · ')}
+                      <span className="text-ink3"> · zusammen {(total / 60).toFixed(1)} h</span>
+                    </p>
+                  )}
+                  {m.transkript && <p className="rounded-[10px] bg-ground px-3 py-2 italic text-ink2">«{m.transkript}»</p>}
+                  {(m.audio_pfad || m.audio_sekunden) && (
+                    <div className="flex items-center gap-2">
+                      {m.audio_pfad ? (
+                        <button type="button" onClick={() => void sprachnotizAnhoeren(m.audio_pfad!)} className="btn-ghost">▶ Sprachnotiz{m.audio_sekunden ? ` · ${m.audio_sekunden} Sek.` : ''}</button>
+                      ) : (
+                        <span className="font-mono text-[11px] text-ink3">Sprachnotiz {m.audio_sekunden} Sek. (Demo — keine Aufnahme hinterlegt)</span>
+                      )}
+                      {audioUrl && <audio controls autoPlay src={audioUrl} className="h-8 flex-1" />}
+                    </div>
+                  )}
+                  {m.team && (
+                    <Link to={`/cockpit?woche=${m.datum}&team=${m.team.id}`} className="inline-block font-semibold text-steel">
+                      Diese Woche in der Wochenübersicht anschauen ›
+                    </Link>
+                  )}
+                </div>
+              );
+            })()}
+            {rapport.zusatzauftrag && (
+              <div className="border-t border-line pt-2.5 text-sm">
+                <p>
+                  <strong>Bestellt von {rapport.zusatzauftrag.besteller_name}</strong> {KANAL_TEXT[rapport.zusatzauftrag.kanal] ?? rapport.zusatzauftrag.kanal}
+                  {' '}am {tagKurz(rapport.zusatzauftrag.bestellt_am.slice(0, 10))}
+                </p>
+                <p className="text-ink2">
+                  {rapport.zusatzauftrag.taetigkeit}
+                  {rapport.zusatzauftrag.geplant_fuer && <> · geplant für {tagKurz(rapport.zusatzauftrag.geplant_fuer)}</>}
+                  {rapport.zusatzauftrag.notiz && <> · {rapport.zusatzauftrag.notiz}</>}
+                </p>
+                <Link to="/zusatzauftrag" className="mt-1 inline-block text-xs font-semibold text-steel">Zu den Zusatzaufträgen ›</Link>
+              </div>
+            )}
+            {!rapport.tagesmeldung && (
+              <p className="text-xs text-ink3">Zu diesem Rapport ist keine Tagesmeldung verknüpft (älterer Rapport).</p>
+            )}
+          </section>
+        )}
 
         <section className="card">
           <p className="lbl">Positionen · SGUV 2026/27</p>

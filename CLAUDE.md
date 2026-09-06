@@ -119,7 +119,7 @@ src/lib/db.ts                     Dexie-Queue: Meldungen + Zeiteinträge + Audio
 src/lib/tarif.ts                  SGUV-Tarifrechner (Rappen-Integer) + Tests
 src/lib/demo.ts                   Deterministischer Demo-Betrieb + Tests
 src/lib/datum.ts                  Wochen-/Datumshelfer
-supabase/migrations/              0001 Schema · 0002 Bezeichnung · 0003 Auftrag-UUID · 0004 Versand · 0005 Stammdaten · 0006 Auftrag-Stand (Sicht)
+supabase/migrations/              0001 Schema · 0002 Bezeichnung · 0003 Auftrag-UUID · 0004 Versand · 0005 Stammdaten · 0006 Auftrag-Stand (Sicht) · 0007 Rapport-Ursprung
 ```
 
 Edge Functions `regierapport-senden` und `bestaetigung` sind über den Connector deployt;
