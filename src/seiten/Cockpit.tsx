@@ -455,8 +455,9 @@ export function Cockpit() {
         ) : (
           <section className="card overflow-hidden p-0">
             {/* Kopfzeile mit den Wochentagen — einmal, nicht pro Team */}
-            <div className="grid grid-cols-[minmax(0,1fr)_repeat(7,2.1rem)_3rem] items-end gap-x-0.5 border-b border-line px-3 py-2 sm:grid-cols-[minmax(0,1fr)_repeat(7,2.5rem)_3.5rem]">
-              <span className="font-mono text-[11px] font-semibold uppercase tracking-wider text-ink3">Team</span>
+            {/* Schmal: nur die Tage (Team steht in jeder Zeile darüber). Breit: Team-Spalte + Tage in einer Zeile. */}
+            <div className="grid grid-cols-[repeat(7,minmax(0,1fr))_3rem] items-end gap-x-1 border-b border-line px-3 py-2 md:grid-cols-[minmax(15rem,1fr)_repeat(7,2.6rem)_3.5rem]">
+              <span className="hidden font-mono text-[11px] font-semibold uppercase tracking-wider text-ink3 md:block">Team · Chefmonteur · Baustelle</span>
               {TAGE.map((t, i) => (
                 <span key={t} className="text-center font-mono text-[10px] font-semibold uppercase text-ink3">
                   {t}<span className="block text-[9px] font-normal">{ch(addTage(wochenStart, i))}</span>
@@ -473,33 +474,41 @@ export function Cockpit() {
                   <button
                     type="button"
                     onClick={() => teamUmschalten(z.team.id)}
-                    className="grid w-full grid-cols-[minmax(0,1fr)_repeat(7,2.1rem)_3rem] items-center gap-x-0.5 px-3 py-2 text-left sm:grid-cols-[minmax(0,1fr)_repeat(7,2.5rem)_3.5rem]"
+                    className="block w-full px-3 py-2 text-left md:grid md:grid-cols-[minmax(15rem,1fr)_repeat(7,2.6rem)_3.5rem] md:items-center md:gap-x-1"
                   >
-                    <span className="min-w-0 pr-2">
-                      <span className="block truncate font-display text-[14px] font-bold">
-                        {z.team.bezeichnung}
-                        {z.team.chefmonteur && <span className="ml-1.5 font-body text-xs font-normal text-ink3">{kurzName(z.team.chefmonteur.name)}</span>}
-                      </span>
-                      <span className="block truncate text-[11px] text-ink3">
-                        {z.baustellen.length === 0
-                          ? '—'
-                          : z.baustellen.length <= 2
-                            ? z.baustellen.map((b) => `${b.konto_nr} ${b.bezeichnung ?? ''}`.trim()).join(' · ')
-                            : `${z.baustellen.length} Baustellen`}
-                        <span className={'ml-1.5 font-semibold ' + (z.rang === 0 ? 'text-accent-deep' : z.rang === 2 ? 'text-good-deep' : 'text-ink2')}>
-                          {z.wort}{z.rang === 0 ? ' ›' : ''}
+                    {/* Schmal: Team-Zeile oben, Tage darunter. Breit (md): eine Zeile — die Tages-Kästchen springen per «contents» ins Eltern-Raster. */}
+                    <span className="flex min-w-0 items-baseline justify-between gap-2 md:block md:pr-2">
+                      <span className="min-w-0">
+                        <span className="block truncate font-display text-[14px] font-bold">
+                          {z.team.bezeichnung}
+                          {z.team.chefmonteur && <span className="ml-1.5 font-body text-xs font-normal text-ink3">{kurzName(z.team.chefmonteur.name)}</span>}
+                        </span>
+                        <span className="block truncate text-[11px] text-ink3">
+                          {z.baustellen.length === 0
+                            ? 'keine Baustelle in dieser Woche'
+                            : z.baustellen.length <= 2
+                              ? z.baustellen.map((b) => `${b.konto_nr} ${b.bezeichnung ?? ''}`.trim()).join(' · ')
+                              : `${z.baustellen.length} Baustellen`}
+                          <span className={'ml-1.5 hidden font-semibold md:inline ' + (z.rang === 0 ? 'text-accent-deep' : z.rang === 2 ? 'text-good-deep' : 'text-ink2')}>
+                            {z.wort}{z.rang === 0 ? ' ›' : ''}
+                          </span>
                         </span>
                       </span>
-                    </span>
-                    {z.tage.map((t) => (
-                      <span
-                        key={t.datum}
-                        className={'block rounded-md py-1.5 text-center font-mono text-[11px] tabular-nums ' + TEAM_ZELL_STIL[t.status]}
-                      >
-                        {t.status === 'leer' ? '–' : t.status === 'frei' ? '✓' : Math.round(t.min / 60)}
+                      <span className={'shrink-0 text-[11px] font-semibold md:hidden ' + (z.rang === 0 ? 'text-accent-deep' : z.rang === 2 ? 'text-good-deep' : 'text-ink2')}>
+                        {z.wort}{z.rang === 0 ? ' ›' : ''}
                       </span>
-                    ))}
-                    <span className="text-right font-mono text-xs tabular-nums text-ink2">{z.totalMin > 0 ? stunden(z.totalMin) : '–'}</span>
+                    </span>
+                    <span className="mt-1.5 grid grid-cols-[repeat(7,minmax(0,1fr))_3rem] items-center gap-x-1 md:contents">
+                      {z.tage.map((t) => (
+                        <span
+                          key={t.datum}
+                          className={'block rounded-md py-1.5 text-center font-mono text-[11px] tabular-nums ' + TEAM_ZELL_STIL[t.status]}
+                        >
+                          {t.status === 'leer' ? '–' : t.status === 'frei' ? '✓' : Math.round(t.min / 60)}
+                        </span>
+                      ))}
+                      <span className="text-right font-mono text-xs tabular-nums text-ink2">{z.totalMin > 0 ? stunden(z.totalMin) : '–'}</span>
+                    </span>
                   </button>
 
                   {auf && (
