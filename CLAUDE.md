@@ -99,6 +99,7 @@ ist immer Deutsch. **Kein Dialekt-Thema: es geht um Hochdeutsch + Fremdsprachen.
 ```
 src/seiten/Start.tsx              Dashboard mit Kennzahlen
 src/seiten/Zusatzauftrag.tsx      Stufe 1: Kundenbestellung in 20 Sek. (offline)
+src/seiten/Tag.tsx                Tagesübersicht: welche Teams haben gemeldet, welche nicht (Ziel der Start-Kachel)
 src/seiten/Erfassung.tsx          Teamgerät: Kacheln, Anwesenheit, Pfeile, Symbole, Sprachnotiz
 src/seiten/Cockpit.tsx            Wochenübersicht: Ampel, Freigabe, Korrektur, Regieverdacht
 src/seiten/RegieListe/Detail.tsx  Regierapporte: Positionen, Anhang, Versand, Chronik

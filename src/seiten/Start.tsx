@@ -110,7 +110,7 @@ export function Start() {
 
         {k && (
           <div className="grid grid-cols-2 gap-2.5">
-            <Kachel zu="/erfassung" wert={`${k.teamsGemeldet}/${k.teams}`} label="Teams haben heute gemeldet" />
+            <Kachel zu="/heute" wert={`${k.teamsGemeldet}/${k.teams}`} label="Teams haben heute gemeldet" warn={k.teamsGemeldet < k.teams && heute.getDay() >= 1 && heute.getDay() <= 5 && heute.getHours() >= 17} />
             <Kachel zu="/cockpit" wert={String(k.zuPruefen)} label="Zeiteinträge warten auf Freigabe" warn={k.zuPruefen > 0} />
             <Kachel zu="/zusatzauftrag" wert={String(k.offeneAuftraege)} label={k.heuteGeplant > 0 ? `offene Zusatzaufträge · ${k.heuteGeplant} heute` : 'offene Zusatzaufträge'} />
             <Kachel zu="/regie" wert={String(k.regieOffen)} label={`Regierapporte beim Kunden · ${formatChf(k.regieOffenRappen)}`} />

@@ -6,6 +6,7 @@ import './index.css';
 import { Start } from './seiten/Start';
 import { Erfassung } from './seiten/Erfassung';
 import { Cockpit } from './seiten/Cockpit';
+import { Tag } from './seiten/Tag';
 import { Bestaetigung } from './seiten/Bestaetigung';
 import { Anmelden } from './seiten/Anmelden';
 import { Zusatzauftrag } from './seiten/Zusatzauftrag';
@@ -50,6 +51,7 @@ function App() {
         {eingeloggt && <Route path="/" element={<Start />} />}
         {eingeloggt && <Route path="/zusatzauftrag" element={<Zusatzauftrag />} />}
         {eingeloggt && <Route path="/erfassung" element={<Erfassung />} />}
+        {eingeloggt && <Route path="/heute" element={<Tag />} />}
         {eingeloggt && <Route path="/cockpit" element={<Cockpit />} />}
         {eingeloggt && <Route path="/regie" element={<RegieListe />} />}
         {eingeloggt && <Route path="/regie/:id" element={<RegieDetail />} />}
