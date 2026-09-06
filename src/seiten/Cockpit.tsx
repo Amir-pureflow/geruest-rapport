@@ -77,7 +77,13 @@ const ZELL_STIL: Record<ZellStatus, string> = {
 };
 
 export function Cockpit() {
-  const [wochenStart, setWochenStart] = useState<Date>(() => montag(new Date()));
+  // Montag/Dienstag prüft der Bauführer die Vorwoche (Arbnor, 27.08.) — dann dort starten, nicht in der leeren neuen Woche
+  const [wochenStart, setWochenStart] = useState<Date>(() => {
+    const heute = new Date();
+    const dieseWoche = montag(heute);
+    return heute.getDay() === 1 || heute.getDay() === 2 ? addTage(dieseWoche, -7) : dieseWoche;
+  });
+  const istAktuelleWoche = iso(wochenStart) === iso(montag(new Date()));
   const [eintraege, setEintraege] = useState<Eintrag[]>([]);
   const [auftraege, setAuftraege] = useState<OffenerAuftrag[]>([]);
   const [gewaehlt, setGewaehlt] = useState<{ mit: string; datum: string } | null>(null);
@@ -331,7 +337,7 @@ export function Cockpit() {
           <div className="flex items-center gap-2">
             <button type="button" className="btn-ghost" onClick={() => setWochenStart(addTage(wochenStart, -7))}>‹</button>
             <span className="font-mono text-xs text-ink2">
-              {ch(wochenStart)}–{ch(addTage(wochenStart, 6))}
+              {ch(wochenStart)}–{ch(addTage(wochenStart, 6))}{istAktuelleWoche ? '' : iso(wochenStart) < iso(montag(new Date())) ? ' · Vorwoche' : ''}
             </span>
             <button type="button" className="btn-ghost" onClick={() => setWochenStart(addTage(wochenStart, 7))}>›</button>
           </div>
@@ -344,7 +350,7 @@ export function Cockpit() {
 
         {personen.length === 0 ? (
           <div className="card text-sm text-ink3">
-            {laedt ? 'Lädt …' : 'Keine Einträge in dieser Woche.'}
+            {laedt ? 'Lädt …' : istAktuelleWoche ? 'Noch keine Meldungen in dieser Woche — sie kommen abends von den Teams. Vorwoche: ‹' : 'Keine Einträge in dieser Woche.'}
           </div>
         ) : (
           <>
