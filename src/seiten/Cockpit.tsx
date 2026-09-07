@@ -659,7 +659,7 @@ export function Cockpit() {
 
                           {z.gruene.length > 0 && (
                             <button type="button" className="btn-ghost w-full border-good text-good-deep" onClick={() => void freigeben(z.gruene)}>
-                              Grüne von {z.team.bezeichnung} freigeben ({z.gruene.length})
+                              {z.team.bezeichnung}: {z.gruene.length} {z.gruene.length === 1 ? 'Eintrag' : 'Einträge'} ohne Hinweis freigeben
                             </button>
                           )}
                         </>
@@ -674,8 +674,9 @@ export function Cockpit() {
 
         {!laedt && sichtbar.length > 0 && (
           <p className="flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-ink3">
+            <span><span className="mr-1 inline-block h-2 w-2 rounded-sm bg-surface ring-1 ring-line" />ohne Hinweis — noch nicht freigegeben</span>
             <span><span className="mr-1 inline-block h-2 w-2 rounded-sm bg-good-soft ring-1 ring-good/40" />freigegeben</span>
-            <span><span className="mr-1 inline-block h-2 w-2 rounded-sm bg-amber-200" />Regieverdacht</span>
+            <span><span className="mr-1 inline-block h-2 w-2 rounded-sm bg-amber-200" />Regieverdacht — anschauen</span>
             <span><span className="mr-1 inline-block h-2 w-2 rounded-sm bg-accent-soft ring-1 ring-accent/40" />über 10 h — anschauen</span>
             <span>– kein Eintrag · Zahl = Teamstunden am Tag</span>
           </p>
@@ -683,7 +684,7 @@ export function Cockpit() {
 
         {gruene.length > 0 && (
           <button type="button" className="cta cta-good" onClick={() => void freigeben(gruene)}>
-            Alles Grüne freigeben ({gruene.length})
+            Alle {gruene.length} Einträge ohne Hinweis freigeben
           </button>
         )}
       </div>
