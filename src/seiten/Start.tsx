@@ -18,6 +18,8 @@ interface Kennzahlen {
   regieMonatRappen: number;
 }
 
+const MONATE = ['Januar', 'Februar', 'März', 'April', 'Mai', 'Juni', 'Juli', 'August', 'September', 'Oktober', 'November', 'Dezember'];
+
 function NavKarte({ zu, titel, text }: { zu: string; titel: string; text: string }) {
   return (
     <Link to={zu} className="card flex items-center justify-between gap-3 hover:border-line-strong">
@@ -68,7 +70,8 @@ export function Start() {
         c.from('zeiteintrag').select('id,tagesmeldung!inner(datum)', { count: 'exact', head: true }).eq('status', 'offen').lt('tagesmeldung.datum', wochenStart),
         c.from('regierapport').select('betrag_rappen').in('status', ['versendet', 'rueckfrage']),
         c.from('regierapport').select('id', { count: 'exact', head: true }).or(`status.eq.frist_abgelaufen,and(status.eq.versendet,frist_bis.lt.${heuteIso})`),
-        c.from('regierapport').select('betrag_rappen').gte('erstellt_am', monatsStart).neq('status', 'entwurf'),
+        // Verschickt = Versanddatum zählt, nicht das Anlegen des Entwurfs
+        c.from('regierapport').select('betrag_rappen').gte('versendet_am', monatsStart).neq('status', 'entwurf'),
       ]);
       setK({
         offeneAuftraege: za.count ?? 0,
@@ -115,7 +118,7 @@ export function Start() {
             <Kachel zu="/zusatzauftrag" wert={String(k.offeneAuftraege)} label={k.heuteGeplant > 0 ? `offene Zusatzaufträge · ${k.heuteGeplant} heute` : 'offene Zusatzaufträge'} />
             <Kachel zu="/regie" wert={String(k.regieOffen)} label={`Regierapporte beim Kunden · ${formatChf(k.regieOffenRappen)}`} />
             <Kachel zu="/regie" wert={String(k.regieUeberfaellig)} label="Frist abgelaufen — nachfassen" warn={k.regieUeberfaellig > 0} />
-            <Kachel zu="/regie" wert={formatChf(k.regieMonatRappen)} label="Regie verschickt diesen Monat" />
+            <Kachel zu="/regie" wert={formatChf(k.regieMonatRappen)} label={`Regie an Kunden verschickt im ${MONATE[heute.getMonth()]}`} />
           </div>
         )}
 
