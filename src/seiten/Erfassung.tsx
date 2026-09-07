@@ -138,6 +138,11 @@ export function Erfassung() {
 
   const heute = new Date();
   const heuteIso = iso(heute);
+  // Gemeldet wird für einen Tag — normalerweise heute. Vergessen? Bis 7 Tage zurück nachtragen.
+  const [datum, setDatum] = useState<Date>(() => new Date());
+  const tagIso = iso(datum);
+  const istHeute = tagIso === heuteIso;
+  const fruehesterIso = iso(addTage(heute, -7));
   const team = teams.find((t) => t.id === teamId) ?? null;
 
   useEffect(() => {
@@ -159,19 +164,19 @@ export function Erfassung() {
 
   const heutigeLaden = useCallback(async () => {
     if (!teamId) return;
-    const lokal = (await offeneMeldungen()).filter((m) => (m.payload as unknown as MeldungPayload).team_id === teamId && (m.payload as unknown as MeldungPayload).datum === heuteIso);
+    const lokal = (await offeneMeldungen()).filter((m) => (m.payload as unknown as MeldungPayload).team_id === teamId && (m.payload as unknown as MeldungPayload).datum === tagIso);
     const liste: typeof heuteGemeldet = lokal.map((m) => {
       const p = m.payload as unknown as MeldungPayload;
       return { bezeichnung: kacheln.concat(alleGeplanten).find((b) => b.id === p.baustelle_id)?.bezeichnung ?? 'Baustelle', baustelle_id: p.baustelle_id, normalfall: p.normalfall, lokal: true, schluessel: m.client_uuid, freigegeben: false };
     });
     if (supabase) {
-      const { data } = await supabase.from('tagesmeldung').select('id,normalfall,baustelle_id,baustelle:baustelle_id(bezeichnung),zeiteintrag(status)').eq('team_id', teamId).eq('datum', heuteIso);
+      const { data } = await supabase.from('tagesmeldung').select('id,normalfall,baustelle_id,baustelle:baustelle_id(bezeichnung),zeiteintrag(status)').eq('team_id', teamId).eq('datum', tagIso);
       for (const d of (data ?? []) as unknown as { id: string; normalfall: boolean; baustelle_id: string; baustelle: { bezeichnung: string | null } | null; zeiteintrag: { status: string }[] }[]) {
         liste.push({ bezeichnung: d.baustelle?.bezeichnung ?? 'Baustelle', baustelle_id: d.baustelle_id, normalfall: d.normalfall, lokal: false, schluessel: d.id, freigegeben: d.zeiteintrag.some((z) => z.status === 'freigegeben') });
       }
     }
     setHeuteGemeldet(liste);
-  }, [teamId, heuteIso, kacheln, alleGeplanten]);
+  }, [teamId, tagIso, kacheln, alleGeplanten]);
 
   // Team gewählt → Leute, Kacheln (Plan + zuletzt), Vorbelegung
   useEffect(() => {
@@ -254,7 +259,7 @@ export function Erfassung() {
     if (normal) {
       const gleiche = heuteGemeldet.filter((m) => m.baustelle_id === baustelle.id && m.normalfall);
       if (gleiche.some((m) => m.freigegeben)) {
-        setHinweis(`Für ${baustelle.bezeichnung ?? baustelle.konto_nr} ist heute schon eine Meldung freigegeben. Änderungen macht der Bauführer in der Wochenübersicht.`);
+        setHinweis(`Für ${baustelle.bezeichnung ?? baustelle.konto_nr} ist an diesem Tag schon eine Meldung freigegeben. Änderungen macht der Bauführer in der Wochenübersicht.`);
         return;
       }
       if (gleiche.length > 0 && !ersetzen) {
@@ -266,7 +271,7 @@ export function Erfassung() {
     }
     const beteiligt = normal ? dabei : dabei.filter((p) => abLeute.has(p.id));
     const payload: MeldungPayload = {
-      id: crypto.randomUUID(), team_id: teamId!, datum: heuteIso, baustelle_id: baustelle.id,
+      id: crypto.randomUUID(), team_id: teamId!, datum: tagIso, baustelle_id: baustelle.id,
       normalfall: normal, abweichung_typ: normal ? null : abweichung, wer_hats_gewollt: normal ? null : wer,
       audio_sekunden: normal ? null : aufnahme?.sekunden ?? null, erfasst_von: userId,
       eintraege: beteiligt.map((p) => {
@@ -445,18 +450,46 @@ export function Erfassung() {
   return (
     <Shell zurueck>
       <div className="space-y-5">
-        <header className="flex items-baseline justify-between">
-          <div>
-            <h1 className="font-display text-2xl font-bold">{lang(heute)}</h1>
-            <button type="button" onClick={() => setSchritt('team')} className="mt-0.5 text-xs font-semibold text-steel">
-              {team?.bezeichnung ?? 'Team'}{team?.fahrzeug ? ` · ${team.fahrzeug}` : ''} · ändern
-            </button>
+        <header className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <div className="flex items-center gap-1.5">
+              <button type="button" className="btn-ghost px-2.5 py-1" disabled={tagIso <= fruehesterIso} onClick={() => setDatum((d) => addTage(d, -1))} aria-label="Tag zurück">◀</button>
+              <h1 className="font-display text-2xl font-bold">{istHeute ? 'Heute' : lang(datum)}</h1>
+              <button type="button" className="btn-ghost px-2.5 py-1" disabled={istHeute} onClick={() => setDatum((d) => addTage(d, 1))} aria-label="Tag vor">▶</button>
+            </div>
+            <p className="mt-0.5 text-xs text-ink3">
+              {istHeute ? lang(datum) : <span className="font-semibold text-accent-deep">Nachtrag — nicht heute</span>}
+              {' · '}
+              <button type="button" onClick={() => setSchritt('team')} className="font-semibold text-steel">
+                {team?.bezeichnung ?? 'Team'}{team?.fahrzeug ? ` · ${team.fahrzeug}` : ''} · ändern
+              </button>
+            </p>
           </div>
-          <span className="font-mono text-xs text-ink3">
+          <span className="shrink-0 font-mono text-xs text-ink3">
             {navigator.onLine ? 'online' : 'offline'}
             {wartend > 0 && <span className="ml-2 rounded bg-accent-soft px-1.5 py-0.5 font-semibold text-accent-deep">{wartend} wartet</span>}
           </span>
         </header>
+
+        {/* Schon gemeldet? Zuoberst, damit niemand doppelt meldet — und der Weg zum Nachtrag ist klar. */}
+        {heuteGemeldet.length > 0 && (
+          <section className="rounded-[14px] border border-good/40 bg-good-soft px-4 py-3">
+            <p className="text-sm font-semibold text-good-deep">
+              {istHeute ? 'Heute schon gemeldet' : `Für ${lang(datum)} schon gemeldet`}
+            </p>
+            <ul className="mt-1 space-y-0.5 text-sm text-ink2">
+              {heuteGemeldet.map((m, i) => (
+                <li key={i} className="flex items-center justify-between gap-2">
+                  <span>{m.normalfall ? '✓' : '⚑'} {m.bezeichnung}{!m.normalfall && <span className="ml-1 text-xs text-accent-deep">Abweichung</span>}</span>
+                  <span className="font-mono text-[11px] text-ink3">{m.lokal ? 'wartet auf Netz' : 'gesendet'}</span>
+                </li>
+              ))}
+            </ul>
+            <p className="mt-1.5 text-[11px] text-ink3">
+              Zweite Baustelle an diesem Tag? Unten antippen und speichern. Einen anderen Tag vergessen? Oben mit ◀ zurück.
+            </p>
+          </section>
+        )}
 
         <section>
           <p className="lbl">Wo wart ihr?</p>
@@ -535,14 +568,14 @@ export function Erfassung() {
         {doppelt && (
           <section className="card space-y-3 border-accent/40">
             <p className="text-sm">
-              <strong>Für {doppelt.bezeichnung} habt ihr heute schon gemeldet</strong>
+              <strong>Für {doppelt.bezeichnung} habt ihr {istHeute ? 'heute' : 'an diesem Tag'} schon gemeldet</strong>
               {doppelt.anzahl > 1 ? ` (${doppelt.anzahl}-mal)` : ''}. Nochmals speichern ersetzt die frühere Meldung.
             </p>
             <div className="grid grid-cols-2 gap-2">
               <button type="button" className="btn-ghost py-3" onClick={() => setDoppelt(null)}>Abbrechen</button>
               <button type="button" className="cta py-3" onClick={() => void speichern(true, true)}>Ersetzen</button>
             </div>
-            <p className="text-[11px] text-ink3">Wart ihr heute auf einer zweiten Baustelle? Dann oben die andere Baustelle antippen.</p>
+            <p className="text-[11px] text-ink3">Wart ihr an diesem Tag auf einer zweiten Baustelle? Dann oben die andere Baustelle antippen.</p>
           </section>
         )}
 
@@ -563,20 +596,6 @@ export function Erfassung() {
           </div>
         </div>
 
-        {heuteGemeldet.length > 0 && (
-          <section className="card">
-            <p className="lbl">Heute gemeldet</p>
-            <ul className="space-y-1 text-sm">
-              {heuteGemeldet.map((m, i) => (
-                <li key={i} className="flex items-center justify-between">
-                  <span>{m.normalfall ? '✓' : '⚑'} {m.bezeichnung}{!m.normalfall && <span className="ml-1 text-xs text-accent-deep">Abweichung</span>}</span>
-                  <span className="font-mono text-[11px] text-ink3">{m.lokal ? 'wartet auf Netz' : 'gesendet'}</span>
-                </li>
-              ))}
-            </ul>
-            <p className="mt-2 text-[11px] text-ink3">Noch eine Baustelle heute? Oben antippen und nochmals speichern.</p>
-          </section>
-        )}
       </div>
     </Shell>
   );
