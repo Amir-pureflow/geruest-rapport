@@ -93,7 +93,7 @@ export function Tag() {
                       {bs ? <>laut Plan: <span className="knr">{bs.konto_nr}</span> {bs.bezeichnung ?? ''}</> : 'heute nichts im Jahresplan'}
                     </p>
                   </div>
-                  <Link to="/cockpit" onClick={() => zurWoche(t.id)} className="btn-ghost shrink-0 text-xs">Woche ›</Link>
+                  <Link to={`/cockpit?woche=${tagIso}&tag=${tagIso}&team=${t.id}`} onClick={() => zurWoche(t.id)} className="btn-ghost shrink-0 text-xs">Woche ›</Link>
                 </div>
               );
             })}
@@ -123,7 +123,7 @@ export function Tag() {
                     </div>
                   ))}
                   <div className="text-right">
-                    <Link to="/cockpit" onClick={() => zurWoche(t.id)} className="text-xs font-semibold text-steel">Woche prüfen ›</Link>
+                    <Link to={`/cockpit?woche=${tagIso}&tag=${tagIso}&team=${t.id}`} onClick={() => zurWoche(t.id)} className="text-xs font-semibold text-steel">Woche prüfen ›</Link>
                   </div>
                 </div>
               );
