@@ -33,6 +33,14 @@ Deno.serve(async (req) => {
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
     );
 
+    // Wer sendet? Der angemeldete Bauführer — Antworten des Kunden sollen direkt zu ihm.
+    let absenderPerson: { email: string | null; name: string | null } = { email: null, name: null };
+    const jwt = (req.headers.get('Authorization') ?? '').replace(/^Bearer\s+/i, '');
+    if (jwt) {
+      const { data: u } = await supa.auth.getUser(jwt);
+      absenderPerson = { email: u.user?.email ?? null, name: (u.user?.user_metadata?.name as string | undefined) ?? null };
+    }
+
     const { data: conf } = await supa.from('konfiguration').select('schluessel,wert');
     const k: Record<string, string> = Object.fromEntries(
       (conf ?? []).map((r: { schluessel: string; wert: string }) => [r.schluessel, r.wert]),
@@ -62,20 +70,48 @@ Deno.serve(async (req) => {
       ? `<p>Unter dem Link sehen Sie die Positionen und ${fotoAnzahl === 1 ? 'ein Foto' : `${fotoAnzahl} Fotos`} von der Baustelle.</p>`
       : '<p>Unter dem Link sehen Sie die einzelnen Positionen.</p>';
 
+    // Gegen Spam-Einstufung: Text-Teil, sichtbarer Link, Antwortadresse einer echten Person, Fusszeile mit Absender.
+    const gruss = absenderPerson.name ? `Freundliche Grüsse<br>${absenderPerson.name}` : 'Freundliche Grüsse';
+    const firma = k.MAIL_FIRMA ?? 'Gerüst Rapport';
+    const fuss = `${firma}${absenderPerson.email ? ` · Rückfragen an ${absenderPerson.email}` : ''}`;
+
     const html = `
+      <div style="font-family:Arial,Helvetica,sans-serif;font-size:15px;line-height:1.5;color:#17242a">
       <p>Guten Tag</p>
-      <p>${r.anhang_pfad ? 'Im Anhang finden Sie' : 'Hiermit erhalten Sie'} den Regierapport für <strong>${bez}</strong>${chf ? ` über Fr. ${chf}` : ''}.</p>
+      <p>${r.anhang_pfad ? 'Im Anhang finden Sie' : 'Hiermit erhalten Sie'} den Regierapport für <strong>${bez}</strong> (Konto ${knr})${chf ? ` über Fr. ${chf}` : ''}.</p>
       ${fotoSatz}
-      <p>Bitte bestätigen Sie ihn mit einem Klick — ohne Anmeldung:</p>
+      <p>Bitte bestätigen Sie ihn unter diesem Link — ohne Anmeldung:</p>
       <p><a href="${link}" style="display:inline-block;background:#D82816;color:#ffffff;padding:12px 22px;border-radius:8px;text-decoration:none;font-weight:bold">Regierapport ansehen &amp; bestätigen</a></p>
-      <p style="color:#6C7B81;font-size:13px">Gemäss Vertrag ist der Rapport innert 3 Tagen gegenzuzeichnen.</p>`;
+      <p style="font-size:13px;color:#6C7B81">Oder den Link kopieren: ${link}</p>
+      <p style="font-size:13px;color:#6C7B81">Gemäss Vertrag ist der Rapport innert 3 Tagen gegenzuzeichnen.</p>
+      <p>${gruss}</p>
+      <p style="font-size:12px;color:#6C7B81;border-top:1px solid #dfe5e4;padding-top:8px">${fuss}</p>
+      </div>`;
+
+    const text = [
+      'Guten Tag',
+      '',
+      `${r.anhang_pfad ? 'Im Anhang finden Sie' : 'Hiermit erhalten Sie'} den Regierapport für ${bez} (Konto ${knr})${chf ? ` über Fr. ${chf}` : ''}.`,
+      fotoAnzahl && fotoAnzahl > 0 ? `Unter dem Link sehen Sie die Positionen und ${fotoAnzahl} Foto(s) von der Baustelle.` : 'Unter dem Link sehen Sie die einzelnen Positionen.',
+      '',
+      'Bitte bestätigen Sie ihn unter diesem Link — ohne Anmeldung:',
+      link,
+      '',
+      'Gemäss Vertrag ist der Rapport innert 3 Tagen gegenzuzeichnen.',
+      '',
+      absenderPerson.name ? `Freundliche Grüsse\n${absenderPerson.name}` : 'Freundliche Grüsse',
+      '',
+      fuss,
+    ].join('\n');
 
     const mail: Record<string, unknown> = {
-      from: k.MAIL_ABSENDER ?? 'onboarding@resend.dev',
+      from: k.MAIL_ABSENDER ?? `${firma} <onboarding@resend.dev>`,
       to: [empfaenger_email],
       subject: betreff,
       html,
+      text,
     };
+    if (absenderPerson.email) mail.reply_to = absenderPerson.email;
 
     if (r.anhang_pfad) {
       const { data: datei } = await supa.storage.from('anhaenge').download(r.anhang_pfad);
