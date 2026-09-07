@@ -346,7 +346,6 @@ export function Cockpit() {
     () => (filter === 'zutun' && zaehler.anschauen > 0 ? teamZeilen.filter((z) => z.rang === 0) : teamZeilen),
     [teamZeilen, filter, zaehler.anschauen],
   );
-  const zeigeTage = sichtbar.some((z) => z.rang === 0);
 
   // Der eine Knopf gilt für die ganze Woche, nicht nur für die sichtbaren Teams
   const gruene = useMemo(() => teamZeilen.flatMap((z) => z.gruene), [teamZeilen]);
@@ -519,19 +518,6 @@ export function Cockpit() {
           <section className="card overflow-hidden p-0">
             {/* Kopfzeile mit den Wochentagen — einmal, nicht pro Team */}
             {/* Schmal: nur die Tage (Team steht in jeder Zeile darüber). Breit: Team-Spalte + Tage in einer Zeile. */}
-            {zeigeTage && <div className="grid grid-cols-[repeat(7,minmax(0,1fr))_3rem] items-end gap-x-1 border-b border-line px-3 py-2 md:grid-cols-[minmax(15rem,1fr)_repeat(7,2.6rem)_3.5rem]">
-              <span className="hidden font-mono text-[11px] font-semibold uppercase tracking-wider text-ink3 md:block">Team · Chefmonteur</span>
-              {TAGE.map((t, i) => {
-                const markiert = markierterTag === iso(addTage(wochenStart, i));
-                return (
-                  <span key={t} className={'rounded-md text-center font-mono text-[10px] font-semibold uppercase ' + (markiert ? 'bg-steel text-white' : 'text-ink3')}>
-                    {t}<span className="block text-[9px] font-normal">{ch(addTage(wochenStart, i))}</span>
-                  </span>
-                );
-              })}
-              <span className="text-right font-mono text-[10px] font-semibold uppercase text-ink3">Std</span>
-            </div>}
-
             {sichtbar.map((z) => {
               const auf = offenesTeam === z.team.id;
               const faelle = verdachtsfaelle.filter((f) => f.meldung.team?.id === z.team.id);
@@ -562,9 +548,9 @@ export function Cockpit() {
                     <button
                       type="button"
                       onClick={() => teamUmschalten(z.team.id)}
-                      className="block w-full px-3 py-2 text-left md:grid md:grid-cols-[minmax(15rem,1fr)_repeat(7,2.6rem)_3.5rem] md:items-center md:gap-x-1"
+                      className="block w-full px-3 py-2 text-left"
                     >
-                      <span className="flex min-w-0 items-baseline justify-between gap-2 md:block md:pr-2">
+                      <span className="flex min-w-0 items-baseline justify-between gap-2">
                         <span className="min-w-0 truncate">
                           <span className="font-display text-[14px] font-bold">{z.team.bezeichnung}</span>
                           {z.team.chefmonteur && <span className="ml-1.5 font-body text-xs font-normal text-ink3">{kurzName(z.team.chefmonteur.name)}</span>}
@@ -574,20 +560,23 @@ export function Cockpit() {
                           tabIndex={0}
                           onClick={(e) => { e.stopPropagation(); zumHinweis(z); }}
                           onKeyDown={(e) => { if (e.key === 'Enter') { e.stopPropagation(); zumHinweis(z); } }}
-                          className="shrink-0 text-[11px] font-semibold text-accent-deep underline decoration-accent/40 underline-offset-2 md:ml-1.5"
+                          className="shrink-0 text-[11px] font-semibold text-accent-deep underline decoration-accent/40 underline-offset-2"
                         >
                           {z.wort} ›
                         </span>
                       </span>
-                      <span className="mt-1.5 grid grid-cols-[repeat(7,minmax(0,1fr))_3rem] items-center gap-x-1 md:contents">
-                        {z.tage.map((t) => {
+                      {/* Sieben Kästchen Mo–So in voller Breite; nur Hinweis-Tage tragen Wochentag + Stunden */}
+                      <span className="mt-1.5 grid grid-cols-[repeat(7,minmax(0,1fr))_3.2rem] items-center gap-x-1">
+                        {z.tage.map((t, i) => {
                           const hinweis = t.status === 'rot' || t.status === 'gelb';
                           return (
                             <span
                               key={t.datum}
-                              className={'block rounded-md py-1.5 text-center font-mono text-[11px] tabular-nums ' + (hinweis ? TEAM_ZELL_STIL[t.status] : 'text-ink3/60') + (markierterTag === t.datum && auf ? ' ring-2 ring-steel' : '')}
+                              className={'block rounded-md py-1 text-center font-mono text-[11px] leading-tight tabular-nums ' + (hinweis ? TEAM_ZELL_STIL[t.status] : 'text-ink3/50') + (markierterTag === t.datum && auf ? ' ring-2 ring-steel' : '')}
                             >
-                              {t.status === 'leer' ? '–' : hinweis ? Math.round(t.min / 60) : '·'}
+                              {hinweis
+                                ? <><span className="block text-[9px] font-semibold uppercase opacity-80">{TAGE[i]}</span>{Math.round(t.min / 60)} h</>
+                                : t.status === 'leer' ? '–' : '·'}
                             </span>
                           );
                         })}
