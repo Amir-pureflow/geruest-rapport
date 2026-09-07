@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Shell } from '../ui/Shell';
+import { FotoGalerie } from '../ui/FotoGalerie';
 import { supabase } from '../lib/supabase';
 import { minutenBetrag, formatChf, tarifNachCode } from '../lib/tarif';
 
@@ -32,6 +33,7 @@ interface Eintrag {
     audio_sekunden: number | null;
     team: { id: string; bezeichnung: string } | null;
     baustelle: { id: string; konto_nr: string; bezeichnung: string | null } | null;
+    foto: { id: string; pfad: string }[];
   };
 }
 
@@ -157,7 +159,7 @@ export function Cockpit() {
       supabase
         .from('zeiteintrag')
         .select(
-          'id,normal_min,ueber_min,status,mitarbeiter:mitarbeiter_id(id,name,funktion,typ),tagesmeldung:tagesmeldung_id!inner(id,datum,normalfall,abweichung_typ,wer_hats_gewollt,transkript,audio_pfad,audio_sekunden,team:team_id(id,bezeichnung),baustelle:baustelle_id(id,konto_nr,bezeichnung))',
+          'id,normal_min,ueber_min,status,mitarbeiter:mitarbeiter_id(id,name,funktion,typ),tagesmeldung:tagesmeldung_id!inner(id,datum,normalfall,abweichung_typ,wer_hats_gewollt,transkript,audio_pfad,audio_sekunden,team:team_id(id,bezeichnung),baustelle:baustelle_id(id,konto_nr,bezeichnung),foto(id,pfad))',
         )
         .gte('tagesmeldung.datum', vonIso)
         .lte('tagesmeldung.datum', bisIso),
@@ -615,6 +617,11 @@ export function Cockpit() {
                               <ul className="mt-1 space-y-0.5 text-xs text-ink2">
                                 {ausloeser.map((a) => <li key={a}>• {a}</li>)}
                               </ul>
+                              {meldung.foto?.length > 0 && (
+                                <div className="mt-2">
+                                  <FotoGalerie pfade={meldung.foto.map((f) => f.pfad)} klein />
+                                </div>
+                              )}
                               {meldung.transkript && (
                                 <p className="mt-2 rounded-[10px] bg-surface px-3 py-2 text-sm italic text-ink2">«{meldung.transkript}»</p>
                               )}

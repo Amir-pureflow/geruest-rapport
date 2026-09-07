@@ -3,6 +3,7 @@ import { Shell } from '../ui/Shell';
 import { supabase } from '../lib/supabase';
 import { enqueueMeldung, flushNachSupabase, offeneMeldungen, offeneAnzahl, lokaleMeldungEntfernen, type MeldungPayload } from '../lib/db';
 import { addTage, iso, lang } from '../lib/datum';
+import { fotoVerkleinern } from '../lib/foto';
 
 /**
  * Phase 2 — das Teamgerät. Ein Chefmonteur meldet für sein Team.
@@ -79,6 +80,50 @@ export function Erfassung() {
   const [abMin, setAbMin] = useState(60);
   const [abLeute, setAbLeute] = useState<Set<string>>(new Set());
   const [aufnahme, setAufnahme] = useState<{ blob: Blob; sekunden: number } | null>(null);
+  // Fotos zur Meldung — der Bauführer verlangt Bilder bei Regie; hier ohne Umweg über die Galerie
+  const [fotos, setFotos] = useState<{ id: string; blob: Blob; url: string }[]>([]);
+  const [fotoLaedt, setFotoLaedt] = useState(false);
+
+  async function fotosHinzufuegen(liste: FileList | null) {
+    if (!liste || liste.length === 0) return;
+    setFotoLaedt(true);
+    const neue: { id: string; blob: Blob; url: string }[] = [];
+    for (const datei of Array.from(liste).slice(0, 6)) {
+      try {
+        const blob = await fotoVerkleinern(datei);
+        neue.push({ id: crypto.randomUUID(), blob, url: URL.createObjectURL(blob) });
+      } catch {
+        setHinweis('Ein Bild konnte nicht gelesen werden.');
+      }
+    }
+    setFotos((f) => [...f, ...neue].slice(0, 8));
+    setFotoLaedt(false);
+  }
+  function fotoEntfernen(id: string) {
+    setFotos((f) => { const x = f.find((y) => y.id === id); if (x) URL.revokeObjectURL(x.url); return f.filter((y) => y.id !== id); });
+  }
+
+  /** Kamera-Knopf + Vorschau. Ein Element für Normalfall und Abweichung. */
+  function FotoLeiste({ text }: { text: string }) {
+    return (
+      <div className="rounded-[14px] border border-line bg-surface p-3">
+        <div className="flex flex-wrap items-center gap-2">
+          {fotos.map((f) => (
+            <span key={f.id} className="relative h-16 w-16 overflow-hidden rounded-[8px] border border-line">
+              <img src={f.url} alt="" className="h-full w-full object-cover" />
+              <button type="button" onClick={() => fotoEntfernen(f.id)} aria-label="Foto entfernen" className="absolute right-0.5 top-0.5 h-5 w-5 rounded-full bg-ink/80 text-[11px] font-bold leading-5 text-white">×</button>
+            </span>
+          ))}
+          <label className={'flex h-16 min-w-16 cursor-pointer items-center justify-center gap-2 rounded-[8px] border-2 border-dashed px-3 text-sm font-semibold ' + (fotos.length === 0 ? 'border-steel bg-steel-soft text-steel' : 'border-line-strong text-ink2')}>
+            <svg viewBox="0 0 24 24" className="h-6 w-6" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><path d="M4 8h3l2-3h6l2 3h3v11H4z" /><circle cx="12" cy="13" r="3.5" /></svg>
+            {fotoLaedt ? '…' : fotos.length === 0 ? 'Foto' : '+'}
+            <input type="file" accept="image/*" capture="environment" multiple className="hidden" onChange={(e) => { void fotosHinzufuegen(e.target.files); e.target.value = ''; }} />
+          </label>
+        </div>
+        <p className="mt-1.5 text-[11px] text-ink3">{text}</p>
+      </div>
+    );
+  }
   const [nimmtAuf, setNimmtAuf] = useState(false);
   const [sekunden, setSekunden] = useState(0);
   const [gespeichert, setGespeichert] = useState<string | null>(null);
@@ -230,7 +275,7 @@ export function Erfassung() {
         return { id: crypto.randomUUID(), mitarbeiter_id: p.id, normal_min: Math.min(min, 480), ueber_min: Math.max(0, min - 480), oev: normal ? a.oev : false, km: normal ? a.km : 0, baustelle_id: baustelle.id, konto_nr: baustelle.konto_nr };
       }),
     };
-    const clientUuid = await enqueueMeldung(payload, normal ? undefined : aufnahme?.blob);
+    const clientUuid = await enqueueMeldung(payload, normal ? undefined : aufnahme?.blob, fotos.map((f) => f.blob));
     setGespeichert('Lokal gespeichert …');
     if (supabase && navigator.onLine) {
       const erg = await flushNachSupabase(supabase);
@@ -250,6 +295,8 @@ export function Erfassung() {
     void offeneAnzahl().then(setWartend);
     setTimeout(() => setGespeichert(null), 3500);
     setAbweichung(null); setWer(null); setAufnahme(null); setAbMin(60); setAbLeute(new Set());
+    for (const f of fotos) URL.revokeObjectURL(f.url);
+    setFotos([]);
     setSchritt('tag');
   }
 
@@ -363,6 +410,8 @@ export function Erfassung() {
               ))}
             </div>
           </div>
+
+          <FotoLeiste text="Bitte Fotos machen — der Bauführer braucht Bilder bei Zusatzarbeit." />
 
           <div className={'rounded-[14px] border-2 border-dashed p-5 text-center ' + (nimmtAuf ? 'border-accent bg-accent-soft' : 'border-steel bg-steel-soft')}>
             {aufnahme ? (
@@ -480,6 +529,8 @@ export function Erfassung() {
           <p className="lbl">Wie lange — alle</p>
           <Stepper wert={teamMin} setWert={setzeTeamMin} schritt={30} min={30} format={(v) => (v / 60).toFixed(1) + ' h'} />
         </section>
+
+        <FotoLeiste text="Foto vom Stand heute — freiwillig, hilft dem Bauführer." />
 
         {doppelt && (
           <section className="card space-y-3 border-accent/40">

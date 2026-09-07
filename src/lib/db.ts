@@ -53,6 +53,13 @@ export interface LokalesAudio {
   blob: Blob;
 }
 
+/** Foto zu einer Meldung — id ist die spätere Zeile in `foto`, client_uuid die Meldung. */
+export interface LokalesFoto {
+  id: string;
+  client_uuid: string;
+  blob: Blob;
+}
+
 /** Eine Tagesmeldung samt Zeiteinträgen — ids werden auf dem Gerät vergeben. */
 export interface MeldungPayload {
   id: string;
@@ -80,6 +87,7 @@ class LokaleDb extends Dexie {
   meldungen!: Table<LokaleMeldung, string>;
   audio!: Table<LokalesAudio, string>;
   auftraege!: Table<LokalerAuftrag, string>;
+  fotos!: Table<LokalesFoto, string>;
 
   constructor() {
     super('geruest-rapport');
@@ -92,6 +100,12 @@ class LokaleDb extends Dexie {
       audio: 'client_uuid',
       auftraege: 'client_uuid, status, erstellt',
     });
+    this.version(3).stores({
+      meldungen: 'client_uuid, status, erstellt',
+      audio: 'client_uuid',
+      auftraege: 'client_uuid, status, erstellt',
+      fotos: 'id, client_uuid',
+    });
   }
 }
 
@@ -102,10 +116,11 @@ function neuerEintrag(payload: Record<string, unknown>): QueueEintrag {
 }
 
 /** Tagesmeldung lokal ablegen. Gibt die client_uuid zurück. */
-export async function enqueueMeldung(payload: MeldungPayload, audio?: Blob): Promise<string> {
+export async function enqueueMeldung(payload: MeldungPayload, audio?: Blob, fotos: Blob[] = []): Promise<string> {
   const e = neuerEintrag(payload as unknown as Record<string, unknown>);
   await db.meldungen.add(e);
   if (audio) await db.audio.add({ client_uuid: e.client_uuid, blob: audio });
+  for (const blob of fotos) await db.fotos.add({ id: crypto.randomUUID(), client_uuid: e.client_uuid, blob });
   return e.client_uuid;
 }
 
@@ -213,6 +228,19 @@ async function flushMeldungen(client: SupabaseClient): Promise<FlushErgebnis> {
         await db.audio.delete(e.client_uuid);
       }
 
+      // Fotos: eins nach dem andern, jedes idempotent (Pfad und Zeile über die id) — bricht eins ab, kommt der Rest beim nächsten Mal
+      const fotos = await db.fotos.where('client_uuid').equals(e.client_uuid).toArray();
+      let fotoFehler: string | null = null;
+      for (const f of fotos) {
+        const pfad = `fotos/${e.client_uuid}/${f.id}.jpg`;
+        const { error: e4 } = await client.storage.from('anhaenge').upload(pfad, f.blob, { upsert: true, contentType: 'image/jpeg' });
+        if (e4) { fotoFehler = 'Foto konnte nicht hochgeladen werden: ' + e4.message; break; }
+        const { error: e5 } = await client.from('foto').upsert({ id: f.id, tagesmeldung_id: p.id, pfad, erstellt_von: p.erfasst_von }, { onConflict: 'id', ignoreDuplicates: true });
+        if (e5) { fotoFehler = 'Foto: ' + e5.message; break; }
+        await db.fotos.delete(f.id);
+      }
+      if (fotoFehler) { fehler += 1; fehlerText = fotoFehler; continue; }
+
       await db.meldungen.update(e.client_uuid, { status: 'gesendet' });
       gesendet += 1;
     } catch (err) {
@@ -225,12 +253,12 @@ async function flushMeldungen(client: SupabaseClient): Promise<FlushErgebnis> {
 
 /** Eine noch nicht gesendete Meldung samt Sprachnotiz vom Gerät entfernen (Ersetzen einer Doppelmeldung). */
 export async function lokaleMeldungEntfernen(clientUuid: string): Promise<void> {
-  await Promise.all([db.meldungen.delete(clientUuid), db.audio.delete(clientUuid)]);
+  await Promise.all([db.meldungen.delete(clientUuid), db.audio.delete(clientUuid), db.fotos.where('client_uuid').equals(clientUuid).delete()]);
 }
 
 /** Lokale Warteschlange komplett leeren — nach Demo-Neustart zeigen alte Einträge ins Leere. */
 export async function lokaleWarteschlangeLeeren(): Promise<void> {
-  await Promise.all([db.meldungen.clear(), db.audio.clear(), db.auftraege.clear()]);
+  await Promise.all([db.meldungen.clear(), db.audio.clear(), db.auftraege.clear(), db.fotos.clear()]);
 }
 
 /** Alle lokalen Einträge zum Server schieben. */

@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useState, type ChangeEvent } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { Shell } from '../ui/Shell';
+import { FotoGalerie } from '../ui/FotoGalerie';
+import { fotoVerkleinern } from '../lib/foto';
 import { supabase } from '../lib/supabase';
 import { formatChf, materialmiete, tarifNachCode, positionBetrag, ETAPPE_MIN_RAPPEN } from '../lib/tarif';
 
@@ -33,7 +35,10 @@ interface Rapport {
     audio_sekunden: number | null;
     team: { id: string; bezeichnung: string; chefmonteur: { name: string } | null } | null;
     zeiteintrag: { normal_min: number; ueber_min: number; status: string; mitarbeiter: { name: string } | null }[];
+    foto: { id: string; pfad: string }[];
   } | null;
+  /** Vom Bauführer nachgereichte Bilder direkt am Rapport */
+  foto: { id: string; pfad: string }[];
   zusatzauftrag: { besteller_name: string; kanal: string; taetigkeit: string; geplant_fuer: string | null; bestellt_am: string; notiz: string | null } | null;
 }
 
@@ -93,6 +98,31 @@ export function RegieDetail() {
   const [kopiert, setKopiert] = useState(false);
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
 
+  const [fotoLaedt, setFotoLaedt] = useState(false);
+  /** Bilder nachreichen — z. B. vom Bauführer selbst gemacht oder per Mail vom Team bekommen. */
+  async function fotosNachreichen(e: ChangeEvent<HTMLInputElement>) {
+    const dateien = e.target.files;
+    e.target.value = '';
+    if (!supabase || !id || !dateien || dateien.length === 0) return;
+    setFotoLaedt(true);
+    const { data: u } = await supabase.auth.getUser();
+    for (const datei of Array.from(dateien).slice(0, 6)) {
+      try {
+        const blob = await fotoVerkleinern(datei);
+        const fid = crypto.randomUUID();
+        const pfad = `fotos/rapport/${id}/${fid}.jpg`;
+        const { error: e1 } = await supabase.storage.from('anhaenge').upload(pfad, blob, { upsert: true, contentType: 'image/jpeg' });
+        if (e1) { setFehler('Foto: ' + e1.message); break; }
+        const { error: e2 } = await supabase.from('foto').insert({ id: fid, regierapport_id: id, pfad, erstellt_von: u.user?.id ?? null });
+        if (e2) { setFehler('Foto: ' + e2.message); break; }
+      } catch {
+        setFehler('Ein Bild konnte nicht gelesen werden.');
+      }
+    }
+    setFotoLaedt(false);
+    void laden();
+  }
+
   async function sprachnotizAnhoeren(pfad: string) {
     if (!supabase) return;
     const { data } = await supabase.storage.from('anhaenge').createSignedUrl(pfad, 300);
@@ -104,7 +134,7 @@ export function RegieDetail() {
     const [r, p, l] = await Promise.all([
       supabase
         .from('regierapport')
-        .select('id,status,betrag_rappen,frist_bis,versendet_am,bestaetigt_am,empfaenger_email,anhang_pfad,link_token,baustelle:baustelle_id(bezeichnung,konto_nr,kunde:kunde_id(email,ansprechperson)),tagesmeldung:tagesmeldung_id(id,datum,abweichung_typ,wer_hats_gewollt,transkript,audio_pfad,audio_sekunden,team:team_id(id,bezeichnung,chefmonteur:chefmonteur_id(name)),zeiteintrag(normal_min,ueber_min,status,mitarbeiter:mitarbeiter_id(name))),zusatzauftrag:zusatzauftrag_id(besteller_name,kanal,taetigkeit,geplant_fuer,bestellt_am,notiz)')
+        .select('id,status,betrag_rappen,frist_bis,versendet_am,bestaetigt_am,empfaenger_email,anhang_pfad,link_token,baustelle:baustelle_id(bezeichnung,konto_nr,kunde:kunde_id(email,ansprechperson)),tagesmeldung:tagesmeldung_id(id,datum,abweichung_typ,wer_hats_gewollt,transkript,audio_pfad,audio_sekunden,team:team_id(id,bezeichnung,chefmonteur:chefmonteur_id(name)),zeiteintrag(normal_min,ueber_min,status,mitarbeiter:mitarbeiter_id(name)),foto(id,pfad)),foto(id,pfad),zusatzauftrag:zusatzauftrag_id(besteller_name,kanal,taetigkeit,geplant_fuer,bestellt_am,notiz)')
         .eq('id', id)
         .single(),
       supabase.from('regie_position').select('id,tarif_code,bezeichnung,menge_hundertstel,ansatz_rappen,betrag_rappen').eq('regierapport_id', id),
@@ -315,6 +345,12 @@ export function RegieDetail() {
                       <span className="text-ink3"> · zusammen {(total / 60).toFixed(1)} h</span>
                     </p>
                   )}
+                  {m.foto?.length > 0 && (
+                    <div>
+                      <p className="mb-1 text-[11px] text-ink3">Fotos vom Team · {m.foto.length}</p>
+                      <FotoGalerie pfade={m.foto.map((f) => f.pfad)} />
+                    </div>
+                  )}
                   {m.transkript && <p className="rounded-[10px] bg-ground px-3 py-2 italic text-ink2">«{m.transkript}»</p>}
                   {(m.audio_pfad || m.audio_sekunden) && (
                     <div className="flex items-center gap-2">
@@ -353,6 +389,17 @@ export function RegieDetail() {
             )}
           </section>
         )}
+
+        <section className="card space-y-2">
+          <p className="lbl mb-0">Bilder zum Rapport</p>
+          {rapport.foto?.length > 0
+            ? <FotoGalerie pfade={rapport.foto.map((f) => f.pfad)} />
+            : <p className="text-xs text-ink3">{rapport.tagesmeldung?.foto?.length ? 'Die Bilder des Teams stehen oben beim Ursprung.' : 'Noch keine Bilder — der Kunde will sehen, was gemacht wurde.'}</p>}
+          <label className="btn-ghost inline-block cursor-pointer">
+            {fotoLaedt ? 'lädt …' : '+ Bilder nachreichen'}
+            <input type="file" accept="image/*" multiple className="hidden" onChange={(e) => void fotosNachreichen(e)} />
+          </label>
+        </section>
 
         <section className="card">
           <p className="lbl">Positionen · SGUV 2026/27</p>
