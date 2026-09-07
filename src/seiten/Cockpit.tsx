@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
 import { Shell } from '../ui/Shell';
 import { supabase } from '../lib/supabase';
 import { minutenBetrag, formatChf, tarifNachCode } from '../lib/tarif';
@@ -122,6 +122,17 @@ export function Cockpit() {
     return t && t !== 'alle' ? t : null;
   });
   const [audio, setAudio] = useState<{ meldung: string; url: string } | null>(null);
+  // Herkunft «vom Regierapport»: markierter Tag + Meldung, Rücksprung, und das Team ins Bild scrollen
+  const markierterTag = params.get('tag');
+  const herkunftRapport = params.get('rapport');
+  const markierteMeldung = params.get('meldung');
+  const zielRef = useRef<HTMLDivElement | null>(null);
+  const gescrollt = useRef(false);
+  useEffect(() => {
+    if (laedt || gescrollt.current || !zielRef.current) return;
+    gescrollt.current = true;
+    zielRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, [laedt]);
 
   useEffect(() => {
     if (!supabase) return;
@@ -428,6 +439,15 @@ export function Cockpit() {
           </div>
         </header>
 
+        {herkunftRapport && (
+          <div className="flex items-center justify-between gap-3 rounded-[12px] border border-steel/40 bg-steel-soft px-4 py-2.5 text-sm">
+            <span>
+              Sicht aus dem Regierapport{markierterTag ? <> — markiert ist <strong>{ch(new Date(markierterTag + 'T12:00:00'))}</strong></> : ''}
+            </span>
+            <Link to={`/regie/${herkunftRapport}`} className="shrink-0 font-semibold text-steel">‹ zurück zum Rapport</Link>
+          </div>
+        )}
+
         {!laedt && teams.length > 0 && (
           <p className="text-sm text-ink2">
             <strong>{zaehler.gemeldet} von {teams.length} Teams</strong> haben gemeldet
@@ -463,11 +483,14 @@ export function Cockpit() {
             {/* Schmal: nur die Tage (Team steht in jeder Zeile darüber). Breit: Team-Spalte + Tage in einer Zeile. */}
             <div className="grid grid-cols-[repeat(7,minmax(0,1fr))_3rem] items-end gap-x-1 border-b border-line px-3 py-2 md:grid-cols-[minmax(15rem,1fr)_repeat(7,2.6rem)_3.5rem]">
               <span className="hidden font-mono text-[11px] font-semibold uppercase tracking-wider text-ink3 md:block">Team · Chefmonteur · Baustelle</span>
-              {TAGE.map((t, i) => (
-                <span key={t} className="text-center font-mono text-[10px] font-semibold uppercase text-ink3">
-                  {t}<span className="block text-[9px] font-normal">{ch(addTage(wochenStart, i))}</span>
-                </span>
-              ))}
+              {TAGE.map((t, i) => {
+                const markiert = markierterTag === iso(addTage(wochenStart, i));
+                return (
+                  <span key={t} className={'rounded-md text-center font-mono text-[10px] font-semibold uppercase ' + (markiert ? 'bg-steel text-white' : 'text-ink3')}>
+                    {t}<span className="block text-[9px] font-normal">{ch(addTage(wochenStart, i))}</span>
+                  </span>
+                );
+              })}
               <span className="text-right font-mono text-[10px] font-semibold uppercase text-ink3">Std</span>
             </div>
 
@@ -475,7 +498,7 @@ export function Cockpit() {
               const auf = offenesTeam === z.team.id;
               const faelle = verdachtsfaelle.filter((f) => f.meldung.team?.id === z.team.id);
               return (
-                <div key={z.team.id} className={'border-b border-line last:border-b-0 ' + (auf ? 'bg-steel-soft/30' : '')}>
+                <div key={z.team.id} ref={auf ? zielRef : undefined} className={'scroll-mt-20 border-b border-line last:border-b-0 ' + (auf ? 'bg-steel-soft/30' : '')}>
                   <button
                     type="button"
                     onClick={() => teamUmschalten(z.team.id)}
@@ -507,7 +530,7 @@ export function Cockpit() {
                       {z.tage.map((t) => (
                         <span
                           key={t.datum}
-                          className={'block rounded-md py-1.5 text-center font-mono text-[11px] tabular-nums ' + TEAM_ZELL_STIL[t.status]}
+                          className={'block rounded-md py-1.5 text-center font-mono text-[11px] tabular-nums ' + TEAM_ZELL_STIL[t.status] + (markierterTag === t.datum && auf ? ' ring-2 ring-steel' : '')}
                         >
                           {t.status === 'leer' ? '–' : t.status === 'frei' ? '✓' : Math.round(t.min / 60)}
                         </span>
@@ -541,7 +564,7 @@ export function Cockpit() {
                                           <button
                                             type="button"
                                             onClick={() => setGewaehlt(aktiv ? null : { mit: mitId, datum })}
-                                            className={'w-full rounded-md px-1 py-1.5 font-mono text-xs tabular-nums transition ' + ZELL_STIL[st] + (aktiv ? ' ring-2 ring-accent' : '')}
+                                            className={'w-full rounded-md px-1 py-1.5 font-mono text-xs tabular-nums transition ' + ZELL_STIL[st] + (aktiv ? ' ring-2 ring-accent' : markierterTag === datum ? ' ring-2 ring-steel' : '')}
                                           >
                                             {st === 'leer' ? '–' : stunden(summe)}
                                           </button>
@@ -582,9 +605,11 @@ export function Cockpit() {
                           )}
 
                           {faelle.map(({ meldung, eintraege: liste, ausloeser }) => (
-                            <div key={meldung.id} className="rounded-[12px] border border-amber-300 bg-amber-50 p-3">
+                            <div key={meldung.id} className={'rounded-[12px] border border-amber-300 bg-amber-50 p-3' + (markierteMeldung === meldung.id ? ' ring-2 ring-steel' : '')}>
                               <div className="flex items-baseline justify-between gap-2">
-                                <span className="font-display text-[14px] font-bold">Regieverdacht · {meldung.baustelle?.bezeichnung ?? '—'}</span>
+                                <span className="font-display text-[14px] font-bold">
+                                  {markierteMeldung === meldung.id ? 'Diese Meldung · ' : 'Regieverdacht · '}{meldung.baustelle?.bezeichnung ?? '—'}
+                                </span>
                                 <span className="font-mono text-xs text-ink3">{ch(new Date(meldung.datum + 'T12:00:00'))}</span>
                               </div>
                               <ul className="mt-1 space-y-0.5 text-xs text-ink2">

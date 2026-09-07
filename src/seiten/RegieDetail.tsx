@@ -327,7 +327,7 @@ export function RegieDetail() {
                     </div>
                   )}
                   {m.team && (
-                    <Link to={`/cockpit?woche=${m.datum}&team=${m.team.id}`} className="inline-block font-semibold text-steel">
+                    <Link to={`/cockpit?woche=${m.datum}&tag=${m.datum}&team=${m.team.id}&meldung=${m.id}&rapport=${rapport.id}`} className="inline-block font-semibold text-steel">
                       Diese Woche in der Wochenübersicht anschauen ›
                     </Link>
                   )}
