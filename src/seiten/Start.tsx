@@ -96,7 +96,7 @@ export function Start() {
           </span>
         </header>
 
-        <Link to="/zusatzauftrag" className="block rounded-[14px] bg-accent p-5 text-white shadow-[0_3px_14px_rgb(226_90_28/0.35)] transition active:bg-accent-deep">
+        <Link to="/zusatzauftrag" className="block rounded-[14px] bg-accent p-5 text-white shadow-[0_3px_14px_rgb(216_40_22/0.35)] transition active:bg-accent-deep">
           <span className="block font-display text-lg font-extrabold">+ Zusatzarbeit</span>
           <span className="mt-0.5 block text-sm text-white/85">Kundenbestellung festhalten, während er noch am Telefon ist — 20 Sekunden</span>
         </Link>

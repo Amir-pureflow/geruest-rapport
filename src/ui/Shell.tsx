@@ -8,7 +8,7 @@ export function Marke({ className = 'h-7 w-7' }: { className?: string }) {
       <svg viewBox="0 0 24 24" className="h-[60%] w-[60%]" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round">
         <path d="M5 4v16M19 4v16" />
         <path d="M5 8h14M5 13h14M5 18h14" />
-        <path d="M9 8l6 5M9 13l6 5" className="text-accent" stroke="#e25a1c" />
+        <path d="M9 8l6 5M9 13l6 5" className="text-accent" stroke="#d82816" />
       </svg>
     </span>
   );

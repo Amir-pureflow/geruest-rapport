@@ -19,9 +19,9 @@
   --color-ink: #17242a; /* tiefes Stahlblau, fast schwarz */
   --color-ink2: #46565d;
   --color-ink3: #6c7b81;
-  --color-accent: #e25a1c; /* Signal-Orange */
-  --color-accent-deep: #b94712;
-  --color-accent-soft: #fcede4;
+  --color-accent: #d82816; /* Firmenrot geruestgmbh.ch (07.09.) */
+  --color-accent-deep: #a91d10;
+  --color-accent-soft: #fbe8e5;
   --color-steel: #29506b;
   --color-steel-soft: #e3edf3;
   --color-good: #1e7a4c;
@@ -83,7 +83,7 @@
     font-weight: 800;
     letter-spacing: 0.02em;
     color: #fff;
-    box-shadow: 0 2px 10px rgb(226 90 28 / 0.3);
+    box-shadow: 0 2px 10px rgb(216 40 22 / 0.3);
     transition: background 120ms;
   }
   .cta:active {

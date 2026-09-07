@@ -376,7 +376,7 @@ export function Erfassung() {
           <p className="lbl mb-0">{SYMBOLE.find((s) => s.typ === abweichung)?.label}</p>
           <h1 className="font-display text-2xl font-bold">Wer wollte das?</h1>
           <div className="grid grid-cols-3 gap-2">
-            {([['kunde', 'Kunde', '#E25A1C'], ['chef', 'Unser Chef', '#29506B'], ['niemand', 'Niemand', '']] as const).map(([w, label, farbe]) => (
+            {([['kunde', 'Kunde', '#D82816'], ['chef', 'Unser Chef', '#29506B'], ['niemand', 'Niemand', '']] as const).map(([w, label, farbe]) => (
               <button key={w} type="button" onClick={() => { setWer(w); setSchritt('notiz'); }} className="chip flex flex-col items-center gap-2 py-5">
                 {farbe ? <Helm farbe={farbe} /> : (
                   <svg viewBox="0 0 48 40" className="h-10 w-12" aria-hidden="true"><circle cx="24" cy="20" r="12" fill="none" stroke="#6C7B81" strokeWidth="3" /><line x1="15.5" y1="28.5" x2="32.5" y2="11.5" stroke="#6C7B81" strokeWidth="3" /></svg>
@@ -422,9 +422,9 @@ export function Erfassung() {
               </div>
             ) : (
               <button type="button" onClick={() => (nimmtAuf ? aufnahmeStop() : void aufnahmeStart())} className="w-full">
-                <svg viewBox="0 0 40 48" className="mx-auto h-11 w-9" aria-hidden="true" fill={nimmtAuf ? '#E25A1C' : '#29506B'}>
+                <svg viewBox="0 0 40 48" className="mx-auto h-11 w-9" aria-hidden="true" fill={nimmtAuf ? '#D82816' : '#29506B'}>
                   <rect x="13" y="4" width="14" height="24" rx="7" />
-                  <path d="M8 22a12 12 0 0 0 24 0" fill="none" stroke={nimmtAuf ? '#E25A1C' : '#29506B'} strokeWidth="3.5" strokeLinecap="round" />
+                  <path d="M8 22a12 12 0 0 0 24 0" fill="none" stroke={nimmtAuf ? '#D82816' : '#29506B'} strokeWidth="3.5" strokeLinecap="round" />
                   <rect x="18.2" y="34" width="3.6" height="8" rx="1.8" />
                 </svg>
                 <span className="mt-2 block font-display font-bold">{nimmtAuf ? `Aufnahme läuft · ${sekunden} Sek. — antippen zum Stoppen` : 'Antippen und kurz erzählen, was war'}</span>
