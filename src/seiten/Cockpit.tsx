@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import { Shell } from '../ui/Shell';
 import { FotoGalerie } from '../ui/FotoGalerie';
 import { supabase } from '../lib/supabase';
@@ -118,7 +118,6 @@ export function Cockpit() {
   const [gewaehlt, setGewaehlt] = useState<{ mit: string; datum: string } | null>(null);
   const [userId, setUserId] = useState<string | null>(null);
   const [laedt, setLaedt] = useState(true);
-  const navigiere = useNavigate();
   const [teams, setTeams] = useState<Team[]>([]);
   // Standard «Zu tun»: nur Teams mit Hinweis. Kommt man gezielt zu einem Team (Tagesübersicht/Rapport), alle zeigen.
   const [filter, setFilter] = useState<Filter>(() => (params.get('team') ? 'alle' : 'zutun'));
@@ -394,47 +393,6 @@ export function Cockpit() {
       neu: String(neu),
     });
     void laden();
-  }
-
-  /** Gelbe Karte → Regierapport-Entwurf: Positionen aus den Zeiteinträgen, Betrag nach SGUV. */
-  async function regierapportErstellen(fall: { meldung: Eintrag['tagesmeldung']; eintraege: Eintrag[] }) {
-    if (!supabase) return;
-    const bs = fall.meldung.baustelle;
-    if (!bs) return;
-    // Gibt es schon einen (auch frisch, falls die Liste alt ist)? Dann dorthin statt Doppel.
-    const { data: vorhanden } = await supabase.from('regierapport').select('id').eq('tagesmeldung_id', fall.meldung.id).order('erstellt_am').limit(1);
-    if (vorhanden && vorhanden.length > 0) { navigiere(`/regie/${vorhanden[0].id}`); return; }
-    const { data: r, error } = await supabase
-      .from('regierapport')
-      .insert({
-        baustelle_id: bs.id,
-        zusatzauftrag_id: auftragProBaustelle.get(bs.id)?.id ?? null,
-        tagesmeldung_id: fall.meldung.id, // Ursprung — vom Rapport zurück zur Meldung
-        betrag_rappen: betragVorgerechnet(fall.eintraege),
-      })
-      .select('id')
-      .single();
-    if (error || !r) return;
-    await supabase.from('regie_position').insert(
-      fall.eintraege.map((e) => {
-        const min = e.normal_min + e.ueber_min;
-        let ansatz = 10800;
-        try {
-          ansatz = tarifNachCode(e.mitarbeiter.funktion).ansatz_rappen;
-        } catch {
-          /* unbekannte Funktion → Monteursansatz */
-        }
-        return {
-          regierapport_id: r.id,
-          tarif_code: e.mitarbeiter.funktion,
-          bezeichnung: `${e.mitarbeiter.name} · ${stunden(min)} h`,
-          menge_hundertstel: Math.round((min * 100) / 60),
-          ansatz_rappen: ansatz,
-          betrag_rappen: minutenBetrag(min, ansatz),
-        };
-      }),
-    );
-    navigiere(`/regie/${r.id}`);
   }
 
   const detail = gewaehlt
@@ -721,9 +679,9 @@ export function Cockpit() {
                                       Regierapport {meldung.regierapport[0].status === 'entwurf' ? '(Entwurf)' : '(' + meldung.regierapport[0].status + ')'} ›
                                     </Link>
                                   ) : (
-                                    <button type="button" onClick={() => void regierapportErstellen({ meldung, eintraege: liste })} className="btn-ghost shrink-0 border-accent text-accent-deep">
-                                      → Regierapport
-                                    </button>
+                                    <Link to={`/regie/neu?meldung=${meldung.id}`} className="btn-ghost shrink-0 border-accent text-accent-deep">
+                                      Rapport ansehen ›
+                                    </Link>
                                   )}
                                 </div>
                               )}

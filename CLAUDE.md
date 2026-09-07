@@ -110,7 +110,9 @@ src/seiten/Zusatzauftrag.tsx      Stufe 1: Kundenbestellung in 20 Sek. (offline)
 src/seiten/Tag.tsx                Tagesübersicht: welche Teams haben gemeldet, welche nicht (Ziel der Start-Kachel)
 src/seiten/Erfassung.tsx          Teamgerät: Kacheln, Anwesenheit, Pfeile, Symbole, Sprachnotiz
 src/seiten/Cockpit.tsx            Wochenübersicht: Teamzeilen mit Wochenampel → Personen, Freigabe, Korrektur, Regieverdacht
-src/seiten/RegieListe/Detail.tsx  Regierapporte: Positionen, Anhang, Versand, Chronik
+src/seiten/RegieVorschau.tsx      Vorschau aus der Meldung — gespeichert wird erst auf «Als Entwurf speichern»
+src/seiten/RegieListe/Detail.tsx  Regierapporte: Positionen, Anhang, Versand, Chronik, Entwurf verwerfen
+src/lib/regie.ts                  Positionen aus Zeiteinträgen, Rapport anlegen (nie doppelt pro Meldung)
 src/seiten/Export.tsx             SORBA-Raster + Excel (Lohn, Temporärbüro)
 src/seiten/Board.tsx              Jahresplan Team × KW, Verschiebungen → planaenderung
 src/seiten/verwaltung/*           Mitarbeitende, Teams, Kunden, Baustellen, Demo

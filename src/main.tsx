@@ -12,6 +12,7 @@ import { Anmelden } from './seiten/Anmelden';
 import { Zusatzauftrag } from './seiten/Zusatzauftrag';
 import { RegieListe } from './seiten/RegieListe';
 import { RegieDetail } from './seiten/RegieDetail';
+import { RegieVorschau } from './seiten/RegieVorschau';
 import { Export } from './seiten/Export';
 import { Board } from './seiten/Board';
 import { Verwaltung } from './seiten/verwaltung/Verwaltung';
@@ -54,6 +55,7 @@ function App() {
         {eingeloggt && <Route path="/heute" element={<Tag />} />}
         {eingeloggt && <Route path="/cockpit" element={<Cockpit />} />}
         {eingeloggt && <Route path="/regie" element={<RegieListe />} />}
+        {eingeloggt && <Route path="/regie/neu" element={<RegieVorschau />} />}
         {eingeloggt && <Route path="/regie/:id" element={<RegieDetail />} />}
         {eingeloggt && <Route path="/export" element={<Export />} />}
         {eingeloggt && <Route path="/board" element={<Board />} />}
