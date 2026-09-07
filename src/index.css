@@ -4,7 +4,7 @@
  * Designsystem «Gerüst Rapport» — hell, weil die App draussen benutzt wird.
  * Farbwelt aus dem Gerüstbau: Signal-Orange (Absperrband) als einzige
  * Aktionsfarbe, tiefes Stahlblau als Tinte, heller Beton-Grund.
- * Signatur: der Streifen (.stripe) unter der Kopfzeile — einmal, nicht überall.
+ * Signatur: Bildmarke (drei Gerüstlagen) + Wortmarke in einer ruhigen, haftenden Kopfzeile.
  */
 
 @theme {
@@ -54,18 +54,12 @@
 }
 
 @layer components {
-  /* Kopfzeile mit Absperrband-Signatur */
+  /* Kopfzeile: leicht durchscheinend, haftet oben, feine Trennlinie — kein Absperrband mehr (07.09.) */
   .appbar {
-    background: var(--color-surface);
+    background: rgb(255 255 255 / 0.86);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
     border-bottom: 1px solid var(--color-line);
-  }
-  .stripe {
-    height: 4px;
-    background: repeating-linear-gradient(
-      135deg,
-      var(--color-accent) 0 10px,
-      var(--color-ink) 10px 20px
-    );
   }
 
   .card {

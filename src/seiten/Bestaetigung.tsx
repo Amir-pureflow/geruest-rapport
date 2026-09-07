@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
+import { Marke, Wortmarke } from '../ui/Shell';
 import { supabaseUrl } from '../lib/supabase';
 import { formatChf } from '../lib/tarif';
 
@@ -76,7 +77,9 @@ export function Bestaetigung() {
 
   return (
     <div className="min-h-screen">
-      <div className="stripe" aria-hidden="true" />
+      <header className="appbar">
+        <div className="mx-auto flex h-14 max-w-md items-center gap-2.5 px-5"><Marke /><Wortmarke /></div>
+      </header>
       <main className="mx-auto max-w-md px-5 py-8 space-y-5">
         {zustand === 'laedt' && <div className="card text-sm text-ink3">Lädt …</div>}
 

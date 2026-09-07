@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from 'react';
 import { supabase } from '../lib/supabase';
+import { Marke, Wortmarke } from '../ui/Shell';
 
 /**
  * Login per Magic Link — kein Passwort (CLAUDE.md: einfachste Bedienung).
@@ -31,12 +32,10 @@ export function Anmelden() {
 
   return (
     <div className="flex min-h-screen flex-col">
-      <div className="stripe" aria-hidden="true" />
       <main className="mx-auto flex w-full max-w-md flex-1 flex-col justify-center px-5 py-10">
         <div className="mb-8 text-center">
-          <p className="font-display text-[15px] font-extrabold uppercase tracking-[0.18em]">
-            Gerüst <span className="text-accent">Rapport</span>
-          </p>
+          <div className="mb-3 flex justify-center"><Marke className="h-12 w-12 rounded-[12px]" /></div>
+          <p><Wortmarke gross /></p>
           <p className="mt-2 text-sm text-ink3">
             Anmelden — du bekommst einen Link per Mail. Kein Passwort.
           </p>
