@@ -8,8 +8,9 @@ import { minutenBetrag, formatChf, tarifNachCode } from '../lib/tarif';
 /**
  * Phase 3 — Wochenübersicht des Bauführers.
  *
- * Aufbau (07.09.): zuerst alle Teams als Zeilen mit Wochenampel Mo–So, sortiert nach
- * «wo ist etwas zu tun», dann per Klick die Personen eines Teams. Kein Dropdown.
+ * Aufbau (08.09.): «Zu tun» zuerst. Teams mit Hinweis zeigen Kästchen (nur Hinweis-Tage farbig),
+ * Teams ohne Hinweis sind eine ruhige Zeile. Ein Knopf oben gibt alles ohne Hinweis frei.
+ * Grün ist Hintergrund, nicht Inhalt — der Bauführer soll in 3 Sekunden sehen, was ihn braucht.
  *
  * Harte Regel #1: Das System sagt NIE «diese Stunden sind falsch».
  * Jede Markierung nennt ihre Quelle («weicht ab von X», «offener Zusatzauftrag»)
@@ -48,7 +49,7 @@ interface OffenerAuftrag {
 }
 
 type ZellStatus = 'leer' | 'gruen' | 'gelb' | 'rot' | 'frei';
-type Filter = 'alle' | 'anschauen' | 'offen' | 'fertig';
+type Filter = 'zutun' | 'alle';
 
 const TAGE = ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'];
 const ZEHN_STUNDEN_MIN = 600;
@@ -117,7 +118,10 @@ export function Cockpit() {
   const [laedt, setLaedt] = useState(true);
   const navigiere = useNavigate();
   const [teams, setTeams] = useState<Team[]>([]);
-  const [filter, setFilter] = useState<Filter>('alle');
+  // Standard «Zu tun»: nur Teams mit Hinweis. Kommt man gezielt zu einem Team (Tagesübersicht/Rapport), alle zeigen.
+  const [filter, setFilter] = useState<Filter>(() => (params.get('team') ? 'alle' : 'zutun'));
+  // Aufgeklappte Teams mit Hinweis zeigen zuerst nur die Personen mit Hinweis — hier: wer «alle zeigen» gedrückt hat
+  const [alleLeute, setAlleLeute] = useState<Set<string>>(new Set());
   // Aufgeklapptes Team — die Tagesübersicht («Woche prüfen ›») setzt denselben Schlüssel
   const [offenesTeam, setOffenesTeam] = useState<string | null>(() => {
     const t = params.get('team') ?? localStorage.getItem('cockpit-team');
@@ -278,6 +282,11 @@ export function Cockpit() {
       schlimmster: ZellStatus;
       wort: string;
       rang: number;
+      /** Erste Zelle mit Hinweis — Ziel beim Klick aufs Statuswort */
+      hinweisZelle: { mit: string; datum: string } | null;
+      /** Personen, die mindestens einen Hinweis-Tag haben */
+      leuteMitHinweis: Set<string>;
+      tageMitEintrag: number;
     };
     const zeilen: Zeile[] = teams.map((team) => {
       const leute = personen.filter(([, p]) => p.teamId === team.id);
@@ -307,7 +316,19 @@ export function Cockpit() {
       else if (alle.length === 0) { wort = 'keine Meldung'; rang = 3; }
       else if (offen > 0) { wort = `${offen} offen`; rang = 1; }
       else { wort = 'fertig'; rang = 2; }
-      return { team, tage, leute, baustellen: [...bsMap.values()], offen, gruene, totalMin, schlimmster, wort, rang };
+      let hinweisZelle: { mit: string; datum: string } | null = null;
+      const leuteMitHinweis = new Set<string>();
+      for (const [mitId, p] of leute) {
+        for (const datum of wochenTage) {
+          const st = zellStatus(p.tage.get(datum));
+          if (st === 'rot' || st === 'gelb') {
+            leuteMitHinweis.add(mitId);
+            if (!hinweisZelle || RANG[st] > RANG[zellStatus(leute.find(([id]) => id === hinweisZelle!.mit)?.[1].tage.get(hinweisZelle!.datum))]) hinweisZelle = { mit: mitId, datum };
+          }
+        }
+      }
+      const tageMitEintrag = tage.filter((t) => t.min > 0).length;
+      return { team, tage, leute, baustellen: [...bsMap.values()], offen, gruene, totalMin, schlimmster, wort, rang, hinweisZelle, leuteMitHinweis, tageMitEintrag };
     });
     return zeilen.sort((a, b) => a.rang - b.rang || a.team.bezeichnung.localeCompare(b.team.bezeichnung, 'de', { numeric: true }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -320,14 +341,15 @@ export function Cockpit() {
     fertig: teamZeilen.filter((z) => z.rang === 2).length,
   }), [teamZeilen]);
 
-  const sichtbar = useMemo(() => teamZeilen.filter((z) => {
-    if (filter === 'anschauen') return z.rang === 0;
-    if (filter === 'offen') return z.rang <= 1 && z.offen > 0;
-    if (filter === 'fertig') return z.rang === 2;
-    return true;
-  }), [teamZeilen, filter]);
+  // «Zu tun» leer → alles zeigen, sonst steht der Bauführer vor einer leeren Seite
+  const sichtbar = useMemo(
+    () => (filter === 'zutun' && zaehler.anschauen > 0 ? teamZeilen.filter((z) => z.rang === 0) : teamZeilen),
+    [teamZeilen, filter, zaehler.anschauen],
+  );
+  const zeigeTage = sichtbar.some((z) => z.rang === 0);
 
-  const gruene = useMemo(() => sichtbar.flatMap((z) => z.gruene), [sichtbar]);
+  // Der eine Knopf gilt für die ganze Woche, nicht nur für die sichtbaren Teams
+  const gruene = useMemo(() => teamZeilen.flatMap((z) => z.gruene), [teamZeilen]);
 
   function betragVorgerechnet(liste: Eintrag[]): number {
     return liste.reduce((s, e) => {
@@ -421,11 +443,15 @@ export function Cockpit() {
   }
 
   const chips: { key: Filter; label: string; n: number }[] = [
-    { key: 'alle', label: 'Alle', n: teamZeilen.length },
-    { key: 'anschauen', label: 'Zum Anschauen', n: zaehler.anschauen },
-    { key: 'offen', label: 'Offen', n: zaehler.offen },
-    { key: 'fertig', label: 'Fertig', n: zaehler.fertig },
+    { key: 'zutun', label: 'Zu tun', n: zaehler.anschauen },
+    { key: 'alle', label: 'Alle Teams', n: teamZeilen.length },
   ];
+
+  /** Klick aufs Statuswort: Team auf, direkt in die betroffene Zelle. */
+  function zumHinweis(z: (typeof teamZeilen)[number]) {
+    setOffenesTeam(z.team.id);
+    setGewaehlt(z.hinweisZelle);
+  }
 
   return (
     <Shell zurueck>
@@ -453,23 +479,33 @@ export function Cockpit() {
         {!laedt && teams.length > 0 && (
           <p className="text-sm text-ink2">
             <strong>{zaehler.gemeldet} von {teams.length} Teams</strong> haben gemeldet
-            {zaehler.anschauen > 0 && <> · <span className="font-semibold text-accent-deep">{zaehler.anschauen} zum Anschauen</span></>}
-            {gruene.length > 0 && filter === 'alle' && <> · {gruene.length} grün zum Freigeben</>}
+            {zaehler.anschauen > 0
+              ? <> · <span className="font-semibold text-accent-deep">{zaehler.anschauen} zum Anschauen</span></>
+              : eintraege.length > 0 ? <> · nichts zum Anschauen</> : null}
           </p>
         )}
 
-        <div className="flex flex-wrap gap-1.5">
-          {chips.map((c) => (
-            <button
-              key={c.key}
-              type="button"
-              onClick={() => setFilter(c.key)}
-              className={'px-3 py-1.5 text-xs ' + (filter === c.key ? 'chip chip-on' : 'chip')}
-            >
-              {c.label} <span className="ml-1 font-mono opacity-70">{c.n}</span>
-            </button>
-          ))}
-        </div>
+        {/* Der eine Knopf — zuoberst, nicht unter 20 Teams versteckt */}
+        {!laedt && gruene.length > 0 && (
+          <button type="button" className="cta cta-good" onClick={() => void freigeben(gruene)}>
+            Alle {gruene.length} Einträge ohne Hinweis freigeben
+          </button>
+        )}
+
+        {!laedt && zaehler.anschauen > 0 && (
+          <div className="flex flex-wrap gap-1.5">
+            {chips.map((c) => (
+              <button
+                key={c.key}
+                type="button"
+                onClick={() => setFilter(c.key)}
+                className={'px-3 py-1.5 text-xs ' + (filter === c.key ? 'chip chip-on' : 'chip')}
+              >
+                {c.label} <span className="ml-1 font-mono opacity-70">{c.n}</span>
+              </button>
+            ))}
+          </div>
+        )}
 
         {laedt ? (
           <div className="card text-sm text-ink3">Lädt …</div>
@@ -483,8 +519,8 @@ export function Cockpit() {
           <section className="card overflow-hidden p-0">
             {/* Kopfzeile mit den Wochentagen — einmal, nicht pro Team */}
             {/* Schmal: nur die Tage (Team steht in jeder Zeile darüber). Breit: Team-Spalte + Tage in einer Zeile. */}
-            <div className="grid grid-cols-[repeat(7,minmax(0,1fr))_3rem] items-end gap-x-1 border-b border-line px-3 py-2 md:grid-cols-[minmax(15rem,1fr)_repeat(7,2.6rem)_3.5rem]">
-              <span className="hidden font-mono text-[11px] font-semibold uppercase tracking-wider text-ink3 md:block">Team · Chefmonteur · Baustelle</span>
+            {zeigeTage && <div className="grid grid-cols-[repeat(7,minmax(0,1fr))_3rem] items-end gap-x-1 border-b border-line px-3 py-2 md:grid-cols-[minmax(15rem,1fr)_repeat(7,2.6rem)_3.5rem]">
+              <span className="hidden font-mono text-[11px] font-semibold uppercase tracking-wider text-ink3 md:block">Team · Chefmonteur</span>
               {TAGE.map((t, i) => {
                 const markiert = markierterTag === iso(addTage(wochenStart, i));
                 return (
@@ -494,52 +530,71 @@ export function Cockpit() {
                 );
               })}
               <span className="text-right font-mono text-[10px] font-semibold uppercase text-ink3">Std</span>
-            </div>
+            </div>}
 
             {sichtbar.map((z) => {
               const auf = offenesTeam === z.team.id;
               const faelle = verdachtsfaelle.filter((f) => f.meldung.team?.id === z.team.id);
               return (
                 <div key={z.team.id} ref={auf ? zielRef : undefined} className={'scroll-mt-20 border-b border-line last:border-b-0 ' + (auf ? 'bg-steel-soft/30' : '')}>
-                  <button
-                    type="button"
-                    onClick={() => teamUmschalten(z.team.id)}
-                    className="block w-full px-3 py-2 text-left md:grid md:grid-cols-[minmax(15rem,1fr)_repeat(7,2.6rem)_3.5rem] md:items-center md:gap-x-1"
-                  >
-                    {/* Schmal: Team-Zeile oben, Tage darunter. Breit (md): eine Zeile — die Tages-Kästchen springen per «contents» ins Eltern-Raster. */}
-                    <span className="flex min-w-0 items-baseline justify-between gap-2 md:block md:pr-2">
-                      <span className="min-w-0">
-                        <span className="block truncate font-display text-[14px] font-bold">
-                          {z.team.bezeichnung}
+                  {z.rang !== 0 ? (
+                    /* Team ohne Hinweis: eine ruhige Zeile, keine Kästchen. Antippen = Stichprobe. */
+                    <button
+                      type="button"
+                      onClick={() => teamUmschalten(z.team.id)}
+                      className="flex w-full items-center justify-between gap-3 px-3 py-2.5 text-left"
+                    >
+                      <span className="min-w-0 truncate">
+                        <span className="font-display text-[14px] font-bold">{z.team.bezeichnung}</span>
+                        {z.team.chefmonteur && <span className="ml-1.5 text-xs text-ink3">{kurzName(z.team.chefmonteur.name)}</span>}
+                      </span>
+                      <span className="shrink-0 text-right text-xs text-ink3">
+                        {z.rang === 3
+                          ? <span className="font-semibold text-ink2">keine Meldung</span>
+                          : <>
+                              <span className="font-mono tabular-nums">{z.tageMitEintrag} {z.tageMitEintrag === 1 ? 'Tag' : 'Tage'} · {stunden(z.totalMin)} h</span>
+                              <span className={'ml-2 font-semibold ' + (z.rang === 2 ? 'text-good-deep' : 'text-ink2')}>{z.rang === 2 ? '✓ freigegeben' : '✓ wie geplant · ' + z.wort}</span>
+                            </>}
+                      </span>
+                    </button>
+                  ) : (
+                    /* Team mit Hinweis: Kästchen, aber nur die Hinweis-Tage sind farbig — der Rest ist ein blasser Punkt. */
+                    <button
+                      type="button"
+                      onClick={() => teamUmschalten(z.team.id)}
+                      className="block w-full px-3 py-2 text-left md:grid md:grid-cols-[minmax(15rem,1fr)_repeat(7,2.6rem)_3.5rem] md:items-center md:gap-x-1"
+                    >
+                      <span className="flex min-w-0 items-baseline justify-between gap-2 md:block md:pr-2">
+                        <span className="min-w-0 truncate">
+                          <span className="font-display text-[14px] font-bold">{z.team.bezeichnung}</span>
                           {z.team.chefmonteur && <span className="ml-1.5 font-body text-xs font-normal text-ink3">{kurzName(z.team.chefmonteur.name)}</span>}
                         </span>
-                        <span className="block truncate text-[11px] text-ink3">
-                          {z.baustellen.length === 0
-                            ? 'keine Baustelle in dieser Woche'
-                            : z.baustellen.length <= 2
-                              ? z.baustellen.map((b) => `${b.konto_nr} ${b.bezeichnung ?? ''}`.trim()).join(' · ')
-                              : `${z.baustellen.length} Baustellen`}
-                          <span className={'ml-1.5 hidden font-semibold md:inline ' + (z.rang === 0 ? 'text-accent-deep' : z.rang === 2 ? 'text-good-deep' : 'text-ink2')}>
-                            {z.wort}{z.rang === 0 ? ' ›' : ''}
-                          </span>
-                        </span>
-                      </span>
-                      <span className={'shrink-0 text-[11px] font-semibold md:hidden ' + (z.rang === 0 ? 'text-accent-deep' : z.rang === 2 ? 'text-good-deep' : 'text-ink2')}>
-                        {z.wort}{z.rang === 0 ? ' ›' : ''}
-                      </span>
-                    </span>
-                    <span className="mt-1.5 grid grid-cols-[repeat(7,minmax(0,1fr))_3rem] items-center gap-x-1 md:contents">
-                      {z.tage.map((t) => (
                         <span
-                          key={t.datum}
-                          className={'block rounded-md py-1.5 text-center font-mono text-[11px] tabular-nums ' + TEAM_ZELL_STIL[t.status] + (markierterTag === t.datum && auf ? ' ring-2 ring-steel' : '')}
+                          role="link"
+                          tabIndex={0}
+                          onClick={(e) => { e.stopPropagation(); zumHinweis(z); }}
+                          onKeyDown={(e) => { if (e.key === 'Enter') { e.stopPropagation(); zumHinweis(z); } }}
+                          className="shrink-0 text-[11px] font-semibold text-accent-deep underline decoration-accent/40 underline-offset-2 md:ml-1.5"
                         >
-                          {t.status === 'leer' ? '–' : t.status === 'frei' ? '✓' : Math.round(t.min / 60)}
+                          {z.wort} ›
                         </span>
-                      ))}
-                      <span className="text-right font-mono text-xs tabular-nums text-ink2">{z.totalMin > 0 ? stunden(z.totalMin) : '–'}</span>
-                    </span>
-                  </button>
+                      </span>
+                      <span className="mt-1.5 grid grid-cols-[repeat(7,minmax(0,1fr))_3rem] items-center gap-x-1 md:contents">
+                        {z.tage.map((t) => {
+                          const hinweis = t.status === 'rot' || t.status === 'gelb';
+                          return (
+                            <span
+                              key={t.datum}
+                              className={'block rounded-md py-1.5 text-center font-mono text-[11px] tabular-nums ' + (hinweis ? TEAM_ZELL_STIL[t.status] : 'text-ink3/60') + (markierterTag === t.datum && auf ? ' ring-2 ring-steel' : '')}
+                            >
+                              {t.status === 'leer' ? '–' : hinweis ? Math.round(t.min / 60) : '·'}
+                            </span>
+                          );
+                        })}
+                        <span className="text-right font-mono text-xs tabular-nums text-ink2">{z.totalMin > 0 ? stunden(z.totalMin) : '–'}</span>
+                      </span>
+                    </button>
+                  )}
 
                   {auf && (
                     <div className="space-y-3 border-t border-line bg-surface px-3 py-3">
@@ -547,10 +602,19 @@ export function Cockpit() {
                         <p className="text-sm text-ink3">Dieses Team hat in dieser Woche nichts gemeldet.</p>
                       ) : (
                         <>
+                          <p className="text-[11px] text-ink3">
+                            {z.baustellen.map((b) => `${b.konto_nr} ${b.bezeichnung ?? ''}`.trim()).join(' · ') || 'keine Baustelle'}
+                          </p>
                           <div className="overflow-x-auto">
                             <table className="w-full min-w-[430px] text-sm">
+                              <thead>
+                                <tr className="text-[10px] font-semibold uppercase text-ink3">
+                                  <td className="pr-2" />
+                                  {wochenTage.map((datum, i) => <td key={datum} className={'text-center font-mono ' + (markierterTag === datum ? 'text-steel' : '')}>{TAGE[i]}</td>)}
+                                </tr>
+                              </thead>
                               <tbody>
-                                {z.leute.map(([mitId, p]) => (
+                                {z.leute.filter(([mitId]) => z.rang !== 0 || alleLeute.has(z.team.id) || z.leuteMitHinweis.size === 0 || z.leuteMitHinweis.has(mitId)).map(([mitId, p]) => (
                                   <tr key={mitId} className="border-b border-line last:border-b-0">
                                     <td className="py-1.5 pr-2 font-medium whitespace-nowrap">
                                       {p.name}
@@ -578,6 +642,11 @@ export function Cockpit() {
                               </tbody>
                             </table>
                           </div>
+                          {z.rang === 0 && z.leuteMitHinweis.size > 0 && z.leuteMitHinweis.size < z.leute.length && !alleLeute.has(z.team.id) && (
+                            <button type="button" className="text-xs font-semibold text-steel" onClick={() => setAlleLeute((s) => new Set(s).add(z.team.id))}>
+                              alle {z.leute.length} Personen zeigen
+                            </button>
+                          )}
 
                           {gewaehlt && detail.length > 0 && z.leute.some(([id]) => id === gewaehlt.mit) && (
                             <div className="rounded-[12px] bg-ground p-3 space-y-2.5">
@@ -674,18 +743,11 @@ export function Cockpit() {
 
         {!laedt && sichtbar.length > 0 && (
           <p className="flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-ink3">
-            <span><span className="mr-1 inline-block h-2 w-2 rounded-sm bg-surface ring-1 ring-line" />ohne Hinweis — noch nicht freigegeben</span>
+            <span><span className="mr-1 inline-block h-2 w-2 rounded-sm bg-amber-200" />Regieverdacht</span>
+            <span><span className="mr-1 inline-block h-2 w-2 rounded-sm bg-accent-soft ring-1 ring-accent/40" />über 10 h</span>
             <span><span className="mr-1 inline-block h-2 w-2 rounded-sm bg-good-soft ring-1 ring-good/40" />freigegeben</span>
-            <span><span className="mr-1 inline-block h-2 w-2 rounded-sm bg-amber-200" />Regieverdacht — anschauen</span>
-            <span><span className="mr-1 inline-block h-2 w-2 rounded-sm bg-accent-soft ring-1 ring-accent/40" />über 10 h — anschauen</span>
-            <span>– kein Eintrag · Zahl = Teamstunden am Tag</span>
+            <span>· = Tag ohne Hinweis</span>
           </p>
-        )}
-
-        {gruene.length > 0 && (
-          <button type="button" className="cta cta-good" onClick={() => void freigeben(gruene)}>
-            Alle {gruene.length} Einträge ohne Hinweis freigeben
-          </button>
         )}
       </div>
     </Shell>
