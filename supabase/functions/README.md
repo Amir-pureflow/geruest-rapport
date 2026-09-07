@@ -1,12 +1,18 @@
-# Edge Functions — geplant
+# Edge Functions
 
-| Function | Phase | Aufgabe |
+Quelle der Wahrheit sind die Dateien hier im Repo. Änderungen zuerst hier, dann deployen.
+
+| Function | JWT | Zweck |
 |---|---|---|
-| `transkription` | 6 | Audio aus Storage → STT-Adapter (Anbieter offen) → Claude: deutscher Text + `{taetigkeit, grund, wer}` + R6-Signale. Sprache aus `mitarbeiter.sprache`, nie geraten |
-| `regie-regeln` | 4 | R1–R6 über einer Tagesmeldung auswerten → Ampelstatus + Begründung |
-| `tarif-rechner` | 4 | Serverseitige Variante von `src/lib/tarif.ts` (gleiche Fixtures, gleiche Tests) |
-| `pdf` | 4 | Rapport-/Begleit-PDF aus Vorlage (pdf-lib) |
-| `bestaetigung` | 4 | Signierten Kundentoken prüfen, Rapportdaten liefern, [Bestätigen]/[Rückfrage] entgegennehmen → `zustellung_log` |
-| `mail-webhook` | 4 | Resend/Postmark-Webhooks (zugestellt/geöffnet/geklickt) → `zustellung_log` |
+| `regierapport-senden` | ja | Mail via Resend (fester Betreff pro Baustelle), Anhang, Frist +3 Tage, `zustellung_log` |
+| `bestaetigung` | **nein** | Kundenlink `/b/:token`: GET liefert Rapport, Positionen, Fotos (signierte Links, 1 h); POST bestätigt / Rückfrage |
 
-Konvention: Geld in Rappen, Zeit in Minuten — wie im Frontend (CLAUDE.md #6).
+Deploy per Supabase-MCP (`deploy_edge_function`, `verify_jwt` wie in der Tabelle) oder CLI:
+
+```
+supabase functions deploy regierapport-senden
+supabase functions deploy bestaetigung --no-verify-jwt
+```
+
+Schlüssel (`RESEND_API_KEY`, `MAIL_ABSENDER`) liegen in der Tabelle `konfiguration`
+(RLS ohne Policies — nur die Service-Role in der Function liest sie), nicht im Code.

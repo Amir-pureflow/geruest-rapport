@@ -16,6 +16,14 @@ interface Daten {
   frist_bis: string | null;
   bezeichnung: string | null;
   konto_nr: string | null;
+  datum: string | null;
+  positionen: { bezeichnung: string; betrag_rappen: number }[];
+  fotos: string[];
+}
+
+function datumLang(isoDatum: string): string {
+  const d = new Date(isoDatum + 'T12:00:00');
+  return `${d.getDate()}.${d.getMonth() + 1}.${d.getFullYear()}`;
 }
 
 type Zustand = 'laedt' | 'fehler' | 'offen' | 'rueckfrage_text' | 'fertig';
@@ -101,10 +109,42 @@ export function Bestaetigung() {
                 )}
                 {daten.frist_bis && zustand === 'offen' && <span>· Frist bis {daten.frist_bis}</span>}
               </p>
-              <p className="mt-2 text-sm text-ink2">
-                Die Details finden Sie im Dokument, das Ihnen per Mail zugestellt wurde.
-              </p>
+              {daten.datum && <p className="mt-2 text-sm text-ink2">Zusatzarbeit vom {datumLang(daten.datum)}.</p>}
             </header>
+
+            {(daten.positionen?.length ?? 0) > 0 && (
+              <section className="card">
+                <p className="lbl">Positionen</p>
+                <div className="divide-y divide-line">
+                  {daten.positionen.map((p, i) => (
+                    <div key={i} className="flex items-center justify-between gap-2 py-1.5 text-sm">
+                      <span>{p.bezeichnung}</span>
+                      <span className="font-mono tabular-nums">{formatChf(p.betrag_rappen)}</span>
+                    </div>
+                  ))}
+                </div>
+                {daten.betrag_rappen != null && (
+                  <div className="mt-2 flex items-center justify-between border-t border-line pt-2">
+                    <span className="font-display font-bold">Total</span>
+                    <span className="font-mono font-bold tabular-nums text-accent-deep">{formatChf(daten.betrag_rappen)}</span>
+                  </div>
+                )}
+                <p className="mt-2 text-[11px] text-ink3">Verbindlich ist das Dokument, das Ihnen per Mail zugestellt wurde.</p>
+              </section>
+            )}
+
+            {(daten.fotos?.length ?? 0) > 0 && (
+              <section className="card">
+                <p className="lbl">Fotos von der Baustelle · {daten.fotos.length}</p>
+                <div className="grid grid-cols-3 gap-1.5">
+                  {daten.fotos.map((u, i) => (
+                    <a key={i} href={u} target="_blank" rel="noreferrer" className="block aspect-square overflow-hidden rounded-[8px] border border-line bg-ground">
+                      <img src={u} alt={`Foto ${i + 1}`} className="h-full w-full object-cover" loading="lazy" />
+                    </a>
+                  ))}
+                </div>
+              </section>
+            )}
 
             {zustand === 'offen' && (
               <div className="grid grid-cols-2 gap-3">

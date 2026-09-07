@@ -124,8 +124,8 @@ src/ui/FotoGalerie.tsx            Vorschau aus dem Bucket «anhaenge» (signiert
 supabase/migrations/              0001 Schema · 0002 Bezeichnung · 0003 Auftrag-UUID · 0004 Versand · 0005 Stammdaten · 0006 Auftrag-Stand (Sicht) · 0007 Rapport-Ursprung · 0008 Fotos
 ```
 
-Edge Functions `regierapport-senden` und `bestaetigung` sind über den Connector deployt;
-ihr Quellcode gehört noch ins Repo (supabase/functions/) — nachholen, sobald erreichbar.
+Edge Functions `regierapport-senden` und `bestaetigung`: Quellcode in `supabase/functions/` (seit 07.09.),
+Deploy via Supabase-MCP oder CLI — siehe `supabase/functions/README.md`.
 
 ## Offene Entscheidungen (nicht raten — nachfragen oder Annahme markieren)
 
