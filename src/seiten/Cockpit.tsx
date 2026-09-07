@@ -35,6 +35,8 @@ interface Eintrag {
     team: { id: string; bezeichnung: string } | null;
     baustelle: { id: string; konto_nr: string; bezeichnung: string | null } | null;
     foto: { id: string; pfad: string }[];
+    /** Schon ein Regierapport zu dieser Meldung? Dann dorthin, nie einen zweiten anlegen. */
+    regierapport: { id: string; status: string }[];
   };
 }
 
@@ -163,7 +165,7 @@ export function Cockpit() {
       supabase
         .from('zeiteintrag')
         .select(
-          'id,normal_min,ueber_min,status,mitarbeiter:mitarbeiter_id(id,name,funktion,typ),tagesmeldung:tagesmeldung_id!inner(id,datum,normalfall,abweichung_typ,wer_hats_gewollt,transkript,audio_pfad,audio_sekunden,team:team_id(id,bezeichnung),baustelle:baustelle_id(id,konto_nr,bezeichnung),foto(id,pfad))',
+          'id,normal_min,ueber_min,status,mitarbeiter:mitarbeiter_id(id,name,funktion,typ),tagesmeldung:tagesmeldung_id!inner(id,datum,normalfall,abweichung_typ,wer_hats_gewollt,transkript,audio_pfad,audio_sekunden,team:team_id(id,bezeichnung),baustelle:baustelle_id(id,konto_nr,bezeichnung),foto(id,pfad),regierapport(id,status))',
         )
         .gte('tagesmeldung.datum', vonIso)
         .lte('tagesmeldung.datum', bisIso),
@@ -399,6 +401,9 @@ export function Cockpit() {
     if (!supabase) return;
     const bs = fall.meldung.baustelle;
     if (!bs) return;
+    // Gibt es schon einen (auch frisch, falls die Liste alt ist)? Dann dorthin statt Doppel.
+    const { data: vorhanden } = await supabase.from('regierapport').select('id').eq('tagesmeldung_id', fall.meldung.id).order('erstellt_am').limit(1);
+    if (vorhanden && vorhanden.length > 0) { navigiere(`/regie/${vorhanden[0].id}`); return; }
     const { data: r, error } = await supabase
       .from('regierapport')
       .insert({
@@ -711,9 +716,15 @@ export function Cockpit() {
                                     <span className="font-mono font-semibold text-accent-deep">{formatChf(betragVorgerechnet(liste))}</span>
                                     <span className="text-xs text-ink3"> vorgerechnet</span>
                                   </span>
-                                  <button type="button" onClick={() => void regierapportErstellen({ meldung, eintraege: liste })} className="btn-ghost shrink-0 border-accent text-accent-deep">
-                                    → Regierapport
-                                  </button>
+                                  {meldung.regierapport?.length > 0 ? (
+                                    <Link to={`/regie/${meldung.regierapport[0].id}`} className="btn-ghost shrink-0 border-steel text-steel">
+                                      Regierapport {meldung.regierapport[0].status === 'entwurf' ? '(Entwurf)' : '(' + meldung.regierapport[0].status + ')'} ›
+                                    </Link>
+                                  ) : (
+                                    <button type="button" onClick={() => void regierapportErstellen({ meldung, eintraege: liste })} className="btn-ghost shrink-0 border-accent text-accent-deep">
+                                      → Regierapport
+                                    </button>
+                                  )}
                                 </div>
                               )}
                             </div>

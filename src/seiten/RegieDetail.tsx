@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, type ChangeEvent } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams } from 'react-router-dom';
 import { Shell } from '../ui/Shell';
 import { FotoGalerie } from '../ui/FotoGalerie';
 import { fotoVerkleinern } from '../lib/foto';
@@ -96,6 +96,23 @@ export function RegieDetail() {
   const [sendet, setSendet] = useState(false);
   const [fehler, setFehler] = useState('');
   const [kopiert, setKopiert] = useState(false);
+  const [verwerfenFrage, setVerwerfenFrage] = useState(false);
+  const navigiere = useNavigate();
+
+  /** Entwurf verwerfen: nur solange nichts verschickt ist. Positionen, nachgereichte Bilder und der Rapport selbst gehen weg;
+   *  die Meldung des Teams und deren Fotos bleiben unberührt (Beleg). */
+  async function entwurfVerwerfen() {
+    if (!supabase || !id || rapport?.status !== 'entwurf') return;
+    const { data: bilder } = await supabase.from('foto').select('pfad').eq('regierapport_id', id);
+    if (bilder && bilder.length > 0) await supabase.storage.from('anhaenge').remove(bilder.map((b) => b.pfad));
+    await supabase.from('foto').delete().eq('regierapport_id', id);
+    await supabase.from('regie_position').delete().eq('regierapport_id', id);
+    await supabase.from('zustellung_log').delete().eq('regierapport_id', id);
+    if (rapport?.anhang_pfad) await supabase.storage.from('anhaenge').remove([rapport.anhang_pfad]);
+    const { error } = await supabase.from('regierapport').delete().eq('id', id);
+    if (error) { setFehler('Verwerfen: ' + error.message); return; }
+    navigiere('/regie');
+  }
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
 
   const [fotoLaedt, setFotoLaedt] = useState(false);
@@ -466,6 +483,19 @@ export function RegieDetail() {
                 Ohne Anhang geht die Mail trotzdem raus — für Tests okay, für echte Kunden nicht.
               </p>
             </div>
+            {!verwerfenFrage ? (
+              <button type="button" onClick={() => setVerwerfenFrage(true)} className="text-xs font-semibold text-ink3 underline underline-offset-2">
+                Entwurf verwerfen
+              </button>
+            ) : (
+              <div className="rounded-[10px] border border-accent/40 bg-accent-soft p-3 text-sm">
+                <p>Diesen Entwurf löschen? Die Meldung des Teams bleibt bestehen, du kannst später wieder einen Rapport daraus machen.</p>
+                <div className="mt-2 grid grid-cols-2 gap-2">
+                  <button type="button" className="btn-ghost" onClick={() => setVerwerfenFrage(false)}>Behalten</button>
+                  <button type="button" className="btn-ghost border-accent text-accent-deep" onClick={() => void entwurfVerwerfen()}>Verwerfen</button>
+                </div>
+              </div>
+            )}
             <div>
               <label className="lbl">E-Mail der Bauleitung</label>
               <input
