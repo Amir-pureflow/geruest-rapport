@@ -599,7 +599,11 @@ export function Cockpit() {
                               <thead>
                                 <tr className="text-[10px] font-semibold uppercase text-ink3">
                                   <td className="pr-2" />
-                                  {wochenTage.map((datum, i) => <td key={datum} className={'text-center font-mono ' + (markierterTag === datum ? 'text-steel' : '')}>{TAGE[i]}</td>)}
+                                  {wochenTage.map((datum, i) => (
+                                    <td key={datum} className={'pb-1 text-center font-mono leading-tight ' + (markierterTag === datum ? 'text-steel' : '')}>
+                                      {TAGE[i]}<span className="block text-[9px] font-normal normal-case">{ch(addTage(wochenStart, i))}</span>
+                                    </td>
+                                  ))}
                                 </tr>
                               </thead>
                               <tbody>
