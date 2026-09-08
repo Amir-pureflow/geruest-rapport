@@ -28,6 +28,11 @@ export default defineConfig({
       },
       workbox: {
         globPatterns: ['**/*.{js,css,html,svg,png,woff2}'],
+        // Neue Version sofort übernehmen — sonst zeigt ein offener Tab tagelang den alten Stand
+        skipWaiting: true,
+        clientsClaim: true,
+        cleanupOutdatedCaches: true,
+        navigateFallbackDenylist: [/^\/b\//, /^\/functions\//],
       },
     }),
   ],
