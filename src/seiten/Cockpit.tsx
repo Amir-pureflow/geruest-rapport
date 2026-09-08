@@ -113,6 +113,9 @@ export function Cockpit() {
   });
   const istAktuelleWoche = iso(wochenStart) === iso(montag(new Date()));
   const istVorwoche = iso(wochenStart) < iso(montag(new Date()));
+  // Freigabe im Wochenrhythmus: das Wochenblatt wird am Wochenende abgegeben, der Bauführer prüft Mo/Di.
+  // Solange die Woche läuft, gibt es keine Sammelfreigabe — Einzelfälle bleiben im Detail möglich.
+  const wocheAbgeschlossen = iso(addTage(wochenStart, 6)) < iso(new Date());
   const [eintraege, setEintraege] = useState<Eintrag[]>([]);
   const [auftraege, setAuftraege] = useState<OffenerAuftrag[]>([]);
   const [gewaehlt, setGewaehlt] = useState<{ mit: string; datum: string } | null>(null);
@@ -448,10 +451,15 @@ export function Cockpit() {
         )}
 
         {/* Der eine Knopf — zuoberst, nicht unter 20 Teams versteckt */}
-        {!laedt && gruene.length > 0 && (
+        {!laedt && gruene.length > 0 && wocheAbgeschlossen && (
           <button type="button" className="cta cta-good" onClick={() => void freigeben(gruene)}>
             Alle {gruene.length} Einträge ohne Hinweis freigeben
           </button>
+        )}
+        {!laedt && eintraege.length > 0 && !wocheAbgeschlossen && (
+          <p className="rounded-[12px] border border-line bg-surface px-4 py-2.5 text-sm text-ink2">
+            Diese Woche läuft noch — die Freigabe kommt, sobald sie vorbei ist (ab Montag). Bis dahin: anschauen, nachfragen, korrigieren.
+          </p>
         )}
 
         {!laedt && zaehler.anschauen > 0 && (
@@ -688,7 +696,7 @@ export function Cockpit() {
                             </div>
                           ))}
 
-                          {z.gruene.length > 0 && (
+                          {z.gruene.length > 0 && wocheAbgeschlossen && (
                             <button type="button" className="btn-ghost w-full border-good text-good-deep" onClick={() => void freigeben(z.gruene)}>
                               {z.team.bezeichnung}: {z.gruene.length} {z.gruene.length === 1 ? 'Eintrag' : 'Einträge'} ohne Hinweis freigeben
                             </button>
