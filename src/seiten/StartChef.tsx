@@ -157,7 +157,7 @@ export function StartChef() {
               const geplant = plan.find((p) => p.von <= dIso && p.bis >= dIso)?.baustelle ?? null;
               return (
                 <div key={dIso} className={'flex items-center gap-3 px-4 py-2 text-sm ' + (zukunft ? 'text-ink3' : '')}>
-                  <span className="w-14 shrink-0 font-mono text-xs">{WOCHENTAGE[i]} {kurz(d)}</span>
+                  <span className="w-16 shrink-0 whitespace-nowrap font-mono text-xs">{WOCHENTAGE[i]} {kurz(d)}</span>
                   <span className="min-w-0 flex-1 truncate">
                     {ms.length > 0
                       ? ms.map((m) => m.baustelle?.bezeichnung ?? 'Baustelle').join(', ')
