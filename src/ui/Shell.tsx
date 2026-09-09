@@ -32,37 +32,43 @@ export function Wortmarke({ gross = false }: { gross?: boolean }) {
 const BUERO: Ansicht[] = ['bauf', 'sekretariat'];
 
 interface NavEintrag { zu: string; label: string }
-const NAV: Record<'bauf' | 'sekretariat', { haupt: NavEintrag[]; weitere: NavEintrag[] }> = {
-  bauf: {
-    haupt: [
-      { zu: '/', label: 'Übersicht' },
-      { zu: '/zusatzauftrag', label: 'Zusatzarbeit' },
-      { zu: '/heute', label: 'Tagesübersicht' },
-      { zu: '/cockpit', label: 'Wochenübersicht' },
-      { zu: '/regie', label: 'Regierapporte' },
-      { zu: '/board', label: 'Board' },
-      { zu: '/export', label: 'Export' },
-      { zu: '/verwaltung', label: 'Verwaltung' },
-    ],
-    weitere: [
-      { zu: '/erfassung?wahl', label: 'Erfassung (Teamgerät)' },
-      { zu: '/b/demo-token', label: 'Kundenlink ansehen' },
-    ],
-  },
-  sekretariat: {
-    haupt: [
-      { zu: '/', label: 'Übersicht' },
-      { zu: '/zusatzauftrag', label: 'Zusatzarbeit' },
-      { zu: '/regie', label: 'Regierapporte' },
-      { zu: '/export', label: 'Export' },
-      { zu: '/heute', label: 'Tagesübersicht' },
-      { zu: '/cockpit', label: 'Wochenübersicht' },
-      { zu: '/board', label: 'Board' },
-      { zu: '/verwaltung', label: 'Verwaltung' },
-    ],
-    weitere: [{ zu: '/b/demo-token', label: 'Kundenlink ansehen' }],
-  },
-};
+interface NavGruppe { titel?: string; eintraege: NavEintrag[] }
+
+/** Gleiche Ordnung für beide Büro-Ansichten: erst das Tägliche, dann Geld, dann Planung. */
+function navFuer(a: 'bauf' | 'sekretariat'): NavGruppe[] {
+  return [
+    { eintraege: [{ zu: '/', label: 'Übersicht' }] },
+    {
+      titel: 'Tagesgeschäft',
+      eintraege: [
+        { zu: '/zusatzauftrag', label: 'Zusatzarbeit' },
+        { zu: '/heute', label: 'Tagesübersicht' },
+        { zu: '/cockpit', label: 'Wochenübersicht' },
+      ],
+    },
+    {
+      titel: 'Regie & Export',
+      eintraege: [
+        { zu: '/regie', label: 'Regierapporte' },
+        { zu: '/export', label: 'Export' },
+      ],
+    },
+    {
+      titel: 'Planung & Daten',
+      eintraege: [
+        { zu: '/board', label: 'Board' },
+        { zu: '/verwaltung', label: 'Verwaltung' },
+      ],
+    },
+    {
+      titel: 'Weitere',
+      eintraege: [
+        ...(a === 'bauf' ? [{ zu: '/erfassung?wahl', label: 'Erfassung (Teamgerät)' }] : []),
+        { zu: '/b/demo-token', label: 'Kundenlink ansehen' },
+      ],
+    },
+  ];
+}
 
 function NavLink({ e, aktiv }: { e: NavEintrag; aktiv: boolean }) {
   return (
@@ -92,7 +98,7 @@ export function Shell({
   const ansicht = useAnsicht();
   const { pathname } = useLocation();
   const buero = ansicht !== null && BUERO.includes(ansicht);
-  const nav = ansicht === 'bauf' || ansicht === 'sekretariat' ? NAV[ansicht] : null;
+  const nav = ansicht === 'bauf' || ansicht === 'sekretariat' ? navFuer(ansicht) : null;
   const istAktiv = (zu: string) => {
     const pfad = zu.split('?')[0];
     return pfad === '/' ? pathname === '/' : pathname === pfad || pathname.startsWith(pfad + '/');
@@ -112,12 +118,15 @@ export function Shell({
             <Marke />
             <Wortmarke />
           </Link>
-          <nav className="mt-7 flex flex-col gap-0.5" aria-label="Bereiche">
-            {nav.haupt.map((e) => <NavLink key={e.zu} e={e} aktiv={istAktiv(e.zu)} />)}
-          </nav>
-          <p className="lbl mb-1 mt-6 px-3">Weitere</p>
-          <nav className="flex flex-col gap-0.5">
-            {nav.weitere.map((e) => <NavLink key={e.zu} e={e} aktiv={istAktiv(e.zu)} />)}
+          <nav className="mt-6 flex flex-col gap-5" aria-label="Bereiche">
+            {nav.map((g, i) => (
+              <div key={g.titel ?? i}>
+                {g.titel && <p className="lbl mb-1 px-3">{g.titel}</p>}
+                <div className="flex flex-col gap-0.5">
+                  {g.eintraege.map((e) => <NavLink key={e.zu} e={e} aktiv={istAktiv(e.zu)} />)}
+                </div>
+              </div>
+            ))}
           </nav>
           <div className="mt-auto px-2 pt-6">{wechsel}</div>
         </aside>
