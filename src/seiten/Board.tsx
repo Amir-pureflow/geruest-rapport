@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Shell } from '../ui/Shell';
 import { supabase } from '../lib/supabase';
-import { addTage, iso, kurz, kw, montag } from '../lib/datum';
+import { addTage, ausIso, iso, kurz, kw, montag } from '../lib/datum';
 
 /**
  * Das digitale Board — Ebene 1: Jahresplan (welches Team wann auf welcher Baustelle).
@@ -14,7 +14,7 @@ interface Plan { id: string; team_id: string | null; von: string; bis: string; b
 
 const WOCHEN_VOR = 6;
 const WOCHEN_NACH = 12;
-const FARBEN = ['bg-steel-soft text-steel', 'bg-good-soft text-good-deep', 'bg-accent-soft text-accent-deep', 'bg-amber-100 text-amber-900', 'bg-purple-100 text-purple-900', 'bg-sky-100 text-sky-900'];
+const FARBEN = ['bg-steel-soft text-steel', 'bg-good-soft text-good-deep', 'bg-accent-soft text-accent-deep', 'bg-amber-soft text-amber-deep', 'bg-purple-100 text-purple-900', 'bg-sky-100 text-sky-900'];
 
 export function Board() {
   const [teams, setTeams] = useState<Team[]>([]);
@@ -24,6 +24,8 @@ export function Board() {
   const [bis, setBis] = useState('');
   const [grund, setGrund] = useState('');
   const [userId, setUserId] = useState<string | null>(null);
+  /** Rückmeldung nach dem Verschieben — eine Zeile über dem Board, verschwindet nach 3 s */
+  const [rueckmeldung, setRueckmeldung] = useState<{ art: 'gut' | 'fehler'; text: string } | null>(null);
   const heute = new Date();
   const start = addTage(montag(heute), -7 * WOCHEN_VOR);
   const wochen = Array.from({ length: WOCHEN_VOR + WOCHEN_NACH + 1 }, (_, i) => addTage(start, i * 7));
@@ -57,14 +59,24 @@ export function Board() {
     setGewaehlt(p); setVon(p.von); setBis(p.bis); setGrund('');
   }
 
+  function melden(art: 'gut' | 'fehler', text: string) {
+    setRueckmeldung({ art, text });
+    setTimeout(() => setRueckmeldung((r) => (r?.text === text ? null : r)), 3000);
+  }
+
   async function speichern() {
-    if (!supabase || !gewaehlt || !userId) return;
+    if (!supabase || !gewaehlt) return;
+    if (!userId) { melden('fehler', 'Keine Sitzung — Seite neu laden.'); return; }
     const aenderungen: { feld: string; alt: string; neu: string }[] = [];
     if (von !== gewaehlt.von) aenderungen.push({ feld: 'von', alt: gewaehlt.von, neu: von });
     if (bis !== gewaehlt.bis) aenderungen.push({ feld: 'bis', alt: gewaehlt.bis, neu: bis });
     if (aenderungen.length === 0) { setGewaehlt(null); return; }
-    await supabase.from('jahresplan').update({ von, bis }).eq('id', gewaehlt.id);
-    await supabase.from('planaenderung').insert(aenderungen.map((a) => ({ jahresplan_id: gewaehlt.id, ...a, geaendert_von: userId, grund: grund.trim() || null })));
+    if (!von || !bis || bis < von) { melden('fehler', '«Bis» liegt vor «Von».'); return; }
+    const { error: e1 } = await supabase.from('jahresplan').update({ von, bis }).eq('id', gewaehlt.id);
+    if (e1) { melden('fehler', 'Verschieben: ' + e1.message); return; }
+    const { error: e2 } = await supabase.from('planaenderung').insert(aenderungen.map((a) => ({ jahresplan_id: gewaehlt.id, ...a, geaendert_von: userId, grund: grund.trim() || null })));
+    if (e2) melden('fehler', 'Verschoben, aber nicht protokolliert: ' + e2.message);
+    else melden('gut', 'Verschoben ✓');
     setGewaehlt(null);
     void laden();
   }
@@ -78,6 +90,10 @@ export function Board() {
           <h1 className="font-display text-2xl font-bold">Board</h1>
           <p className="text-sm text-ink3">Jahresplan — Block antippen, um Termine zu verschieben. Jede Verschiebung wird festgehalten.</p>
         </header>
+
+        {rueckmeldung && (
+          <p role="status" className={'text-sm font-semibold ' + (rueckmeldung.art === 'gut' ? 'text-good-deep' : 'text-accent-deep')}>{rueckmeldung.text}</p>
+        )}
 
         <section className="card overflow-x-auto p-0">
           <table className="text-[11px]" style={{ minWidth: `${140 + wochen.length * 44}px` }}>
@@ -102,7 +118,7 @@ export function Board() {
                     return (
                       <td key={iso(w)} className="p-0.5">
                         {p ? (
-                          <button type="button" onClick={() => waehlen(p)} title={`${p.baustelle?.bezeichnung} · ${p.von} – ${p.bis}`} className={'block h-7 w-full overflow-hidden whitespace-nowrap px-1 text-left leading-7 ' + (farbeVon.get(p.baustelle?.id ?? '') ?? 'bg-ground') + (neu ? ' rounded-l-md' : '') + (gewaehlt?.id === p.id ? ' ring-2 ring-accent' : '')}>
+                          <button type="button" onClick={() => waehlen(p)} title={`${p.baustelle?.bezeichnung ?? ''} · ${kurz(ausIso(p.von))} – ${kurz(ausIso(p.bis))}${p.bis.slice(0, 4)}`} className={'block h-7 w-full overflow-hidden whitespace-nowrap px-1 text-left leading-7 ' + (farbeVon.get(p.baustelle?.id ?? '') ?? 'bg-ground') + (neu ? ' rounded-l-md' : '') + (gewaehlt?.id === p.id ? ' ring-2 ring-accent' : '')}>
                             {neu ? p.baustelle?.bezeichnung : ''}
                           </button>
                         ) : <span className="block h-7" />}

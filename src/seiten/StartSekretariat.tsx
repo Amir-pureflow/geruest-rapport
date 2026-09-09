@@ -1,16 +1,17 @@
 /**
  * Startseite Sekretariat: Kundenanrufe festhalten, Regierapporte im Blick, Export, Stammdaten.
  * Freigeben tut der Bauführer — die Wochenübersicht ist hier nur zum Ansehen.
+ * Am PC zusätzlich die Liste «Nachfassen»: Regierapporte, deren Frist verstrichen ist.
  */
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Shell } from '../ui/Shell';
 import { Kachel, MONATE, NavKarte } from '../ui/Karten';
-import { DiagrammKarte, Fristen, RegieMonate, Trichter } from '../ui/Diagramm';
-import { fristen, regieMonate, trichter, type FristEintrag, type RegieMonat, type TrichterDaten } from '../lib/kennzahlen';
+import { DiagrammKarte, RegieMonate, Trichter } from '../ui/Diagramm';
+import { regieMonate, trichter, type RegieMonat, type TrichterDaten } from '../lib/kennzahlen';
 import { formatChf } from '../lib/tarif';
 import { supabase } from '../lib/supabase';
-import { iso, lang } from '../lib/datum';
+import { ausIso, iso, kurz, lang } from '../lib/datum';
 
 interface Kennzahlen {
   entwuerfe: number;
@@ -19,15 +20,27 @@ interface Kennzahlen {
   regieUeberfaellig: number;
   regieMonatRappen: number;
   offeneAuftraege: number;
+  ohneMeldung: number;
   teamsGemeldet: number;
   teams: number;
 }
 
+interface Nachfassen {
+  id: string;
+  nummer: string | null;
+  status: string;
+  betrag_rappen: number | null;
+  versendet_am: string | null;
+  frist_bis: string | null;
+  empfaenger_email: string | null;
+  baustelle: { bezeichnung: string | null; konto_nr: string } | null;
+}
+
 export function StartSekretariat() {
   const [k, setK] = useState<Kennzahlen | null>(null);
+  const [nachfassen, setNachfassen] = useState<Nachfassen[]>([]);
   const [monate, setMonate] = useState<RegieMonat[] | null>(null);
   const [tr, setTr] = useState<TrichterDaten | null>(null);
-  const [offen, setOffen] = useState<FristEintrag[] | null>(null);
   const heute = new Date();
 
   useEffect(() => {
@@ -35,15 +48,22 @@ export function StartSekretariat() {
     const c = supabase;
     const heuteIso = iso(heute);
     const monatsStart = iso(new Date(heute.getFullYear(), heute.getMonth(), 1, 12));
+    const ueberfaellig = `status.eq.frist_abgelaufen,and(status.eq.versendet,frist_bis.lt.${heuteIso})`;
     void (async () => {
-      const [en, ro, ru, rm, za, tm, teams] = await Promise.all([
+      const [en, ro, ru, rm, za, om, tm, teams, nf] = await Promise.all([
         c.from('regierapport').select('id', { count: 'exact', head: true }).eq('status', 'entwurf'),
         c.from('regierapport').select('betrag_rappen').in('status', ['versendet', 'rueckfrage']),
-        c.from('regierapport').select('id', { count: 'exact', head: true }).or(`status.eq.frist_abgelaufen,and(status.eq.versendet,frist_bis.lt.${heuteIso})`),
+        c.from('regierapport').select('id', { count: 'exact', head: true }).or(ueberfaellig),
         c.from('regierapport').select('betrag_rappen').gte('versendet_am', monatsStart).neq('status', 'entwurf'),
         c.from('zusatzauftrag_stand').select('id', { count: 'exact', head: true }).in('stand', ['bestellt', 'gemeldet']),
+        c.from('zusatzauftrag_stand').select('id', { count: 'exact', head: true }).eq('ohne_meldung', true),
         c.from('tagesmeldung').select('team_id').eq('datum', heuteIso),
         c.from('team').select('id', { count: 'exact', head: true }).eq('aktiv', true),
+        c.from('regierapport')
+          .select('id,nummer,status,betrag_rappen,versendet_am,frist_bis,empfaenger_email,baustelle:baustelle_id(bezeichnung,konto_nr)')
+          .or(ueberfaellig)
+          .order('frist_bis', { ascending: true })
+          .limit(30),
       ]);
       setK({
         entwuerfe: en.count ?? 0,
@@ -52,14 +72,15 @@ export function StartSekretariat() {
         regieUeberfaellig: ru.count ?? 0,
         regieMonatRappen: (rm.data ?? []).reduce((s, r) => s + (r.betrag_rappen ?? 0), 0),
         offeneAuftraege: za.count ?? 0,
+        ohneMeldung: om.count ?? 0,
         teamsGemeldet: new Set((tm.data ?? []).map((r) => r.team_id)).size,
         teams: teams.count ?? 0,
       });
-      // Diagramme und Arbeitsliste danach — die Kacheln sollen nicht darauf warten
-      const [mo, t, fr] = await Promise.all([regieMonate(c), trichter(c), fristen(c)]);
+      setNachfassen((nf.data ?? []) as unknown as Nachfassen[]);
+      // Diagramme danach — die Kacheln und die Nachfassliste sollen nicht darauf warten
+      const [mo, t] = await Promise.all([regieMonate(c), trichter(c)]);
       setMonate(mo);
       setTr(t);
-      setOffen(fr);
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -76,7 +97,7 @@ export function StartSekretariat() {
         </header>
 
         <Link to="/zusatzauftrag" className="block rounded-[14px] bg-accent p-5 text-white shadow-[0_3px_14px_rgb(216_40_22/0.35)] transition active:bg-accent-deep lg:hidden">
-          <span className="block font-display text-lg font-extrabold">+ Kunde ruft an: Zusatzarbeit</span>
+          <span className="block font-display text-lg font-extrabold">+ Kunde ruft an: Zusatzauftrag</span>
           <span className="mt-0.5 block text-sm text-white/85">Bestellung festhalten, während er noch am Telefon ist — der Bauführer sieht sie sofort</span>
         </Link>
 
@@ -87,17 +108,18 @@ export function StartSekretariat() {
             <Kachel zu="/regie" wert={formatChf(k.regieMonatRappen)} label={`Regie an Kunden verschickt im ${MONATE[heute.getMonth()]}`} />
             <Kachel zu="/regie" wert={String(k.entwuerfe)} label="Entwürfe beim Bauführer" />
             <Kachel zu="/zusatzauftrag" wert={String(k.offeneAuftraege)} label="offene Zusatzaufträge" />
+            <Kachel zu="/zusatzauftrag" wert={String(k.ohneMeldung)} label="Bestellungen ohne Meldung — geplanter Tag vorbei, Team hat nichts gemeldet" warn={k.ohneMeldung > 0} />
             <Kachel zu="/heute" wert={`${k.teamsGemeldet}/${k.teams}`} label="Teams haben heute gemeldet" />
           </div>
         )}
 
-        {/* Am PC: Geldverlauf, Trichter und die Arbeitsliste «was liegt beim Kunden» */}
+        {/* Am PC: Geldverlauf und Trichter — die Nachfassliste darunter ist die Arbeit */}
         <div className="hidden gap-4 lg:grid lg:grid-cols-2">
           {monate && (
             <DiagrammKarte
               titel="Regie je Monat"
               unter="Verschickt an Kunden, davon bestätigt"
-              aktion={<Link to="/regie" className="text-xs font-semibold text-steel">Regierapporte ›</Link>}
+              aktion={<Link to="/auswertung" className="text-xs font-semibold text-steel">Auswertung ›</Link>}
             >
               <RegieMonate monate={monate} />
             </DiagrammKarte>
@@ -111,18 +133,42 @@ export function StartSekretariat() {
               <Trichter stufen={tr.stufen} ohneMeldung={tr.ohneMeldung} />
             </DiagrammKarte>
           )}
-          {offen && (
-            <div className="lg:col-span-2">
-              <DiagrammKarte
-                titel="Beim Kunden — ältestes zuerst"
-                unter="Das ist die Nachfassliste"
-                aktion={<Link to="/regie" className="text-xs font-semibold text-steel">Alle ›</Link>}
-              >
-                <Fristen eintraege={offen} />
-              </DiagrammKarte>
-            </div>
-          )}
         </div>
+
+        {k && (
+          <section className="hidden lg:block">
+            <div className="flex items-baseline justify-between">
+              <h2 className="lbl mb-0">Nachfassen · {nachfassen.length}</h2>
+              <Link to="/regie" className="text-xs font-semibold text-steel">Alle Regierapporte ›</Link>
+            </div>
+            {nachfassen.length === 0 ? (
+              <p className="card mt-2 text-sm text-ink3">Nichts zum Nachfassen — keine Frist ist verstrichen.</p>
+            ) : (
+              <div className="card mt-2 divide-y divide-line p-0">
+                {nachfassen.map((r) => (
+                  <Link key={r.id} to={`/regie/${r.id}`} className="flex items-center justify-between gap-3 px-4 py-2.5 hover:bg-ground">
+                    <span className="min-w-0">
+                      <span className="block truncate text-sm font-medium">
+                        {r.baustelle?.bezeichnung ?? '—'}
+                        {r.nummer && <span className="ml-1.5 font-mono text-xs text-ink3">{r.nummer}</span>}
+                      </span>
+                      <span className="mt-0.5 flex flex-wrap items-center gap-2 text-[11px] text-ink3">
+                        {r.baustelle && <span className="knr">{r.baustelle.konto_nr}</span>}
+                        {r.versendet_am && <span>verschickt {kurz(new Date(r.versendet_am))}</span>}
+                        {r.frist_bis && <span className="font-semibold text-accent-deep">Frist war {lang(ausIso(r.frist_bis))}</span>}
+                        {r.empfaenger_email && <span>{r.empfaenger_email}</span>}
+                      </span>
+                    </span>
+                    <span className="flex shrink-0 items-center gap-3">
+                      <span className="font-mono text-sm font-semibold tabular-nums text-accent-deep">{formatChf(r.betrag_rappen ?? 0)}</span>
+                      <span className="text-ink3" aria-hidden="true">›</span>
+                    </span>
+                  </Link>
+                ))}
+              </div>
+            )}
+          </section>
+        )}
 
         <nav className="grid gap-3 lg:hidden">
           <NavKarte zu="/regie" titel="Regierapporte" text="Versand, Zustellnachweis, Fristen — nachfassen" />

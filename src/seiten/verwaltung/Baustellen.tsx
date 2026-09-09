@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { supabase } from '../../lib/supabase';
-import { iso } from '../../lib/datum';
+import { ausIso, iso, lang } from '../../lib/datum';
 
 interface Baustelle { id: string; konto_nr: string; bezeichnung: string | null; status: 'aktiv' | 'fertig_gemeldet' | 'abgeschlossen'; fertigstellung_am: string | null; kunde_id: string | null }
 interface Kunde { id: string; name: string }
@@ -104,7 +104,7 @@ export function Baustellen() {
                   )}
                   {b.status === 'fertig_gemeldet' && (
                     <>
-                      <span className="self-center text-xs text-ink3">fertig gemeldet am {b.fertigstellung_am} — ab jetzt ist jeder Eingriff zusätzlich (AGB 4.1)</span>
+                      <span className="self-center text-xs text-ink3">fertig gemeldet am {b.fertigstellung_am ? lang(ausIso(b.fertigstellung_am)) : '—'} — ab jetzt ist jeder Eingriff zusätzlich (AGB 4.1)</span>
                       <button type="button" onClick={() => void aendern(b.id, { status: 'abgeschlossen' })} className="btn-ghost">abschliessen</button>
                     </>
                   )}

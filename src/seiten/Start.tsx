@@ -6,6 +6,7 @@ import { supabase } from '../lib/supabase';
 import { addTage, iso, kurz, kw, lang, montag } from '../lib/datum';
 import { flushNachSupabase, offeneAnzahl } from '../lib/db';
 import { Kachel, MONATE, NavKarte } from '../ui/Karten';
+import { navFuer } from '../ui/Shell';
 import { DiagrammKarte, Trichter, WochenStunden } from '../ui/Diagramm';
 import { TeamBoard } from '../ui/TeamBoard';
 import { teamStand, trichter, wochenStunden, type TeamStand, type TrichterDaten, type WochenTag } from '../lib/kennzahlen';
@@ -25,7 +26,26 @@ interface Kennzahlen {
   regieUeberfaellig: number;
   regieOffenRappen: number;
   regieMonatRappen: number;
+  /** Bestellt, geplanter Tag vorbei, keine Meldung — der Moment zum Nachfragen */
+  ohneMeldung: number;
+  /** Regie in Arbeit (alles ausser bestätigt), davon älter als 30 Tage */
+  inArbeitRappen: number;
+  inArbeitAltRappen: number;
 }
+
+/** Ein Satz pro Bereich fürs Handy-Menü — die Reihenfolge kommt aus der Seitenleiste (eine Ordnung für beide). */
+const BEREICH_TEXT: Record<string, string> = {
+  '/zusatzauftrag': 'Kundenbestellung festhalten, bevor gearbeitet wird',
+  '/heute': 'Wer hat heute gemeldet, wer nicht',
+  '/cockpit': 'Prüfen und freigeben, statt telefonieren',
+  '/regie': 'Versand, Zustellnachweis und Fristen',
+  '/auswertung': 'Regie pro Baustelle und Kunde, pro Monat',
+  '/export': 'SORBA-Raster, Lohn-Excel, Temporärbüro',
+  '/board': 'Jahresplan — welches Team wann wo',
+  '/verwaltung': 'Mitarbeitende, Teams, Kunden, Baustellen',
+  '/erfassung?wahl': 'Teamgerät — ein Knopf für den normalen Tag',
+  '/b/demo-token': 'So bestätigt die Bauleitung — ohne Konto',
+};
 
 /** Startseite je Ansicht (09.09.): Bauführer, Chefmonteur, Monteur, Sekretariat, Kunde. */
 export function Start() {
@@ -41,10 +61,12 @@ export function Start() {
 function StartBauf() {
   const [k, setK] = useState<Kennzahlen | null>(null);
   const [wartend, setWartend] = useState<{ anzahl: number; grund?: string } | null>(null);
+  const [fehler, setFehler] = useState('');
   const [woche, setWoche] = useState<WochenTag[] | null>(null);
   const [tr, setTr] = useState<TrichterDaten | null>(null);
   const [stand, setStand] = useState<TeamStand[] | null>(null);
   const heute = new Date();
+  const vorwoche = iso(addTage(montag(heute), -7));
 
   useEffect(() => {
     if (!supabase) return;
@@ -62,7 +84,7 @@ function StartBauf() {
         const rest = await offeneAnzahl();
         setWartend(rest > 0 ? { anzahl: rest } : null);
       }
-      const [za, zaHeute, tm, teams, zp, ro, ru, rm] = await Promise.all([
+      const [za, zaHeute, tm, teams, zp, ro, ru, rm, om, ia] = await Promise.all([
         c.from('zusatzauftrag_stand').select('id', { count: 'exact', head: true }).in('stand', ['bestellt', 'gemeldet']),
         c.from('zusatzauftrag_stand').select('id', { count: 'exact', head: true }).eq('stand', 'bestellt').eq('geplant_fuer', heuteIso),
         c.from('tagesmeldung').select('team_id').eq('datum', heuteIso),
@@ -72,8 +94,14 @@ function StartBauf() {
         c.from('regierapport').select('id', { count: 'exact', head: true }).or(`status.eq.frist_abgelaufen,and(status.eq.versendet,frist_bis.lt.${heuteIso})`),
         // Verschickt = Versanddatum zählt, nicht das Anlegen des Entwurfs
         c.from('regierapport').select('betrag_rappen').gte('versendet_am', monatsStart).neq('status', 'entwurf'),
+        c.from('zusatzauftrag_stand').select('id', { count: 'exact', head: true }).eq('ohne_meldung', true),
+        c.from('regierapport').select('betrag_rappen,versendet_am,erstellt_am').neq('status', 'bestaetigt'),
       ]);
-      // Namen der Teams braucht die Kachel nicht mehr — die liefert das Board darunter
+      const erster = [za, zaHeute, tm, teams, zp, ro, ru, rm, om, ia].find((r) => r.error);
+      if (erster?.error) { setFehler(erster.error.message); return; }
+      const dreissigTage = Date.now() - 30 * 86400000;
+      const inArbeit = (ia.data ?? []) as { betrag_rappen: number | null; versendet_am: string | null; erstellt_am: string }[];
+      // Die Teamnamen braucht die Kachel nicht mehr — die liefert das Board darunter
       const gemeldet = new Set((tm.data ?? []).map((r) => r.team_id));
       setK({
         offeneAuftraege: za.count ?? 0,
@@ -85,6 +113,9 @@ function StartBauf() {
         regieOffenRappen: (ro.data ?? []).reduce((s, r) => s + (r.betrag_rappen ?? 0), 0),
         regieUeberfaellig: ru.count ?? 0,
         regieMonatRappen: (rm.data ?? []).reduce((s, r) => s + (r.betrag_rappen ?? 0), 0),
+        ohneMeldung: om.count ?? 0,
+        inArbeitRappen: inArbeit.reduce((s, r) => s + (r.betrag_rappen ?? 0), 0),
+        inArbeitAltRappen: inArbeit.filter((r) => new Date(r.versendet_am ?? r.erstellt_am).getTime() < dreissigTage).reduce((s, r) => s + (r.betrag_rappen ?? 0), 0),
       });
       // Diagramme und Board danach — die Kacheln sollen nicht darauf warten
       const [w, t, ts] = await Promise.all([wochenStunden(c, heute), trichter(c), teamStand(c, heute)]);
@@ -125,14 +156,24 @@ function StartBauf() {
           </div>
         )}
 
+        {fehler && (
+          <p className="rounded-[12px] border border-accent/40 bg-accent-soft px-4 py-3 text-sm text-accent-deep">
+            Kennzahlen konnten nicht geladen werden: {fehler} <button type="button" className="ml-2 font-semibold underline" onClick={() => location.reload()}>Nochmals</button>
+          </p>
+        )}
+        {!k && !fehler && supabase && (
+          <div className="grid grid-cols-2 gap-2.5 lg:grid-cols-3 lg:gap-4" aria-busy="true">
+            {Array.from({ length: 6 }, (_, i) => <div key={i} className="card h-[76px] animate-pulse bg-surface-2 lg:h-[92px]" />)}
+          </div>
+        )}
         {k && (
           <div className="grid grid-cols-2 gap-2.5 lg:grid-cols-3 lg:gap-4">
             <Kachel zu="/heute" wert={`${k.teamsGemeldet}/${k.teams}`} label="Teams haben heute gemeldet" warn={k.teamsGemeldet < k.teams && heute.getDay() >= 1 && heute.getDay() <= 5 && heute.getHours() >= 17} />
-            <Kachel zu="/cockpit" wert={String(k.zuPruefen)} label="Zeiteinträge warten auf Freigabe" warn={k.zuPruefen > 0} />
-            <Kachel zu="/zusatzauftrag" wert={String(k.offeneAuftraege)} label={k.heuteGeplant > 0 ? `offene Zusatzaufträge · ${k.heuteGeplant} heute` : 'offene Zusatzaufträge'} />
-            <Kachel zu="/regie" wert={String(k.regieOffen)} label={`Regierapporte beim Kunden · ${formatChf(k.regieOffenRappen)}`} />
+            <Kachel zu={`/cockpit?woche=${vorwoche}`} wert={String(k.zuPruefen)} label="Zeiteinträge der Vorwoche warten auf Freigabe" warn={k.zuPruefen > 0} />
+            <Kachel zu="/zusatzauftrag" wert={String(k.offeneAuftraege)} label={k.ohneMeldung > 0 ? `offene Zusatzaufträge · ${k.ohneMeldung} ohne Meldung vom Team` : k.heuteGeplant > 0 ? `offene Zusatzaufträge · ${k.heuteGeplant} heute` : 'offene Zusatzaufträge'} warn={k.ohneMeldung > 0} />
+            <Kachel zu="/regie" wert={formatChf(k.inArbeitRappen)} label={k.inArbeitAltRappen > 0 ? `Regie in Arbeit · ${formatChf(k.inArbeitAltRappen)} älter als 30 Tage` : `Regie in Arbeit · ${k.regieOffen} beim Kunden`} warn={k.inArbeitAltRappen > 0} />
             <Kachel zu="/regie" wert={String(k.regieUeberfaellig)} label="Frist abgelaufen — nachfassen" warn={k.regieUeberfaellig > 0} />
-            <Kachel zu="/regie" wert={formatChf(k.regieMonatRappen)} label={`Regie an Kunden verschickt im ${MONATE[heute.getMonth()]}`} />
+            <Kachel zu="/auswertung" wert={formatChf(k.regieMonatRappen)} label={`Regie an Kunden verschickt im ${MONATE[heute.getMonth()]}`} />
           </div>
         )}
 
@@ -151,7 +192,7 @@ function StartBauf() {
             <DiagrammKarte
               titel="Zusatzaufträge"
               unter="Wo sie stehen — letzte 60 Tage, Stand abgeleitet"
-              aktion={<Link to="/regie" className="text-xs font-semibold text-steel">Regierapporte ›</Link>}
+              aktion={<Link to="/auswertung" className="text-xs font-semibold text-steel">Auswertung ›</Link>}
             >
               <Trichter stufen={tr.stufen} ohneMeldung={tr.ohneMeldung} />
             </DiagrammKarte>
@@ -165,13 +206,9 @@ function StartBauf() {
         )}
 
         <nav className="grid gap-3 lg:hidden">
-          <NavKarte zu="/erfassung?wahl" titel="Erfassung" text="Teamgerät — ein Knopf für den normalen Tag" />
-          <NavKarte zu="/cockpit" titel="Wochenübersicht" text="Prüfen und freigeben, statt telefonieren" />
-          <NavKarte zu="/regie" titel="Regierapporte" text="Versand, Zustellnachweis und Fristen" />
-          <NavKarte zu="/board" titel="Board" text="Jahresplan — welches Team wann wo" />
-          <NavKarte zu="/export" titel="Export" text="SORBA-Raster, Lohn-Excel, Temporärbüro" />
-          <NavKarte zu="/verwaltung" titel="Verwaltung" text="Mitarbeitende, Teams, Kunden, Baustellen" />
-          <NavKarte zu="/b/demo-token" titel="Kundenlink" text="So bestätigt die Bauleitung — ohne Konto" />
+          {navFuer('bauf').flatMap((g) => g.eintraege).filter((e) => e.zu !== '/').map((e) => (
+            <NavKarte key={e.zu} zu={e.zu} titel={e.label} text={BEREICH_TEXT[e.zu] ?? ''} />
+          ))}
         </nav>
 
         <p className="text-center text-[11px] text-ink3 lg:hidden">Woche {kw(heute)} · {kurz(montag(heute))} bis {kurz(addTage(montag(heute), 6))}</p>

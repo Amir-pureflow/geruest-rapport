@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
-import { useParams } from 'react-router-dom';
+import { Link, useParams } from 'react-router-dom';
 import { Marke, Wortmarke } from '../ui/Shell';
 import { supabaseUrl } from '../lib/supabase';
 import { formatChf } from '../lib/tarif';
+import { ausIso, lang } from '../lib/datum';
 
 /**
  * Kundenlink — kein Login, kein Konto, kein App-Rahmen.
@@ -21,18 +22,15 @@ interface Daten {
   fotos: string[];
 }
 
-function datumLang(isoDatum: string): string {
-  const d = new Date(isoDatum + 'T12:00:00');
-  return `${d.getDate()}.${d.getMonth() + 1}.${d.getFullYear()}`;
-}
-
-type Zustand = 'laedt' | 'fehler' | 'offen' | 'rueckfrage_text' | 'fertig';
+type Zustand = 'laedt' | 'fehler' | 'offen' | 'bestaetigen_frage' | 'rueckfrage_text' | 'fertig';
 
 export function Bestaetigung() {
   const { token } = useParams();
   const [zustand, setZustand] = useState<Zustand>('laedt');
   const [daten, setDaten] = useState<Daten | null>(null);
   const [meldung, setMeldung] = useState('');
+  /** Fehler beim Senden — bleibt beim Formular stehen, damit man es nochmals versuchen kann */
+  const [sendeFehler, setSendeFehler] = useState('');
   const [kommentar, setKommentar] = useState('');
   const [sendet, setSendet] = useState(false);
 
@@ -65,6 +63,7 @@ export function Bestaetigung() {
   async function antworten(aktion: 'bestaetigt' | 'rueckfrage') {
     if (!basis || !token) return;
     setSendet(true);
+    setSendeFehler('');
     const r = await fetch(basis, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -72,7 +71,7 @@ export function Bestaetigung() {
     }).catch(() => null);
     setSendet(false);
     if (!r || !r.ok) {
-      setMeldung('Das hat nicht geklappt — bitte nochmals versuchen.');
+      setSendeFehler('Das hat nicht geklappt — bitte nochmals versuchen.');
       return;
     }
     setZustand('fertig');
@@ -83,10 +82,15 @@ export function Bestaetigung() {
     );
   }
 
+  const rueckfrageBereit = kommentar.trim().length > 0;
+
   return (
     <div className="min-h-screen">
       <header className="appbar">
-        <div className="mx-auto flex h-14 max-w-md items-center gap-2.5 px-5"><Marke /><Wortmarke /></div>
+        <div className="mx-auto flex h-14 max-w-md items-center justify-between px-5">
+          <Link to="/" className="flex items-center gap-2.5" aria-label="Zur App"><Marke /><Wortmarke /></Link>
+          <Link to="/" className="btn-ghost text-xs">‹ Zur App</Link>
+        </div>
       </header>
       <main className="mx-auto max-w-md px-5 py-8 space-y-5">
         {zustand === 'laedt' && <div className="card text-sm text-ink3">Lädt …</div>}
@@ -107,9 +111,9 @@ export function Bestaetigung() {
                     {formatChf(daten.betrag_rappen)}
                   </span>
                 )}
-                {daten.frist_bis && zustand === 'offen' && <span>· Frist bis {daten.frist_bis}</span>}
+                {daten.frist_bis && zustand !== 'fertig' && <span>· Frist bis {lang(ausIso(daten.frist_bis))}</span>}
               </p>
-              {daten.datum && <p className="mt-2 text-sm text-ink2">Zusatzarbeit vom {datumLang(daten.datum)}.</p>}
+              {daten.datum && <p className="mt-2 text-sm text-ink2">Zusatzarbeit vom {lang(ausIso(daten.datum))}.</p>}
             </header>
 
             {(daten.positionen?.length ?? 0) > 0 && (
@@ -148,12 +152,12 @@ export function Bestaetigung() {
 
             {zustand === 'offen' && (
               <div className="grid grid-cols-2 gap-3">
-                <button type="button" disabled={sendet} onClick={() => void antworten('bestaetigt')} className="cta cta-good">
+                <button type="button" onClick={() => { setSendeFehler(''); setZustand('bestaetigen_frage'); }} className="cta cta-good">
                   Bestätigen
                 </button>
                 <button
                   type="button"
-                  onClick={() => setZustand('rueckfrage_text')}
+                  onClick={() => { setSendeFehler(''); setZustand('rueckfrage_text'); }}
                   className="rounded-xl border border-line-strong bg-surface py-4 font-display font-bold text-ink2 hover:border-ink3"
                 >
                   Rückfrage
@@ -161,20 +165,43 @@ export function Bestaetigung() {
               </div>
             )}
 
+            {zustand === 'bestaetigen_frage' && (
+              <div className="card space-y-3 p-5">
+                <p className="font-display text-lg font-bold">
+                  Regie{daten.betrag_rappen != null ? ` über ${formatChf(daten.betrag_rappen)}` : ''} bestätigen?
+                </p>
+                <p className="text-sm text-ink2">Mit der Bestätigung anerkennen Sie die aufgeführte Zusatzarbeit.</p>
+                <button type="button" disabled={sendet} onClick={() => void antworten('bestaetigt')} className="cta cta-good">
+                  {sendet ? 'Sendet …' : sendeFehler ? 'Nochmals senden' : 'Ja, bestätigen'}
+                </button>
+                {sendeFehler && <p className="text-sm font-semibold text-accent-deep">{sendeFehler}</p>}
+                <button type="button" onClick={() => { setSendeFehler(''); setZustand('offen'); }} className="btn-ghost w-full">
+                  Zurück
+                </button>
+              </div>
+            )}
+
             {zustand === 'rueckfrage_text' && (
               <div className="card space-y-3 p-5">
-                <label className="lbl">Ihre Rückfrage</label>
+                <label className="lbl" htmlFor="rueckfrage">Ihre Rückfrage</label>
                 <textarea
+                  id="rueckfrage"
                   value={kommentar}
                   onChange={(e) => setKommentar(e.target.value)}
                   rows={3}
                   placeholder="Was möchten Sie klären?"
                   className="field resize-none"
                 />
-                <button type="button" disabled={sendet} onClick={() => void antworten('rueckfrage')} className="cta">
-                  Rückfrage senden
+                <button
+                  type="button"
+                  disabled={sendet || !rueckfrageBereit}
+                  onClick={() => void antworten('rueckfrage')}
+                  className="cta disabled:opacity-50"
+                >
+                  {sendet ? 'Sendet …' : sendeFehler ? 'Nochmals senden' : 'Rückfrage senden'}
                 </button>
-                <button type="button" onClick={() => setZustand('offen')} className="btn-ghost w-full">
+                {sendeFehler && <p className="text-sm font-semibold text-accent-deep">{sendeFehler}</p>}
+                <button type="button" onClick={() => { setSendeFehler(''); setZustand('offen'); }} className="btn-ghost w-full">
                   Zurück
                 </button>
               </div>
@@ -184,10 +211,6 @@ export function Bestaetigung() {
               <div className="card border-good/40 bg-good-soft">
                 <p className="font-display font-bold text-good-deep">{meldung}</p>
               </div>
-            )}
-
-            {meldung && zustand === 'offen' && (
-              <p className="text-sm font-semibold text-accent-deep">{meldung}</p>
             )}
           </>
         )}

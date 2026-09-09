@@ -62,11 +62,11 @@ export function Tag() {
   }
 
   return (
-    <Shell>
+    <Shell zurueck>
       <div className="space-y-5">
         <header className="flex items-center justify-between gap-3">
           <div>
-            <Link to="/" className="text-xs font-semibold text-steel">‹ Start</Link>
+            <p className="lbl mb-0.5">Tagesübersicht</p>
             <h1 className="font-display text-2xl font-bold">{lang(datum)}</h1>
             <p className="text-sm text-ink3">
               {laedt ? 'lädt …' : `${gemeldet.length} von ${teams.length} Teams haben gemeldet`}
@@ -119,7 +119,7 @@ export function Tag() {
                       {m.baustelle && <><span className="knr">{m.baustelle.konto_nr}</span><span className="truncate text-ink2">{m.baustelle.bezeichnung ?? ''}</span></>}
                       {m.normalfall
                         ? <span className="chip bg-good-soft text-good-deep">wie geplant</span>
-                        : <span className="chip bg-amber-100 text-amber-900">{ABWEICHUNG[m.abweichung_typ ?? ''] ?? 'Abweichung'}</span>}
+                        : <span className="chip bg-amber-soft text-amber-deep">{ABWEICHUNG[m.abweichung_typ ?? ''] ?? 'Abweichung'}</span>}
                     </div>
                   ))}
                   <div className="text-right">

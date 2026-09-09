@@ -32,8 +32,8 @@ export const ANSICHT_LABEL: Record<Ansicht, string> = Object.fromEntries(ANSICHT
 
 /** Welche Seiten jede Ansicht überhaupt hat. «/» und «/b/:token» gibt es immer. */
 export const SEITEN: Record<Ansicht, string[]> = {
-  bauf: ['zusatzauftrag', 'erfassung', 'heute', 'cockpit', 'regie', 'export', 'board', 'verwaltung'],
-  sekretariat: ['zusatzauftrag', 'heute', 'cockpit', 'regie', 'export', 'board', 'verwaltung'],
+  bauf: ['zusatzauftrag', 'erfassung', 'heute', 'cockpit', 'regie', 'auswertung', 'export', 'board', 'verwaltung'],
+  sekretariat: ['zusatzauftrag', 'heute', 'cockpit', 'regie', 'auswertung', 'export', 'board', 'verwaltung'],
   chef: ['erfassung'],
   monteur: [],
   kunde: [],

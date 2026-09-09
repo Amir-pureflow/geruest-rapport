@@ -105,6 +105,12 @@ export function tarifNachCode(code: string): { bezeichnung: string; ansatz_rappe
 export const ETAPPE_MIN_RAPPEN: number = tarife.zuschlaege.etappe_min_rappen;
 
 /**
+ * Rückfallansatz (Rappen pro Stunde) für Zeiteinträge, deren Funktion keinen Tarifcode hat:
+ * der Ansatz Gerüstmonteur/in (Fr. 108.–). Wird in regie.ts und im Cockpit verwendet.
+ */
+export const RUECKFALL_ANSATZ_RAPPEN = 10800;
+
+/**
  * Der Referenzfall aus dem Konzept (Anhang B): Gerüst versetzen,
  * 2 Monteure × 2 h + Lieferwagen 1 h + Etappenzuschlag + 9 % Materialmiete.
  * Erwartet: Fr. 955.93. Dient Tests und der Start-Demo.

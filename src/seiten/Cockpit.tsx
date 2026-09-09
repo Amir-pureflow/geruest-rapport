@@ -4,7 +4,8 @@ import { Shell } from '../ui/Shell';
 import { FotoGalerie } from '../ui/FotoGalerie';
 import { BALKEN_FARBE, OhneMeldung, WochenBalken } from '../ui/WochenZeile';
 import { supabase } from '../lib/supabase';
-import { minutenBetrag, formatChf, tarifNachCode } from '../lib/tarif';
+import { minutenBetrag, formatChf, tarifNachCode, RUECKFALL_ANSATZ_RAPPEN } from '../lib/tarif';
+import { addTage, iso, kurz as ch, montag, stunden } from '../lib/datum';
 import { useAnsicht } from '../lib/ansicht';
 
 /**
@@ -19,11 +20,15 @@ import { useAnsicht } from '../lib/ansicht';
  * — entscheiden tut der Bauführer. Jede Korrektur landet im freigabe_log.
  */
 
+interface LogZeile { feld: string; alt: string | null; neu: string | null; begruendung: string | null; wann: string }
+
 interface Eintrag {
   id: string;
   normal_min: number;
   ueber_min: number;
   status: string;
+  /** Chronik: wer hat wann was geändert — Regel #7, hier auch lesbar, nicht nur geschrieben */
+  freigabe_log?: LogZeile[];
   mitarbeiter: { id: string; name: string; funktion: string; typ: string };
   tagesmeldung: {
     id: string;
@@ -32,6 +37,9 @@ interface Eintrag {
     abweichung_typ: string | null;
     wer_hats_gewollt: string | null;
     transkript: string | null;
+    transkript_quelle: string | null;
+    transkript_sprache: string | null;
+    transkript_fehler: string | null;
     audio_pfad: string | null;
     audio_sekunden: number | null;
     team: { id: string; bezeichnung: string } | null;
@@ -56,30 +64,18 @@ type ZellStatus = 'leer' | 'gruen' | 'gelb' | 'rot' | 'frei';
 type Filter = 'zutun' | 'alle';
 
 const TAGE = ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'];
+/** Feste Gründe für Korrekturen — kein Freitext, aber immer ein «warum» (Regel #7). */
+const GRUENDE = ['Mit Chefmonteur abgeklärt', 'Pause abgezogen', 'Anreise ist keine Arbeitszeit', 'Tippfehler im Teamgerät'];
+const FELD: Record<string, string> = { normal_min: 'Normalzeit', ueber_min: 'Überzeit' };
+const SPRACHE: Record<string, string> = { de: 'Deutsch', ar: 'Arabisch', pl: 'Polnisch', en: 'Englisch' };
+/** Normaler Tag + Abweichung sind zwei Meldungen und richtig so. Verdächtig ist nur: der normale Tag mehrfach. */
+function doppelteNormalmeldungen(liste: Eintrag[]): number {
+  return new Set(liste.filter((e) => e.tagesmeldung.normalfall).map((e) => e.tagesmeldung.id)).size;
+}
 const ZEHN_STUNDEN_MIN = 600;
 /** Rang für «schlechtester Status des Tages» und für die Sortierung der Teams. */
 const RANG: Record<ZellStatus, number> = { rot: 4, gelb: 3, gruen: 2, frei: 1, leer: 0 };
 
-function montag(d: Date): Date {
-  const x = new Date(d);
-  x.setDate(x.getDate() - ((x.getDay() + 6) % 7));
-  x.setHours(12, 0, 0, 0);
-  return x;
-}
-function addTage(d: Date, n: number): Date {
-  const x = new Date(d);
-  x.setDate(x.getDate() + n);
-  return x;
-}
-function iso(d: Date): string {
-  return d.toISOString().slice(0, 10);
-}
-function ch(d: Date): string {
-  return `${d.getDate()}.${d.getMonth() + 1}.`;
-}
-function stunden(min: number): string {
-  return (min / 60).toFixed(1);
-}
 function kurzName(name: string): string {
   const teile = name.trim().split(' ');
   return teile.length > 1 ? `${teile[0][0]}. ${teile.slice(1).join(' ')}` : name;
@@ -89,7 +85,7 @@ const ZELL_STIL: Record<ZellStatus, string> = {
   leer: 'text-ink3',
   gruen: 'bg-surface',
   frei: 'bg-good-soft text-good-deep',
-  gelb: 'bg-amber-100 text-amber-900',
+  gelb: 'bg-amber-soft text-amber-deep',
   rot: 'bg-accent-soft text-accent-deep font-semibold',
 };
 
@@ -116,6 +112,23 @@ export function Cockpit() {
   // Freigeben und korrigieren tut der Bauführer — das Sekretariat schaut nur.
   const darfFreigeben = useAnsicht() === 'bauf';
   const [laedt, setLaedt] = useState(true);
+  const [ladeFehler, setLadeFehler] = useState('');
+  // Rückmeldung nach Freigeben/Korrigieren — vorher passierte bei einem Klick manchmal wortlos nichts
+  const [rueckmeldung, setRueckmeldung] = useState<{ text: string; art: 'ok' | 'fehler' } | null>(null);
+  // Laufende Korrektur: erst Wert einstellen, dann Grund wählen, dann speichern (Regel #7: warum)
+  const [korrektur, setKorrektur] = useState<{ id: string; total: number; alt: number; team?: { meldungId: string; datum: string; teamName: string } } | null>(null);
+  const [speichert, setSpeichert] = useState(false);
+  // Transkription auf Knopfdruck (Aufnahmen von vor dem Einbau, oder nach einem Fehler)
+  const [transkribiert, setTranskribiert] = useState<Set<string>>(new Set());
+  async function transkribieren(meldungId: string) {
+    if (!supabase) return;
+    setTranskribiert((s) => new Set(s).add(meldungId));
+    const { data, error } = await supabase.functions.invoke('transkribieren', { body: { tagesmeldung_id: meldungId, erneut: true } });
+    const f = (data as { fehler?: string } | null)?.fehler ?? error?.message;
+    if (f) melden('Text konnte nicht erstellt werden: ' + f, 'fehler');
+    setTranskribiert((s) => { const n = new Set(s); n.delete(meldungId); return n; });
+    void laden();
+  }
   const [teams, setTeams] = useState<Team[]>([]);
   // Standard «Zu tun»: nur Teams mit Hinweis. Kommt man gezielt zu einem Team (Tagesübersicht/Rapport), alle zeigen.
   const [filter, setFilter] = useState<Filter>(() => (params.get('team') ? 'alle' : 'zutun'));
@@ -158,21 +171,29 @@ export function Cockpit() {
   const laden = useCallback(async () => {
     if (!supabase) return;
     setLaedt(true);
+    const c = supabase;
+    // Transkript-Spalten kommen mit Migration 0009 — fehlen sie noch, ohne sie laden statt gar nicht
+    const auswahl = (mitTranskript: boolean) =>
+      'id,normal_min,ueber_min,status,freigabe_log(feld,alt,neu,begruendung,wann),mitarbeiter:mitarbeiter_id(id,name,funktion,typ),tagesmeldung:tagesmeldung_id!inner(id,datum,normalfall,abweichung_typ,wer_hats_gewollt,transkript,' +
+      (mitTranskript ? 'transkript_quelle,transkript_sprache,transkript_fehler,' : '') +
+      'audio_pfad,audio_sekunden,team:team_id(id,bezeichnung),baustelle:baustelle_id(id,konto_nr,bezeichnung),foto(id,pfad),regierapport(id,status))';
+    const eintraegeLaden = async () => {
+      const erst = await c.from('zeiteintrag').select(auswahl(true)).gte('tagesmeldung.datum', vonIso).lte('tagesmeldung.datum', bisIso);
+      if (erst.error && /transkript_\w+ does not exist/.test(erst.error.message)) {
+        return c.from('zeiteintrag').select(auswahl(false)).gte('tagesmeldung.datum', vonIso).lte('tagesmeldung.datum', bisIso);
+      }
+      return erst;
+    };
     const [z, a] = await Promise.all([
-      supabase
-        .from('zeiteintrag')
-        .select(
-          'id,normal_min,ueber_min,status,mitarbeiter:mitarbeiter_id(id,name,funktion,typ),tagesmeldung:tagesmeldung_id!inner(id,datum,normalfall,abweichung_typ,wer_hats_gewollt,transkript,audio_pfad,audio_sekunden,team:team_id(id,bezeichnung),baustelle:baustelle_id(id,konto_nr,bezeichnung),foto(id,pfad),regierapport(id,status))',
-        )
-        .gte('tagesmeldung.datum', vonIso)
-        .lte('tagesmeldung.datum', bisIso),
+      eintraegeLaden(),
       // Sicht: nur bestellt/gemeldet — wer schon einen Regierapport hat, wird nicht nochmals verdächtig
       supabase
         .from('zusatzauftrag_stand')
         .select('id,baustelle_id,taetigkeit,besteller_name,geplant_fuer')
         .in('stand', ['bestellt', 'gemeldet']),
     ]);
-    if (z.data) setEintraege(z.data as unknown as Eintrag[]);
+    if (z.error) setLadeFehler(z.error.message);
+    else { setLadeFehler(''); setEintraege((z.data ?? []) as unknown as Eintrag[]); }
     if (a.data) setAuftraege(a.data);
     setLaedt(false);
   }, [vonIso, bisIso]);
@@ -361,7 +382,7 @@ export function Cockpit() {
 
   function betragVorgerechnet(liste: Eintrag[]): number {
     return liste.reduce((s, e) => {
-      let ansatz = 10800; // Rückfall Gerüstmonteur/in
+      let ansatz = RUECKFALL_ANSATZ_RAPPEN;
       try {
         ansatz = tarifNachCode(e.mitarbeiter.funktion).ansatz_rappen;
       } catch {
@@ -371,40 +392,101 @@ export function Cockpit() {
     }, 0);
   }
 
+  function melden(text: string, art: 'ok' | 'fehler' = 'ok') {
+    setRueckmeldung({ text, art });
+    window.setTimeout(() => setRueckmeldung((r) => (r?.text === text ? null : r)), art === 'ok' ? 4000 : 8000);
+  }
+  /** RPC fehlt noch (Migration 0009 nicht eingespielt)? Dann der bisherige zweistufige Weg. */
+  function rpcFehlt(err: { code?: string; message: string } | null): boolean {
+    return !!err && (err.code === '42883' || err.code === 'PGRST202' || /function .* does not exist|Could not find the function/i.test(err.message));
+  }
+
   async function freigeben(liste: Eintrag[]) {
-    if (!supabase || !userId || liste.length === 0) return;
-    const ids = liste.map((e) => e.id);
-    await supabase.from('zeiteintrag').update({ status: 'freigegeben' }).in('id', ids);
-    await supabase.from('freigabe_log').insert(
-      liste.map((e) => ({
-        zeiteintrag_id: e.id,
-        wer: userId,
-        feld: 'status',
-        alt: e.status,
-        neu: 'freigegeben',
-      })),
-    );
+    if (!supabase || !userId || liste.length === 0 || speichert) return;
+    setSpeichert(true);
+    const ids = liste.filter((e) => e.status === 'offen').map((e) => e.id);
+    const { error } = await supabase.rpc('zeit_freigeben', { p_ids: ids, p_wer: userId, p_grund: null });
+    if (error && rpcFehlt(error)) {
+      const u = await supabase.from('zeiteintrag').update({ status: 'freigegeben' }).in('id', ids);
+      const l = u.error ? { error: u.error } : await supabase.from('freigabe_log').insert(
+        liste.map((e) => ({ zeiteintrag_id: e.id, wer: userId, feld: 'status', alt: e.status, neu: 'freigegeben' })),
+      );
+      if (u.error || l.error) melden('Freigabe fehlgeschlagen: ' + (u.error ?? l.error)!.message, 'fehler');
+      else melden(`${ids.length} ${ids.length === 1 ? 'Eintrag' : 'Einträge'} freigegeben ✓`);
+    } else if (error) {
+      melden('Freigabe fehlgeschlagen: ' + error.message, 'fehler');
+    } else {
+      melden(`${ids.length} ${ids.length === 1 ? 'Eintrag' : 'Einträge'} freigegeben ✓`);
+    }
+    setSpeichert(false);
     void laden();
   }
 
-  /** Korrektur ±30 Min — jede Änderung landet im Protokoll (wer/wann/von/auf). */
-  async function korrigieren(e: Eintrag, deltaMin: number) {
-    if (!supabase || !userId) return;
-    const neu = Math.max(0, e.normal_min + deltaMin);
-    if (neu === e.normal_min) return;
-    await supabase.from('zeiteintrag').update({ normal_min: neu }).eq('id', e.id);
-    await supabase.from('freigabe_log').insert({
-      zeiteintrag_id: e.id,
-      wer: userId,
-      feld: 'normal_min',
-      alt: String(e.normal_min),
-      neu: String(neu),
+  /** Korrektur in Gesamtminuten (Normal + Über), nach der 480-Regel aufgeteilt — wie die Erfassung. */
+  function aufteilen(total: number): { normal_min: number; ueber_min: number } {
+    return { normal_min: Math.min(total, 480), ueber_min: Math.max(0, total - 480) };
+  }
+  function korrekturStarten(e: Eintrag, deltaMin: number) {
+    setKorrektur((k) => {
+      const basis = k && k.id === e.id ? k.total : e.normal_min + e.ueber_min;
+      return { id: e.id, alt: e.normal_min + e.ueber_min, total: Math.max(0, basis + deltaMin) };
     });
+  }
+  /** Speichern mit Pflichtgrund — wer, wann, von, auf UND warum (Regel #7). */
+  async function korrekturSpeichern(e: Eintrag, grund: string) {
+    if (!supabase || !userId || !korrektur || korrektur.id !== e.id || speichert) return;
+    if (korrektur.total === korrektur.alt) { setKorrektur(null); return; }
+    setSpeichert(true);
+    const { error } = await supabase.rpc('zeit_korrigieren', { p_id: e.id, p_total_min: korrektur.total, p_wer: userId, p_grund: grund });
+    if (error && rpcFehlt(error)) {
+      const neu = aufteilen(korrektur.total);
+      const u = await supabase.from('zeiteintrag').update(neu).eq('id', e.id);
+      const logs = [
+        ...(neu.normal_min !== e.normal_min ? [{ zeiteintrag_id: e.id, wer: userId, feld: 'normal_min', alt: String(e.normal_min), neu: String(neu.normal_min), begruendung: grund }] : []),
+        ...(neu.ueber_min !== e.ueber_min ? [{ zeiteintrag_id: e.id, wer: userId, feld: 'ueber_min', alt: String(e.ueber_min), neu: String(neu.ueber_min), begruendung: grund }] : []),
+      ];
+      const l = u.error || logs.length === 0 ? { error: u.error } : await supabase.from('freigabe_log').insert(logs);
+      if (u.error || l.error) melden('Korrektur fehlgeschlagen: ' + (u.error ?? l.error)!.message, 'fehler');
+      else melden(`${e.mitarbeiter.name}: ${stunden(korrektur.alt)} → ${stunden(korrektur.total)} h gespeichert ✓`);
+    } else if (error) {
+      melden('Korrektur fehlgeschlagen: ' + error.message, 'fehler');
+    } else {
+      melden(`${e.mitarbeiter.name}: ${stunden(korrektur.alt)} → ${stunden(korrektur.total)} h gespeichert ✓`);
+    }
+    setSpeichert(false);
+    setKorrektur(null);
+    void laden();
+  }
+  /** Ganzes Team an einem Tag auf denselben Wert — statt 3 × 4 Aufklappvorgänge. */
+  async function teamSetzen(liste: Eintrag[], total: number, grund: string) {
+    if (!supabase || !userId || liste.length === 0 || speichert) return;
+    setSpeichert(true);
+    const meldungen = [...new Set(liste.map((e) => e.tagesmeldung.id))];
+    let fehler = '';
+    for (const mid of meldungen) {
+      const { error } = await supabase.rpc('zeit_team_setzen', { p_tagesmeldung_id: mid, p_total_min: total, p_wer: userId, p_grund: grund });
+      if (error && rpcFehlt(error)) {
+        for (const e of liste.filter((x) => x.tagesmeldung.id === mid && x.status === 'offen')) {
+          const neu = aufteilen(total);
+          const u = await supabase.from('zeiteintrag').update(neu).eq('id', e.id);
+          if (u.error) { fehler = u.error.message; continue; }
+          await supabase.from('freigabe_log').insert({ zeiteintrag_id: e.id, wer: userId, feld: 'normal_min', alt: String(e.normal_min), neu: String(neu.normal_min), begruendung: grund });
+        }
+      } else if (error) fehler = error.message;
+    }
+    if (fehler) melden('Nicht alle gespeichert: ' + fehler, 'fehler');
+    else melden(`Team auf ${stunden(total)} h gesetzt ✓`);
+    setSpeichert(false);
+    setKorrektur(null);
     void laden();
   }
 
   const detail = gewaehlt
     ? personen.find(([id]) => id === gewaehlt.mit)?.[1].tage.get(gewaehlt.datum) ?? []
+    : [];
+  /** Alle Einträge des Teams am gewählten Tag — für «alle auf X h». */
+  const gewaehltesTeamAmTag: Eintrag[] = gewaehlt
+    ? eintraege.filter((e) => e.tagesmeldung.datum === gewaehlt.datum && e.tagesmeldung.team?.id === personen.find(([id]) => id === gewaehlt.mit)?.[1].teamId)
     : [];
 
   function teamUmschalten(id: string) {
@@ -437,6 +519,17 @@ export function Cockpit() {
           </div>
         </header>
 
+        {rueckmeldung && (
+          <p role="status" className={'rounded-[12px] border px-4 py-2.5 text-sm font-semibold ' + (rueckmeldung.art === 'ok' ? 'border-good/40 bg-good-soft text-good-deep' : 'border-accent/40 bg-accent-soft text-accent-deep')}>
+            {rueckmeldung.text}
+          </p>
+        )}
+        {ladeFehler && (
+          <p className="flex items-center justify-between gap-3 rounded-[12px] border border-accent/40 bg-accent-soft px-4 py-2.5 text-sm text-accent-deep">
+            <span>Woche konnte nicht geladen werden: {ladeFehler}</span>
+            <button type="button" className="btn-ghost shrink-0" onClick={() => void laden()}>Nochmals</button>
+          </p>
+        )}
         {herkunftRapport && (
           <div className="flex items-center justify-between gap-3 rounded-[12px] border border-steel/40 bg-steel-soft px-4 py-2.5 text-sm">
             <span>
@@ -457,8 +550,8 @@ export function Cockpit() {
 
         {/* Der eine Knopf — zuoberst, nicht unter 20 Teams versteckt */}
         {!laedt && darfFreigeben && gruene.length > 0 && wocheAbgeschlossen && (
-          <button type="button" className="cta cta-good" onClick={() => void freigeben(gruene)}>
-            Alle {gruene.length} Einträge ohne Hinweis freigeben
+          <button type="button" className="cta cta-good disabled:opacity-60" disabled={!userId || speichert} onClick={() => void freigeben(gruene)}>
+            {speichert ? 'Speichert …' : `Alle ${gruene.length} Einträge ohne Hinweis freigeben`}
           </button>
         )}
         {!laedt && darfFreigeben && eintraege.length > 0 && !wocheAbgeschlossen && (
@@ -582,6 +675,9 @@ export function Cockpit() {
                                             className={'w-full rounded-md px-1 py-1.5 font-mono text-xs tabular-nums transition ' + ZELL_STIL[st] + (aktiv ? ' ring-2 ring-accent' : markierterTag === datum ? ' ring-2 ring-steel' : '')}
                                           >
                                             {st === 'leer' ? '–' : stunden(summe)}
+                                            {liste && doppelteNormalmeldungen(liste) > 1 && (
+                                              <sup className="ml-0.5 text-[9px] font-bold text-amber-deep" title="der normale Tag wurde mehrfach gemeldet">{doppelteNormalmeldungen(liste)}×</sup>
+                                            )}
                                           </button>
                                         </td>
                                       );
@@ -609,9 +705,11 @@ export function Cockpit() {
                                     {e.tagesmeldung.baustelle && <span className="knr">{e.tagesmeldung.baustelle.konto_nr}</span>}
                                   </span>
                                   <span className="flex items-center gap-1.5">
-                                    {darfFreigeben && <button type="button" className="btn-ghost px-2.5" onClick={() => void korrigieren(e, -30)}>−</button>}
-                                    <span className="w-12 text-center font-mono text-sm tabular-nums">{stunden(e.normal_min + e.ueber_min)} h</span>
-                                    {darfFreigeben && <button type="button" className="btn-ghost px-2.5" onClick={() => void korrigieren(e, 30)}>+</button>}
+                                    {darfFreigeben && e.status === 'offen' && <button type="button" className="btn-ghost px-2.5" onClick={() => korrekturStarten(e, -30)}>−</button>}
+                                    <span className={'w-12 text-center font-mono text-sm tabular-nums ' + (korrektur?.id === e.id && korrektur.total !== korrektur.alt ? 'font-bold text-steel' : '')}>
+                                      {stunden(korrektur?.id === e.id ? korrektur.total : e.normal_min + e.ueber_min)} h
+                                    </span>
+                                    {darfFreigeben && e.status === 'offen' && <button type="button" className="btn-ghost px-2.5" onClick={() => korrekturStarten(e, 30)}>+</button>}
                                     {e.status === 'offen' && !darfFreigeben ? (
                                       <span className="px-1 text-xs text-ink3">offen</span>
                                     ) : e.status === 'offen' ? (
@@ -622,12 +720,50 @@ export function Cockpit() {
                                   </span>
                                 </div>
                               ))}
-                              <p className="text-[11px] text-ink3">Jede Korrektur wird protokolliert: wer, wann, von, auf.</p>
+                              {korrektur && detail.some((e) => e.id === korrektur.id) && korrektur.total !== korrektur.alt && (
+                                <div className="rounded-[10px] border border-steel/40 bg-steel-soft px-3 py-2">
+                                  <p className="text-xs font-semibold text-steel">
+                                    {stunden(korrektur.alt)} → {stunden(korrektur.total)} h · Warum?
+                                  </p>
+                                  <div className="mt-1.5 flex flex-wrap gap-1.5">
+                                    {GRUENDE.map((g) => (
+                                      <button key={g} type="button" disabled={speichert} className="chip px-2.5 py-1 text-xs" onClick={() => void korrekturSpeichern(detail.find((e) => e.id === korrektur.id)!, g)}>{g}</button>
+                                    ))}
+                                    <button type="button" className="btn-ghost px-2.5 py-1 text-xs" onClick={() => setKorrektur(null)}>Abbrechen</button>
+                                  </div>
+                                  {detail.filter((e) => e.status === 'offen').length > 0 && (
+                                    <p className="mt-2 text-[11px] text-ink3">
+                                      Gilt der Wert für alle im Team an diesem Tag?{' '}
+                                      {GRUENDE.slice(0, 2).map((g) => (
+                                        <button key={g} type="button" disabled={speichert} className="mr-1 font-semibold text-steel underline underline-offset-2" onClick={() => void teamSetzen(gewaehltesTeamAmTag, korrektur.total, g)}>
+                                          alle auf {stunden(korrektur.total)} h ({g})
+                                        </button>
+                                      ))}
+                                    </p>
+                                  )}
+                                </div>
+                              )}
+                              {detail.some((e) => (e.freigabe_log?.length ?? 0) > 0) && (
+                                <div className="text-[11px] text-ink3">
+                                  <p className="font-semibold uppercase tracking-wide">Verlauf</p>
+                                  {detail.flatMap((e) => (e.freigabe_log ?? []).map((l) => ({ ...l, wer_name: e.mitarbeiter.name }))).sort((a, b) => a.wann.localeCompare(b.wann)).map((l, i) => (
+                                    <p key={i}>
+                                      {ch(new Date(l.wann))} {new Date(l.wann).toLocaleTimeString('de-CH', { hour: '2-digit', minute: '2-digit' })} · {l.wer_name}: {l.feld === 'status' ? 'freigegeben' : `${FELD[l.feld] ?? l.feld} ${stunden(Number(l.alt))} → ${stunden(Number(l.neu))} h`}{l.begruendung ? ` · ${l.begruendung}` : ''}
+                                    </p>
+                                  ))}
+                                </div>
+                              )}
+                              {doppelteNormalmeldungen(detail) > 1 && (
+                                <p className="rounded-[10px] bg-amber-soft px-3 py-2 text-xs text-amber-deep">
+                                  Der normale Tag wurde {doppelteNormalmeldungen(detail)}-mal gemeldet — die Stunden addieren sich. Falls doppelt: im Teamgerät «Frühere ersetzen» wählen.
+                                </p>
+                              )}
+                              <p className="text-[11px] text-ink3">Jede Korrektur wird protokolliert: wer, wann, von, auf, warum.</p>
                             </div>
                           )}
 
                           {faelle.map(({ meldung, eintraege: liste, ausloeser }) => (
-                            <div key={meldung.id} className={'rounded-[12px] border border-amber-300 bg-amber-50 p-3' + (markierteMeldung === meldung.id ? ' ring-2 ring-steel' : '')}>
+                            <div key={meldung.id} className={'rounded-[12px] border border-amber/40 bg-amber-soft/60 p-3' + (markierteMeldung === meldung.id ? ' ring-2 ring-steel' : '')}>
                               <div className="flex items-baseline justify-between gap-2">
                                 <span className="font-display text-[14px] font-bold">
                                   {markierteMeldung === meldung.id ? 'Diese Meldung · ' : 'Regieverdacht · '}{meldung.baustelle?.bezeichnung ?? '—'}
@@ -643,7 +779,27 @@ export function Cockpit() {
                                 </div>
                               )}
                               {meldung.transkript && (
-                                <p className="mt-2 rounded-[10px] bg-surface px-3 py-2 text-sm italic text-ink2">«{meldung.transkript}»</p>
+                                <div className="mt-2 rounded-[10px] bg-surface px-3 py-2 text-sm text-ink2">
+                                  <p className="italic">«{meldung.transkript}»</p>
+                                  {meldung.transkript_quelle && (
+                                    <details className="mt-1 text-xs text-ink3">
+                                      <summary className="cursor-pointer">Original auf {SPRACHE[meldung.transkript_sprache ?? ''] ?? 'anderer Sprache'} · automatisch übersetzt</summary>
+                                      <p className="mt-1 italic" dir="auto">{meldung.transkript_quelle}</p>
+                                    </details>
+                                  )}
+                                </div>
+                              )}
+                              {!meldung.transkript && meldung.audio_pfad && (
+                                <p className="mt-2 flex flex-wrap items-center gap-2 text-xs text-ink3">
+                                  {transkribiert.has(meldung.id)
+                                    ? 'Text wird erstellt …'
+                                    : meldung.transkript_fehler
+                                      ? <span className="text-amber-deep">Text konnte nicht erstellt werden.</span>
+                                      : 'Noch kein Text zur Sprachnotiz.'}
+                                  {!transkribiert.has(meldung.id) && (
+                                    <button type="button" className="btn-ghost px-2 py-0.5 text-xs" onClick={() => void transkribieren(meldung.id)}>Text erstellen</button>
+                                  )}
+                                </p>
                               )}
                               {(meldung.audio_pfad || meldung.audio_sekunden) && (
                                 <div className="mt-2 flex items-center gap-2">
@@ -658,9 +814,8 @@ export function Cockpit() {
                               {meldung.normalfall ? (
                                 /* Normaler Tag mit offenem Auftrag: die 8 h sind Aufbau (Offerte), nicht Regie.
                                    Regie entsteht nur aus dem gemeldeten Extra — sonst beim Team nachfragen. */
-                                <p className="mt-2 rounded-[10px] border border-dashed border-amber-400 px-3 py-2 text-xs text-ink2">
-                                  Normaler Arbeitstag ({stunden(liste.reduce((s, e) => s + e.normal_min + e.ueber_min, 0))} h) — das ist Aufbau aus der Offerte, keine Regie.
-                                  Der Zusatzauftrag war für diesen Tag geplant, aber <b>das Team hat keine Zusatzarbeit gemeldet</b>: nachfragen, ob sie ausgeführt wurde.
+                                <p className="mt-2 rounded-[10px] border border-dashed border-amber/60 px-3 py-2 text-xs text-ink2">
+                                  Das Team hat <b>«wie geplant»</b> gemeldet ({stunden(liste.reduce((s, e) => s + e.normal_min + e.ueber_min, 0))} h). Der Zusatzauftrag für diesen Tag ist noch offen — beim Chefmonteur nachfragen, ob die Zusatzarbeit ausgeführt wurde.
                                 </p>
                               ) : (
                                 <div className="mt-2 flex items-center justify-between gap-2">
@@ -675,7 +830,7 @@ export function Cockpit() {
                                     </Link>
                                   ) : (
                                     <Link to={`/regie/neu?meldung=${meldung.id}`} className="btn-ghost shrink-0 border-accent text-accent-deep">
-                                      Rapport ansehen ›
+                                      Regierapport vorrechnen ›
                                     </Link>
                                   )}
                                 </div>
@@ -684,7 +839,7 @@ export function Cockpit() {
                           ))}
 
                           {darfFreigeben && z.gruene.length > 0 && wocheAbgeschlossen && (
-                            <button type="button" className="btn-ghost w-full border-good text-good-deep" onClick={() => void freigeben(z.gruene)}>
+                            <button type="button" className="btn-ghost w-full border-good text-good-deep disabled:opacity-60" disabled={!userId || speichert} onClick={() => void freigeben(z.gruene)}>
                               {z.team.bezeichnung}: {z.gruene.length} {z.gruene.length === 1 ? 'Eintrag' : 'Einträge'} ohne Hinweis freigeben
                             </button>
                           )}

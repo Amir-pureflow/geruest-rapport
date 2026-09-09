@@ -6,6 +6,7 @@ import { formatChf } from '../lib/tarif';
 
 interface Zeile {
   id: string;
+  nummer: string | null;
   status: string;
   betrag_rappen: number | null;
   frist_bis: string | null;
@@ -46,7 +47,7 @@ const STATUS_STIL: Record<string, string> = {
   entwurf: 'bg-ground text-ink2',
   versendet: 'bg-steel-soft text-steel',
   bestaetigt: 'bg-good-soft text-good-deep',
-  rueckfrage: 'bg-amber-100 text-amber-900',
+  rueckfrage: 'bg-amber-soft text-amber-deep',
   frist_abgelaufen: 'bg-accent-soft text-accent-deep',
 };
 
@@ -58,7 +59,7 @@ export function RegieListe() {
     if (!supabase) return;
     void supabase
       .from('regierapport')
-      .select('id,status,betrag_rappen,frist_bis,erstellt_am,versendet_am,bestaetigt_am,baustelle:baustelle_id(bezeichnung,konto_nr)')
+      .select('id,nummer,status,betrag_rappen,frist_bis,erstellt_am,versendet_am,bestaetigt_am,baustelle:baustelle_id(bezeichnung,konto_nr)')
       .order('erstellt_am', { ascending: false })
       .limit(50)
       .then(({ data }) => {
@@ -89,9 +90,13 @@ export function RegieListe() {
         <h1 className="font-display text-2xl font-bold">Regierapporte</h1>
         {zeilen.length === 0 && (
           <div className="card text-sm text-ink3">
-            {laedt
-              ? 'Lädt …'
-              : 'Noch keine. Der Weg: Wochenübersicht → gelbe Verdachtskarte → «→ Regierapport».'}
+            {laedt ? (
+              'Lädt …'
+            ) : (
+              <>
+                Noch keine. Der Weg: <Link to="/cockpit" className="font-semibold text-steel">Wochenübersicht</Link> → gelbe Karte «Regieverdacht» → «Regierapport vorrechnen ›».
+              </>
+            )}
           </div>
         )}
         {gruppen.filter((g) => g.zeilen.length > 0).map((g) => (
@@ -106,6 +111,7 @@ export function RegieListe() {
             <div className="flex items-baseline justify-between gap-2">
               <span className="font-display text-[15px] font-bold">
                 {z.baustelle?.bezeichnung ?? '—'}
+                {z.nummer && <span className="ml-1.5 font-mono text-xs font-semibold text-ink3">{z.nummer}</span>}
               </span>
               <span
                 className={

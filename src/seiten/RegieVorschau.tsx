@@ -9,6 +9,7 @@ import { Shell } from '../ui/Shell';
 import { FotoGalerie } from '../ui/FotoGalerie';
 import { supabase } from '../lib/supabase';
 import { formatChf } from '../lib/tarif';
+import { ausIso, lang } from '../lib/datum';
 import { positionenAusEintraegen, regierapportAnlegen, summe, vorhandenerRapport, type RegiePosition } from '../lib/regie';
 
 interface Meldung {
@@ -28,8 +29,7 @@ const ABWEICHUNG_TEXT: Record<string, string> = { zusaetzlich: 'zusätzliche Arb
 const WER_TEXT: Record<string, string> = { kunde: 'der Kunde wollte es', chef: 'der Chef wollte es', niemand: 'niemand hat es verlangt' };
 
 function tagKurz(isoDatum: string): string {
-  const d = new Date(isoDatum + 'T12:00:00');
-  return `${['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa'][d.getDay()]} ${d.getDate()}.${d.getMonth() + 1}.${d.getFullYear()}`;
+  return lang(ausIso(isoDatum));
 }
 
 export function RegieVorschau() {

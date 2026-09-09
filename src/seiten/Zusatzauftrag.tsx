@@ -7,6 +7,7 @@ import {
   enqueueZusatzauftrag,
   flushNachSupabase,
   offeneAuftraege,
+  type FlushErgebnis,
   type LokalerAuftrag,
 } from '../lib/db';
 
@@ -20,6 +21,15 @@ interface Baustelle {
   id: string;
   konto_nr: string;
   bezeichnung: string | null;
+  /** Bauleitung des Kunden — Vorschlag fürs Feld «Wer verlangt es?» */
+  kunde: { name: string | null; ansprechperson: string | null; email: string | null } | null;
+}
+
+/** Was auf dem Gerät wartet — dieselben Felder, die enqueueZusatzauftrag bekommt */
+interface LokalPayload {
+  baustelle_id?: string;
+  besteller_name?: string;
+  taetigkeit?: string;
 }
 
 /** Zeile aus der Sicht zusatzauftrag_stand — der Stand ist abgeleitet, nicht geklickt. */
@@ -70,9 +80,10 @@ const STAND_LABEL: Record<Auftrag['stand'], string> = {
   erledigt_ohne_regie: 'erledigt ohne Regie',
 };
 
+// Bernstein = Hinweis, Rot bleibt dem Speichern-Knopf vorbehalten.
 const STAND_STIL: Record<Auftrag['stand'], string> = {
-  bestellt: 'bg-accent-soft text-accent-deep',
-  gemeldet: 'bg-amber-100 text-amber-900',
+  bestellt: 'bg-amber-soft text-amber-deep',
+  gemeldet: 'bg-amber-soft text-amber-deep',
   im_regierapport: 'bg-steel-soft text-steel',
   beim_kunden: 'bg-steel-soft text-steel',
   bestaetigt: 'bg-good-soft text-good-deep',
@@ -87,10 +98,13 @@ const GRUENDE = [
 ] as const;
 
 const GRUND_LABEL: Record<string, string> = Object.fromEntries(GRUENDE);
+const TAETIGKEIT_LABEL: Record<string, string> = Object.fromEntries(TAETIGKEITEN);
 
 // Baustellenliste lokal vorhalten, damit das Formular auch ohne Netz aufgeht.
-// Kommt Netz zurück, wird der Cache beim nächsten Laden erneuert.
-const CACHE_KEY = 'baustellen-cache-v1';
+// Kommt Netz zurück, wird der Cache beim nächsten Laden erneuert. v2: mit Kunde.
+const CACHE_KEY = 'baustellen-cache-v2';
+
+type Rueckmeldung = { art: 'gesendet' | 'wartet'; text: string };
 
 export function Zusatzauftrag() {
   const [baustellen, setBaustellen] = useState<Baustelle[]>([]);
@@ -101,7 +115,7 @@ export function Zusatzauftrag() {
   const [taetigkeit, setTaetigkeit] = useState<string>('versetzen');
   const [geplant, setGeplant] = useState('');
   const [notiz, setNotiz] = useState('');
-  const [gespeichert, setGespeichert] = useState(false);
+  const [rueckmeldung, setRueckmeldung] = useState<Rueckmeldung | null>(null);
   const [fehler, setFehler] = useState('');
   const [liste, setListe] = useState<Auftrag[]>([]);
   const [lokal, setLokal] = useState<LokalerAuftrag[]>([]);
@@ -131,11 +145,11 @@ export function Zusatzauftrag() {
     if (supabase) {
       void supabase
         .from('baustelle')
-        .select('id,konto_nr,bezeichnung')
+        .select('id,konto_nr,bezeichnung,kunde:kunde_id(name,ansprechperson,email)')
         .order('bezeichnung')
         .then(({ data }) => {
           if (data) {
-            setBaustellen(data);
+            setBaustellen(data as unknown as Baustelle[]);
             try {
               localStorage.setItem(CACHE_KEY, JSON.stringify(data));
             } catch {
@@ -170,7 +184,7 @@ export function Zusatzauftrag() {
       setFehler('Wer hat die Arbeit verlangt? Name eintragen.');
       return;
     }
-    await enqueueZusatzauftrag({
+    const clientUuid = await enqueueZusatzauftrag({
       baustelle_id: gewaehlt.id,
       besteller_name: besteller.trim(),
       kanal,
@@ -179,9 +193,19 @@ export function Zusatzauftrag() {
       notiz: notiz.trim() || null,
       status: 'offen',
     });
-    if (supabase) await flushNachSupabase(supabase);
-    setGespeichert(true);
-    setTimeout(() => setGespeichert(false), 2500);
+    // Erst lokal, dann senden — und ehrlich sagen, ob es angekommen ist (nie «Gespeichert ✓» bei gescheitertem Versand).
+    let erg: FlushErgebnis | null = null;
+    if (supabase && navigator.onLine) {
+      try { erg = await flushNachSupabase(supabase); } catch (e) { erg = { gesendet: 0, fehler: 1, verworfen: 0, fehlerText: e instanceof Error ? e.message : String(e) }; }
+    }
+    const nochLokal = (await offeneAuftraege()).some((a) => a.client_uuid === clientUuid);
+    if (!nochLokal && erg && erg.gesendet > 0) {
+      setRueckmeldung({ art: 'gesendet', text: 'Gespeichert ✓ und gesendet' });
+    } else {
+      const grund = erg?.fehlerText ?? (!supabase ? 'keine Datenbank eingerichtet' : !navigator.onLine ? 'kein Netz' : 'wird beim nächsten Netz gesendet');
+      setRueckmeldung({ art: 'wartet', text: `Auf dem Gerät gespeichert, noch nicht gesendet: ${grund}` });
+    }
+    setTimeout(() => setRueckmeldung(null), 6000);
     setGewaehlt(null);
     setSuche('');
     setBesteller('');
@@ -216,7 +240,7 @@ export function Zusatzauftrag() {
   return (
     <Shell zurueck schmal>
       <div className="space-y-6">
-        <h1 className="font-display text-2xl font-bold">Zusatzarbeit</h1>
+        <h1 className="font-display text-2xl font-bold">Zusatzauftrag erfassen</h1>
 
         <section className="card space-y-4 p-5">
           <div>
@@ -264,8 +288,22 @@ export function Zusatzauftrag() {
           </div>
 
           <div>
-            <label className="lbl">Wer verlangt es?</label>
+            <label className="lbl" htmlFor="besteller">Wer verlangt es?</label>
+            {gewaehlt?.kunde?.ansprechperson && (
+              <div className="mb-1.5 flex flex-wrap items-center gap-1.5 text-xs text-ink3">
+                <span>Bauleitung laut Kunde:</span>
+                <button
+                  type="button"
+                  onClick={() => setBesteller(gewaehlt.kunde?.ansprechperson ?? '')}
+                  className={'chip px-3 py-1 text-xs ' + (besteller.trim() === gewaehlt.kunde.ansprechperson.trim() ? 'chip-on' : '')}
+                  title={gewaehlt.kunde.email ?? undefined}
+                >
+                  {gewaehlt.kunde.ansprechperson}{gewaehlt.kunde.name ? ` · ${gewaehlt.kunde.name}` : ''}
+                </button>
+              </div>
+            )}
             <input
+              id="besteller"
               value={besteller}
               onChange={(e) => setBesteller(e.target.value)}
               placeholder="z. B. M. Huber, Bauleitung"
@@ -325,10 +363,13 @@ export function Zusatzauftrag() {
           <button
             type="button"
             onClick={() => void speichern()}
-            className={'cta ' + (gespeichert ? 'cta-good' : '')}
+            className={'cta ' + (rueckmeldung?.art === 'gesendet' ? 'cta-good' : '')}
           >
-            {gespeichert ? 'Gespeichert ✓' : 'Speichern'}
+            {rueckmeldung?.art === 'gesendet' ? rueckmeldung.text : 'Speichern'}
           </button>
+          {rueckmeldung?.art === 'wartet' && (
+            <p role="status" className="rounded-[10px] bg-amber-soft px-3 py-2 text-sm font-semibold text-amber-deep">{rueckmeldung.text}</p>
+          )}
           {fehler && <p className="text-sm font-semibold text-accent-deep">{fehler}</p>}
           <p className="text-xs text-ink3">
             Ohne Netz wird lokal gespeichert und automatisch gesendet, sobald
@@ -339,14 +380,25 @@ export function Zusatzauftrag() {
         <section className="space-y-2.5">
           <h2 className="lbl mb-0">Zusatzaufträge</h2>
 
-          {lokal.map((e) => (
-            <div
-              key={e.client_uuid}
-              className="rounded-[14px] border border-dashed border-line-strong p-3.5 text-sm text-ink3"
-            >
-              ⏳ wird gesendet, sobald Netz da ist
-            </div>
-          ))}
+          {lokal.map((e) => {
+            const p = e.payload as LokalPayload;
+            const b = baustellen.find((x) => x.id === p.baustelle_id);
+            return (
+              <div key={e.client_uuid} className="rounded-[14px] border border-dashed border-line-strong bg-surface p-3.5">
+                <div className="flex items-baseline justify-between gap-2">
+                  <span className="font-display text-[15px] font-bold">{b?.bezeichnung ?? b?.konto_nr ?? 'Baustelle'}</span>
+                  <span className="rounded-md bg-amber-soft px-1.5 py-0.5 font-mono text-[11px] font-semibold text-amber-deep">bestellt</span>
+                </div>
+                <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-ink2">
+                  {b && <span className="knr">{b.konto_nr}</span>}
+                  <span>{TAETIGKEIT_LABEL[p.taetigkeit ?? ''] ?? p.taetigkeit ?? '—'}</span>
+                  <span className="text-ink3">·</span>
+                  <span>{p.besteller_name ?? '—'}</span>
+                </p>
+                <p className="mt-1.5 text-[11px] text-ink3">⏳ wartet auf Netz</p>
+              </div>
+            );
+          })}
 
           {liste.length === 0 && lokal.length === 0 && (
             <div className="card text-sm text-ink3">
@@ -355,7 +407,7 @@ export function Zusatzauftrag() {
           )}
 
           {liste.map((a) => (
-            <div key={a.id} className={'card ' + (a.ohne_meldung ? 'border-accent/40' : '')}>
+            <div key={a.id} className={'card ' + (a.ohne_meldung ? 'border-amber/40' : '')}>
               <div className="flex items-baseline justify-between gap-2">
                 <span className="font-display text-[15px] font-bold">
                   {a.baustelle_bezeichnung ?? a.konto_nr}
@@ -371,13 +423,13 @@ export function Zusatzauftrag() {
               </div>
               <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-ink2">
                 <span className="knr">{a.konto_nr}</span>
-                <span>{a.taetigkeit}</span>
+                <span>{TAETIGKEIT_LABEL[a.taetigkeit] ?? a.taetigkeit}</span>
                 <span className="text-ink3">·</span>
                 <span>{a.besteller_name}</span>
                 {a.geplant_fuer && (
                   <>
                     <span className="text-ink3">·</span>
-                    <span>geplant {a.geplant_fuer}</span>
+                    <span>geplant {kurz(ausIso(a.geplant_fuer))}</span>
                   </>
                 )}
                 {a.notiz && (
@@ -399,7 +451,7 @@ export function Zusatzauftrag() {
                   </Link>
                 )}
                 {a.stand === 'bestellt' && a.ohne_meldung && (
-                  <span className="font-semibold text-accent-deep">geplant {a.geplant_fuer ? kurz(ausIso(a.geplant_fuer)) : ''}, bis jetzt keine Meldung vom Team — nachfragen?</span>
+                  <span className="font-semibold text-amber-deep">geplant {a.geplant_fuer ? kurz(ausIso(a.geplant_fuer)) : ''}, bis jetzt keine Meldung vom Team — nachfragen?</span>
                 )}
                 {a.stand === 'bestellt' && !a.ohne_meldung && <>wartet auf die Meldung des Teams</>}
                 {a.stand === 'erledigt_ohne_regie' && (
