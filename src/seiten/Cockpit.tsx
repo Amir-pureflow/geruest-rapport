@@ -638,25 +638,22 @@ export function Cockpit() {
                           {z.wort} ›
                         </span>
                       </span>
-                      {/* Sieben Kästchen Mo–So in voller Breite. Jeder gearbeitete Tag trägt seine
-                          Stunden — vorher stand dort ein Punkt, dadurch sahen 100 h und 36 h gleich aus.
-                          Farbig bleibt nur, was einen Hinweis hat. */}
+                      {/* Sieben Kästchen Mo–So in voller Breite; nur Hinweis-Tage tragen Wochentag + Stunden */}
                       <span className="mt-1.5 grid grid-cols-[repeat(7,minmax(0,1fr))_3.2rem] items-center gap-x-1">
                         {z.tage.map((t, i) => {
                           const hinweis = t.status === 'rot' || t.status === 'gelb';
-                          const gearbeitet = t.min > 0;
                           return (
                             <span
                               key={t.datum}
-                              className={'block rounded-md py-1 text-center font-mono text-[11px] leading-tight tabular-nums ' + (hinweis ? TEAM_ZELL_STIL[t.status] : gearbeitet ? TEAM_ZELL_STIL[t.status] + ' opacity-90' : 'text-ink3/50') + (markierterTag === t.datum && auf ? ' ring-2 ring-steel' : '')}
+                              className={'block rounded-md py-1 text-center font-mono text-[11px] leading-tight tabular-nums ' + (hinweis ? TEAM_ZELL_STIL[t.status] : 'text-ink3/50') + (markierterTag === t.datum && auf ? ' ring-2 ring-steel' : '')}
                             >
-                              {gearbeitet
-                                ? <><span className={'block text-[9px] font-semibold uppercase ' + (hinweis ? 'opacity-80' : 'opacity-60')}>{TAGE[i]}</span>{Math.round(t.min / 60)} h</>
-                                : '–'}
+                              {hinweis
+                                ? <><span className="block text-[9px] font-semibold uppercase opacity-80">{TAGE[i]}</span>{Math.round(t.min / 60)} h</>
+                                : t.status === 'leer' ? '–' : '·'}
                             </span>
                           );
                         })}
-                        <span className="text-right font-display text-[15px] font-extrabold tabular-nums text-ink">{z.totalMin > 0 ? stunden(z.totalMin) : '–'}</span>
+                        <span className="text-right font-mono text-xs tabular-nums text-ink2">{z.totalMin > 0 ? stunden(z.totalMin) : '–'}</span>
                       </span>
                     </button>
                   )}
@@ -885,7 +882,7 @@ export function Cockpit() {
             <span><span className="mr-1 inline-block h-2 w-2 rounded-sm bg-amber-soft ring-1 ring-amber/40" />Regieverdacht</span>
             <span><span className="mr-1 inline-block h-2 w-2 rounded-sm bg-accent-soft ring-1 ring-accent/40" />über 10 h</span>
             <span><span className="mr-1 inline-block h-2 w-2 rounded-sm bg-good-soft ring-1 ring-good/40" />freigegeben</span>
-            <span>Stunden je Tag · «–» = kein Eintrag</span>
+            <span>· = Tag ohne Hinweis</span>
           </p>
         )}
       </div>
