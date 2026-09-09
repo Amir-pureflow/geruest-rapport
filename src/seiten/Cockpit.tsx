@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Shell } from '../ui/Shell';
 import { FotoGalerie } from '../ui/FotoGalerie';
+import { BALKEN_FARBE, OhneMeldung, WochenBalken } from '../ui/WochenZeile';
 import { supabase } from '../lib/supabase';
 import { minutenBetrag, formatChf, tarifNachCode } from '../lib/tarif';
 import { useAnsicht } from '../lib/ansicht';
@@ -87,15 +88,6 @@ function kurzName(name: string): string {
 const ZELL_STIL: Record<ZellStatus, string> = {
   leer: 'text-ink3',
   gruen: 'bg-surface',
-  frei: 'bg-good-soft text-good-deep',
-  gelb: 'bg-amber-100 text-amber-900',
-  rot: 'bg-accent-soft text-accent-deep font-semibold',
-};
-
-/** Team-Kästchen: gleiche Farben, aber auf grauem Grund, damit «grün» als Fläche lesbar ist. */
-const TEAM_ZELL_STIL: Record<ZellStatus, string> = {
-  leer: 'bg-ground text-ink3',
-  gruen: 'bg-surface ring-1 ring-line',
   frei: 'bg-good-soft text-good-deep',
   gelb: 'bg-amber-100 text-amber-900',
   rot: 'bg-accent-soft text-accent-deep font-semibold',
@@ -354,6 +346,16 @@ export function Cockpit() {
     [teamZeilen, filter, zaehler.anschauen],
   );
 
+  /** Teams mit Meldung bekommen Balken; die ohne stehen gesammelt in einem Block darunter. */
+  const mitMeldung = useMemo(() => sichtbar.filter((z) => z.rang !== 3), [sichtbar]);
+  const ohneMeldung = useMemo(() => sichtbar.filter((z) => z.rang === 3), [sichtbar]);
+
+  /** Gemeinsame Höhenskala über alle Zeilen der Woche — sonst wäre nichts vergleichbar. */
+  const maxTagMin = useMemo(
+    () => teamZeilen.reduce((m, z) => z.tage.reduce((n, t) => Math.max(n, t.min), m), 0),
+    [teamZeilen],
+  );
+
   // Der eine Knopf gilt für die ganze Woche, nicht nur für die sichtbaren Teams
   const gruene = useMemo(() => teamZeilen.flatMap((z) => z.gruene), [teamZeilen]);
 
@@ -425,7 +427,7 @@ export function Cockpit() {
     <Shell zurueck>
       <div className="space-y-4">
         <header className="flex items-center justify-between">
-          <h1 className="font-display text-2xl font-bold">Woche</h1>
+          <h1 className="font-display text-2xl font-bold">Wochenübersicht</h1>
           <div className="flex items-center gap-2">
             <button type="button" className="btn-ghost" onClick={() => setWochenStart(addTage(wochenStart, -7))}>‹</button>
             <span className="font-mono text-xs text-ink2">
@@ -498,43 +500,23 @@ export function Cockpit() {
           <section className="card overflow-hidden p-0">
             {/* Kopfzeile mit den Wochentagen — einmal, nicht pro Team */}
             {/* Schmal: nur die Tage (Team steht in jeder Zeile darüber). Breit: Team-Spalte + Tage in einer Zeile. */}
-            {sichtbar.map((z) => {
+            {mitMeldung.map((z) => {
               const auf = offenesTeam === z.team.id;
               const faelle = verdachtsfaelle.filter((f) => f.meldung.team?.id === z.team.id);
               return (
                 <div key={z.team.id} ref={auf ? zielRef : undefined} className={'scroll-mt-20 border-b border-line last:border-b-0 ' + (auf ? 'bg-steel-soft/30' : '')}>
-                  {z.rang !== 0 ? (
-                    /* Team ohne Hinweis: eine ruhige Zeile, keine Kästchen. Antippen = Stichprobe. */
-                    <button
-                      type="button"
-                      onClick={() => teamUmschalten(z.team.id)}
-                      className="flex w-full items-center justify-between gap-3 px-3 py-2.5 text-left"
-                    >
+                  {/* Eine Zeilenform für alle: Balken zeigen die Arbeit, die Farbe den Hinweis. */}
+                  <button
+                    type="button"
+                    onClick={() => teamUmschalten(z.team.id)}
+                    className="block w-full px-3 py-2.5 text-left"
+                  >
+                    <span className="flex min-w-0 items-baseline justify-between gap-2">
                       <span className="min-w-0 truncate">
                         <span className="font-display text-[14px] font-bold">{z.team.bezeichnung}</span>
-                        {z.team.chefmonteur && <span className="ml-1.5 text-xs text-ink3">{kurzName(z.team.chefmonteur.name)}</span>}
+                        {z.team.chefmonteur && <span className="ml-1.5 font-body text-xs font-normal text-ink3">{kurzName(z.team.chefmonteur.name)}</span>}
                       </span>
-                      <span className="shrink-0 text-right text-xs text-ink3">
-                        {z.rang === 3
-                          ? <span className="font-semibold text-ink2">keine Meldung</span>
-                          : <>
-                              <span className="font-mono tabular-nums">{z.tageMitEintrag} {z.tageMitEintrag === 1 ? 'Tag' : 'Tage'} · {stunden(z.totalMin)} h</span>
-                              <span className={'ml-2 font-semibold ' + (z.rang === 2 ? 'text-good-deep' : 'text-ink2')}>{z.rang === 2 ? '✓ freigegeben' : '✓ wie geplant · ' + z.wort}</span>
-                            </>}
-                      </span>
-                    </button>
-                  ) : (
-                    /* Team mit Hinweis: Kästchen, aber nur die Hinweis-Tage sind farbig — der Rest ist ein blasser Punkt. */
-                    <button
-                      type="button"
-                      onClick={() => teamUmschalten(z.team.id)}
-                      className="block w-full px-3 py-2 text-left"
-                    >
-                      <span className="flex min-w-0 items-baseline justify-between gap-2">
-                        <span className="min-w-0 truncate">
-                          <span className="font-display text-[14px] font-bold">{z.team.bezeichnung}</span>
-                          {z.team.chefmonteur && <span className="ml-1.5 font-body text-xs font-normal text-ink3">{kurzName(z.team.chefmonteur.name)}</span>}
-                        </span>
+                      {z.rang === 0 ? (
                         <span
                           role="link"
                           tabIndex={0}
@@ -544,26 +526,20 @@ export function Cockpit() {
                         >
                           {z.wort} ›
                         </span>
-                      </span>
-                      {/* Sieben Kästchen Mo–So in voller Breite; nur Hinweis-Tage tragen Wochentag + Stunden */}
-                      <span className="mt-1.5 grid grid-cols-[repeat(7,minmax(0,1fr))_3.2rem] items-center gap-x-1">
-                        {z.tage.map((t, i) => {
-                          const hinweis = t.status === 'rot' || t.status === 'gelb';
-                          return (
-                            <span
-                              key={t.datum}
-                              className={'block rounded-md py-1 text-center font-mono text-[11px] leading-tight tabular-nums ' + (hinweis ? TEAM_ZELL_STIL[t.status] : 'text-ink3/50') + (markierterTag === t.datum && auf ? ' ring-2 ring-steel' : '')}
-                            >
-                              {hinweis
-                                ? <><span className="block text-[9px] font-semibold uppercase opacity-80">{TAGE[i]}</span>{Math.round(t.min / 60)} h</>
-                                : t.status === 'leer' ? '–' : '·'}
-                            </span>
-                          );
-                        })}
-                        <span className="text-right font-mono text-xs tabular-nums text-ink2">{z.totalMin > 0 ? stunden(z.totalMin) : '–'}</span>
-                      </span>
-                    </button>
-                  )}
+                      ) : (
+                        <span className={'shrink-0 text-[11px] font-semibold ' + (z.rang === 2 ? 'text-good-deep' : 'text-ink3')}>
+                          {z.rang === 2 ? '✓ freigegeben' : '✓ wie geplant · ' + z.wort}
+                        </span>
+                      )}
+                    </span>
+                    <WochenBalken
+                      tage={z.tage}
+                      maxMin={maxTagMin}
+                      totalMin={z.totalMin}
+                      tageMitEintrag={z.tageMitEintrag}
+                      markierterTag={auf ? markierterTag : null}
+                    />
+                  </button>
 
                   {auf && (
                     <div className="space-y-3 border-t border-line bg-surface px-3 py-3">
@@ -719,15 +695,24 @@ export function Cockpit() {
                 </div>
               );
             })}
+            {ohneMeldung.length > 0 && (
+              <div className="border-t border-line bg-ground/40">
+                <OhneMeldung
+                  teams={ohneMeldung.map((z) => ({ id: z.team.id, bezeichnung: z.team.bezeichnung, chef: z.team.chefmonteur?.name }))}
+                  aufTeam={teamUmschalten}
+                />
+              </div>
+            )}
           </section>
         )}
 
         {!laedt && sichtbar.length > 0 && (
-          <p className="flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-ink3">
-            <span><span className="mr-1 inline-block h-2 w-2 rounded-sm bg-amber-200" />Regieverdacht</span>
-            <span><span className="mr-1 inline-block h-2 w-2 rounded-sm bg-accent-soft ring-1 ring-accent/40" />über 10 h</span>
-            <span><span className="mr-1 inline-block h-2 w-2 rounded-sm bg-good-soft ring-1 ring-good/40" />freigegeben</span>
-            <span>· = Tag ohne Hinweis</span>
+          <p className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-ink3">
+            <span className="text-ink2">Balkenhöhe = Stunden, gleiche Skala für alle Teams.</span>
+            <span><span className="mr-1 inline-block h-2 w-2 rounded-sm" style={{ background: BALKEN_FARBE.gelb }} />Regieverdacht</span>
+            <span><span className="mr-1 inline-block h-2 w-2 rounded-sm" style={{ background: BALKEN_FARBE.rot }} />über 10 h</span>
+            <span><span className="mr-1 inline-block h-2 w-2 rounded-sm" style={{ background: BALKEN_FARBE.frei }} />freigegeben</span>
+            <span><span className="mr-1 inline-block h-2 w-2 rounded-sm" style={{ background: BALKEN_FARBE.gruen }} />gemeldet, noch offen</span>
           </p>
         )}
       </div>
