@@ -245,6 +245,8 @@ async function flushMeldungen(client: SupabaseClient): Promise<FlushErgebnis> {
         const { error: e3b } = await client.from('tagesmeldung').update({ audio_pfad: pfad }).eq('client_uuid', e.client_uuid);
         if (e3b) { fehler += 1; fehlerText = 'Sprachnotiz konnte nicht verknüpft werden: ' + fehlerDeuten(e3b).text; continue; }
         await db.audio.delete(e.client_uuid);
+        // Text zur Aufnahme — läuft im Hintergrund; ein Fehler hier hält die Warteschlange nicht auf.
+        try { void client.functions?.invoke('transkribieren', { body: { client_uuid: e.client_uuid } }).catch(() => undefined); } catch { /* kein Functions-Client (Test) */ }
       }
 
       // Fotos: eins nach dem andern, jedes idempotent (Pfad und Zeile über die id) — bricht eins ab, kommt der Rest beim nächsten Mal

@@ -32,6 +32,8 @@ interface Rapport {
     abweichung_typ: string | null;
     wer_hats_gewollt: string | null;
     transkript: string | null;
+    transkript_quelle: string | null;
+    transkript_sprache: string | null;
     audio_pfad: string | null;
     audio_sekunden: number | null;
     team: { id: string; bezeichnung: string; chefmonteur: { name: string } | null } | null;
@@ -97,6 +99,17 @@ const EREIGNIS_LABEL: Record<string, string> = {
 export function RegieDetail() {
   const { id } = useParams();
   const [rapport, setRapport] = useState<Rapport | null>(null);
+
+  const [transkriptLaeuft, setTranskriptLaeuft] = useState(false);
+  async function transkribieren(meldungId: string) {
+    if (!supabase) return;
+    setTranskriptLaeuft(true);
+    const { data, error } = await supabase.functions.invoke('transkribieren', { body: { tagesmeldung_id: meldungId, erneut: true } });
+    const f = (data as { fehler?: string } | null)?.fehler ?? error?.message;
+    if (f) setFehler('Text konnte nicht erstellt werden: ' + f);
+    setTranskriptLaeuft(false);
+    void laden();
+  }
   /** Laden und «gibt es nicht» sind zwei verschiedene Dinge — nie ewig «Lädt …» zeigen. */
   const [zustand, setZustand] = useState<'laedt' | 'bereit' | 'fehlt'>('laedt');
   const [positionen, setPositionen] = useState<Position[]>([]);
@@ -159,7 +172,7 @@ export function RegieDetail() {
     const [r, p, l] = await Promise.all([
       supabase
         .from('regierapport')
-        .select('id,status,betrag_rappen,frist_bis,versendet_am,bestaetigt_am,empfaenger_email,anhang_pfad,link_token,baustelle:baustelle_id(bezeichnung,konto_nr,kunde:kunde_id(email,ansprechperson)),tagesmeldung:tagesmeldung_id(id,datum,abweichung_typ,wer_hats_gewollt,transkript,audio_pfad,audio_sekunden,team:team_id(id,bezeichnung,chefmonteur:chefmonteur_id(name)),zeiteintrag(normal_min,ueber_min,status,mitarbeiter:mitarbeiter_id(name)),foto(id,pfad)),foto(id,pfad),zusatzauftrag:zusatzauftrag_id(besteller_name,kanal,taetigkeit,geplant_fuer,bestellt_am,notiz)')
+        .select('id,status,betrag_rappen,frist_bis,versendet_am,bestaetigt_am,empfaenger_email,anhang_pfad,link_token,baustelle:baustelle_id(bezeichnung,konto_nr,kunde:kunde_id(email,ansprechperson)),tagesmeldung:tagesmeldung_id(id,datum,abweichung_typ,wer_hats_gewollt,transkript,transkript_quelle,transkript_sprache,audio_pfad,audio_sekunden,team:team_id(id,bezeichnung,chefmonteur:chefmonteur_id(name)),zeiteintrag(normal_min,ueber_min,status,mitarbeiter:mitarbeiter_id(name)),foto(id,pfad)),foto(id,pfad),zusatzauftrag:zusatzauftrag_id(besteller_name,kanal,taetigkeit,geplant_fuer,bestellt_am,notiz)')
         .eq('id', id)
         .single(),
       supabase.from('regie_position').select('id,tarif_code,bezeichnung,menge_hundertstel,ansatz_rappen,betrag_rappen').eq('regierapport_id', id),
@@ -396,7 +409,23 @@ export function RegieDetail() {
                       <FotoGalerie pfade={m.foto.map((f) => f.pfad)} />
                     </div>
                   )}
-                  {m.transkript && <p className="rounded-[10px] bg-ground px-3 py-2 italic text-ink2">«{m.transkript}»</p>}
+                  {m.transkript && (
+                    <div className="rounded-[10px] bg-ground px-3 py-2 text-ink2">
+                      <p className="italic">«{m.transkript}»</p>
+                      {m.transkript_quelle && (
+                        <details className="mt-1 text-xs text-ink3">
+                          <summary className="cursor-pointer">Original ({{ de: 'Deutsch', ar: 'Arabisch', pl: 'Polnisch', en: 'Englisch' }[m.transkript_sprache ?? ''] ?? 'andere Sprache'}) · automatisch übersetzt</summary>
+                          <p className="mt-1 italic" dir="auto">{m.transkript_quelle}</p>
+                        </details>
+                      )}
+                    </div>
+                  )}
+                  {!m.transkript && m.audio_pfad && (
+                    <p className="flex flex-wrap items-center gap-2 text-xs text-ink3">
+                      {transkriptLaeuft ? 'Text wird erstellt …' : 'Noch kein Text zur Sprachnotiz.'}
+                      {!transkriptLaeuft && <button type="button" className="btn-ghost px-2 py-0.5 text-xs" onClick={() => void transkribieren(m.id)}>Text erstellen</button>}
+                    </p>
+                  )}
                   {(m.audio_pfad || m.audio_sekunden) && (
                     <div className="flex items-center gap-2">
                       {m.audio_pfad ? (

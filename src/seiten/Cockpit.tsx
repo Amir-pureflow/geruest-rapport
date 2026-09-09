@@ -36,6 +36,9 @@ interface Eintrag {
     abweichung_typ: string | null;
     wer_hats_gewollt: string | null;
     transkript: string | null;
+    transkript_quelle: string | null;
+    transkript_sprache: string | null;
+    transkript_fehler: string | null;
     audio_pfad: string | null;
     audio_sekunden: number | null;
     team: { id: string; bezeichnung: string } | null;
@@ -63,6 +66,7 @@ const TAGE = ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'];
 /** Feste Gründe für Korrekturen — kein Freitext, aber immer ein «warum» (Regel #7). */
 const GRUENDE = ['Mit Chefmonteur abgeklärt', 'Pause abgezogen', 'Anreise ist keine Arbeitszeit', 'Tippfehler im Teamgerät'];
 const FELD: Record<string, string> = { normal_min: 'Normalzeit', ueber_min: 'Überzeit' };
+const SPRACHE: Record<string, string> = { de: 'Deutsch', ar: 'Arabisch', pl: 'Polnisch', en: 'Englisch' };
 const ZEHN_STUNDEN_MIN = 600;
 /** Rang für «schlechtester Status des Tages» und für die Sortierung der Teams. */
 const RANG: Record<ZellStatus, number> = { rot: 4, gelb: 3, gruen: 2, frei: 1, leer: 0 };
@@ -118,6 +122,17 @@ export function Cockpit() {
   // Laufende Korrektur: erst Wert einstellen, dann Grund wählen, dann speichern (Regel #7: warum)
   const [korrektur, setKorrektur] = useState<{ id: string; total: number; alt: number; team?: { meldungId: string; datum: string; teamName: string } } | null>(null);
   const [speichert, setSpeichert] = useState(false);
+  // Transkription auf Knopfdruck (Aufnahmen von vor dem Einbau, oder nach einem Fehler)
+  const [transkribiert, setTranskribiert] = useState<Set<string>>(new Set());
+  async function transkribieren(meldungId: string) {
+    if (!supabase) return;
+    setTranskribiert((s) => new Set(s).add(meldungId));
+    const { data, error } = await supabase.functions.invoke('transkribieren', { body: { tagesmeldung_id: meldungId, erneut: true } });
+    const f = (data as { fehler?: string } | null)?.fehler ?? error?.message;
+    if (f) melden('Text konnte nicht erstellt werden: ' + f, 'fehler');
+    setTranskribiert((s) => { const n = new Set(s); n.delete(meldungId); return n; });
+    void laden();
+  }
   const [teams, setTeams] = useState<Team[]>([]);
   // Standard «Zu tun»: nur Teams mit Hinweis. Kommt man gezielt zu einem Team (Tagesübersicht/Rapport), alle zeigen.
   const [filter, setFilter] = useState<Filter>(() => (params.get('team') ? 'alle' : 'zutun'));
@@ -164,7 +179,7 @@ export function Cockpit() {
       supabase
         .from('zeiteintrag')
         .select(
-          'id,normal_min,ueber_min,status,freigabe_log(feld,alt,neu,begruendung,wann),mitarbeiter:mitarbeiter_id(id,name,funktion,typ),tagesmeldung:tagesmeldung_id!inner(id,datum,normalfall,abweichung_typ,wer_hats_gewollt,transkript,audio_pfad,audio_sekunden,team:team_id(id,bezeichnung),baustelle:baustelle_id(id,konto_nr,bezeichnung),foto(id,pfad),regierapport(id,status))',
+          'id,normal_min,ueber_min,status,freigabe_log(feld,alt,neu,begruendung,wann),mitarbeiter:mitarbeiter_id(id,name,funktion,typ),tagesmeldung:tagesmeldung_id!inner(id,datum,normalfall,abweichung_typ,wer_hats_gewollt,transkript,transkript_quelle,transkript_sprache,transkript_fehler,audio_pfad,audio_sekunden,team:team_id(id,bezeichnung),baustelle:baustelle_id(id,konto_nr,bezeichnung),foto(id,pfad),regierapport(id,status))',
         )
         .gte('tagesmeldung.datum', vonIso)
         .lte('tagesmeldung.datum', bisIso),
@@ -777,7 +792,27 @@ export function Cockpit() {
                                 </div>
                               )}
                               {meldung.transkript && (
-                                <p className="mt-2 rounded-[10px] bg-surface px-3 py-2 text-sm italic text-ink2">«{meldung.transkript}»</p>
+                                <div className="mt-2 rounded-[10px] bg-surface px-3 py-2 text-sm text-ink2">
+                                  <p className="italic">«{meldung.transkript}»</p>
+                                  {meldung.transkript_quelle && (
+                                    <details className="mt-1 text-xs text-ink3">
+                                      <summary className="cursor-pointer">Original auf {SPRACHE[meldung.transkript_sprache ?? ''] ?? 'anderer Sprache'} · automatisch übersetzt</summary>
+                                      <p className="mt-1 italic" dir="auto">{meldung.transkript_quelle}</p>
+                                    </details>
+                                  )}
+                                </div>
+                              )}
+                              {!meldung.transkript && meldung.audio_pfad && (
+                                <p className="mt-2 flex flex-wrap items-center gap-2 text-xs text-ink3">
+                                  {transkribiert.has(meldung.id)
+                                    ? 'Text wird erstellt …'
+                                    : meldung.transkript_fehler
+                                      ? <span className="text-amber-deep">Text konnte nicht erstellt werden.</span>
+                                      : 'Noch kein Text zur Sprachnotiz.'}
+                                  {!transkribiert.has(meldung.id) && (
+                                    <button type="button" className="btn-ghost px-2 py-0.5 text-xs" onClick={() => void transkribieren(meldung.id)}>Text erstellen</button>
+                                  )}
+                                </p>
                               )}
                               {(meldung.audio_pfad || meldung.audio_sekunden) && (
                                 <div className="mt-2 flex items-center gap-2">

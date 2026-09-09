@@ -556,3 +556,9 @@ create policy anhaenge_authenticated_insert on storage.objects
 alter table mitarbeiter  add column if not exists telefon text;
 -- Für später: Meldung wurde durch eine neuere ersetzt (Doppelmeldung) — noch ohne Nutzung.
 alter table tagesmeldung add column if not exists ersetzt_am timestamptz;
+
+-- ── 14. Transkript der Sprachnotiz (Edge Function `transkribieren`) ──────────
+-- `transkript` = deutscher Text (Arbeitshilfe), `transkript_quelle` = Original, falls übersetzt,
+-- `transkript_sprache` = Sprachcode aus dem Mitarbeiterprofil (de/ar/pl/en), `transkript_fehler` = letzter Fehler.
+alter table tagesmeldung add column if not exists transkript_sprache text check (transkript_sprache in ('de','ar','pl','en'));
+alter table tagesmeldung add column if not exists transkript_fehler  text;

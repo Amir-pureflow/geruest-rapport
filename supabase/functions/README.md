@@ -52,6 +52,9 @@ Die Tabelle hat RLS ohne Policies — nur die Service-Role (in der Function) und
 | Schlüssel | Pflicht | Zweck |
 |---|---|---|
 | `RESEND_API_KEY` | ja | Resend |
+| `MISTRAL_API_KEY` | für Transkription | Mistral (Paris, EU). Ohne Schlüssel bleibt die Sprachnotiz nur zum Anhören. |
+| `TRANSKRIPT_MODELL` | nein | Standard `voxtral-mini-latest` |
+| `UEBERSETZUNG_MODELL` | nein | Standard `mistral-small-latest` |
 | `MAIL_ABSENDER` | empfohlen | z. B. `Gerüst Rapport <regie@pureflow-ai.com>` (Domain muss bei Resend verifiziert sein) |
 | `MAIL_FIRMA` | nein | Firmenname in Fusszeile und Absender-Rückfall |
 | `MAIL_TESTEMPFAENGER` | nein | Kommagetrennte Adressen, an die ein Rapport **zusätzlich zur Kunden-Mail** gesendet werden darf (Pilot, eigene Tests). Alles andere lehnt die Function mit 403 ab: «Empfänger muss die hinterlegte Kunden-Mail sein». |
