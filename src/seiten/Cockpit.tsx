@@ -175,14 +175,21 @@ export function Cockpit() {
   const laden = useCallback(async () => {
     if (!supabase) return;
     setLaedt(true);
+    const c = supabase;
+    // Transkript-Spalten kommen mit Migration 0009 — fehlen sie noch, ohne sie laden statt gar nicht
+    const auswahl = (mitTranskript: boolean) =>
+      'id,normal_min,ueber_min,status,freigabe_log(feld,alt,neu,begruendung,wann),mitarbeiter:mitarbeiter_id(id,name,funktion,typ),tagesmeldung:tagesmeldung_id!inner(id,datum,normalfall,abweichung_typ,wer_hats_gewollt,transkript,' +
+      (mitTranskript ? 'transkript_quelle,transkript_sprache,transkript_fehler,' : '') +
+      'audio_pfad,audio_sekunden,team:team_id(id,bezeichnung),baustelle:baustelle_id(id,konto_nr,bezeichnung),foto(id,pfad),regierapport(id,status))';
+    const eintraegeLaden = async () => {
+      const erst = await c.from('zeiteintrag').select(auswahl(true)).gte('tagesmeldung.datum', vonIso).lte('tagesmeldung.datum', bisIso);
+      if (erst.error && /transkript_\w+ does not exist/.test(erst.error.message)) {
+        return c.from('zeiteintrag').select(auswahl(false)).gte('tagesmeldung.datum', vonIso).lte('tagesmeldung.datum', bisIso);
+      }
+      return erst;
+    };
     const [z, a] = await Promise.all([
-      supabase
-        .from('zeiteintrag')
-        .select(
-          'id,normal_min,ueber_min,status,freigabe_log(feld,alt,neu,begruendung,wann),mitarbeiter:mitarbeiter_id(id,name,funktion,typ),tagesmeldung:tagesmeldung_id!inner(id,datum,normalfall,abweichung_typ,wer_hats_gewollt,transkript,transkript_quelle,transkript_sprache,transkript_fehler,audio_pfad,audio_sekunden,team:team_id(id,bezeichnung),baustelle:baustelle_id(id,konto_nr,bezeichnung),foto(id,pfad),regierapport(id,status))',
-        )
-        .gte('tagesmeldung.datum', vonIso)
-        .lte('tagesmeldung.datum', bisIso),
+      eintraegeLaden(),
       // Sicht: nur bestellt/gemeldet — wer schon einen Regierapport hat, wird nicht nochmals verdächtig
       supabase
         .from('zusatzauftrag_stand')

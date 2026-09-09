@@ -169,12 +169,19 @@ export function RegieDetail() {
 
   const laden = useCallback(async () => {
     if (!supabase || !id) return;
+    const c = supabase;
+    // Transkript-Spalten kommen mit Migration 0009 — fehlen sie noch, ohne sie laden
+    const auswahl = (mitTranskript: boolean) =>
+      'id,status,betrag_rappen,frist_bis,versendet_am,bestaetigt_am,empfaenger_email,anhang_pfad,link_token,baustelle:baustelle_id(bezeichnung,konto_nr,kunde:kunde_id(email,ansprechperson)),tagesmeldung:tagesmeldung_id(id,datum,abweichung_typ,wer_hats_gewollt,transkript,' +
+      (mitTranskript ? 'transkript_quelle,transkript_sprache,' : '') +
+      'audio_pfad,audio_sekunden,team:team_id(id,bezeichnung,chefmonteur:chefmonteur_id(name)),zeiteintrag(normal_min,ueber_min,status,mitarbeiter:mitarbeiter_id(name)),foto(id,pfad)),foto(id,pfad),zusatzauftrag:zusatzauftrag_id(besteller_name,kanal,taetigkeit,geplant_fuer,bestellt_am,notiz)';
+    const rapportLaden = async () => {
+      const erst = await c.from('regierapport').select(auswahl(true)).eq('id', id).single();
+      if (erst.error && /transkript_\w+ does not exist/.test(erst.error.message)) return c.from('regierapport').select(auswahl(false)).eq('id', id).single();
+      return erst;
+    };
     const [r, p, l] = await Promise.all([
-      supabase
-        .from('regierapport')
-        .select('id,status,betrag_rappen,frist_bis,versendet_am,bestaetigt_am,empfaenger_email,anhang_pfad,link_token,baustelle:baustelle_id(bezeichnung,konto_nr,kunde:kunde_id(email,ansprechperson)),tagesmeldung:tagesmeldung_id(id,datum,abweichung_typ,wer_hats_gewollt,transkript,transkript_quelle,transkript_sprache,audio_pfad,audio_sekunden,team:team_id(id,bezeichnung,chefmonteur:chefmonteur_id(name)),zeiteintrag(normal_min,ueber_min,status,mitarbeiter:mitarbeiter_id(name)),foto(id,pfad)),foto(id,pfad),zusatzauftrag:zusatzauftrag_id(besteller_name,kanal,taetigkeit,geplant_fuer,bestellt_am,notiz)')
-        .eq('id', id)
-        .single(),
+      rapportLaden(),
       supabase.from('regie_position').select('id,tarif_code,bezeichnung,menge_hundertstel,ansatz_rappen,betrag_rappen').eq('regierapport_id', id),
       supabase.from('zustellung_log').select('id,ereignis,zeitpunkt,an').eq('regierapport_id', id).order('zeitpunkt'),
     ]);
