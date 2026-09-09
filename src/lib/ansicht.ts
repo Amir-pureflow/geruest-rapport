@@ -21,11 +21,11 @@ export const GRUPPEN: { key: Gruppe; titel: string; text: string }[] = [
 ];
 
 export const ANSICHTEN: { key: Ansicht; titel: string; text: string; gruppe: Gruppe }[] = [
-  { key: 'bauf', titel: 'Bauführer', text: 'Prüfen, freigeben, Zusatzaufträge, Regierapporte verschicken', gruppe: 'buero' },
-  { key: 'sekretariat', titel: 'Sekretariat', text: 'Kundenanrufe festhalten, Regierapporte, Export, Stammdaten', gruppe: 'buero' },
-  { key: 'chef', titel: 'Chefmonteur', text: 'Tagesmeldung fürs Team — ein Knopf am Abend', gruppe: 'baustelle' },
-  { key: 'monteur', titel: 'Monteur', text: 'Meine Stunden diese Woche, wie auf dem Wochenblatt', gruppe: 'baustelle' },
-  { key: 'kunde', titel: 'Kunde (Bauleitung)', text: 'Regierapport bestätigen — per Link, ohne Konto', gruppe: 'extern' },
+  { key: 'bauf', titel: 'Bauführer', text: 'Prüfen, freigeben, Regie verschicken', gruppe: 'buero' },
+  { key: 'sekretariat', titel: 'Sekretariat', text: 'Anrufe festhalten, Regierapporte, Export', gruppe: 'buero' },
+  { key: 'chef', titel: 'Chefmonteur', text: 'Tagesmeldung fürs Team, ein Knopf am Abend', gruppe: 'baustelle' },
+  { key: 'monteur', titel: 'Monteur', text: 'Meine Stunden, wie auf dem Wochenblatt', gruppe: 'baustelle' },
+  { key: 'kunde', titel: 'Kunde', text: 'Bauleitung bestätigt den Regierapport per Link', gruppe: 'extern' },
 ];
 
 export const ANSICHT_LABEL: Record<Ansicht, string> = Object.fromEntries(ANSICHTEN.map((a) => [a.key, a.titel])) as Record<Ansicht, string>;
