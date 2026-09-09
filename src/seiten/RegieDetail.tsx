@@ -296,7 +296,14 @@ export function RegieDetail() {
       body: { regierapport_id: id, empfaenger_email: empfaenger.trim(), basis_url: window.location.origin },
     });
     setSendet(false);
-    const antwortFehler = (data as { fehler?: string } | null)?.fehler;
+    let antwortFehler = (data as { fehler?: string } | null)?.fehler;
+    // Bei einem Fehlerstatus steckt der Grund im Antworttext, nicht in error.message.
+    if (!antwortFehler && error && 'context' in error && error.context instanceof Response) {
+      try {
+        const j = (await error.context.json()) as { fehler?: string };
+        antwortFehler = j.fehler;
+      } catch { /* kein JSON */ }
+    }
     if (error || antwortFehler) {
       setFehler(antwortFehler ?? error?.message ?? 'Versand fehlgeschlagen.');
       return;
