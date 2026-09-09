@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
+import { Link } from 'react-router-dom';
 import { Shell } from '../ui/Shell';
 import { supabase } from '../lib/supabase';
 import { enqueueMeldung, flushNachSupabase, offeneMeldungen, offeneAnzahl, lokaleMeldungEntfernen, type MeldungPayload } from '../lib/db';
@@ -18,7 +19,7 @@ interface Person { id: string; name: string; typ: string; funktion: string; oev_
 interface Baustelle { id: string; konto_nr: string; bezeichnung: string | null }
 interface Anwesenheit { dabei: boolean; min: number; oev: boolean; km: number }
 
-type Schritt = 'team' | 'tag' | 'symbol' | 'wer' | 'notiz';
+type Schritt = 'team' | 'tag' | 'symbol' | 'wer' | 'notiz' | 'fertig';
 type Abweichung = 'zusaetzlich' | 'warten' | 'kaputt';
 type Wer = 'kunde' | 'chef' | 'niemand';
 
@@ -48,6 +49,8 @@ function teamsSortiert<T extends { bezeichnung: string }>(liste: T[]): T[] {
 interface Gemeldet {
   bezeichnung: string; konto_nr: string; baustelle_id: string; normalfall: boolean; abweichung_typ: Abweichung | null;
   lokal: boolean; schluessel: string; freigegeben: boolean; min: number;
+  /** Anzahl Personen — «8.0 h je 4 Pers.» statt einer erschreckenden Teamsumme */
+  personen: number;
 }
 type SpeicherModus = 'normal' | 'ersetzen' | 'zusaetzlich';
 const AB_KURZ: Record<Abweichung, string> = { zusaetzlich: 'zusätzlich', warten: 'gewartet', kaputt: 'repariert' };
@@ -160,6 +163,8 @@ export function Erfassung() {
   const [gespeichert, setGespeichert] = useState<string | null>(null);
   // Längere Rückmeldung nach dem Speichern (z. B. «normaler Tag 8.0 h + 1.0 h zusätzlich») — eigene Zeile, nicht im Knopf
   const [bestaetigung, setBestaetigung] = useState<string | null>(null);
+  // Abschluss-Seite nach dem Speichern: was steht jetzt für den Tag, und wohin jetzt?
+  const [fertig, setFertig] = useState<{ text: string; stand: 'gesendet' | 'wartet' | 'fehler' } | null>(null);
   const [hinweis, setHinweis] = useState('');
   const [heuteGemeldet, setHeuteGemeldet] = useState<Gemeldet[]>([]);
   // An diesem Tag schon eine Normalmeldung (egal welche Baustelle) → erst nachfragen, statt still eine zweite anzulegen
@@ -208,6 +213,7 @@ export function Erfassung() {
         bezeichnung: b?.bezeichnung ?? (konto ? `Konto-Nr. ${konto}` : 'Baustelle'), konto_nr: konto, baustelle_id: p.baustelle_id,
         normalfall: p.normalfall, abweichung_typ: p.abweichung_typ, lokal: true, schluessel: m.client_uuid, freigegeben: false,
         min: p.eintraege.reduce((s, z) => s + z.normal_min + z.ueber_min, 0),
+        personen: p.eintraege.length,
       };
     });
     if (supabase) {
@@ -220,6 +226,7 @@ export function Erfassung() {
             normalfall: d.normalfall, abweichung_typ: d.abweichung_typ, lokal: false, schluessel: d.id,
             freigegeben: d.zeiteintrag.some((z) => z.status === 'freigegeben'),
             min: d.zeiteintrag.reduce((s, z) => s + z.normal_min + z.ueber_min, 0),
+            personen: d.zeiteintrag.length,
           });
         }
       } catch {
@@ -400,16 +407,19 @@ export function Erfassung() {
       if (alleDurch) {
         setGespeichert(normal ? 'Gespeichert ✓' : 'Abweichung gespeichert ✓');
         setBestaetigung(zusammenfassung + ' ✓');
+        setFertig({ text: zusammenfassung, stand: 'gesendet' });
         if (erg.verworfen > 0) setHinweis(`${erg.verworfen} alte Meldung${erg.verworfen === 1 ? '' : 'en'} aussortiert: ${erg.fehlerText ?? ''}`);
       } else {
         // Ehrlich bleiben: auf dem Gerät ist es sicher, aber der Server hat abgelehnt — Grund zeigen
         setHinweis(`Auf dem Gerät gespeichert, aber noch nicht gesendet: ${erg.fehlerText ?? 'unbekannter Fehler'}`);
         setGespeichert('Lokal gespeichert — Senden fehlgeschlagen');
         setBestaetigung(zusammenfassung + ' — noch nicht gesendet');
+        setFertig({ text: zusammenfassung, stand: 'fehler' });
       }
     } else {
       setGespeichert('Gespeichert — wird gesendet, sobald Netz da ist');
       setBestaetigung(zusammenfassung + ' — wird gesendet, sobald Netz da ist');
+      setFertig({ text: zusammenfassung, stand: 'wartet' });
     }
     void heutigeLaden();
     void offeneAnzahl().then(setWartend);
@@ -418,7 +428,7 @@ export function Erfassung() {
     setAbweichung(null); setWer(null); setAufnahme(null); setAbMin(60); setAbLeute(new Set());
     for (const f of fotos) URL.revokeObjectURL(f.url);
     setFotos([]);
-    setSchritt('tag');
+    setSchritt('fertig');
   }
 
   // Sprachnotiz — gedrückt halten / antippen
@@ -475,6 +485,46 @@ export function Erfassung() {
             <button type="button" onClick={() => setWeitereTeams((n) => n + 5)} className="btn-ghost w-full">Weitere Teams …</button>
           )}
           {teams.length === 0 && <p className="card text-sm text-ink3">Keine Teams — unter Verwaltung anlegen oder den Demo-Betrieb laden.</p>}
+        </div>
+      </Shell>
+    );
+  }
+
+  if (schritt === 'fertig') {
+    const stand = fertig?.stand ?? 'gesendet';
+    return (
+      <Shell zurueck schmal>
+        <div className="space-y-4">
+          <section className={'rounded-[14px] border px-4 py-4 ' + (stand === 'fehler' ? 'border-amber/50 bg-amber-soft' : 'border-good/40 bg-good-soft')}>
+            <p className={'font-display text-xl font-bold ' + (stand === 'fehler' ? 'text-amber-deep' : 'text-good-deep')}>
+              {stand === 'gesendet' ? '✓ Gespeichert und gesendet' : stand === 'wartet' ? '✓ Gespeichert — wird gesendet, sobald Netz da ist' : 'Gespeichert, aber noch nicht gesendet'}
+            </p>
+            <p className="mt-1 text-sm text-ink2">{fertig?.text}</p>
+            {stand === 'fehler' && hinweis && <p className="mt-1 text-xs text-amber-deep">{hinweis}</p>}
+          </section>
+
+          <section className="card">
+            <p className="lbl mb-1">{istHeute ? 'Das steht jetzt für heute' : `Das steht jetzt für ${lang(datum)}`} · {team?.bezeichnung ?? 'Team'}</p>
+            <ul className="divide-y divide-line text-sm">
+              {heuteGemeldet.map((m, i) => (
+                <li key={i} className="flex items-start justify-between gap-2 py-1.5">
+                  <span className="min-w-0">
+                    <span className="block">{m.normalfall ? '✓' : '⚑'} {m.bezeichnung}{!m.normalfall && <span className="ml-1 text-xs text-amber-deep">{m.abweichung_typ ? AB_KURZ[m.abweichung_typ] : 'Abweichung'}</span>}</span>
+                    <span className="block text-[11px] text-ink3">{m.lokal ? 'wartet auf Netz' : 'gesendet'}</span>
+                  </span>
+                  <span className="shrink-0 text-right font-mono tabular-nums">
+                    {m.personen > 1 && m.min % m.personen === 0 ? <>{stunden(m.min / m.personen)} h<span className="block text-[10px] text-ink3">je {m.personen} Pers.</span></> : <>{stunden(m.min)} h</>}
+                  </span>
+                </li>
+              ))}
+              {heuteGemeldet.length === 0 && <li className="py-1.5 text-ink3">Lädt …</li>}
+            </ul>
+            <p className="mt-2 text-xs text-ink3">Der Bauführer sieht das in der Wochenübersicht. Ändern kann er es dort, bis er es freigibt.</p>
+          </section>
+
+          <Link to="/" className="cta cta-good block text-center">Fertig für {istHeute ? 'heute' : 'diesen Tag'}</Link>
+          <button type="button" className="btn-ghost w-full py-2.5" onClick={() => setSchritt('tag')}>Noch etwas melden — zweite Baustelle oder Abweichung</button>
+          <button type="button" className="btn-ghost w-full py-2.5" onClick={() => { setDatum(addTage(datum, -1)); setSchritt('tag'); }}>Anderen Tag nachtragen</button>
         </div>
       </Shell>
     );
@@ -621,7 +671,9 @@ export function Erfassung() {
                       {m.freigegeben ? 'vom Bauführer freigegeben — kann hier nicht mehr ersetzt werden' : m.lokal ? 'wartet auf Netz' : 'gesendet'}
                     </span>
                   </span>
-                  <span className="shrink-0 font-mono text-sm tabular-nums">{stunden(m.min)} h</span>
+                  <span className="shrink-0 text-right font-mono text-sm tabular-nums">
+                    {m.personen > 1 && m.min % m.personen === 0 ? <>{stunden(m.min / m.personen)} h<span className="block text-[10px] text-ink3">je {m.personen} Pers.</span></> : <>{stunden(m.min)} h{m.personen > 1 ? <span className="block text-[10px] text-ink3">{m.personen} Pers. zusammen</span> : null}</>}
+                  </span>
                 </li>
               ))}
             </ul>
