@@ -67,6 +67,10 @@ const TAGE = ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'];
 const GRUENDE = ['Mit Chefmonteur abgeklärt', 'Pause abgezogen', 'Anreise ist keine Arbeitszeit', 'Tippfehler im Teamgerät'];
 const FELD: Record<string, string> = { normal_min: 'Normalzeit', ueber_min: 'Überzeit' };
 const SPRACHE: Record<string, string> = { de: 'Deutsch', ar: 'Arabisch', pl: 'Polnisch', en: 'Englisch' };
+/** Normaler Tag + Abweichung sind zwei Meldungen und richtig so. Verdächtig ist nur: der normale Tag mehrfach. */
+function doppelteNormalmeldungen(liste: Eintrag[]): number {
+  return new Set(liste.filter((e) => e.tagesmeldung.normalfall).map((e) => e.tagesmeldung.id)).size;
+}
 const ZEHN_STUNDEN_MIN = 600;
 /** Rang für «schlechtester Status des Tages» und für die Sortierung der Teams. */
 const RANG: Record<ZellStatus, number> = { rot: 4, gelb: 3, gruen: 2, frei: 1, leer: 0 };
@@ -695,8 +699,8 @@ export function Cockpit() {
                                             className={'w-full rounded-md px-1 py-1.5 font-mono text-xs tabular-nums transition ' + ZELL_STIL[st] + (aktiv ? ' ring-2 ring-accent' : markierterTag === datum ? ' ring-2 ring-steel' : '')}
                                           >
                                             {st === 'leer' ? '–' : stunden(summe)}
-                                            {liste && new Set(liste.map((e) => e.tagesmeldung.id)).size > 1 && (
-                                              <sup className="ml-0.5 text-[9px] font-bold text-amber-deep" title="mehrere Meldungen an diesem Tag">{new Set(liste.map((e) => e.tagesmeldung.id)).size}×</sup>
+                                            {liste && doppelteNormalmeldungen(liste) > 1 && (
+                                              <sup className="ml-0.5 text-[9px] font-bold text-amber-deep" title="der normale Tag wurde mehrfach gemeldet">{doppelteNormalmeldungen(liste)}×</sup>
                                             )}
                                           </button>
                                         </td>
@@ -773,9 +777,9 @@ export function Cockpit() {
                                   ))}
                                 </div>
                               )}
-                              {new Set(detail.map((e) => e.tagesmeldung.id)).size > 1 && (
+                              {doppelteNormalmeldungen(detail) > 1 && (
                                 <p className="rounded-[10px] bg-amber-soft px-3 py-2 text-xs text-amber-deep">
-                                  {new Set(detail.map((e) => e.tagesmeldung.id)).size} Meldungen an diesem Tag — die Stunden addieren sich. Falls doppelt gemeldet: im Teamgerät «Frühere ersetzen» wählen.
+                                  Der normale Tag wurde {doppelteNormalmeldungen(detail)}-mal gemeldet — die Stunden addieren sich. Falls doppelt: im Teamgerät «Frühere ersetzen» wählen.
                                 </p>
                               )}
                               <p className="text-[11px] text-ink3">Jede Korrektur wird protokolliert: wer, wann, von, auf, warum.</p>
