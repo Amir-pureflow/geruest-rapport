@@ -19,6 +19,7 @@ interface Kennzahlen {
   teams: number;
   /** Teams ohne Meldung heute — am PC als Liste, am Handy nur die Zahl */
   fehlend: string[];
+  gemeldetNamen: string[];
   zuPruefen: number;
   regieOffen: number;
   regieUeberfaellig: number;
@@ -77,6 +78,7 @@ function StartBauf() {
         teamsGemeldet: gemeldet.size,
         teams: alleTeams.length,
         fehlend: alleTeams.filter((t) => !gemeldet.has(t.id)).map((t) => t.bezeichnung),
+        gemeldetNamen: alleTeams.filter((t) => gemeldet.has(t.id)).map((t) => t.bezeichnung),
         zuPruefen: zp.count ?? 0,
         regieOffen: (ro.data ?? []).length,
         regieOffenRappen: (ro.data ?? []).reduce((s, r) => s + (r.betrag_rappen ?? 0), 0),
@@ -128,16 +130,29 @@ function StartBauf() {
           </div>
         )}
 
-        {k && k.fehlend.length > 0 && heute.getDay() >= 1 && heute.getDay() <= 6 && (
+        {k && k.teams > 0 && heute.getDay() >= 1 && heute.getDay() <= 6 && (
           <section className="card hidden lg:block">
             <div className="flex items-baseline justify-between gap-3">
-              <p className="lbl mb-0">Heute noch nichts gemeldet · {k.fehlend.length}</p>
+              <p className="lbl mb-0">Heute</p>
               <Link to="/heute" className="text-xs font-semibold text-steel">Tagesübersicht ›</Link>
             </div>
-            <div className="mt-3 flex flex-wrap gap-1.5">
-              {k.fehlend.map((name) => <span key={name} className="chip py-1 text-xs">{name}</span>)}
+            <div className="mt-3 grid grid-cols-2 gap-6">
+              <div>
+                <p className="mb-2 text-xs font-semibold text-ink2">Noch nichts gemeldet · {k.fehlend.length}</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {k.fehlend.map((name) => <span key={name} className="chip py-1 text-xs">{name}</span>)}
+                  {k.fehlend.length === 0 && <span className="text-xs text-ink3">Alle Teams haben gemeldet.</span>}
+                </div>
+              </div>
+              <div className="border-l border-line pl-6">
+                <p className="mb-2 text-xs font-semibold text-good-deep">Gemeldet · {k.gemeldetNamen.length}</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {k.gemeldetNamen.map((name) => <span key={name} className="chip border-good/40 bg-good-soft py-1 text-xs text-good-deep">{name}</span>)}
+                  {k.gemeldetNamen.length === 0 && <span className="text-xs text-ink3">Noch keine Meldung heute.</span>}
+                </div>
+              </div>
             </div>
-            <p className="mt-3 text-xs text-ink3">Am Abend meldet das Teamgerät — vorher ist die Liste normal lang.</p>
+            <p className="mt-3 text-xs text-ink3">Am Abend meldet das Teamgerät — vorher ist die linke Liste normal lang.</p>
           </section>
         )}
 
