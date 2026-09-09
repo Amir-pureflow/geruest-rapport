@@ -17,8 +17,8 @@ export function NavKarte({ zu, titel, text }: { zu: string; titel: string; text:
 export function Kachel({ zu, wert, label, warn }: { zu: string; wert: string; label: string; warn?: boolean }) {
   return (
     <Link to={zu} className={'card block hover:border-line-strong ' + (warn ? 'border-accent/40' : '')}>
-      <span className={'block font-display text-2xl font-extrabold tabular-nums ' + (warn ? 'text-accent-deep' : '')}>{wert}</span>
-      <span className="block text-xs text-ink3">{label}</span>
+      <span className={'block font-display text-2xl font-extrabold tabular-nums lg:text-3xl ' + (warn ? 'text-accent-deep' : '')}>{wert}</span>
+      <span className="block text-xs text-ink3 lg:mt-1 lg:text-sm">{label}</span>
     </Link>
   );
 }

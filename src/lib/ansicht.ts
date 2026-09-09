@@ -13,12 +13,19 @@ export type Ansicht = 'bauf' | 'chef' | 'monteur' | 'sekretariat' | 'kunde';
 export const ANSICHT_KEY = 'ansicht';
 const EREIGNIS = 'ansicht-geaendert';
 
-export const ANSICHTEN: { key: Ansicht; titel: string; text: string }[] = [
-  { key: 'bauf', titel: 'Bauführer', text: 'Prüfen, freigeben, Zusatzaufträge, Regierapporte verschicken' },
-  { key: 'chef', titel: 'Chefmonteur', text: 'Tagesmeldung fürs Team — ein Knopf am Abend' },
-  { key: 'monteur', titel: 'Monteur', text: 'Meine Stunden diese Woche, wie auf dem Wochenblatt' },
-  { key: 'sekretariat', titel: 'Sekretariat', text: 'Kundenanrufe festhalten, Regierapporte, Export, Stammdaten' },
-  { key: 'kunde', titel: 'Kunde (Bauleitung)', text: 'Regierapport bestätigen — per Link, ohne Konto' },
+export type Gruppe = 'buero' | 'baustelle' | 'extern';
+export const GRUPPEN: { key: Gruppe; titel: string; text: string }[] = [
+  { key: 'buero', titel: 'Im Büro', text: 'am PC' },
+  { key: 'baustelle', titel: 'Auf der Baustelle', text: 'am Handy' },
+  { key: 'extern', titel: 'Extern', text: 'per Link' },
+];
+
+export const ANSICHTEN: { key: Ansicht; titel: string; text: string; gruppe: Gruppe }[] = [
+  { key: 'bauf', titel: 'Bauführer', text: 'Prüfen, freigeben, Zusatzaufträge, Regierapporte verschicken', gruppe: 'buero' },
+  { key: 'sekretariat', titel: 'Sekretariat', text: 'Kundenanrufe festhalten, Regierapporte, Export, Stammdaten', gruppe: 'buero' },
+  { key: 'chef', titel: 'Chefmonteur', text: 'Tagesmeldung fürs Team — ein Knopf am Abend', gruppe: 'baustelle' },
+  { key: 'monteur', titel: 'Monteur', text: 'Meine Stunden diese Woche, wie auf dem Wochenblatt', gruppe: 'baustelle' },
+  { key: 'kunde', titel: 'Kunde (Bauleitung)', text: 'Regierapport bestätigen — per Link, ohne Konto', gruppe: 'extern' },
 ];
 
 export const ANSICHT_LABEL: Record<Ansicht, string> = Object.fromEntries(ANSICHTEN.map((a) => [a.key, a.titel])) as Record<Ansicht, string>;

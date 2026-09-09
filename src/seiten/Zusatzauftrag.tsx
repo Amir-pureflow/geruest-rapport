@@ -214,7 +214,7 @@ export function Zusatzauftrag() {
   }
 
   return (
-    <Shell zurueck>
+    <Shell zurueck schmal>
       <div className="space-y-6">
         <h1 className="font-display text-2xl font-bold">Zusatzarbeit</h1>
 

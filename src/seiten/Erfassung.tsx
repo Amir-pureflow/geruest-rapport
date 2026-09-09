@@ -337,7 +337,7 @@ export function Erfassung() {
 
   if (schritt === 'team') {
     return (
-      <Shell zurueck>
+      <Shell zurueck schmal>
         <div className="space-y-4">
           <h1 className="font-display text-2xl font-bold">Welches Team?</h1>
           <p className="text-sm text-ink3">Einmal wählen — das Gerät merkt es sich.</p>
@@ -356,7 +356,7 @@ export function Erfassung() {
 
   if (schritt === 'symbol') {
     return (
-      <Shell zurueck>
+      <Shell zurueck schmal>
         <div className="space-y-4">
           <p className="lbl mb-0">Abweichung</p>
           <h1 className="font-display text-2xl font-bold">Was war anders?</h1>
@@ -376,7 +376,7 @@ export function Erfassung() {
 
   if (schritt === 'wer') {
     return (
-      <Shell zurueck>
+      <Shell zurueck schmal>
         <div className="space-y-4">
           <p className="lbl mb-0">{SYMBOLE.find((s) => s.typ === abweichung)?.label}</p>
           <h1 className="font-display text-2xl font-bold">Wer wollte das?</h1>
@@ -399,7 +399,7 @@ export function Erfassung() {
 
   if (schritt === 'notiz') {
     return (
-      <Shell zurueck>
+      <Shell zurueck schmal>
         <div className="space-y-4">
           <p className="lbl mb-0">{SYMBOLE.find((s) => s.typ === abweichung)?.label} · {wer === 'kunde' ? 'Kunde' : wer === 'chef' ? 'unser Chef' : 'niemand'}</p>
           <h1 className="font-display text-2xl font-bold">Wie lange?</h1>
@@ -448,7 +448,7 @@ export function Erfassung() {
 
   // Hauptansicht: der normale Tag
   return (
-    <Shell zurueck>
+    <Shell zurueck schmal>
       <div className="space-y-5">
         <header className="flex items-start justify-between gap-3">
           <div className="min-w-0">

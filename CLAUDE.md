@@ -141,6 +141,7 @@ src/lib/demo.ts                   Deterministischer Demo-Betrieb + Tests
 src/lib/datum.ts                  Wochen-/Datumshelfer
 src/lib/foto.ts                   Fotos verkleinern (1600 px, JPEG) vor Queue/Upload
 src/ui/FotoGalerie.tsx            Vorschau aus dem Bucket «anhaenge» (signierte Links)
+src/ui/Shell.tsx                  Rahmen: Büro-Ansichten (Bauführer, Sekretariat) am PC mit Seitenleiste ab «lg», Baustellen-Ansichten bleiben Handy-Spalte; `schmal` für Formulare
 supabase/migrations/              0001 Schema · 0002 Bezeichnung · 0003 Auftrag-UUID · 0004 Versand · 0005 Stammdaten · 0006 Auftrag-Stand (Sicht) · 0007 Rapport-Ursprung · 0008 Fotos
 ```
 

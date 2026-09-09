@@ -76,7 +76,7 @@ export function RegieVorschau() {
   const zurueck = meldung?.team ? `/cockpit?woche=${meldung.datum}&tag=${meldung.datum}&team=${meldung.team.id}&meldung=${meldung.id}` : '/cockpit';
 
   return (
-    <Shell zurueck>
+    <Shell zurueck schmal>
       <div className="space-y-5">
         <header>
           <p className="lbl mb-1">Regierapport · Vorschau</p>

@@ -323,14 +323,14 @@ export function RegieDetail() {
 
   if (!rapport) {
     return (
-      <Shell zurueck>
+      <Shell zurueck schmal>
         <div className="card text-sm text-ink3">Lädt …</div>
       </Shell>
     );
   }
 
   return (
-    <Shell zurueck>
+    <Shell zurueck schmal>
       <div className="space-y-5">
         <header>
           <p className="lbl mb-1">Regierapport</p>

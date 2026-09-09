@@ -57,18 +57,21 @@ export function StartSekretariat() {
   return (
     <Shell>
       <div className="space-y-5">
-        <header>
-          <p className="lbl mb-0.5">Sekretariat</p>
-          <h1 className="font-display text-2xl font-bold">{lang(heute)}</h1>
+        <header className="flex items-end justify-between gap-4">
+          <div>
+            <p className="lbl mb-0.5">Sekretariat</p>
+            <h1 className="font-display text-2xl font-bold lg:text-3xl">{lang(heute)}</h1>
+          </div>
+          <Link to="/zusatzauftrag" className="cta hidden w-auto px-5 py-2.5 text-[15px] lg:block">+ Kunde ruft an</Link>
         </header>
 
-        <Link to="/zusatzauftrag" className="block rounded-[14px] bg-accent p-5 text-white shadow-[0_3px_14px_rgb(216_40_22/0.35)] transition active:bg-accent-deep">
+        <Link to="/zusatzauftrag" className="block rounded-[14px] bg-accent p-5 text-white shadow-[0_3px_14px_rgb(216_40_22/0.35)] transition active:bg-accent-deep lg:hidden">
           <span className="block font-display text-lg font-extrabold">+ Kunde ruft an: Zusatzarbeit</span>
           <span className="mt-0.5 block text-sm text-white/85">Bestellung festhalten, während er noch am Telefon ist — der Bauführer sieht sie sofort</span>
         </Link>
 
         {k && (
-          <div className="grid grid-cols-2 gap-2.5">
+          <div className="grid grid-cols-2 gap-2.5 lg:grid-cols-3 lg:gap-4">
             <Kachel zu="/regie" wert={String(k.regieOffen)} label={`Regierapporte beim Kunden · ${formatChf(k.regieOffenRappen)}`} />
             <Kachel zu="/regie" wert={String(k.regieUeberfaellig)} label="Frist abgelaufen — nachfassen" warn={k.regieUeberfaellig > 0} />
             <Kachel zu="/regie" wert={formatChf(k.regieMonatRappen)} label={`Regie an Kunden verschickt im ${MONATE[heute.getMonth()]}`} />
@@ -78,7 +81,7 @@ export function StartSekretariat() {
           </div>
         )}
 
-        <nav className="grid gap-3">
+        <nav className="grid gap-3 lg:hidden">
           <NavKarte zu="/regie" titel="Regierapporte" text="Versand, Zustellnachweis, Fristen — nachfassen" />
           <NavKarte zu="/export" titel="Export" text="SORBA-Raster, Lohn-Excel, Temporärbüro" />
           <NavKarte zu="/cockpit" titel="Wochenübersicht" text="Nur ansehen — freigeben tut der Bauführer" />
