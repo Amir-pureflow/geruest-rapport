@@ -2,6 +2,7 @@ import { StrictMode, useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import './index.css';
+import { registerSW } from 'virtual:pwa-register';
 import { Start } from './seiten/Start';
 import { Ansicht } from './seiten/Ansicht';
 import { Erfassung } from './seiten/Erfassung';
@@ -23,6 +24,15 @@ if (supabase) {
   const client = supabase;
   startAutoFlush(() => flushNachSupabase(client));
 }
+
+// Neue Version holen, auch wenn der Tab den ganzen Tag offen bleibt (Bauführer-PC):
+// stündlich nachschauen; autoUpdate lädt die Seite neu, sobald die neue Version aktiv ist.
+registerSW({
+  immediate: true,
+  onRegisteredSW(_url, reg) {
+    if (reg) setInterval(() => void reg.update(), 60 * 60 * 1000);
+  },
+});
 
 function App() {
   const ansicht = useAnsicht();
