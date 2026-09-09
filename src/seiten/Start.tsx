@@ -6,6 +6,9 @@ import { supabase } from '../lib/supabase';
 import { addTage, iso, kurz, kw, lang, montag } from '../lib/datum';
 import { flushNachSupabase, offeneAnzahl } from '../lib/db';
 import { Kachel, MONATE, NavKarte } from '../ui/Karten';
+import { DiagrammKarte, Trichter, WochenStunden } from '../ui/Diagramm';
+import { TeamBoard } from '../ui/TeamBoard';
+import { teamStand, trichter, wochenStunden, type TeamStand, type TrichterDaten, type WochenTag } from '../lib/kennzahlen';
 import { useAnsicht } from '../lib/ansicht';
 import { StartChef } from './StartChef';
 import { StartMonteur } from './StartMonteur';
@@ -17,9 +20,6 @@ interface Kennzahlen {
   heuteGeplant: number;
   teamsGemeldet: number;
   teams: number;
-  /** Teams ohne Meldung heute — am PC als Liste, am Handy nur die Zahl */
-  fehlend: string[];
-  gemeldetNamen: string[];
   zuPruefen: number;
   regieOffen: number;
   regieUeberfaellig: number;
@@ -41,6 +41,9 @@ export function Start() {
 function StartBauf() {
   const [k, setK] = useState<Kennzahlen | null>(null);
   const [wartend, setWartend] = useState<{ anzahl: number; grund?: string } | null>(null);
+  const [woche, setWoche] = useState<WochenTag[] | null>(null);
+  const [tr, setTr] = useState<TrichterDaten | null>(null);
+  const [stand, setStand] = useState<TeamStand[] | null>(null);
   const heute = new Date();
 
   useEffect(() => {
@@ -63,28 +66,31 @@ function StartBauf() {
         c.from('zusatzauftrag_stand').select('id', { count: 'exact', head: true }).in('stand', ['bestellt', 'gemeldet']),
         c.from('zusatzauftrag_stand').select('id', { count: 'exact', head: true }).eq('stand', 'bestellt').eq('geplant_fuer', heuteIso),
         c.from('tagesmeldung').select('team_id').eq('datum', heuteIso),
-        c.from('team').select('id,bezeichnung').eq('aktiv', true),
+        c.from('team').select('id', { count: 'exact', head: true }).eq('aktiv', true),
         c.from('zeiteintrag').select('id,tagesmeldung!inner(datum)', { count: 'exact', head: true }).eq('status', 'offen').lt('tagesmeldung.datum', wochenStart),
         c.from('regierapport').select('betrag_rappen').in('status', ['versendet', 'rueckfrage']),
         c.from('regierapport').select('id', { count: 'exact', head: true }).or(`status.eq.frist_abgelaufen,and(status.eq.versendet,frist_bis.lt.${heuteIso})`),
         // Verschickt = Versanddatum zählt, nicht das Anlegen des Entwurfs
         c.from('regierapport').select('betrag_rappen').gte('versendet_am', monatsStart).neq('status', 'entwurf'),
       ]);
+      // Namen der Teams braucht die Kachel nicht mehr — die liefert das Board darunter
       const gemeldet = new Set((tm.data ?? []).map((r) => r.team_id));
-      const alleTeams = ((teams.data ?? []) as { id: string; bezeichnung: string }[]).sort((a, b) => a.bezeichnung.localeCompare(b.bezeichnung, 'de', { numeric: true }));
       setK({
         offeneAuftraege: za.count ?? 0,
         heuteGeplant: zaHeute.count ?? 0,
         teamsGemeldet: gemeldet.size,
-        teams: alleTeams.length,
-        fehlend: alleTeams.filter((t) => !gemeldet.has(t.id)).map((t) => t.bezeichnung),
-        gemeldetNamen: alleTeams.filter((t) => gemeldet.has(t.id)).map((t) => t.bezeichnung),
+        teams: teams.count ?? 0,
         zuPruefen: zp.count ?? 0,
         regieOffen: (ro.data ?? []).length,
         regieOffenRappen: (ro.data ?? []).reduce((s, r) => s + (r.betrag_rappen ?? 0), 0),
         regieUeberfaellig: ru.count ?? 0,
         regieMonatRappen: (rm.data ?? []).reduce((s, r) => s + (r.betrag_rappen ?? 0), 0),
       });
+      // Diagramme und Board danach — die Kacheln sollen nicht darauf warten
+      const [w, t, ts] = await Promise.all([wochenStunden(c, heute), trichter(c), teamStand(c, heute)]);
+      setWoche(w);
+      setTr(t);
+      setStand(ts);
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -130,30 +136,32 @@ function StartBauf() {
           </div>
         )}
 
-        {k && k.teams > 0 && heute.getDay() >= 1 && heute.getDay() <= 6 && (
-          <section className="card hidden lg:block">
-            <div className="flex items-baseline justify-between gap-3">
-              <p className="lbl mb-0">Heute</p>
-              <Link to="/heute" className="text-xs font-semibold text-steel">Tagesübersicht ›</Link>
-            </div>
-            <div className="mt-3 grid grid-cols-2 gap-6">
-              <div>
-                <p className="mb-2 text-xs font-semibold text-ink2">Noch nichts gemeldet · {k.fehlend.length}</p>
-                <div className="flex flex-wrap gap-1.5">
-                  {k.fehlend.map((name) => <span key={name} className="chip py-1 text-xs">{name}</span>)}
-                  {k.fehlend.length === 0 && <span className="text-xs text-ink3">Alle Teams haben gemeldet.</span>}
-                </div>
-              </div>
-              <div className="border-l border-line pl-6">
-                <p className="mb-2 text-xs font-semibold text-good-deep">Gemeldet · {k.gemeldetNamen.length}</p>
-                <div className="flex flex-wrap gap-1.5">
-                  {k.gemeldetNamen.map((name) => <span key={name} className="chip border-good/40 bg-good-soft py-1 text-xs text-good-deep">{name}</span>)}
-                  {k.gemeldetNamen.length === 0 && <span className="text-xs text-ink3">Noch keine Meldung heute.</span>}
-                </div>
-              </div>
-            </div>
-            <p className="mt-3 text-xs text-ink3">Am Abend meldet das Teamgerät — vorher ist die linke Liste normal lang.</p>
-          </section>
+        {/* Diagramme nur am PC — auf dem Handy zählen die Kacheln und die schnellen Wege */}
+        <div className="hidden gap-4 lg:grid lg:grid-cols-2">
+          {woche && (
+            <DiagrammKarte
+              titel="Freigabe diese Woche"
+              unter="Was noch bei dir liegt — Stunden je Tag"
+              aktion={<Link to="/cockpit" className="text-xs font-semibold text-steel">Wochenübersicht ›</Link>}
+            >
+              <WochenStunden tage={woche} heuteIndex={(heute.getDay() + 6) % 7} />
+            </DiagrammKarte>
+          )}
+          {tr && (
+            <DiagrammKarte
+              titel="Zusatzaufträge"
+              unter="Wo sie stehen — letzte 60 Tage, Stand abgeleitet"
+              aktion={<Link to="/regie" className="text-xs font-semibold text-steel">Regierapporte ›</Link>}
+            >
+              <Trichter stufen={tr.stufen} ohneMeldung={tr.ohneMeldung} />
+            </DiagrammKarte>
+          )}
+        </div>
+
+        {stand && stand.length > 0 && heute.getDay() >= 1 && heute.getDay() <= 6 && (
+          <div className="hidden lg:block">
+            <TeamBoard teams={stand} />
+          </div>
         )}
 
         <nav className="grid gap-3 lg:hidden">

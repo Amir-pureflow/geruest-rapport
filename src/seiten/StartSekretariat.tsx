@@ -6,6 +6,8 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Shell } from '../ui/Shell';
 import { Kachel, MONATE, NavKarte } from '../ui/Karten';
+import { DiagrammKarte, Fristen, RegieMonate, Trichter } from '../ui/Diagramm';
+import { fristen, regieMonate, trichter, type FristEintrag, type RegieMonat, type TrichterDaten } from '../lib/kennzahlen';
 import { formatChf } from '../lib/tarif';
 import { supabase } from '../lib/supabase';
 import { iso, lang } from '../lib/datum';
@@ -23,6 +25,9 @@ interface Kennzahlen {
 
 export function StartSekretariat() {
   const [k, setK] = useState<Kennzahlen | null>(null);
+  const [monate, setMonate] = useState<RegieMonat[] | null>(null);
+  const [tr, setTr] = useState<TrichterDaten | null>(null);
+  const [offen, setOffen] = useState<FristEintrag[] | null>(null);
   const heute = new Date();
 
   useEffect(() => {
@@ -50,6 +55,11 @@ export function StartSekretariat() {
         teamsGemeldet: new Set((tm.data ?? []).map((r) => r.team_id)).size,
         teams: teams.count ?? 0,
       });
+      // Diagramme und Arbeitsliste danach — die Kacheln sollen nicht darauf warten
+      const [mo, t, fr] = await Promise.all([regieMonate(c), trichter(c), fristen(c)]);
+      setMonate(mo);
+      setTr(t);
+      setOffen(fr);
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -80,6 +90,39 @@ export function StartSekretariat() {
             <Kachel zu="/heute" wert={`${k.teamsGemeldet}/${k.teams}`} label="Teams haben heute gemeldet" />
           </div>
         )}
+
+        {/* Am PC: Geldverlauf, Trichter und die Arbeitsliste «was liegt beim Kunden» */}
+        <div className="hidden gap-4 lg:grid lg:grid-cols-2">
+          {monate && (
+            <DiagrammKarte
+              titel="Regie je Monat"
+              unter="Verschickt an Kunden, davon bestätigt"
+              aktion={<Link to="/regie" className="text-xs font-semibold text-steel">Regierapporte ›</Link>}
+            >
+              <RegieMonate monate={monate} />
+            </DiagrammKarte>
+          )}
+          {tr && (
+            <DiagrammKarte
+              titel="Zusatzaufträge"
+              unter="Wo sie stehen — letzte 60 Tage, Stand abgeleitet"
+              aktion={<Link to="/zusatzauftrag" className="text-xs font-semibold text-steel">Neu erfassen ›</Link>}
+            >
+              <Trichter stufen={tr.stufen} ohneMeldung={tr.ohneMeldung} />
+            </DiagrammKarte>
+          )}
+          {offen && (
+            <div className="lg:col-span-2">
+              <DiagrammKarte
+                titel="Beim Kunden — ältestes zuerst"
+                unter="Das ist die Nachfassliste"
+                aktion={<Link to="/regie" className="text-xs font-semibold text-steel">Alle ›</Link>}
+              >
+                <Fristen eintraege={offen} />
+              </DiagrammKarte>
+            </div>
+          )}
+        </div>
 
         <nav className="grid gap-3 lg:hidden">
           <NavKarte zu="/regie" titel="Regierapporte" text="Versand, Zustellnachweis, Fristen — nachfassen" />
