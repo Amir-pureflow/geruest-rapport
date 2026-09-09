@@ -8,7 +8,7 @@ import { Link } from 'react-router-dom';
 import { Shell } from '../ui/Shell';
 import { formatChf } from '../lib/tarif';
 import { supabase } from '../lib/supabase';
-import { kurz } from '../lib/datum';
+import { ausIso, kurz } from '../lib/datum';
 
 interface Rapport {
   id: string; nummer: string | null; status: string; betrag_rappen: number | null; link_token: string;
@@ -33,6 +33,7 @@ export function StartKunde() {
       .from('regierapport')
       .select('id,nummer,status,betrag_rappen,link_token,versendet_am,frist_bis,empfaenger_email,baustelle:baustelle_id(konto_nr,bezeichnung)')
       .neq('status', 'entwurf')
+      .not('link_token', 'is', null)
       .order('versendet_am', { ascending: false })
       .limit(30)
       .then(({ data }) => { setListe((data ?? []) as unknown as Rapport[]); setLaedt(false); });
@@ -53,12 +54,11 @@ export function StartKunde() {
         {!laedt && liste.length === 0 && (
           <div className="card space-y-2 text-sm">
             <p>Noch kein Regierapport verschickt.</p>
-            <p className="text-ink3">Als Bauführer einen Rapport senden — dann erscheint er hier mit dem Kundenlink.</p>
-            <Link to="/b/demo-token" className="btn-ghost inline-block">Beispiel ansehen ›</Link>
+            <p className="text-ink3">Als Bauführer einen Rapport senden, dann erscheint er hier.</p>
           </div>
         )}
 
-        {liste.map((r) => (
+        {liste.filter((r) => !!r.link_token).map((r) => (
           <Link key={r.id} to={`/b/${r.link_token}`} className="card block space-y-1 hover:border-line-strong">
             <div className="flex items-baseline justify-between gap-3">
               <span className="font-display font-bold">{r.baustelle?.bezeichnung ?? 'Baustelle'}</span>
@@ -68,7 +68,7 @@ export function StartKunde() {
               {r.baustelle && <><span className="knr">{r.baustelle.konto_nr}</span> · </>}
               {r.nummer ? `${r.nummer} · ` : ''}
               {r.versendet_am ? `verschickt ${kurz(new Date(r.versendet_am))}` : ''}
-              {r.frist_bis ? ` · Frist ${kurz(new Date(r.frist_bis + 'T12:00:00'))}` : ''}
+              {r.frist_bis ? ` · Frist ${kurz(ausIso(r.frist_bis))}` : ''}
             </p>
             <p className={'text-xs font-semibold ' + (r.status === 'bestaetigt' ? 'text-good-deep' : r.status === 'frist_abgelaufen' ? 'text-accent-deep' : 'text-steel')}>
               {STATUS[r.status] ?? r.status} ›

@@ -1,9 +1,13 @@
 /**
  * Regierapport aus einer Tagesmeldung: Positionen vorrechnen (SGUV-Ansatz je Funktion)
  * und — erst auf ausdrücklichen Wunsch — als Entwurf anlegen. Nie doppelt pro Meldung.
+ *
+ * Anlegen läuft über die RPC `regierapport_anlegen` (Migration 0009): Kopf + Positionen in
+ * EINER Transaktion, idempotent pro Meldung. Fehlt die RPC noch (Migration nicht eingespielt),
+ * greift der bisherige Weg in zwei Schritten.
  */
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { minutenBetrag, tarifNachCode } from './tarif';
+import { minutenBetrag, tarifNachCode, RUECKFALL_ANSATZ_RAPPEN } from './tarif';
 
 export interface EintragFuerRegie {
   normal_min: number;
@@ -19,12 +23,10 @@ export interface RegiePosition {
   betrag_rappen: number;
 }
 
-const MONTEUR_ANSATZ = 10800; // Rückfall Gerüstmonteur/in, falls die Funktion keinen Tarif hat
-
 export function positionenAusEintraegen(eintraege: EintragFuerRegie[]): RegiePosition[] {
   return eintraege.map((e) => {
     const min = e.normal_min + e.ueber_min;
-    let ansatz = MONTEUR_ANSATZ;
+    let ansatz = RUECKFALL_ANSATZ_RAPPEN;
     try {
       ansatz = tarifNachCode(e.mitarbeiter.funktion).ansatz_rappen;
     } catch {
@@ -50,11 +52,21 @@ export async function vorhandenerRapport(client: SupabaseClient, meldungId: stri
   return data && data.length > 0 ? data[0].id : null;
 }
 
-/** Entwurf anlegen (idempotent: existiert schon einer, kommt dessen id zurück). */
-export async function regierapportAnlegen(
-  client: SupabaseClient,
-  opts: { meldungId: string; baustelleId: string; zusatzauftragId: string | null; positionen: RegiePosition[] },
-): Promise<{ id: string } | { fehler: string }> {
+/** PostgREST kennt die Funktion nicht: Migration 0009 fehlt (42883 = Postgres, PGRST202 = Schema-Cache). */
+export function rpcFehlt(err: { code?: string; message?: string } | null | undefined): boolean {
+  if (!err) return false;
+  return err.code === '42883' || err.code === 'PGRST202' || /could not find the function/i.test(err.message ?? '');
+}
+
+export interface AnlegenOpts {
+  meldungId: string;
+  baustelleId: string;
+  zusatzauftragId: string | null;
+  positionen: RegiePosition[];
+}
+
+/** Bisheriger Weg: erst Kopf, dann Positionen — zwei Schritte, kein Rollback dazwischen. */
+async function regierapportAnlegenZweistufig(client: SupabaseClient, opts: AnlegenOpts): Promise<{ id: string } | { fehler: string }> {
   const schon = await vorhandenerRapport(client, opts.meldungId);
   if (schon) return { id: schon };
   const { data: r, error } = await client
@@ -73,4 +85,18 @@ export async function regierapportAnlegen(
     .insert(opts.positionen.map((p) => ({ ...p, regierapport_id: r.id })));
   if (e2) return { fehler: e2.message };
   return { id: r.id };
+}
+
+/** Entwurf anlegen (idempotent: existiert schon einer, kommt dessen id zurück). */
+export async function regierapportAnlegen(client: SupabaseClient, opts: AnlegenOpts): Promise<{ id: string } | { fehler: string }> {
+  const { data, error } = await client.rpc('regierapport_anlegen', {
+    p_meldung: opts.meldungId,
+    p_baustelle: opts.baustelleId,
+    p_zusatzauftrag: opts.zusatzauftragId,
+    p_positionen: opts.positionen,
+  });
+  if (!error && typeof data === 'string' && data.length > 0) return { id: data };
+  if (error && !rpcFehlt(error)) return { fehler: error.message };
+  // RPC fehlt (oder gab nichts zurück) → bisheriger Weg
+  return regierapportAnlegenZweistufig(client, opts);
 }

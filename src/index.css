@@ -27,6 +27,10 @@
   --color-good: #1e7a4c;
   --color-good-deep: #15603a;
   --color-good-soft: #e1f1e8;
+  /* Bernstein = Warnung/Hinweis. Rot bleibt der Aktion vorbehalten (Prüfbericht 09.09.). */
+  --color-amber: #9a6a12;
+  --color-amber-deep: #7a5410;
+  --color-amber-soft: #fbf0d6;
 }
 
 @layer base {
@@ -122,9 +126,10 @@
     transition: border-color 120ms, background 120ms;
   }
   .chip-on {
-    border-color: var(--color-accent);
-    background: var(--color-accent-soft);
-    color: var(--color-accent-deep);
+    /* Auswahl = Stahlblau. Rot ist der Aktion vorbehalten (Prüfbericht 09.09.). */
+    border-color: var(--color-steel);
+    background: var(--color-steel-soft);
+    color: var(--color-steel);
   }
 
   .field {

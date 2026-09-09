@@ -51,8 +51,13 @@ export function Ansicht({ hinweis }: { hinweis?: string }) {
           <div className="mt-5 rounded-[12px] border border-accent/40 bg-accent-soft px-4 py-3 text-sm text-accent-deep">
             <strong>Keine Datenverbindung:</strong> {hinweis}
             <span className="mt-1 block text-xs">
-              Im Supabase-Dashboard unter Authentication › Sign In / Providers «Allow anonymous sign-ins» einschalten, dann diese Seite neu laden.
+              {/rate limit/i.test(hinweis)
+                ? 'Zu viele neue Geräte in kurzer Zeit (Supabase-Limit). In ein paar Minuten neu laden — bestehende Geräte sind nicht betroffen.'
+                : /anonymous/i.test(hinweis)
+                  ? 'Im Supabase-Dashboard unter Authentication › Sign In / Providers «Allow anonymous sign-ins» einschalten, dann diese Seite neu laden.'
+                  : 'Netz prüfen und diese Seite neu laden.'}
             </span>
+            <button type="button" className="btn-ghost mt-2" onClick={() => location.reload()}>Neu laden</button>
           </div>
         )}
         {!supabase && (

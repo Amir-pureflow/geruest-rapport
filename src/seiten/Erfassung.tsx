@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } 
 import { Shell } from '../ui/Shell';
 import { supabase } from '../lib/supabase';
 import { enqueueMeldung, flushNachSupabase, offeneMeldungen, offeneAnzahl, lokaleMeldungEntfernen, type MeldungPayload } from '../lib/db';
-import { addTage, iso, lang } from '../lib/datum';
+import { addTage, iso, lang, stunden } from '../lib/datum';
 import { fotoVerkleinern } from '../lib/foto';
 
 /**
@@ -23,7 +23,34 @@ type Abweichung = 'zusaetzlich' | 'warten' | 'kaputt';
 type Wer = 'kunde' | 'chef' | 'niemand';
 
 const TEAM_KEY = 'teamgeraet-team-id';
+/** Zuletzt gewählte Teams auf diesem Gerät (max. 5, neuestes vorne) — damit die Teamwahl nie mehr als 5 Kacheln braucht (Regel 3). */
+const ZULETZT_KEY = 'teamgeraet-zuletzt';
 const STANDARD_MIN = 480;
+
+function zuletztLesen(): string[] {
+  try {
+    const x: unknown = JSON.parse(localStorage.getItem(ZULETZT_KEY) ?? '[]');
+    return Array.isArray(x) ? x.filter((s): s is string => typeof s === 'string').slice(0, 5) : [];
+  } catch {
+    return [];
+  }
+}
+function zuletztMerken(id: string): string[] {
+  const liste = [id, ...zuletztLesen().filter((x) => x !== id)].slice(0, 5);
+  localStorage.setItem(ZULETZT_KEY, JSON.stringify(liste));
+  return liste;
+}
+function teamsSortiert<T extends { bezeichnung: string }>(liste: T[]): T[] {
+  return [...liste].sort((a, b) => a.bezeichnung.localeCompare(b.bezeichnung, 'de', { numeric: true }));
+}
+
+/** Was für den gewählten Tag schon gemeldet ist — lokal (wartet auf Netz) oder auf dem Server. */
+interface Gemeldet {
+  bezeichnung: string; konto_nr: string; baustelle_id: string; normalfall: boolean; abweichung_typ: Abweichung | null;
+  lokal: boolean; schluessel: string; freigegeben: boolean; min: number;
+}
+type SpeicherModus = 'normal' | 'ersetzen' | 'zusaetzlich';
+const AB_KURZ: Record<Abweichung, string> = { zusaetzlich: 'zusätzlich', warten: 'gewartet', kaputt: 'repariert' };
 
 const SYMBOLE: { typ: Abweichung; label: string; svg: ReactElement }[] = [
   {
@@ -66,8 +93,12 @@ export function Erfassung() {
   const [kacheln, setKacheln] = useState<Baustelle[]>([]);
   const [alleGeplanten, setAlleGeplanten] = useState<Baustelle[]>([]);
   const [zeigeAndere, setZeigeAndere] = useState(false);
-  const [suche, setSuche] = useState('');
+  // Baustellensuche ohne Tastatur (Regel 2): Konto-Nr. über den Ziffernblock, ab 3 Ziffern wird gesucht
+  const [ziffern, setZiffern] = useState('');
   const [suchTreffer, setSuchTreffer] = useState<Baustelle[]>([]);
+  const [laedtTeam, setLaedtTeam] = useState(false);
+  const [zuletzt, setZuletzt] = useState<string[]>(zuletztLesen);
+  const [weitereTeams, setWeitereTeams] = useState(0);
   const [baustelle, setBaustelle] = useState<Baustelle | null>(null);
   const [teamMin, setTeamMin] = useState(STANDARD_MIN);
   const [anw, setAnw] = useState<Record<string, Anwesenheit>>({});
@@ -127,10 +158,12 @@ export function Erfassung() {
   const [nimmtAuf, setNimmtAuf] = useState(false);
   const [sekunden, setSekunden] = useState(0);
   const [gespeichert, setGespeichert] = useState<string | null>(null);
+  // Längere Rückmeldung nach dem Speichern (z. B. «normaler Tag 8.0 h + 1.0 h zusätzlich») — eigene Zeile, nicht im Knopf
+  const [bestaetigung, setBestaetigung] = useState<string | null>(null);
   const [hinweis, setHinweis] = useState('');
-  const [heuteGemeldet, setHeuteGemeldet] = useState<{ bezeichnung: string; baustelle_id: string; normalfall: boolean; lokal: boolean; schluessel: string; freigegeben: boolean }[]>([]);
-  // Gleiche Baustelle heute schon gemeldet → erst nachfragen, statt still eine zweite Meldung anzulegen
-  const [doppelt, setDoppelt] = useState<{ bezeichnung: string; anzahl: number } | null>(null);
+  const [heuteGemeldet, setHeuteGemeldet] = useState<Gemeldet[]>([]);
+  // An diesem Tag schon eine Normalmeldung (egal welche Baustelle) → erst nachfragen, statt still eine zweite anzulegen
+  const [doppelt, setDoppelt] = useState<{ baustellen: string[]; bisherMin: number; ersetzbarMin: number; ersetzbar: number; neuMin: number } | null>(null);
   const [userId, setUserId] = useState<string | null>(null);
   const [wartend, setWartend] = useState(0);
   const recorder = useRef<MediaRecorder | null>(null);
@@ -162,27 +195,49 @@ export function Erfassung() {
     void offeneAnzahl().then(setWartend);
   }, []);
 
-  const heutigeLaden = useCallback(async () => {
-    if (!teamId) return;
+  /** Lädt, was für Team + Tag schon gemeldet ist (lokal + Server), setzt den Zustand und gibt die Liste zurück (für Prüfungen vor dem Speichern). */
+  const heutigeLaden = useCallback(async (): Promise<Gemeldet[]> => {
+    if (!teamId) return [];
+    const bekannt = kacheln.concat(alleGeplanten, suchTreffer);
     const lokal = (await offeneMeldungen()).filter((m) => (m.payload as unknown as MeldungPayload).team_id === teamId && (m.payload as unknown as MeldungPayload).datum === tagIso);
-    const liste: typeof heuteGemeldet = lokal.map((m) => {
+    const liste: Gemeldet[] = lokal.map((m) => {
       const p = m.payload as unknown as MeldungPayload;
-      return { bezeichnung: kacheln.concat(alleGeplanten).find((b) => b.id === p.baustelle_id)?.bezeichnung ?? 'Baustelle', baustelle_id: p.baustelle_id, normalfall: p.normalfall, lokal: true, schluessel: m.client_uuid, freigegeben: false };
+      const b = bekannt.find((x) => x.id === p.baustelle_id);
+      const konto = b?.konto_nr ?? p.eintraege[0]?.konto_nr ?? '';
+      return {
+        bezeichnung: b?.bezeichnung ?? (konto ? `Konto-Nr. ${konto}` : 'Baustelle'), konto_nr: konto, baustelle_id: p.baustelle_id,
+        normalfall: p.normalfall, abweichung_typ: p.abweichung_typ, lokal: true, schluessel: m.client_uuid, freigegeben: false,
+        min: p.eintraege.reduce((s, z) => s + z.normal_min + z.ueber_min, 0),
+      };
     });
     if (supabase) {
-      const { data } = await supabase.from('tagesmeldung').select('id,normalfall,baustelle_id,baustelle:baustelle_id(bezeichnung),zeiteintrag(status)').eq('team_id', teamId).eq('datum', tagIso);
-      for (const d of (data ?? []) as unknown as { id: string; normalfall: boolean; baustelle_id: string; baustelle: { bezeichnung: string | null } | null; zeiteintrag: { status: string }[] }[]) {
-        liste.push({ bezeichnung: d.baustelle?.bezeichnung ?? 'Baustelle', baustelle_id: d.baustelle_id, normalfall: d.normalfall, lokal: false, schluessel: d.id, freigegeben: d.zeiteintrag.some((z) => z.status === 'freigegeben') });
+      try {
+        const { data } = await supabase.from('tagesmeldung').select('id,normalfall,abweichung_typ,baustelle_id,baustelle:baustelle_id(konto_nr,bezeichnung),zeiteintrag(normal_min,ueber_min,status)').eq('team_id', teamId).eq('datum', tagIso).order('erfasst_am');
+        type Zeile = { id: string; normalfall: boolean; abweichung_typ: Abweichung | null; baustelle_id: string; baustelle: { konto_nr: string; bezeichnung: string | null } | null; zeiteintrag: { normal_min: number; ueber_min: number; status: string }[] };
+        for (const d of (data ?? []) as unknown as Zeile[]) {
+          liste.push({
+            bezeichnung: d.baustelle?.bezeichnung ?? (d.baustelle?.konto_nr ? `Konto-Nr. ${d.baustelle.konto_nr}` : 'Baustelle'), konto_nr: d.baustelle?.konto_nr ?? '', baustelle_id: d.baustelle_id,
+            normalfall: d.normalfall, abweichung_typ: d.abweichung_typ, lokal: false, schluessel: d.id,
+            freigegeben: d.zeiteintrag.some((z) => z.status === 'freigegeben'),
+            min: d.zeiteintrag.reduce((s, z) => s + z.normal_min + z.ueber_min, 0),
+          });
+        }
+      } catch {
+        // ohne Netz bleibt die lokale Sicht — mehr wissen wir nicht
       }
     }
     setHeuteGemeldet(liste);
-  }, [teamId, tagIso, kacheln, alleGeplanten]);
+    return liste;
+  }, [teamId, tagIso, kacheln, alleGeplanten, suchTreffer]);
 
   // Team gewählt → Leute, Kacheln (Plan + zuletzt), Vorbelegung
   useEffect(() => {
     if (!supabase || !teamId) return;
     const client = supabase;
+    setLaedtTeam(true);
+    setLeute([]); setKacheln([]); setAlleGeplanten([]); setBaustelle(null); setZiffern(''); setSuchTreffer([]);
     void (async () => {
+      try {
       const { data: mg } = await client
         .from('team_mitglied')
         .select('mitarbeiter:mitarbeiter_id(id,name,typ,funktion,oev_standard,km_standard,aktiv)')
@@ -211,28 +266,45 @@ export function Erfassung() {
       setKacheln(tiles);
       setAlleGeplanten(planRows.map((p) => p.baustelle).filter((b): b is Baustelle => !!b));
       setBaustelle(tiles[0] ?? null);
+      } catch {
+        setHinweis('Team konnte nicht geladen werden — Netz prüfen und nochmals versuchen.');
+      } finally {
+        setLaedtTeam(false);
+      }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [teamId]);
 
   useEffect(() => { void heutigeLaden(); }, [heutigeLaden]);
 
-  // Ausnahme für den Chefmonteur: Suche nach Nummer/Name, falls die Kacheln nicht reichen
+  // Ausnahme für den Chefmonteur: Konto-Nr. über den Ziffernblock, falls die Kacheln nicht reichen (ab 3 Ziffern, max. 5 Treffer)
   useEffect(() => {
-    if (!supabase || suche.trim().length < 2) { setSuchTreffer([]); return; }
-    const q = suche.trim();
+    if (!supabase || ziffern.length < 3) { setSuchTreffer([]); return; }
     const client = supabase;
+    const q = ziffern;
     const t = setTimeout(() => {
-      void client.from('baustelle').select('id,konto_nr,bezeichnung').or(`bezeichnung.ilike.%${q}%,konto_nr.like.${q}%`).limit(5).then(({ data }) => data && setSuchTreffer(data));
-    }, 200);
+      void client.from('baustelle').select('id,konto_nr,bezeichnung').like('konto_nr', `${q}%`).order('konto_nr').limit(5).then(({ data }) => data && setSuchTreffer(data));
+    }, 150);
     return () => clearTimeout(t);
-  }, [suche]);
+  }, [ziffern]);
 
   function teamWaehlen(id: string) {
     localStorage.setItem(TEAM_KEY, id);
+    setZuletzt(zuletztMerken(id));
+    setWeitereTeams(0);
     setTeamId(id);
     setSchritt('tag');
   }
+
+  // Teamwahl: zuletzt gewähltes + zuletzt genutzte Teams zuerst (max. 5), der Rest in Fünferblöcken hinter «Weitere Teams …»
+  const teamAuswahl = useMemo(() => {
+    const sortiert = teamsSortiert(teams);
+    const vorneIds = [teamId, ...zuletzt].filter((x): x is string => !!x).filter((x, i, a) => a.indexOf(x) === i);
+    const vorne = vorneIds.map((id) => sortiert.find((t) => t.id === id)).filter((t): t is Team => !!t).slice(0, 5);
+    const erste = vorne.length > 0 ? vorne : sortiert.slice(0, 5);
+    const rest = sortiert.filter((t) => !erste.some((e) => e.id === t.id));
+    return { erste, rest };
+  }, [teams, teamId, zuletzt]);
 
   const dabei = useMemo(() => leute.filter((p) => anw[p.id]?.dabei), [leute, anw]);
 
@@ -241,9 +313,9 @@ export function Erfassung() {
     setAnw((alt) => Object.fromEntries(Object.entries(alt).map(([k, a]) => [k, { ...a, min: v }])));
   }
 
-  /** Frühere Normal-Meldungen für dieselbe Baustelle heute entfernen — lokal und auf dem Server (nur solange nichts freigegeben ist). */
-  async function fruehereEntfernen(baustelleId: string) {
-    const alte = heuteGemeldet.filter((m) => m.baustelle_id === baustelleId && m.normalfall && !m.freigegeben);
+  /** Frühere Normal-Meldungen des Teams an diesem Tag entfernen (alle Baustellen) — lokal und auf dem Server, nur solange nichts freigegeben ist. */
+  async function fruehereEntfernen(liste: Gemeldet[]) {
+    const alte = liste.filter((m) => m.normalfall && !m.freigegeben);
     for (const m of alte) {
       if (m.lokal) { await lokaleMeldungEntfernen(m.schluessel); continue; }
       if (!supabase) continue;
@@ -252,53 +324,97 @@ export function Erfassung() {
     }
   }
 
-  async function speichern(normal: boolean, ersetzen = false) {
-    if (!baustelle) { setHinweis('Zuerst die Baustelle antippen.'); return; }
-    if (dabei.length === 0) { setHinweis('Niemand angehakt.'); return; }
-    setHinweis('');
-    if (normal) {
-      const gleiche = heuteGemeldet.filter((m) => m.baustelle_id === baustelle.id && m.normalfall);
-      if (gleiche.some((m) => m.freigegeben)) {
-        setHinweis(`Für ${baustelle.bezeichnung ?? baustelle.konto_nr} ist an diesem Tag schon eine Meldung freigegeben. Änderungen macht der Bauführer in der Wochenübersicht.`);
-        return;
-      }
-      if (gleiche.length > 0 && !ersetzen) {
-        setDoppelt({ bezeichnung: baustelle.bezeichnung ?? baustelle.konto_nr, anzahl: gleiche.length });
-        return;
-      }
-      setDoppelt(null);
-      if (ersetzen) await fruehereEntfernen(baustelle.id);
-    }
+  /** Meldung für die gewählte Baustelle bauen: normaler Tag (alle Anwesenden, Stunden wie eingestellt) oder Abweichung (nur die Beteiligten, Zusatzminuten). */
+  function meldungBauen(normal: boolean, b: Baustelle): MeldungPayload {
     const beteiligt = normal ? dabei : dabei.filter((p) => abLeute.has(p.id));
-    const payload: MeldungPayload = {
-      id: crypto.randomUUID(), team_id: teamId!, datum: tagIso, baustelle_id: baustelle.id,
+    return {
+      id: crypto.randomUUID(), team_id: teamId!, datum: tagIso, baustelle_id: b.id,
       normalfall: normal, abweichung_typ: normal ? null : abweichung, wer_hats_gewollt: normal ? null : wer,
       audio_sekunden: normal ? null : aufnahme?.sekunden ?? null, erfasst_von: userId,
       eintraege: beteiligt.map((p) => {
         const a = anw[p.id];
         const min = normal ? a.min : abMin;
-        return { id: crypto.randomUUID(), mitarbeiter_id: p.id, normal_min: Math.min(min, 480), ueber_min: Math.max(0, min - 480), oev: normal ? a.oev : false, km: normal ? a.km : 0, baustelle_id: baustelle.id, konto_nr: baustelle.konto_nr };
+        return { id: crypto.randomUUID(), mitarbeiter_id: p.id, normal_min: Math.min(min, 480), ueber_min: Math.max(0, min - 480), oev: normal ? a.oev : false, km: normal ? a.km : 0, baustelle_id: b.id, konto_nr: b.konto_nr };
       }),
     };
-    const clientUuid = await enqueueMeldung(payload, normal ? undefined : aufnahme?.blob, fotos.map((f) => f.blob));
+  }
+
+  /** Stunden des normalen Tags in Worten: «8.0 h» wenn alle gleich, sonst «7.5–8.5 h». */
+  function normalStundenText(): string {
+    const mins = dabei.map((p) => anw[p.id]?.min ?? STANDARD_MIN);
+    const lo = Math.min(...mins);
+    const hi = Math.max(...mins);
+    return lo === hi ? `${stunden(lo)} h` : `${stunden(lo)}–${stunden(hi)} h`;
+  }
+
+  async function speichern(normal: boolean, modus: SpeicherModus = 'normal') {
+    if (!baustelle) { setHinweis('Zuerst die Baustelle antippen.'); return; }
+    if (dabei.length === 0) { setHinweis('Niemand angehakt.'); return; }
+    setHinweis('');
+    const clientUuids: string[] = [];
+    let normalMitgespeichert = false;
+
+    if (normal) {
+      const bisher = heuteGemeldet.filter((m) => m.normalfall);
+      const gleiche = bisher.filter((m) => m.baustelle_id === baustelle.id);
+      if (gleiche.some((m) => m.freigegeben)) {
+        setHinweis(`Für ${baustelle.bezeichnung ?? baustelle.konto_nr} ist an diesem Tag schon eine Meldung vom Bauführer freigegeben. Änderungen macht der Bauführer in der Wochenübersicht.`);
+        return;
+      }
+      if (bisher.length > 0 && modus === 'normal') {
+        const ersetzbar = bisher.filter((m) => !m.freigegeben);
+        setDoppelt({
+          baustellen: bisher.map((m) => m.bezeichnung).filter((x, i, a) => a.indexOf(x) === i),
+          bisherMin: bisher.reduce((s, m) => s + m.min, 0),
+          ersetzbarMin: ersetzbar.reduce((s, m) => s + m.min, 0),
+          ersetzbar: ersetzbar.length,
+          neuMin: dabei.reduce((s, p) => s + (anw[p.id]?.min ?? 0), 0),
+        });
+        return;
+      }
+      setDoppelt(null);
+      if (modus === 'ersetzen') await fruehereEntfernen(bisher);
+      clientUuids.push(await enqueueMeldung(meldungBauen(true, baustelle), undefined, fotos.map((f) => f.blob)));
+    } else {
+      // Abweichung: die normalen Stunden des Tags dürfen nicht verloren gehen — fehlt die Normalmeldung für diese Baustelle, geht sie zuerst mit in die Warteschlange.
+      let aktuell = heuteGemeldet;
+      try { aktuell = await heutigeLaden(); } catch { /* lokaler Stand reicht */ }
+      const hatNormal = aktuell.some((m) => m.normalfall && m.baustelle_id === baustelle.id);
+      if (!hatNormal) {
+        clientUuids.push(await enqueueMeldung(meldungBauen(true, baustelle)));
+        normalMitgespeichert = true;
+      }
+      clientUuids.push(await enqueueMeldung(meldungBauen(false, baustelle), aufnahme?.blob, fotos.map((f) => f.blob)));
+    }
+
+    const abText = abweichung ? `${stunden(abMin)} h ${AB_KURZ[abweichung]}` : '';
+    const zusammenfassung = normal
+      ? `Gespeichert: normaler Tag ${normalStundenText()}`
+      : normalMitgespeichert ? `Gespeichert: normaler Tag ${normalStundenText()} + ${abText}` : `Gespeichert: ${abText} (normaler Tag war schon gemeldet)`;
+
     setGespeichert('Lokal gespeichert …');
     if (supabase && navigator.onLine) {
       const erg = await flushNachSupabase(supabase);
-      const dieseIstDurch = (await offeneMeldungen()).every((m) => m.client_uuid !== clientUuid);
-      if (dieseIstDurch) {
+      const offen = await offeneMeldungen();
+      const alleDurch = clientUuids.every((u) => offen.every((m) => m.client_uuid !== u));
+      if (alleDurch) {
         setGespeichert(normal ? 'Gespeichert ✓' : 'Abweichung gespeichert ✓');
+        setBestaetigung(zusammenfassung + ' ✓');
         if (erg.verworfen > 0) setHinweis(`${erg.verworfen} alte Meldung${erg.verworfen === 1 ? '' : 'en'} aussortiert: ${erg.fehlerText ?? ''}`);
       } else {
         // Ehrlich bleiben: auf dem Gerät ist es sicher, aber der Server hat abgelehnt — Grund zeigen
         setHinweis(`Auf dem Gerät gespeichert, aber noch nicht gesendet: ${erg.fehlerText ?? 'unbekannter Fehler'}`);
         setGespeichert('Lokal gespeichert — Senden fehlgeschlagen');
+        setBestaetigung(zusammenfassung + ' — noch nicht gesendet');
       }
     } else {
       setGespeichert('Gespeichert — wird gesendet, sobald Netz da ist');
+      setBestaetigung(zusammenfassung + ' — wird gesendet, sobald Netz da ist');
     }
     void heutigeLaden();
     void offeneAnzahl().then(setWartend);
     setTimeout(() => setGespeichert(null), 3500);
+    setTimeout(() => setBestaetigung(null), 8000);
     setAbweichung(null); setWer(null); setAufnahme(null); setAbMin(60); setAbLeute(new Set());
     for (const f of fotos) URL.revokeObjectURL(f.url);
     setFotos([]);
@@ -342,12 +458,22 @@ export function Erfassung() {
           <h1 className="font-display text-2xl font-bold">Welches Team?</h1>
           <p className="text-sm text-ink3">Einmal wählen — das Gerät merkt es sich.</p>
           <div className="grid grid-cols-2 gap-2">
-            {teams.map((t) => (
+            {teamAuswahl.erste.map((t) => (
               <button key={t.id} type="button" onClick={() => teamWaehlen(t.id)} className={'py-4 text-base ' + (t.id === teamId ? 'chip chip-on' : 'chip')}>
                 {t.bezeichnung}{t.id === teamId ? ' · zuletzt' : ''}
               </button>
             ))}
           </div>
+          {weitereTeams > 0 && (
+            <div className="grid grid-cols-2 gap-2">
+              {teamAuswahl.rest.slice(0, weitereTeams).map((t) => (
+                <button key={t.id} type="button" onClick={() => teamWaehlen(t.id)} className="chip py-4 text-base">{t.bezeichnung}</button>
+              ))}
+            </div>
+          )}
+          {weitereTeams < teamAuswahl.rest.length && (
+            <button type="button" onClick={() => setWeitereTeams((n) => n + 5)} className="btn-ghost w-full">Weitere Teams …</button>
+          )}
           {teams.length === 0 && <p className="card text-sm text-ink3">Keine Teams — unter Verwaltung anlegen oder den Demo-Betrieb laden.</p>}
         </div>
       </Shell>
@@ -471,17 +597,31 @@ export function Erfassung() {
           </span>
         </header>
 
+        {bestaetigung && (
+          <section className="rounded-[14px] border border-good/40 bg-good-soft px-4 py-3 text-sm font-semibold text-good-deep" role="status">
+            {bestaetigung}
+          </section>
+        )}
+
         {/* Schon gemeldet? Zuoberst, damit niemand doppelt meldet — und der Weg zum Nachtrag ist klar. */}
         {heuteGemeldet.length > 0 && (
           <section className="rounded-[14px] border border-good/40 bg-good-soft px-4 py-3">
             <p className="text-sm font-semibold text-good-deep">
               {istHeute ? 'Heute schon gemeldet' : `Für ${lang(datum)} schon gemeldet`}
             </p>
-            <ul className="mt-1 space-y-0.5 text-sm text-ink2">
+            <ul className="mt-1 space-y-1 text-sm text-ink2">
               {heuteGemeldet.map((m, i) => (
-                <li key={i} className="flex items-center justify-between gap-2">
-                  <span>{m.normalfall ? '✓' : '⚑'} {m.bezeichnung}{!m.normalfall && <span className="ml-1 text-xs text-accent-deep">Abweichung</span>}</span>
-                  <span className="font-mono text-[11px] text-ink3">{m.lokal ? 'wartet auf Netz' : 'gesendet'}</span>
+                <li key={i} className="flex items-start justify-between gap-2">
+                  <span className="min-w-0">
+                    <span className="block">
+                      {m.normalfall ? '✓' : '⚑'} {m.bezeichnung}
+                      {!m.normalfall && <span className="ml-1 text-xs text-amber-deep">{m.abweichung_typ ? AB_KURZ[m.abweichung_typ] : 'Abweichung'}</span>}
+                    </span>
+                    <span className="block text-[11px] text-ink3">
+                      {m.freigegeben ? 'vom Bauführer freigegeben — kann hier nicht mehr ersetzt werden' : m.lokal ? 'wartet auf Netz' : 'gesendet'}
+                    </span>
+                  </span>
+                  <span className="shrink-0 font-mono text-sm tabular-nums">{stunden(m.min)} h</span>
                 </li>
               ))}
             </ul>
@@ -493,6 +633,13 @@ export function Erfassung() {
 
         <section>
           <p className="lbl">Wo wart ihr?</p>
+          {laedtTeam && kacheln.length === 0 && (
+            <div className="grid grid-cols-2 gap-2">
+              <div className="chip flex min-h-[4.5rem] items-center justify-center text-ink3">Lädt …</div>
+              <div className="chip min-h-[4.5rem] opacity-40" aria-hidden="true" />
+            </div>
+          )}
+          {!(laedtTeam && kacheln.length === 0) && (
           <div className="grid grid-cols-2 gap-2">
             {kacheln.map((b, i) => (
               <button key={b.id} type="button" onClick={() => setBaustelle(b)} className={'chip flex min-h-[4.5rem] flex-col items-start justify-center py-2.5 text-left ' + (baustelle?.id === b.id ? 'chip-on' : '')}>
@@ -502,6 +649,7 @@ export function Erfassung() {
             ))}
             <button type="button" onClick={() => setZeigeAndere((v) => !v)} className="chip flex min-h-[4.5rem] items-center justify-center text-ink3">andere Baustelle …</button>
           </div>
+          )}
           {zeigeAndere && (
             <div className="card mt-2 space-y-2 p-3">
               {alleGeplanten.filter((b) => !kacheln.some((k) => k.id === b.id)).slice(0, 5).map((b) => (
@@ -509,12 +657,37 @@ export function Erfassung() {
                   <span>{b.bezeichnung}</span><span className="knr">{b.konto_nr}</span>
                 </button>
               ))}
-              <input value={suche} onChange={(e) => setSuche(e.target.value)} placeholder="Nummer oder Strasse (nur Chefmonteur)" inputMode="search" className="field text-sm" />
-              {suchTreffer.map((b) => (
-                <button key={b.id} type="button" onClick={() => { setBaustelle(b); setZeigeAndere(false); setSuche(''); }} className="flex w-full items-center justify-between rounded-lg px-2 py-2 text-left text-sm hover:bg-ground">
-                  <span>{b.bezeichnung}</span><span className="knr">{b.konto_nr}</span>
-                </button>
-              ))}
+              {/* Ziffernblock statt Tastatur (Regel 2): Konto-Nr. tippen, ab 3 Ziffern kommen bis zu 5 Treffer */}
+              <div className="border-t border-line pt-3">
+                <p className="lbl">Konto-Nr. eintippen (nur Chefmonteur)</p>
+                <div className="mb-2 flex justify-center gap-1.5" aria-label={`Konto-Nr. ${ziffern || 'leer'}`}>
+                  {Array.from({ length: 6 }, (_, i) => (
+                    <span key={i} className={'flex h-11 w-9 items-center justify-center rounded-[8px] border font-mono text-lg font-semibold tabular-nums ' + (ziffern[i] ? 'border-steel bg-steel-soft text-steel' : 'border-line-strong bg-surface text-ink3')}>
+                      {ziffern[i] ?? ''}
+                    </span>
+                  ))}
+                </div>
+                <div className="grid grid-cols-3 gap-2">
+                  {['1', '2', '3', '4', '5', '6', '7', '8', '9'].map((z) => (
+                    <button key={z} type="button" onClick={() => setZiffern((s) => (s.length < 6 ? s + z : s))} className="chip py-3 font-mono text-xl">{z}</button>
+                  ))}
+                  <button type="button" onClick={() => setZiffern('')} disabled={ziffern.length === 0} className="chip py-3 text-sm text-ink3 disabled:opacity-40">leer</button>
+                  <button type="button" onClick={() => setZiffern((s) => (s.length < 6 ? s + '0' : s))} className="chip py-3 font-mono text-xl">0</button>
+                  <button type="button" onClick={() => setZiffern((s) => s.slice(0, -1))} disabled={ziffern.length === 0} aria-label="letzte Ziffer löschen" className="chip py-3 font-mono text-xl disabled:opacity-40">←</button>
+                </div>
+                {ziffern.length < 3
+                  ? <p className="mt-2 text-[11px] text-ink3">Ab 3 Ziffern werden Baustellen gezeigt.</p>
+                  : suchTreffer.length === 0 && <p className="mt-2 text-[11px] text-ink3">Keine Baustelle mit {ziffern}… gefunden.</p>}
+                {suchTreffer.length > 0 && (
+                  <div className="mt-2 grid gap-2">
+                    {suchTreffer.map((b) => (
+                      <button key={b.id} type="button" onClick={() => { setBaustelle(b); setZeigeAndere(false); setZiffern(''); }} className={'chip flex items-center justify-between py-2.5 text-left ' + (baustelle?.id === b.id ? 'chip-on' : '')}>
+                        <span className="text-sm font-bold">{b.bezeichnung ?? 'Baustelle'}</span><span className="knr">{b.konto_nr}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
           )}
         </section>
@@ -554,7 +727,7 @@ export function Erfassung() {
                 </div>
               );
             })}
-            {leute.length === 0 && <p className="p-3 text-sm text-ink3">Keine Mitglieder in diesem Team.</p>}
+            {leute.length === 0 && <p className="p-3 text-sm text-ink3">{laedtTeam ? 'Lädt …' : 'Keine Mitglieder in diesem Team.'}</p>}
           </div>
         </section>
 
@@ -566,16 +739,31 @@ export function Erfassung() {
         <FotoLeiste text="Foto vom Stand heute — freiwillig, hilft dem Bauführer." />
 
         {doppelt && (
-          <section className="card space-y-3 border-accent/40">
+          <section className="card space-y-3 border-amber/40 bg-amber-soft">
             <p className="text-sm">
-              <strong>Für {doppelt.bezeichnung} habt ihr {istHeute ? 'heute' : 'an diesem Tag'} schon gemeldet</strong>
-              {doppelt.anzahl > 1 ? ` (${doppelt.anzahl}-mal)` : ''}. Nochmals speichern ersetzt die frühere Meldung.
+              <strong>{istHeute ? 'Heute' : 'An diesem Tag'} habt ihr schon gemeldet: {doppelt.baustellen.join(', ')}</strong>
+              {' '}— {stunden(doppelt.bisherMin)} h für das Team zusammen.
             </p>
-            <div className="grid grid-cols-2 gap-2">
-              <button type="button" className="btn-ghost py-3" onClick={() => setDoppelt(null)}>Abbrechen</button>
-              <button type="button" className="cta py-3" onClick={() => void speichern(true, true)}>Ersetzen</button>
-            </div>
-            <p className="text-[11px] text-ink3">Wart ihr an diesem Tag auf einer zweiten Baustelle? Dann oben die andere Baustelle antippen.</p>
+            {doppelt.ersetzbar > 0 ? (
+              <>
+                <button type="button" className="cta py-4" onClick={() => void speichern(true, 'ersetzen')}>
+                  Frühere ersetzen
+                  <span className="mt-0.5 block text-xs font-normal opacity-90">Am Tag stehen dann {stunden(doppelt.bisherMin - doppelt.ersetzbarMin + doppelt.neuMin)} h (Team zusammen).</span>
+                </button>
+                <button type="button" className="btn-ghost w-full py-2.5 text-sm" onClick={() => void speichern(true, 'zusaetzlich')}>
+                  Zusätzlich speichern (zweite Baustelle) · dann {stunden(doppelt.bisherMin + doppelt.neuMin)} h
+                </button>
+              </>
+            ) : (
+              <>
+                <p className="text-sm text-ink2">Die frühere Meldung ist vom Bauführer freigegeben — ersetzen geht hier nicht mehr. Änderungen macht der Bauführer.</p>
+                <button type="button" className="cta py-4" onClick={() => void speichern(true, 'zusaetzlich')}>
+                  Zusätzlich speichern (zweite Baustelle)
+                  <span className="mt-0.5 block text-xs font-normal opacity-90">Am Tag stehen dann {stunden(doppelt.bisherMin + doppelt.neuMin)} h (Team zusammen).</span>
+                </button>
+              </>
+            )}
+            <button type="button" className="btn-ghost w-full py-2.5 text-sm" onClick={() => setDoppelt(null)}>Abbrechen</button>
           </section>
         )}
 
@@ -594,6 +782,7 @@ export function Erfassung() {
               </button>
             ))}
           </div>
+          <p className="mt-2 text-center text-xs text-ink3">Abweichung melden speichert den normalen Tag mit.</p>
         </div>
 
       </div>

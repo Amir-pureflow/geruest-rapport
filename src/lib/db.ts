@@ -45,6 +45,23 @@ function fehlerDeuten(err: { code?: string; message: string }): { text: string; 
   return { text: err.message, endgueltig: false };
 }
 
+/**
+ * Datei in den Bucket «anhaenge» legen — OHNE upsert: Seit Migration 0009 darf niemand Belege
+ * überschreiben oder löschen (CLAUDE.md #8). Liegt die Datei schon (409 / «already exists»),
+ * gilt das als Erfolg: der Pfad ist deterministisch, der Inhalt derselbe — ein früherer Flush
+ * kam bis hierhin und brach erst danach ab.
+ */
+async function belegHochladen(client: SupabaseClient, pfad: string, blob: Blob, contentType: string): Promise<string | null> {
+  const { error } = await client.storage.from('anhaenge').upload(pfad, blob, { upsert: false, contentType });
+  if (!error) return null;
+  const e = error as { message?: string; statusCode?: string | number; status?: number; error?: string };
+  const schonDa =
+    String(e.statusCode ?? e.status ?? '') === '409' ||
+    /already exists|duplicate/i.test(e.message ?? '') ||
+    /duplicate/i.test(e.error ?? '');
+  return schonDa ? null : (e.message ?? 'Upload fehlgeschlagen');
+}
+
 export type LokaleMeldung = QueueEintrag;
 export type LokalerAuftrag = QueueEintrag;
 
@@ -222,9 +239,11 @@ async function flushMeldungen(client: SupabaseClient): Promise<FlushErgebnis> {
       const audio = await db.audio.get(e.client_uuid);
       if (audio) {
         const pfad = `audio/${e.client_uuid}.webm`;
-        const { error: e3 } = await client.storage.from('anhaenge').upload(pfad, audio.blob, { upsert: true, contentType: audio.blob.type || 'audio/webm' });
-        if (e3) { fehler += 1; fehlerText = 'Sprachnotiz konnte nicht hochgeladen werden: ' + e3.message; continue; }
-        await client.from('tagesmeldung').update({ audio_pfad: pfad }).eq('client_uuid', e.client_uuid);
+        const e3 = await belegHochladen(client, pfad, audio.blob, audio.blob.type || 'audio/webm');
+        if (e3) { fehler += 1; fehlerText = 'Sprachnotiz konnte nicht hochgeladen werden: ' + e3; continue; }
+        // Der lokale Blob geht erst weg, wenn der Pfad an der Meldung steht — sonst wäre der Beleg verwaist.
+        const { error: e3b } = await client.from('tagesmeldung').update({ audio_pfad: pfad }).eq('client_uuid', e.client_uuid);
+        if (e3b) { fehler += 1; fehlerText = 'Sprachnotiz konnte nicht verknüpft werden: ' + fehlerDeuten(e3b).text; continue; }
         await db.audio.delete(e.client_uuid);
       }
 
@@ -233,8 +252,8 @@ async function flushMeldungen(client: SupabaseClient): Promise<FlushErgebnis> {
       let fotoFehler: string | null = null;
       for (const f of fotos) {
         const pfad = `fotos/${e.client_uuid}/${f.id}.jpg`;
-        const { error: e4 } = await client.storage.from('anhaenge').upload(pfad, f.blob, { upsert: true, contentType: 'image/jpeg' });
-        if (e4) { fotoFehler = 'Foto konnte nicht hochgeladen werden: ' + e4.message; break; }
+        const e4 = await belegHochladen(client, pfad, f.blob, 'image/jpeg');
+        if (e4) { fotoFehler = 'Foto konnte nicht hochgeladen werden: ' + e4; break; }
         const { error: e5 } = await client.from('foto').upsert({ id: f.id, tagesmeldung_id: p.id, pfad, erstellt_von: p.erfasst_von }, { onConflict: 'id', ignoreDuplicates: true });
         if (e5) { fotoFehler = 'Foto: ' + e5.message; break; }
         await db.fotos.delete(f.id);

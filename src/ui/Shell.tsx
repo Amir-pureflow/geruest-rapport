@@ -35,13 +35,13 @@ interface NavEintrag { zu: string; label: string }
 interface NavGruppe { titel?: string; eintraege: NavEintrag[] }
 
 /** Gleiche Ordnung für beide Büro-Ansichten: erst das Tägliche, dann Geld, dann Planung. */
-function navFuer(a: 'bauf' | 'sekretariat'): NavGruppe[] {
+export function navFuer(a: 'bauf' | 'sekretariat'): NavGruppe[] {
   return [
     { eintraege: [{ zu: '/', label: 'Übersicht' }] },
     {
       titel: 'Tagesgeschäft',
       eintraege: [
-        { zu: '/zusatzauftrag', label: 'Zusatzarbeit' },
+        { zu: '/zusatzauftrag', label: 'Zusatzauftrag' },
         { zu: '/heute', label: 'Tagesübersicht' },
         { zu: '/cockpit', label: 'Wochenübersicht' },
       ],
@@ -50,6 +50,7 @@ function navFuer(a: 'bauf' | 'sekretariat'): NavGruppe[] {
       titel: 'Regie & Export',
       eintraege: [
         { zu: '/regie', label: 'Regierapporte' },
+        { zu: '/auswertung', label: 'Auswertung' },
         { zu: '/export', label: 'Export' },
       ],
     },

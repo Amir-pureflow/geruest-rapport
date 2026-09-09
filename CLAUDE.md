@@ -93,6 +93,18 @@ dafür muss im Supabase-Dashboard «Allow anonymous sign-ins» an sein.
 kann alles sehen. Für echte Kundendaten muss ein Login zurück (Magic Link stand bis 09.09. in
 `Anmelden.tsx`, siehe Git-Historie).
 
+## Ansichten statt Login (09.09.) und Rechte
+
+Beim Start wählt man die Ansicht (Bauführer, Chefmonteur, Monteur, Sekretariat, Kunde), kein Login.
+Die Datenverbindung läuft über eine anonyme Supabase-Sitzung (main.tsx). Ohne Sitzung zeigt die App
+den Grund (Ansicht.tsx), nie leere Listen. Rechte sind damit nur in der Oberfläche — vor echten
+Kundendaten kommt ein Login pro Rolle zurück (Prüfbericht 09.09., Paket 4). Anonyme Anmeldungen
+sind auf 30/Stunde/IP begrenzt: Test-Screenshots mit festem Chrome-Profil machen, nicht mit frischem.
+
+Korrekturen in der Wochenübersicht brauchen einen Grund aus vier Vorgaben (Regel #7 «warum») und
+laufen über die RPCs aus 0009; fehlt die Migration, fällt der Code auf den zweistufigen Weg zurück.
+Farben: Rot nur für Aktion, Auswahl Stahlblau (`chip-on`), Warnung Bernstein (`amber`).
+
 ## Nicht bauen
 
 - SORBA ersetzen oder in SORBA schreiben (kein DB-Write, keine UI-Automation)
@@ -130,6 +142,7 @@ src/seiten/Erfassung.tsx          Teamgerät: Kacheln, Anwesenheit, Pfeile, Symb
 src/seiten/Cockpit.tsx            Wochenübersicht: Teamzeilen mit Wochenampel → Personen, Freigabe, Korrektur, Regieverdacht (Sekretariat: nur ansehen)
 src/seiten/RegieVorschau.tsx      Vorschau aus der Meldung — gespeichert wird erst auf «Als Entwurf speichern»
 src/seiten/RegieListe/Detail.tsx  Regierapporte: Positionen, Anhang, Versand, Chronik, Entwurf verwerfen
+src/seiten/Auswertung.tsx         Regie pro Baustelle/Kunde/Monat aus Sicht regie_auswertung (0009), CSV
 src/lib/regie.ts                  Positionen aus Zeiteinträgen, Rapport anlegen (nie doppelt pro Meldung)
 src/seiten/Export.tsx             SORBA-Raster + Excel (Lohn, Temporärbüro)
 src/seiten/Board.tsx              Jahresplan Team × KW, Verschiebungen → planaenderung
@@ -137,12 +150,13 @@ src/seiten/verwaltung/*           Mitarbeitende, Teams, Kunden, Baustellen, Demo
 src/seiten/Bestaetigung.tsx       Kundenlink /b/:token — ohne Login (Edge Function)
 src/lib/db.ts                     Dexie-Queue: Meldungen + Zeiteinträge + Audio, Zusatzaufträge
 src/lib/tarif.ts                  SGUV-Tarifrechner (Rappen-Integer) + Tests
+src/lib/lohn.ts                   Lohn-/Temporärbüro-/Überstunden-Aggregation (reine Funktionen) + Tests
 src/lib/demo.ts                   Deterministischer Demo-Betrieb + Tests
 src/lib/datum.ts                  Wochen-/Datumshelfer
 src/lib/foto.ts                   Fotos verkleinern (1600 px, JPEG) vor Queue/Upload
 src/ui/FotoGalerie.tsx            Vorschau aus dem Bucket «anhaenge» (signierte Links)
 src/ui/Shell.tsx                  Rahmen: Büro-Ansichten (Bauführer, Sekretariat) am PC mit Seitenleiste ab «lg», Baustellen-Ansichten bleiben Handy-Spalte; `schmal` für Formulare
-supabase/migrations/              0001 Schema · 0002 Bezeichnung · 0003 Auftrag-UUID · 0004 Versand · 0005 Stammdaten · 0006 Auftrag-Stand (Sicht) · 0007 Rapport-Ursprung · 0008 Fotos
+supabase/migrations/              0001 Schema · 0002 Bezeichnung · 0003 Auftrag-UUID · 0004 Versand · 0005 Stammdaten · 0006 Auftrag-Stand (Sicht) · 0007 Rapport-Ursprung · 0008 Fotos · 0009 Verbesserungen (Indizes, RPCs zeit_freigeben/zeit_korrigieren/zeit_team_setzen/regierapport_anlegen, Nummer RR-JJJJ-NNNN, Sichten regie_kennzahlen/regie_auswertung, Fristen-Job, Storage ohne Delete)
 ```
 
 Edge Functions `regierapport-senden` und `bestaetigung`: Quellcode in `supabase/functions/` (seit 07.09.),

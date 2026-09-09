@@ -5,6 +5,7 @@ import { FotoGalerie } from '../ui/FotoGalerie';
 import { fotoVerkleinern } from '../lib/foto';
 import { supabase } from '../lib/supabase';
 import { formatChf, materialmiete, tarifNachCode, positionBetrag, ETAPPE_MIN_RAPPEN } from '../lib/tarif';
+import { ausIso, lang } from '../lib/datum';
 
 /**
  * Phase 4 — der einzelne Regierapport:
@@ -54,9 +55,15 @@ const ABWEICHUNG_TEXT: Record<string, string> = { zusaetzlich: 'zusätzliche Arb
 const WER_TEXT: Record<string, string> = { kunde: 'der Kunde wollte es', chef: 'der Chef wollte es', niemand: 'niemand hat es verlangt' };
 const KANAL_TEXT: Record<string, string> = { telefon: 'per Telefon', mail: 'per Mail', vor_ort: 'vor Ort' };
 
+/** «Do 10.9.2026» aus einem ISO-Datum */
 function tagKurz(isoDatum: string): string {
-  const d = new Date(isoDatum + 'T12:00:00');
-  return `${['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa'][d.getDay()]} ${d.getDate()}.${d.getMonth() + 1}.${d.getFullYear()}`;
+  return lang(ausIso(isoDatum.slice(0, 10)));
+}
+
+/** «Di 9.9.2026, 14:32» aus einem Zeitstempel */
+function zeitstempel(ts: string): string {
+  const d = new Date(ts);
+  return `${lang(d)}, ${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}`;
 }
 
 interface Position {
@@ -90,6 +97,8 @@ const EREIGNIS_LABEL: Record<string, string> = {
 export function RegieDetail() {
   const { id } = useParams();
   const [rapport, setRapport] = useState<Rapport | null>(null);
+  /** Laden und «gibt es nicht» sind zwei verschiedene Dinge — nie ewig «Lädt …» zeigen. */
+  const [zustand, setZustand] = useState<'laedt' | 'bereit' | 'fehlt'>('laedt');
   const [positionen, setPositionen] = useState<Position[]>([]);
   const [logs, setLogs] = useState<LogZeile[]>([]);
   const [empfaenger, setEmpfaenger] = useState('');
@@ -103,12 +112,10 @@ export function RegieDetail() {
    *  die Meldung des Teams und deren Fotos bleiben unberührt (Beleg). */
   async function entwurfVerwerfen() {
     if (!supabase || !id || rapport?.status !== 'entwurf') return;
-    const { data: bilder } = await supabase.from('foto').select('pfad').eq('regierapport_id', id);
-    if (bilder && bilder.length > 0) await supabase.storage.from('anhaenge').remove(bilder.map((b) => b.pfad));
+    // Dateien im Bucket bleiben liegen (Regel #8, Migration 0009 erlaubt kein Löschen) — nur die Verweise gehen weg.
     await supabase.from('foto').delete().eq('regierapport_id', id);
     await supabase.from('regie_position').delete().eq('regierapport_id', id);
     await supabase.from('zustellung_log').delete().eq('regierapport_id', id);
-    if (rapport?.anhang_pfad) await supabase.storage.from('anhaenge').remove([rapport.anhang_pfad]);
     const { error } = await supabase.from('regierapport').delete().eq('id', id);
     if (error) { setFehler('Verwerfen: ' + error.message); return; }
     navigiere('/regie');
@@ -128,8 +135,9 @@ export function RegieDetail() {
         const blob = await fotoVerkleinern(datei);
         const fid = crypto.randomUUID();
         const pfad = `fotos/rapport/${id}/${fid}.jpg`;
-        const { error: e1 } = await supabase.storage.from('anhaenge').upload(pfad, blob, { upsert: true, contentType: 'image/jpeg' });
-        if (e1) { setFehler('Foto: ' + e1.message); break; }
+        // Kein upsert: der Bucket erlaubt kein Überschreiben; «existiert schon» zählt als Erfolg.
+        const { error: e1 } = await supabase.storage.from('anhaenge').upload(pfad, blob, { upsert: false, contentType: 'image/jpeg' });
+        if (e1 && !/already exists|409/i.test(e1.message)) { setFehler('Foto: ' + e1.message); break; }
         const { error: e2 } = await supabase.from('foto').insert({ id: fid, regierapport_id: id, pfad, erstellt_von: u.user?.id ?? null });
         if (e2) { setFehler('Foto: ' + e2.message); break; }
       } catch {
@@ -157,14 +165,18 @@ export function RegieDetail() {
       supabase.from('regie_position').select('id,tarif_code,bezeichnung,menge_hundertstel,ansatz_rappen,betrag_rappen').eq('regierapport_id', id),
       supabase.from('zustellung_log').select('id,ereignis,zeitpunkt,an').eq('regierapport_id', id).order('zeitpunkt'),
     ]);
-    if (r.data) {
-      const rp = r.data as unknown as Rapport;
-      setRapport(rp);
-      if (rp.empfaenger_email) setEmpfaenger(rp.empfaenger_email);
-      else if (rp.baustelle?.kunde?.email) setEmpfaenger(rp.baustelle.kunde.email);
+    if (r.error || !r.data) {
+      setRapport(null);
+      setZustand('fehlt');
+      return;
     }
+    const rp = r.data as unknown as Rapport;
+    setRapport(rp);
+    if (rp.empfaenger_email) setEmpfaenger(rp.empfaenger_email);
+    else if (rp.baustelle?.kunde?.email) setEmpfaenger(rp.baustelle.kunde.email);
     if (p.data) setPositionen(p.data);
     if (l.data) setLogs(l.data);
+    setZustand('bereit');
   }, [id]);
 
   useEffect(() => {
@@ -274,9 +286,10 @@ export function RegieDetail() {
   async function anhangWaehlen(e: ChangeEvent<HTMLInputElement>) {
     const datei = e.target.files?.[0];
     if (!supabase || !id || !datei) return;
-    const pfad = `${id}/${datei.name}`;
-    const { error } = await supabase.storage.from('anhaenge').upload(pfad, datei, { upsert: true });
-    if (error) {
+    // Eindeutiger Pfad pro Upload: der Bucket erlaubt kein Überschreiben (Belege bleiben).
+    const pfad = `${id}/${Date.now()}-${datei.name}`;
+    const { error } = await supabase.storage.from('anhaenge').upload(pfad, datei, { upsert: false });
+    if (error && !/already exists|409/i.test(error.message)) {
       setFehler('Anhang: ' + error.message);
       return;
     }
@@ -321,10 +334,18 @@ export function RegieDetail() {
       });
   }
 
-  if (!rapport) {
+  if (!rapport || zustand !== 'bereit') {
     return (
       <Shell zurueck schmal>
-        <div className="card text-sm text-ink3">Lädt …</div>
+        {zustand === 'fehlt' || !supabase || !id ? (
+          <div className="card space-y-3">
+            <p className="font-display font-bold">Dieser Regierapport existiert nicht mehr.</p>
+            <p className="text-sm text-ink3">Vielleicht wurde der Entwurf verworfen oder der Link ist veraltet.</p>
+            <Link to="/regie" className="btn-ghost inline-block">Zu den Regierapporten ›</Link>
+          </div>
+        ) : (
+          <div className="card text-sm text-ink3">Lädt …</div>
+        )}
       </Shell>
     );
   }
@@ -341,7 +362,7 @@ export function RegieDetail() {
             {rapport.baustelle && <span className="knr">{rapport.baustelle.konto_nr}</span>}
             <span>{STATUS_TEXT[rapport.status] ?? rapport.status}</span>
             {rapport.frist_bis && rapport.status === 'versendet' && (
-              <span>· Frist bis {rapport.frist_bis}</span>
+              <span>· Frist bis {lang(ausIso(rapport.frist_bis))}</span>
             )}
           </p>
         </header>
@@ -398,7 +419,7 @@ export function RegieDetail() {
               <div className="border-t border-line pt-2.5 text-sm">
                 <p>
                   <strong>Bestellt von {rapport.zusatzauftrag.besteller_name}</strong> {KANAL_TEXT[rapport.zusatzauftrag.kanal] ?? rapport.zusatzauftrag.kanal}
-                  {' '}am {tagKurz(rapport.zusatzauftrag.bestellt_am.slice(0, 10))}
+                  {' '}am {tagKurz(rapport.zusatzauftrag.bestellt_am)}
                 </p>
                 <p className="text-ink2">
                   {rapport.zusatzauftrag.taetigkeit}
@@ -525,13 +546,17 @@ export function RegieDetail() {
         ) : (
           <section className="card space-y-2">
             <p className="lbl">Verlauf</p>
-            {logs.length === 0 && <p className="text-sm text-ink3">Noch keine Ereignisse.</p>}
+            {rapport.versendet_am && !logs.some((l) => l.ereignis === 'gesendet') && (
+              <div className="flex items-baseline justify-between gap-2 text-sm">
+                <span>verschickt</span>
+                <span className="font-mono text-xs text-ink3">{zeitstempel(rapport.versendet_am)}</span>
+              </div>
+            )}
+            {logs.length === 0 && !rapport.versendet_am && <p className="text-sm text-ink3">Noch keine Ereignisse.</p>}
             {logs.map((l) => (
               <div key={l.id} className="flex items-baseline justify-between gap-2 text-sm">
                 <span>{EREIGNIS_LABEL[l.ereignis] ?? l.ereignis}</span>
-                <span className="font-mono text-xs text-ink3">
-                  {new Date(l.zeitpunkt).toLocaleString('de-CH', { dateStyle: 'short', timeStyle: 'short' })}
-                </span>
+                <span className="font-mono text-xs text-ink3">{zeitstempel(l.zeitpunkt)}</span>
               </div>
             ))}
             <div className="flex gap-2 pt-2">

@@ -12,10 +12,15 @@ interface Person {
   aktiv: boolean;
   oev_standard: boolean;
   km_standard: number;
+  /** Optional — die Spalte kommt mit Migration 0009; ohne sie bleibt das Feld unsichtbar. */
+  telefon?: string | null;
 }
 
-const LEER: Person = { name: '', typ: 'intern', funktion: 'monteur', sprache: 'de', temporaerbuero: null, aktiv: true, oev_standard: false, km_standard: 0 };
+const LEER: Person = { name: '', typ: 'intern', funktion: 'monteur', sprache: 'de', temporaerbuero: null, aktiv: true, oev_standard: false, km_standard: 0, telefon: null };
 const SPRACHEN: [Person['sprache'], string][] = [['de', 'Deutsch'], ['ar', 'Arabisch'], ['pl', 'Polnisch'], ['en', 'Englisch']];
+const BASIS_SPALTEN = 'id,name,typ,funktion,sprache,temporaerbuero,aktiv,oev_standard,km_standard';
+
+const spalteFehlt = (msg: string, spalte: string) => new RegExp(`column .*${spalte}.* does not exist`).test(msg) || (msg.includes(spalte) && /does not exist|schema cache/.test(msg));
 
 export function Mitarbeiter() {
   const [liste, setListe] = useState<(Person & { id: string })[]>([]);
@@ -23,12 +28,24 @@ export function Mitarbeiter() {
   const [filter, setFilter] = useState<'alle' | 'intern' | 'temporaer' | 'inaktiv'>('alle');
   const [bearbeitet, setBearbeitet] = useState<Person | null>(null);
   const [fehler, setFehler] = useState('');
+  /** null = noch nicht geprüft */
+  const [hatTelefon, setHatTelefon] = useState<boolean | null>(null);
 
   const laden = useCallback(async () => {
     if (!supabase) return;
-    const { data, error } = await supabase.from('mitarbeiter').select('id,name,typ,funktion,sprache,temporaerbuero,aktiv,oev_standard,km_standard').order('name');
-    if (error) { setFehler(error.message.includes('oev_standard') ? 'Migration 0005 fehlt — bitte im SQL-Editor ausführen.' : error.message); return; }
-    if (data) setListe(data as (Person & { id: string })[]);
+    // Erst mit Telefon versuchen; fehlt die Spalte (Migration 0009 nicht ausgeführt), ohne sie laden.
+    const c = supabase;
+    const abfrage = async (spalten: string): Promise<{ data: unknown; error: { message: string } | null }> => c.from('mitarbeiter').select(spalten).order('name');
+    let mitTelefon = hatTelefon !== false;
+    let r = await abfrage(mitTelefon ? BASIS_SPALTEN + ',telefon' : BASIS_SPALTEN);
+    if (r.error && mitTelefon && spalteFehlt(r.error.message, 'telefon')) {
+      mitTelefon = false;
+      r = await abfrage(BASIS_SPALTEN);
+    }
+    setHatTelefon(mitTelefon);
+    if (r.error) { setFehler(r.error.message.includes('oev_standard') ? 'Migration 0005 fehlt — bitte im SQL-Editor ausführen.' : r.error.message); return; }
+    if (r.data) setListe(r.data as unknown as (Person & { id: string })[]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   useEffect(() => { void laden(); }, [laden]);
 
@@ -36,7 +53,7 @@ export function Mitarbeiter() {
     const q = suche.trim().toLowerCase();
     return liste.filter((p) =>
       (filter === 'alle' ? p.aktiv : filter === 'inaktiv' ? !p.aktiv : p.aktiv && p.typ === filter) &&
-      (!q || p.name.toLowerCase().includes(q) || (p.temporaerbuero ?? '').toLowerCase().includes(q)),
+      (!q || p.name.toLowerCase().includes(q) || (p.temporaerbuero ?? '').toLowerCase().includes(q) || (p.telefon ?? '').includes(q)),
     );
   }, [liste, suche, filter]);
 
@@ -47,11 +64,17 @@ export function Mitarbeiter() {
     if (!supabase || !bearbeitet) return;
     if (!bearbeitet.name.trim()) { setFehler('Name fehlt.'); return; }
     setFehler('');
-    const row = { ...bearbeitet, name: bearbeitet.name.trim(), temporaerbuero: bearbeitet.typ === 'temporaer' ? bearbeitet.temporaerbuero : null };
+    const { telefon, ...rest } = bearbeitet;
+    const row: Record<string, unknown> = { ...rest, name: bearbeitet.name.trim(), temporaerbuero: bearbeitet.typ === 'temporaer' ? bearbeitet.temporaerbuero : null };
+    if (hatTelefon) row.telefon = telefon?.trim() || null;
     const { error } = row.id
-      ? await supabase.from('mitarbeiter').update(row).eq('id', row.id)
+      ? await supabase.from('mitarbeiter').update(row).eq('id', row.id as string)
       : await supabase.from('mitarbeiter').insert(row);
-    if (error) { setFehler(error.message); return; }
+    if (error) {
+      if (spalteFehlt(error.message, 'telefon')) { setHatTelefon(false); setFehler('Migration 0009 fehlt — die Spalte «telefon» gibt es noch nicht. Bitte supabase/migrations/0009 ausführen, dann nochmals speichern.'); return; }
+      setFehler(error.message);
+      return;
+    }
     setBearbeitet(null);
     void laden();
   }
@@ -90,6 +113,12 @@ export function Mitarbeiter() {
                 {SPRACHEN.map(([k, l]) => <option key={k} value={k}>{l}</option>)}
               </select>
             </div>
+            {hatTelefon && (
+              <div>
+                <label className="lbl">Telefon (optional)</label>
+                <input type="tel" value={bearbeitet.telefon ?? ''} onChange={(e) => f({ telefon: e.target.value || null })} placeholder="079 …" className="field" />
+              </div>
+            )}
             {bearbeitet.typ === 'temporaer' && (
               <div>
                 <label className="lbl">Temporärbüro</label>
@@ -133,6 +162,7 @@ export function Mitarbeiter() {
                 {tarife.personal.find((t) => t.code === p.funktion)?.bezeichnung ?? p.funktion}
                 {p.typ === 'temporaer' && ` · temporär (${p.temporaerbuero ?? '–'})`}
                 {p.sprache !== 'de' && ` · ${SPRACHEN.find(([k]) => k === p.sprache)?.[1]}`}
+                {hatTelefon && p.telefon && ` · ${p.telefon}`}
               </span>
             </span>
             <span className="font-mono text-[11px] text-ink3">{p.oev_standard ? 'öV' : p.km_standard > 0 ? `${p.km_standard} km` : ''}</span>

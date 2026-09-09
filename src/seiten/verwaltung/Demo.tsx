@@ -79,13 +79,21 @@ export function Demo() {
           ) : (
             <button type="button" disabled={laeuft || migrationOk === false || !userId} onClick={() => setBestaetigen('laden')} className="cta w-auto px-5 py-3 text-base">Demo-Betrieb laden</button>
           )}
+        </div>
+        <div className="space-y-2 border-t border-line pt-3">
+          <p className="text-sm text-ink2">
+            Löscht alle Tagesmeldungen, Zeiteinträge, Zusatzaufträge und Regierapporte. Stammdaten bleiben.
+          </p>
           {bestaetigen === 'leeren' ? (
-            <>
-              <button type="button" disabled={laeuft} onClick={() => void leeren()} className="btn-ghost text-accent-deep">Ja, alles leeren</button>
-              <button type="button" onClick={() => setBestaetigen(null)} className="btn-ghost">Abbrechen</button>
-            </>
+            <div className="rounded-[10px] border border-accent/40 bg-accent-soft p-3 text-sm">
+              <p className="font-semibold">Wirklich alles leeren? Das lässt sich nicht rückgängig machen.</p>
+              <div className="mt-2 flex flex-wrap gap-2">
+                <button type="button" disabled={laeuft} onClick={() => void leeren()} className="cta w-auto px-5 py-2.5 text-sm">{laeuft ? 'Leert …' : 'Ja, alles leeren'}</button>
+                <button type="button" onClick={() => setBestaetigen(null)} className="btn-ghost">Abbrechen</button>
+              </div>
+            </div>
           ) : (
-            <button type="button" disabled={laeuft} onClick={() => setBestaetigen('leeren')} className="btn-ghost">Alles leeren</button>
+            <button type="button" disabled={laeuft} onClick={() => setBestaetigen('leeren')} className="cta w-auto px-5 py-2.5 text-sm">Alles leeren</button>
           )}
         </div>
         {fehler && <p className="text-sm font-semibold text-accent-deep">{fehler}</p>}
