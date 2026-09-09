@@ -4,6 +4,7 @@ import { Shell } from '../ui/Shell';
 import { FotoGalerie } from '../ui/FotoGalerie';
 import { supabase } from '../lib/supabase';
 import { minutenBetrag, formatChf, tarifNachCode } from '../lib/tarif';
+import { useAnsicht } from '../lib/ansicht';
 
 /**
  * Phase 3 — Wochenübersicht des Bauführers.
@@ -120,6 +121,8 @@ export function Cockpit() {
   const [auftraege, setAuftraege] = useState<OffenerAuftrag[]>([]);
   const [gewaehlt, setGewaehlt] = useState<{ mit: string; datum: string } | null>(null);
   const [userId, setUserId] = useState<string | null>(null);
+  // Freigeben und korrigieren tut der Bauführer — das Sekretariat schaut nur.
+  const darfFreigeben = useAnsicht() === 'bauf';
   const [laedt, setLaedt] = useState(true);
   const [teams, setTeams] = useState<Team[]>([]);
   // Standard «Zu tun»: nur Teams mit Hinweis. Kommt man gezielt zu einem Team (Tagesübersicht/Rapport), alle zeigen.
@@ -451,14 +454,20 @@ export function Cockpit() {
         )}
 
         {/* Der eine Knopf — zuoberst, nicht unter 20 Teams versteckt */}
-        {!laedt && gruene.length > 0 && wocheAbgeschlossen && (
+        {!laedt && darfFreigeben && gruene.length > 0 && wocheAbgeschlossen && (
           <button type="button" className="cta cta-good" onClick={() => void freigeben(gruene)}>
             Alle {gruene.length} Einträge ohne Hinweis freigeben
           </button>
         )}
-        {!laedt && eintraege.length > 0 && !wocheAbgeschlossen && (
+        {!laedt && darfFreigeben && eintraege.length > 0 && !wocheAbgeschlossen && (
           <p className="rounded-[12px] border border-line bg-surface px-4 py-2.5 text-sm text-ink2">
             Diese Woche läuft noch — die Freigabe kommt, sobald sie vorbei ist (ab Montag). Bis dahin: anschauen, nachfragen, korrigieren.
+          </p>
+        )}
+
+        {!laedt && !darfFreigeben && eintraege.length > 0 && (
+          <p className="rounded-[12px] border border-line bg-surface px-4 py-2.5 text-sm text-ink2">
+            Nur ansehen — freigeben und korrigieren tut der Bauführer.
           </p>
         )}
 
@@ -624,10 +633,12 @@ export function Cockpit() {
                                     {e.tagesmeldung.baustelle && <span className="knr">{e.tagesmeldung.baustelle.konto_nr}</span>}
                                   </span>
                                   <span className="flex items-center gap-1.5">
-                                    <button type="button" className="btn-ghost px-2.5" onClick={() => void korrigieren(e, -30)}>−</button>
+                                    {darfFreigeben && <button type="button" className="btn-ghost px-2.5" onClick={() => void korrigieren(e, -30)}>−</button>}
                                     <span className="w-12 text-center font-mono text-sm tabular-nums">{stunden(e.normal_min + e.ueber_min)} h</span>
-                                    <button type="button" className="btn-ghost px-2.5" onClick={() => void korrigieren(e, 30)}>+</button>
-                                    {e.status === 'offen' ? (
+                                    {darfFreigeben && <button type="button" className="btn-ghost px-2.5" onClick={() => void korrigieren(e, 30)}>+</button>}
+                                    {e.status === 'offen' && !darfFreigeben ? (
+                                      <span className="px-1 text-xs text-ink3">offen</span>
+                                    ) : e.status === 'offen' ? (
                                       <button type="button" className="btn-ghost text-good-deep" onClick={() => void freigeben([e])}>✓</button>
                                     ) : (
                                       <span className="px-1 text-good" title="freigegeben">✓</span>
@@ -696,7 +707,7 @@ export function Cockpit() {
                             </div>
                           ))}
 
-                          {z.gruene.length > 0 && wocheAbgeschlossen && (
+                          {darfFreigeben && z.gruene.length > 0 && wocheAbgeschlossen && (
                             <button type="button" className="btn-ghost w-full border-good text-good-deep" onClick={() => void freigeben(z.gruene)}>
                               {z.team.bezeichnung}: {z.gruene.length} {z.gruene.length === 1 ? 'Eintrag' : 'Einträge'} ohne Hinweis freigeben
                             </button>

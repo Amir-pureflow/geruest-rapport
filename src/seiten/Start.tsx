@@ -3,8 +3,14 @@ import { Link } from 'react-router-dom';
 import { Shell } from '../ui/Shell';
 import { formatChf } from '../lib/tarif';
 import { supabase } from '../lib/supabase';
-import { addTage, iso, lang, montag } from '../lib/datum';
+import { addTage, iso, kw, lang, montag } from '../lib/datum';
 import { flushNachSupabase, offeneAnzahl } from '../lib/db';
+import { Kachel, MONATE, NavKarte } from '../ui/Karten';
+import { useAnsicht } from '../lib/ansicht';
+import { StartChef } from './StartChef';
+import { StartMonteur } from './StartMonteur';
+import { StartSekretariat } from './StartSekretariat';
+import { StartKunde } from './StartKunde';
 
 interface Kennzahlen {
   offeneAuftraege: number;
@@ -18,30 +24,18 @@ interface Kennzahlen {
   regieMonatRappen: number;
 }
 
-const MONATE = ['Januar', 'Februar', 'März', 'April', 'Mai', 'Juni', 'Juli', 'August', 'September', 'Oktober', 'November', 'Dezember'];
-
-function NavKarte({ zu, titel, text }: { zu: string; titel: string; text: string }) {
-  return (
-    <Link to={zu} className="card flex items-center justify-between gap-3 hover:border-line-strong">
-      <span>
-        <span className="block font-display text-[16px] font-bold">{titel}</span>
-        <span className="block text-sm text-ink3">{text}</span>
-      </span>
-      <span className="text-ink3" aria-hidden="true">›</span>
-    </Link>
-  );
-}
-
-function Kachel({ zu, wert, label, warn }: { zu: string; wert: string; label: string; warn?: boolean }) {
-  return (
-    <Link to={zu} className={'card block hover:border-line-strong ' + (warn ? 'border-accent/40' : '')}>
-      <span className={'block font-display text-2xl font-extrabold tabular-nums ' + (warn ? 'text-accent-deep' : '')}>{wert}</span>
-      <span className="block text-xs text-ink3">{label}</span>
-    </Link>
-  );
-}
-
+/** Startseite je Ansicht (09.09.): Bauführer, Chefmonteur, Monteur, Sekretariat, Kunde. */
 export function Start() {
+  const ansicht = useAnsicht();
+  if (ansicht === 'chef') return <StartChef />;
+  if (ansicht === 'monteur') return <StartMonteur />;
+  if (ansicht === 'sekretariat') return <StartSekretariat />;
+  if (ansicht === 'kunde') return <StartKunde />;
+  return <StartBauf />;
+}
+
+/** Bauführer: Kennzahlen, Zusatzarbeit, alle Bereiche. */
+function StartBauf() {
   const [k, setK] = useState<Kennzahlen | null>(null);
   const [wartend, setWartend] = useState<{ anzahl: number; grund?: string } | null>(null);
   const heute = new Date();
@@ -92,7 +86,10 @@ export function Start() {
     <Shell>
       <div className="space-y-5">
         <header className="flex items-baseline justify-between">
-          <h1 className="font-display text-2xl font-bold">{lang(heute)}</h1>
+          <div>
+            <p className="lbl mb-0.5">Bauführer</p>
+            <h1 className="font-display text-2xl font-bold">{lang(heute)}</h1>
+          </div>
           <span className="flex items-center gap-1.5 font-mono text-xs text-ink3">
             <span className={'inline-block h-2 w-2 rounded-full ' + (supabase ? 'bg-good' : 'bg-accent')} />
             {supabase ? 'verbunden' : 'offline-Modus'}
@@ -138,10 +135,3 @@ export function Start() {
   );
 }
 
-function kw(d: Date): number {
-  const x = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
-  const tag = x.getUTCDay() || 7;
-  x.setUTCDate(x.getUTCDate() + 4 - tag);
-  const start = new Date(Date.UTC(x.getUTCFullYear(), 0, 1));
-  return Math.ceil(((x.getTime() - start.getTime()) / 86400000 + 1) / 7);
-}

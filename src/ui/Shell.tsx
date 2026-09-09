@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
 import { Link } from 'react-router-dom';
+import { ANSICHT_LABEL, useAnsicht } from '../lib/ansicht';
 
 /** Kleine Bildmarke: drei Gerüstlagen. Steht allein für die App, ohne Text. */
 export function Marke({ className = 'h-7 w-7' }: { className?: string }) {
@@ -31,6 +32,7 @@ export function Shell({
   children: ReactNode;
   zurueck?: boolean;
 }) {
+  const ansicht = useAnsicht();
   return (
     <div className="min-h-screen">
       <header className="appbar sticky top-0 z-20">
@@ -39,11 +41,18 @@ export function Shell({
             <Marke />
             <Wortmarke />
           </Link>
-          {zurueck && (
-            <Link to="/" className="btn-ghost text-xs">
-              ‹ Übersicht
-            </Link>
-          )}
+          <span className="flex items-center gap-1.5">
+            {zurueck && (
+              <Link to="/" className="btn-ghost text-xs">
+                ‹ Übersicht
+              </Link>
+            )}
+            {ansicht && (
+              <Link to="/ansicht" className="btn-ghost text-xs" title="Ansicht wechseln">
+                {ANSICHT_LABEL[ansicht]} <span aria-hidden="true">⇄</span>
+              </Link>
+            )}
+          </span>
         </div>
       </header>
       <main className="mx-auto max-w-md px-5 py-6">{children}</main>

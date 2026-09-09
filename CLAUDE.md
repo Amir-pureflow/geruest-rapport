@@ -82,6 +82,17 @@ Baustelle) → im Regierapport → beim Kunden → bestätigt. **Kein «abgerech
 die Rechnung entsteht in SORBA, das kann die App nicht wissen. Listen und Zähler lesen
 die Sicht, nicht die Tabelle.
 
+## Ansichten statt Login (09.09.)
+
+Beim Start wählt man «Welche Ansicht?»: **Bauführer, Chefmonteur, Monteur, Sekretariat, Kunde**.
+Kein Login. Die Wahl liegt im Gerät (`localStorage.ansicht`, `src/lib/ansicht.ts`), die Seiten je
+Ansicht stehen in `SEITEN`. Die Datenbank bekommt im Hintergrund eine **anonyme Sitzung**
+(`signInAnonymously` in `main.tsx`), damit die bestehenden RLS-Policies («authenticated») greifen —
+dafür muss im Supabase-Dashboard «Allow anonymous sign-ins» an sein.
+**Folge:** Rechte werden in der Oberfläche gesteuert, nicht auf dem Server. Wer die Adresse kennt,
+kann alles sehen. Für echte Kundendaten muss ein Login zurück (Magic Link stand bis 09.09. in
+`Anmelden.tsx`, siehe Git-Historie).
+
 ## Nicht bauen
 
 - SORBA ersetzen oder in SORBA schreiben (kein DB-Write, keine UI-Automation)
@@ -105,11 +116,18 @@ die Sicht, nicht die Tabelle.
 ## Dateikarte
 
 ```
-src/seiten/Start.tsx              Dashboard mit Kennzahlen
+src/seiten/Ansicht.tsx            Erste Seite: Welche Ansicht? (fünf Knöpfe, kein Login)
+src/seiten/Start.tsx              Verteiler je Ansicht; Bauführer-Dashboard mit Kennzahlen
+src/seiten/StartChef.tsx          Chefmonteur: Team, heute, laufende Woche, vom Kunden bestellt
+src/seiten/StartMonteur.tsx       Monteur: «Meine Woche» — eigene Stunden, nur lesen
+src/seiten/StartSekretariat.tsx   Sekretariat: Anruf festhalten, Regie im Blick, Export, Stammdaten
+src/seiten/StartKunde.tsx         Kunde: verschickte Rapporte mit Kundenlink (/b/<token>)
+src/lib/ansicht.ts                Ansicht lesen/setzen, Seiten je Ansicht
+src/ui/Karten.tsx                 NavKarte, Kachel, MONATE — gemeinsam für alle Startseiten
 src/seiten/Zusatzauftrag.tsx      Stufe 1: Kundenbestellung in 20 Sek. (offline)
 src/seiten/Tag.tsx                Tagesübersicht: welche Teams haben gemeldet, welche nicht (Ziel der Start-Kachel)
 src/seiten/Erfassung.tsx          Teamgerät: Kacheln, Anwesenheit, Pfeile, Symbole, Sprachnotiz
-src/seiten/Cockpit.tsx            Wochenübersicht: Teamzeilen mit Wochenampel → Personen, Freigabe, Korrektur, Regieverdacht
+src/seiten/Cockpit.tsx            Wochenübersicht: Teamzeilen mit Wochenampel → Personen, Freigabe, Korrektur, Regieverdacht (Sekretariat: nur ansehen)
 src/seiten/RegieVorschau.tsx      Vorschau aus der Meldung — gespeichert wird erst auf «Als Entwurf speichern»
 src/seiten/RegieListe/Detail.tsx  Regierapporte: Positionen, Anhang, Versand, Chronik, Entwurf verwerfen
 src/lib/regie.ts                  Positionen aus Zeiteinträgen, Rapport anlegen (nie doppelt pro Meldung)

@@ -1,14 +1,13 @@
 import { StrictMode, useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { BrowserRouter, Routes, Route } from 'react-router-dom';
-import type { Session } from '@supabase/supabase-js';
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import './index.css';
 import { Start } from './seiten/Start';
+import { Ansicht } from './seiten/Ansicht';
 import { Erfassung } from './seiten/Erfassung';
 import { Cockpit } from './seiten/Cockpit';
 import { Tag } from './seiten/Tag';
 import { Bestaetigung } from './seiten/Bestaetigung';
-import { Anmelden } from './seiten/Anmelden';
 import { Zusatzauftrag } from './seiten/Zusatzauftrag';
 import { RegieListe } from './seiten/RegieListe';
 import { RegieDetail } from './seiten/RegieDetail';
@@ -18,6 +17,7 @@ import { Board } from './seiten/Board';
 import { Verwaltung } from './seiten/verwaltung/Verwaltung';
 import { startAutoFlush, flushNachSupabase } from './lib/db';
 import { supabase } from './lib/supabase';
+import { SEITEN, useAnsicht } from './lib/ansicht';
 
 if (supabase) {
   const client = supabase;
@@ -25,42 +25,48 @@ if (supabase) {
 }
 
 function App() {
-  // undefined = noch am Prüfen, null = nicht angemeldet
-  const [session, setSession] = useState<Session | null | undefined>(
-    supabase ? undefined : null,
-  );
+  const ansicht = useAnsicht();
+  const [bereit, setBereit] = useState(!supabase);
+  const [verbindungsHinweis, setVerbindungsHinweis] = useState('');
 
+  // Kein Login (09.09.): Die Datenbank braucht trotzdem eine Sitzung, damit ihre Rechte greifen.
+  // Darum im Hintergrund eine anonyme Sitzung — einmal pro Gerät, unsichtbar.
   useEffect(() => {
     if (!supabase) return;
-    void supabase.auth.getSession().then(({ data }) => setSession(data.session));
-    const { data: sub } = supabase.auth.onAuthStateChange((_ereignis, s) => {
-      setSession(s);
-    });
-    return () => sub.subscription.unsubscribe();
+    const c = supabase;
+    void (async () => {
+      const { data } = await c.auth.getSession();
+      if (!data.session) {
+        const { error } = await c.auth.signInAnonymously();
+        if (error) setVerbindungsHinweis(error.message);
+      }
+      setBereit(true);
+    })();
   }, []);
 
-  if (supabase && session === undefined) return null; // kurzer Moment beim Start
+  if (!bereit) return null; // kurzer Moment beim Start
 
-  // Ohne konfiguriertes Supabase läuft die App offen (lokaler Offline-Modus).
-  const eingeloggt = !supabase || session !== null;
+  const hat = (seite: string) => !!ansicht && SEITEN[ansicht].includes(seite);
 
   return (
     <BrowserRouter>
       <Routes>
         {/* Kundenlink bleibt immer erreichbar — der Kunde hat kein Konto */}
         <Route path="/b/:token" element={<Bestaetigung />} />
-        {eingeloggt && <Route path="/" element={<Start />} />}
-        {eingeloggt && <Route path="/zusatzauftrag" element={<Zusatzauftrag />} />}
-        {eingeloggt && <Route path="/erfassung" element={<Erfassung />} />}
-        {eingeloggt && <Route path="/heute" element={<Tag />} />}
-        {eingeloggt && <Route path="/cockpit" element={<Cockpit />} />}
-        {eingeloggt && <Route path="/regie" element={<RegieListe />} />}
-        {eingeloggt && <Route path="/regie/neu" element={<RegieVorschau />} />}
-        {eingeloggt && <Route path="/regie/:id" element={<RegieDetail />} />}
-        {eingeloggt && <Route path="/export" element={<Export />} />}
-        {eingeloggt && <Route path="/board" element={<Board />} />}
-        {eingeloggt && <Route path="/verwaltung" element={<Verwaltung />} />}
-        {!eingeloggt && <Route path="*" element={<Anmelden />} />}
+        <Route path="/ansicht" element={<Ansicht hinweis={verbindungsHinweis} />} />
+        {!ansicht && <Route path="*" element={<Ansicht hinweis={verbindungsHinweis} />} />}
+        {ansicht && <Route path="/" element={<Start />} />}
+        {hat('zusatzauftrag') && <Route path="/zusatzauftrag" element={<Zusatzauftrag />} />}
+        {hat('erfassung') && <Route path="/erfassung" element={<Erfassung />} />}
+        {hat('heute') && <Route path="/heute" element={<Tag />} />}
+        {hat('cockpit') && <Route path="/cockpit" element={<Cockpit />} />}
+        {hat('regie') && <Route path="/regie" element={<RegieListe />} />}
+        {hat('regie') && <Route path="/regie/neu" element={<RegieVorschau />} />}
+        {hat('regie') && <Route path="/regie/:id" element={<RegieDetail />} />}
+        {hat('export') && <Route path="/export" element={<Export />} />}
+        {hat('board') && <Route path="/board" element={<Board />} />}
+        {hat('verwaltung') && <Route path="/verwaltung" element={<Verwaltung />} />}
+        {ansicht && <Route path="*" element={<Navigate to="/" replace />} />}
       </Routes>
     </BrowserRouter>
   );
