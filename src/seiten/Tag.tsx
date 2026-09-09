@@ -43,7 +43,7 @@ export function Tag() {
         c.from('tagesmeldung').select('id,team_id,normalfall,abweichung_typ,erfasst_am,baustelle:baustelle_id(konto_nr,bezeichnung),zeiteintrag(normal_min,ueber_min)').eq('datum', tagIso).order('erfasst_am'),
         c.from('jahresplan').select('team_id,baustelle:baustelle_id(konto_nr,bezeichnung)').lte('von', tagIso).gte('bis', tagIso),
       ]);
-      setTeams((t.data ?? []) as unknown as Team[]);
+      setTeams(((t.data ?? []) as unknown as Team[]).sort((a, b) => a.bezeichnung.localeCompare(b.bezeichnung, 'de', { numeric: true })));
       setMeldungen((m.data ?? []) as unknown as Meldung[]);
       setPlan((p.data ?? []) as unknown as Plan[]);
       setLaedt(false);
