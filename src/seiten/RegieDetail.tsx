@@ -141,7 +141,7 @@ export function RegieDetail() {
     } else {
       setBeschrieb(data.beschrieb);
       const q = data.quellen as { transkript: boolean; zusatzauftrag: boolean; fotos: number } | undefined;
-      setBeschriebInfo(`Vorschlag aus ${[q?.transkript ? 'Sprachnotiz' : null, 'Positionen', q?.zusatzauftrag ? 'Zusatzauftrag' : null].filter(Boolean).join(', ')} — bitte lesen und anpassen, dann speichern.`);
+      setBeschriebInfo(`Vorschlag aus ${[q?.transkript ? 'Sprachnotiz' : null, 'Positionen', q?.zusatzauftrag ? 'Zusatzauftrag' : null].filter(Boolean).join(', ')}${q?.transkript ? '' : ' (keine Sprachnotiz vorhanden)'} — bitte lesen und anpassen, dann speichern.`);
     }
     setBeschriebLaeuft(false);
   }
@@ -582,7 +582,7 @@ export function RegieDetail() {
           />
           <div className="flex flex-wrap items-center gap-2">
             <button type="button" className="btn-ghost border-steel text-steel disabled:opacity-60" disabled={beschriebLaeuft} onClick={() => void beschriebVorschlagen()}>
-              {beschriebLaeuft ? 'Schreibt …' : rapport.tagesmeldung?.transkript ? 'Vorschlag aus Sprachnotiz und Positionen' : 'Vorschlag aus den Positionen'}
+              {beschriebLaeuft ? 'Schreibt …' : 'Text vorschlagen'}
             </button>
             <button type="button" className="btn-ghost" disabled={beschrieb.trim() === (rapport.beschrieb ?? '')} onClick={() => void beschriebSpeichern(beschriebInfo.startsWith('Vorschlag aus') ? 'ki' : 'hand')}>
               Speichern
@@ -592,7 +592,10 @@ export function RegieDetail() {
             </button>
           </div>
           {beschriebInfo && <p className={'text-xs ' + (beschriebInfo.includes('fehlgeschlagen') || beschriebInfo.includes('nicht möglich') ? 'font-semibold text-accent-deep' : 'text-ink2')}>{beschriebInfo}</p>}
-          <p className="text-[11px] text-ink3">Die KI schreibt nur den Text. Zahlen kommen aus den Positionen, entscheiden tust du.</p>
+          <p className="text-[11px] text-ink3">
+            Grundlage: {rapport.tagesmeldung?.transkript ? 'Sprachnotiz des Teams, Positionen' : 'nur die Positionen — keine Sprachnotiz vorhanden'}{rapport.zusatzauftrag ? ', Zusatzauftrag' : ''}.
+            Die KI schreibt nur den Text. Zahlen kommen aus den Positionen, entscheiden tust du.
+          </p>
         </section>
 
         {entwurf ? (
