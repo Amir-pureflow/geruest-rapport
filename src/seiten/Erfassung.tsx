@@ -71,6 +71,9 @@ const SYMBOLE: { typ: Abweichung; label: string; svg: ReactElement }[] = [
   },
 ];
 
+/** Kurzform für die drei Kacheln im Tag-Schritt — zwei Wörter, die auch allein verständlich sind. */
+const KURZ_LABEL: Record<Abweichung, string> = { zusaetzlich: 'zusätzlich gearbeitet', warten: 'warten müssen', kaputt: 'etwas kaputt' };
+
 function Helm({ farbe }: { farbe: string }) {
   return (
     <svg viewBox="0 0 48 40" className="h-10 w-12" aria-hidden="true">
@@ -867,7 +870,7 @@ export function Erfassung() {
             {SYMBOLE.map((s) => (
               <button key={s.typ} type="button" onClick={() => { if (!baustelle) { setHinweis('Zuerst die Baustelle antippen.'); return; } setAbweichung(s.typ); setAbLeute(new Set(dabei.map((p) => p.id))); setSchritt('wer'); }} className="chip flex flex-col items-center gap-1.5 py-3 text-ink2">
                 {s.svg}
-                <span className="text-[11px] leading-tight">{s.label.split(' ')[0]}</span>
+                <span className="text-[11px] leading-tight">{KURZ_LABEL[s.typ]}</span>
               </button>
             ))}
           </div>
