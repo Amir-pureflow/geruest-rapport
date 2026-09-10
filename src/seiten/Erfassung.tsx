@@ -116,6 +116,9 @@ export function Erfassung() {
   const [abweichung, setAbweichung] = useState<Abweichung | null>(null);
   const [wer, setWer] = useState<Wer | null>(null);
   const [abMin, setAbMin] = useState(60);
+  // Zusatzstunden je Person — wer länger dran war, bekommt mehr; leer heisst: Wert vom grossen Regler
+  const [abMinPerson, setAbMinPerson] = useState<Record<string, number>>({});
+  const abMinVon = (id: string) => abMinPerson[id] ?? abMin;
   const [abLeute, setAbLeute] = useState<Set<string>>(new Set());
   const [aufnahme, setAufnahme] = useState<{ blob: Blob; sekunden: number } | null>(null);
   // Fotos zur Meldung — der Bauführer verlangt Bilder bei Regie; hier ohne Umweg über die Galerie
@@ -350,7 +353,7 @@ export function Erfassung() {
       audio_sekunden: normal ? null : notiz?.sekunden ?? null, erfasst_von: userId,
       eintraege: beteiligt.map((p) => {
         const a = anw[p.id];
-        const min = normal ? a.min : abMin;
+        const min = normal ? a.min : abMinVon(p.id);
         return { id: crypto.randomUUID(), mitarbeiter_id: p.id, normal_min: Math.min(min, 480), ueber_min: Math.max(0, min - 480), oev: normal ? a.oev : false, km: normal ? a.km : 0, baustelle_id: b.id, konto_nr: b.konto_nr };
       }),
     };
@@ -424,7 +427,12 @@ export function Erfassung() {
       if (notiz) notizUuid = uuid;
     }
 
-    const abText = abweichung ? `${stunden(abMin)} h ${AB_KURZ[abweichung]}` : '';
+    const abLeuteListe = dabei.filter((p) => abLeute.has(p.id));
+    const abGesamt = abLeuteListe.reduce((s, p) => s + abMinVon(p.id), 0);
+    const abGleich = abLeuteListe.every((p) => abMinVon(p.id) === abMinVon(abLeuteListe[0]?.id ?? ''));
+    const abText = abweichung
+      ? (abGleich ? `${stunden(abMinVon(abLeuteListe[0]?.id ?? ''))} h ${AB_KURZ[abweichung]} je ${abLeuteListe.length} Pers.` : `${stunden(abGesamt)} h ${AB_KURZ[abweichung]} (${abLeuteListe.length} Pers., unterschiedlich)`)
+      : '';
     const zusammenfassung = normal
       ? `Gespeichert: normaler Tag ${normalStundenText()}`
       : normalMitgespeichert ? `Gespeichert: normaler Tag ${normalStundenText()} + ${abText}` : `Gespeichert: ${abText} (normaler Tag war schon gemeldet)`;
@@ -455,7 +463,7 @@ export function Erfassung() {
     void offeneAnzahl().then(setWartend);
     setTimeout(() => setGespeichert(null), 3500);
     setTimeout(() => setBestaetigung(null), 8000);
-    setAbweichung(null); setWer(null); setAufnahme(null); setAbMin(60); setAbLeute(new Set());
+    setAbweichung(null); setWer(null); setAufnahme(null); setAbMin(60); setAbMinPerson({}); setAbLeute(new Set());
     for (const f of fotos) URL.revokeObjectURL(f.url);
     setFotos([]);
     setSchritt('fertig');
@@ -625,16 +633,33 @@ export function Erfassung() {
         <div className="space-y-4">
           <p className="lbl mb-0">{SYMBOLE.find((s) => s.typ === abweichung)?.label} · {wer === 'kunde' ? 'Kunde' : wer === 'chef' ? 'unser Chef' : 'niemand'}</p>
           <h1 className="font-display text-2xl font-bold">Wie lange?</h1>
-          <Stepper wert={abMin} setWert={setAbMin} schritt={30} min={30} format={(v) => (v / 60).toFixed(1) + ' h'} />
+          <Stepper wert={abMin} setWert={(v) => { setAbMin(v); setAbMinPerson({}); }} schritt={30} min={30} format={(v) => (v / 60).toFixed(1) + ' h'} />
+          <p className="-mt-2 text-center text-xs text-ink3">Gilt für alle — unten kann jede Person einzeln anders sein.</p>
 
           <div>
-            <p className="lbl">Wer war dabei</p>
-            <div className="grid grid-cols-2 gap-2">
-              {dabei.map((p) => (
-                <button key={p.id} type="button" onClick={() => setAbLeute((s) => { const n = new Set(s); if (n.has(p.id)) n.delete(p.id); else n.add(p.id); return n; })} className={'chip text-left ' + (abLeute.has(p.id) ? 'chip-on' : '')}>
-                  {abLeute.has(p.id) ? '✓ ' : ''}{p.name}
-                </button>
-              ))}
+            <p className="lbl">Wer war dabei · wie lange</p>
+            <div className="divide-y divide-line rounded-[14px] border border-line bg-surface">
+              {dabei.map((p) => {
+                const dabeiAb = abLeute.has(p.id);
+                const min = abMinVon(p.id);
+                return (
+                  <div key={p.id} className="flex items-center justify-between gap-2 px-3 py-2">
+                    <button type="button" onClick={() => setAbLeute((s) => { const n = new Set(s); if (n.has(p.id)) n.delete(p.id); else n.add(p.id); return n; })} className="flex min-w-0 items-center gap-2 text-left">
+                      <span className={'grid h-7 w-7 flex-none place-items-center rounded-[7px] text-sm font-bold ' + (dabeiAb ? 'bg-good text-white' : 'border border-line-strong text-transparent')}>✓</span>
+                      <span className={'truncate ' + (dabeiAb ? '' : 'text-ink3')}>{p.name}{p.typ === 'temporaer' && <span className="ml-1 text-[10px] text-ink3">temp</span>}</span>
+                    </button>
+                    {dabeiAb ? (
+                      <span className="flex flex-none items-center gap-1">
+                        <button type="button" className="btn-ghost px-2.5" onClick={() => setAbMinPerson((m) => ({ ...m, [p.id]: Math.max(30, min - 30) }))}>−</button>
+                        <span className={'w-12 text-center font-mono text-sm tabular-nums ' + (abMinPerson[p.id] !== undefined && abMinPerson[p.id] !== abMin ? 'font-bold text-steel' : '')}>{stunden(min)}</span>
+                        <button type="button" className="btn-ghost px-2.5" onClick={() => setAbMinPerson((m) => ({ ...m, [p.id]: min + 30 }))}>+</button>
+                      </span>
+                    ) : (
+                      <span className="text-xs text-ink3">nicht dabei</span>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           </div>
 
