@@ -118,6 +118,16 @@ export function Zusatzauftrag() {
   const [rueckmeldung, setRueckmeldung] = useState<Rueckmeldung | null>(null);
   const [fehler, setFehler] = useState('');
   const [liste, setListe] = useState<Auftrag[]>([]);
+  // Offen zuerst (nach geplantem Tag), Erledigtes eingeklappt — sonst ist die Seite nach zwei Wochen eine Wand
+  const [zeigeErledigte, setZeigeErledigte] = useState(false);
+  const offene = useMemo(
+    () => liste.filter((a) => a.stand === 'bestellt' || a.stand === 'gemeldet').sort((a, b) => (a.geplant_fuer ?? '9999').localeCompare(b.geplant_fuer ?? '9999')),
+    [liste],
+  );
+  const erledigte = useMemo(
+    () => liste.filter((a) => a.stand !== 'bestellt' && a.stand !== 'gemeldet').sort((a, b) => b.bestellt_am.localeCompare(a.bestellt_am)),
+    [liste],
+  );
   const [lokal, setLokal] = useState<LokalerAuftrag[]>([]);
   const [erledigen, setErledigen] = useState<string | null>(null); // Auftrag, für den gerade der Grund gewählt wird
   const [userId, setUserId] = useState<string | null>(null);
@@ -378,7 +388,14 @@ export function Zusatzauftrag() {
         </section>
 
         <section className="space-y-2.5">
-          <h2 className="lbl mb-0">Zusatzaufträge</h2>
+          <div className="flex items-baseline justify-between gap-3">
+            <h2 className="lbl mb-0">Offen · {offene.length + lokal.length}</h2>
+            {erledigte.length > 0 && (
+              <button type="button" className="text-xs font-semibold text-steel" onClick={() => setZeigeErledigte((z) => !z)}>
+                {zeigeErledigte ? 'Erledigte ausblenden' : `${erledigte.length} erledigte anzeigen`}
+              </button>
+            )}
+          </div>
 
           {lokal.map((e) => {
             const p = e.payload as LokalPayload;
@@ -400,13 +417,13 @@ export function Zusatzauftrag() {
             );
           })}
 
-          {liste.length === 0 && lokal.length === 0 && (
+          {offene.length === 0 && lokal.length === 0 && (
             <div className="card text-sm text-ink3">
-              Noch keine — der nächste Kundenanruf landet hier.
+              {erledigte.length > 0 ? 'Nichts offen — alles im Regierapport oder beim Kunden.' : 'Noch keine — der nächste Kundenanruf landet hier.'}
             </div>
           )}
 
-          {liste.map((a) => (
+          {[...offene, ...(zeigeErledigte ? erledigte : [])].map((a) => (
             <div key={a.id} className={'card ' + (a.ohne_meldung ? 'border-amber/40' : '')}>
               <div className="flex items-baseline justify-between gap-2">
                 <span className="font-display text-[15px] font-bold">
