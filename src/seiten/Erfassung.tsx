@@ -165,6 +165,9 @@ export function Erfassung() {
   const [nimmtAuf, setNimmtAuf] = useState(false);
   const [sekunden, setSekunden] = useState(0);
   const [gespeichert, setGespeichert] = useState<string | null>(null);
+  // Sperre gegen Doppeltippen: das Beenden der Aufnahme dauert eine Sekunde, ein zweiter Tipp darf nichts auslösen
+  const [speichert, setSpeichert] = useState(false);
+  const speichertRef = useRef(false);
   // Längere Rückmeldung nach dem Speichern (z. B. «normaler Tag 8.0 h + 1.0 h zusätzlich») — eigene Zeile, nicht im Knopf
   const [bestaetigung, setBestaetigung] = useState<string | null>(null);
   // Abschluss-Seite nach dem Speichern: was steht jetzt für den Tag, und wohin jetzt?
@@ -363,11 +366,17 @@ export function Erfassung() {
 
   /** Speichern darf nie stumm scheitern: jeder Fehler landet als Satz auf dem Bildschirm. */
   async function speichern(normal: boolean, modus: SpeicherModus = 'normal') {
+    if (speichertRef.current) return;
+    speichertRef.current = true;
+    setSpeichert(true);
     try {
       await speichernInnen(normal, modus);
     } catch (e) {
       setGespeichert(null);
       setHinweis('Speichern fehlgeschlagen: ' + (e instanceof Error ? e.message : String(e)) + ' — nochmals versuchen; die Aufnahme ist noch da.');
+    } finally {
+      speichertRef.current = false;
+      setSpeichert(false);
     }
   }
   async function speichernInnen(normal: boolean, modus: SpeicherModus) {
@@ -654,7 +663,7 @@ export function Erfassung() {
             )}
           </div>
 
-          <button type="button" onClick={() => void speichern(false)} className="cta">Speichern</button>
+          <button type="button" disabled={speichert} onClick={() => void speichern(false)} className="cta disabled:opacity-70">{speichert ? 'Speichert …' : 'Speichern'}</button>
           {hinweis && <p className="text-sm font-semibold text-accent-deep">{hinweis}</p>}
           <button type="button" onClick={() => setSchritt('wer')} className="btn-ghost w-full">Zurück</button>
         </div>
@@ -838,18 +847,18 @@ export function Erfassung() {
             </p>
             {doppelt.ersetzbar > 0 ? (
               <>
-                <button type="button" className="cta py-4" onClick={() => void speichern(true, 'ersetzen')}>
+                <button type="button" disabled={speichert} className="cta py-4 disabled:opacity-70" onClick={() => void speichern(true, 'ersetzen')}>
                   Frühere ersetzen
                   <span className="mt-0.5 block text-xs font-normal opacity-90">Am Tag stehen dann {stunden(doppelt.bisherMin - doppelt.ersetzbarMin + doppelt.neuMin)} h (Team zusammen).</span>
                 </button>
-                <button type="button" className="btn-ghost w-full py-2.5 text-sm" onClick={() => void speichern(true, 'zusaetzlich')}>
+                <button type="button" disabled={speichert} className="btn-ghost w-full py-2.5 text-sm disabled:opacity-70" onClick={() => void speichern(true, 'zusaetzlich')}>
                   Zusätzlich speichern (zweite Baustelle) · dann {stunden(doppelt.bisherMin + doppelt.neuMin)} h
                 </button>
               </>
             ) : (
               <>
                 <p className="text-sm text-ink2">Die frühere Meldung ist vom Bauführer freigegeben — ersetzen geht hier nicht mehr. Änderungen macht der Bauführer.</p>
-                <button type="button" className="cta py-4" onClick={() => void speichern(true, 'zusaetzlich')}>
+                <button type="button" disabled={speichert} className="cta py-4 disabled:opacity-70" onClick={() => void speichern(true, 'zusaetzlich')}>
                   Zusätzlich speichern (zweite Baustelle)
                   <span className="mt-0.5 block text-xs font-normal opacity-90">Am Tag stehen dann {stunden(doppelt.bisherMin + doppelt.neuMin)} h (Team zusammen).</span>
                 </button>
@@ -859,7 +868,7 @@ export function Erfassung() {
           </section>
         )}
 
-        <button type="button" onClick={() => void speichern(true)} className="cta cta-good py-5">
+        <button type="button" disabled={speichert} onClick={() => void speichern(true)} className="cta cta-good py-5 disabled:opacity-70">
           {gespeichert ?? '✓ Alles wie geplant'}
         </button>
         {hinweis && <p className="text-sm font-semibold text-accent-deep">{hinweis}</p>}
