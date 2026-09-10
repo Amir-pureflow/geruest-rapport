@@ -819,7 +819,7 @@ export function Cockpit() {
                                   <p className="italic">«{meldung.transkript}»</p>
                                   {meldung.transkript_quelle && (
                                     <details className="mt-1 text-xs text-ink3">
-                                      <summary className="cursor-pointer">Original auf {SPRACHE[meldung.transkript_sprache ?? ''] ?? 'anderer Sprache'} · automatisch übersetzt</summary>
+                                      <summary className="cursor-pointer">{(meldung.transkript_sprache ?? 'de') === 'de' ? 'So wurde es gesprochen · Text ist bereinigt' : `Original auf ${SPRACHE[meldung.transkript_sprache ?? ''] ?? 'anderer Sprache'} · automatisch übersetzt`}</summary>
                                       <p className="mt-1 italic" dir="auto">{meldung.transkript_quelle}</p>
                                     </details>
                                   )}

@@ -463,7 +463,7 @@ export function RegieDetail() {
                       <p className="italic">«{m.transkript}»</p>
                       {m.transkript_quelle && (
                         <details className="mt-1 text-xs text-ink3">
-                          <summary className="cursor-pointer">Original ({{ de: 'Deutsch', ar: 'Arabisch', pl: 'Polnisch', en: 'Englisch' }[m.transkript_sprache ?? ''] ?? 'andere Sprache'}) · automatisch übersetzt</summary>
+                          <summary className="cursor-pointer">{(m.transkript_sprache ?? 'de') === 'de' ? 'So wurde es gesprochen · Text ist bereinigt' : `Original (${{ ar: 'Arabisch', pl: 'Polnisch', en: 'Englisch' }[m.transkript_sprache ?? ''] ?? 'andere Sprache'}) · automatisch übersetzt`}</summary>
                           <p className="mt-1 italic" dir="auto">{m.transkript_quelle}</p>
                         </details>
                       )}

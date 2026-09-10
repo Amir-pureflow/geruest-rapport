@@ -131,7 +131,7 @@ export function TranskriptLive({ clientUuid, stand }: { clientUuid: string; stan
       if (error && /transkript_\w+ does not exist/.test(error.message)) { setZustand('spaeter'); return; }
       if (data?.transkript) {
         setText(data.transkript);
-        if (data.transkript_quelle && data.transkript_sprache && data.transkript_sprache !== 'de') setQuelle({ text: data.transkript_quelle, sprache: data.transkript_sprache });
+        if (data.transkript_quelle) setQuelle({ text: data.transkript_quelle, sprache: data.transkript_sprache ?? 'de' });
         setZustand('fertig');
         return;
       }
@@ -170,7 +170,7 @@ export function TranskriptLive({ clientUuid, stand }: { clientUuid: string; stan
     <section className="card overflow-hidden">
       <div className="flex items-baseline justify-between gap-3">
         <p className="lbl mb-1">Sprachnotiz · Text</p>
-        {zustand === 'fertig' && quelle && <span className="text-[11px] text-ink3">übersetzt aus {SPRACHE[quelle.sprache] ?? quelle.sprache}</span>}
+        {zustand === 'fertig' && quelle && <span className="text-[11px] text-ink3">{quelle.sprache === 'de' ? 'bereinigt' : `übersetzt aus ${SPRACHE[quelle.sprache] ?? quelle.sprache}`}</span>}
       </div>
 
       {zustand === 'wartet' && (
@@ -194,7 +194,7 @@ export function TranskriptLive({ clientUuid, stand }: { clientUuid: string; stan
           </p>
           {quelle && sichtbar >= text.length && (
             <details className="text-xs text-ink3">
-              <summary className="cursor-pointer">Original ({SPRACHE[quelle.sprache] ?? quelle.sprache}) anzeigen</summary>
+              <summary className="cursor-pointer">{quelle.sprache === 'de' ? 'So wurde es gesprochen' : `Original (${SPRACHE[quelle.sprache] ?? quelle.sprache}) anzeigen`}</summary>
               <p className="mt-1 whitespace-pre-line">{quelle.text}</p>
             </details>
           )}

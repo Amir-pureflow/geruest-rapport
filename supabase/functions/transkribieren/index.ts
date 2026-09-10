@@ -67,35 +67,42 @@ Deno.serve(async (req) => {
     const original = (erkannt.text ?? '').trim();
     if (!original) throw new Error('Erkennung lieferte keinen Text');
 
-    // 2) Übersetzung ins Deutsche, nur wenn nötig — Zahlen und Zeiten bleiben, wie sie sind
+    // 2) Bereinigen — immer, auch bei Deutsch: Grammatik und Wortstellung richten, Füllwörter und Versprecher raus,
+    //    Selbstkorrekturen auflösen; nicht Deutsch → zuerst übersetzen. Mengen, Zahlen, Namen bleiben wörtlich.
+    //    Das Original bleibt in transkript_quelle sichtbar — die Bereinigung ist Arbeitshilfe, kein Ersatz (Regel #8).
     let deutsch = original;
-    if (sprache !== 'de') {
-      const ue = await fetch('https://api.mistral.ai/v1/chat/completions', {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${k.MISTRAL_API_KEY}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          model: uebersetzer,
-          temperature: 0,
-          messages: [
-            {
-              role: 'system',
-              content:
-                'Du übersetzt kurze Sprachnotizen von einer Gerüstbau-Baustelle ins Deutsche (Schweizer Hochdeutsch, «ss» statt «ß»). ' +
-                'Gib nur die Übersetzung aus, keine Erklärung, keine Anführungszeichen. Zahlen, Uhrzeiten, Stunden und Namen unverändert lassen. ' +
-                'Unverständliches mit […] markieren, nichts dazu erfinden.',
-            },
-            { role: 'user', content: `Sprache: ${SPRACHEN[sprache]}\n\n${original}` },
-          ],
-        }),
-      });
-      if (!ue.ok) throw new Error(`Übersetzung ${ue.status}: ${(await ue.text()).slice(0, 300)}`);
-      const j = (await ue.json()) as { choices?: { message?: { content?: string } }[] };
-      deutsch = (j.choices?.[0]?.message?.content ?? '').trim() || original;
-    }
+    const ue = await fetch('https://api.mistral.ai/v1/chat/completions', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${k.MISTRAL_API_KEY}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: uebersetzer,
+        temperature: 0,
+        messages: [
+          {
+            role: 'system',
+            content:
+              'Du bereinigst gesprochene Notizen von einer Gerüstbau-Baustelle zu klarem Schweizer Hochdeutsch («ss» statt «ß»). ' +
+              'Regeln: Grammatik und Wortstellung korrigieren. Füllwörter, Wiederholungen und Versprecher entfernen. ' +
+              'Selbstkorrekturen auflösen: es gilt die zuletzt genannte Fassung (z. B. «der Chefmonteur … ah, der Bauführer meine ich» → Bauführer). ' +
+              'Zahlen, Uhrzeiten, Stunden, Namen, Baustellen und Mengenangaben wörtlich übernehmen — «ein Feld mehr» bleibt «ein Feld mehr», nicht umdeuten. ' +
+              'Fachbegriffe des Gerüstbaus beibehalten (Feld, Lage, Treppenturm, Konsole, versetzen). ' +
+              'Nichts hinzufügen, nichts Wichtiges weglassen, nichts bewerten. Bei Unklarheit die Worte des Sprechers lassen. ' +
+              'Kurz und sachlich, wie ein Eintrag im Rapport. Nur den bereinigten Text ausgeben, ohne Anführungszeichen, ohne Erklärung. ' +
+              'Ist die Notiz nicht auf Deutsch, zuerst sinngemäss übersetzen, dann bereinigen.',
+          },
+          { role: 'user', content: `Sprache des Sprechers: ${SPRACHEN[sprache]}
+
+${original}` },
+        ],
+      }),
+    });
+    if (!ue.ok) throw new Error(`Bereinigung ${ue.status}: ${(await ue.text()).slice(0, 300)}`);
+    const j = (await ue.json()) as { choices?: { message?: { content?: string } }[] };
+    deutsch = (j.choices?.[0]?.message?.content ?? '').trim() || original;
 
     const { error: upd } = await supa
       .from('tagesmeldung')
-      .update({ transkript: deutsch, transkript_quelle: sprache === 'de' ? null : original, transkript_sprache: sprache, transkript_fehler: null })
+      .update({ transkript: deutsch, transkript_quelle: deutsch === original ? null : original, transkript_sprache: sprache, transkript_fehler: null })
       .eq('id', m.id);
     if (upd) throw new Error('Speichern: ' + upd.message);
 
