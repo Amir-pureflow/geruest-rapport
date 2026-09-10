@@ -493,7 +493,7 @@ export function Cockpit() {
   }
 
   const chips: { key: Filter; label: string; n: number }[] = [
-    { key: 'zutun', label: 'Zu tun', n: zaehler.anschauen },
+    { key: 'zutun', label: 'Zum Anschauen', n: zaehler.anschauen },
     { key: 'alle', label: 'Alle Teams', n: teamZeilen.length },
   ];
 
