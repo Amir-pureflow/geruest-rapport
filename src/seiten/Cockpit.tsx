@@ -4,7 +4,7 @@ import { Shell } from '../ui/Shell';
 import { FotoGalerie } from '../ui/FotoGalerie';
 import { supabase } from '../lib/supabase';
 import { minutenBetrag, formatChf, tarifNachCode, RUECKFALL_ANSATZ_RAPPEN } from '../lib/tarif';
-import { addTage, iso, kurz as ch, montag, stunden } from '../lib/datum';
+import { addTage, iso, kurz as ch, kw, montag, stunden } from '../lib/datum';
 import { useAnsicht } from '../lib/ansicht';
 
 /**
@@ -513,14 +513,25 @@ export function Cockpit() {
   return (
     <Shell zurueck>
       <div className="space-y-4">
-        <header className="flex items-center justify-between">
-          <h1 className="font-display text-2xl font-semibold">Wochenübersicht</h1>
-          <div className="flex items-center gap-2">
-            <button type="button" className="btn-ghost" onClick={() => setWochenStart(addTage(wochenStart, -7))}>‹</button>
-            <span className="font-mono text-xs text-ink2">
-              {ch(wochenStart)}–{ch(addTage(wochenStart, 6))}{istVorwoche ? ' · Vorwoche' : ''}
-            </span>
-            <button type="button" className="btn-ghost" onClick={() => setWochenStart(addTage(wochenStart, 7))}>›</button>
+        <header className="flex items-start justify-between gap-4">
+          <div>
+            <p className="lbl mb-0">Wochenübersicht</p>
+            <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1">
+              <h1 className="text-[40px] font-semibold leading-none tracking-tight lg:text-[48px]">KW {kw(wochenStart)}</h1>
+              <span className="text-[15px] font-medium text-ink">{ch(wochenStart)} – {ch(addTage(wochenStart, 6))} {wochenStart.getFullYear()}</span>
+            </div>
+            {!laedt && teams.length > 0 && (
+              <p className="mt-1.5 text-sm text-ink3">
+                {istVorwoche ? 'Vorwoche' : istAktuelleWoche ? 'Diese Woche' : 'Woche'} · {zaehler.gemeldet} von {teams.length} Teams gemeldet
+                {zaehler.anschauen > 0
+                  ? <> · <span className="font-medium text-accent-deep">{zaehler.anschauen} zum Anschauen</span></>
+                  : eintraege.length > 0 ? <> · nichts zum Anschauen</> : null}
+              </p>
+            )}
+          </div>
+          <div className="flex shrink-0 items-center gap-1.5">
+            <button type="button" className="btn-ghost px-3" onClick={() => setWochenStart(addTage(wochenStart, -7))} aria-label="Vorherige Woche">‹</button>
+            <button type="button" className="btn-ghost px-3" onClick={() => setWochenStart(addTage(wochenStart, 7))} aria-label="Nächste Woche">›</button>
           </div>
         </header>
 
@@ -544,15 +555,6 @@ export function Cockpit() {
           </div>
         )}
 
-        {!laedt && teams.length > 0 && (
-          <p className="text-sm text-ink2">
-            <strong>{zaehler.gemeldet} von {teams.length} Teams</strong> haben gemeldet
-            {zaehler.anschauen > 0
-              ? <> · <span className="font-semibold text-accent-deep">{zaehler.anschauen} zum Anschauen</span></>
-              : eintraege.length > 0 ? <> · nichts zum Anschauen</> : null}
-          </p>
-        )}
-
         {/* Der eine Knopf — zuoberst, nicht unter 20 Teams versteckt */}
         {!laedt && darfFreigeben && gruene.length > 0 && wocheAbgeschlossen && (
           <button type="button" className="cta cta-good disabled:opacity-60" disabled={!userId || speichert} onClick={() => void freigeben(gruene)}>
@@ -572,15 +574,17 @@ export function Cockpit() {
         )}
 
         {!laedt && zaehler.anschauen > 0 && (
-          <div className="flex flex-wrap gap-1.5">
+          <div className="flex gap-6 border-b border-line" role="tablist">
             {chips.map((c) => (
               <button
                 key={c.key}
                 type="button"
+                role="tab"
+                aria-selected={filter === c.key}
                 onClick={() => setFilter(c.key)}
-                className={'px-3 py-1.5 text-xs ' + (filter === c.key ? 'chip chip-on' : 'chip')}
+                className={'-mb-px border-b-2 pb-2.5 text-sm transition-colors duration-150 ' + (filter === c.key ? 'border-accent font-medium text-ink' : 'border-transparent text-ink3 hover:text-ink')}
               >
-                {c.label} <span className="ml-1 font-mono opacity-70">{c.n}</span>
+                {c.label} <span className={'ml-1 tabular-nums ' + (filter === c.key ? 'text-accent-deep' : 'text-ink3')}>{c.n}</span>
               </button>
             ))}
           </div>
@@ -596,8 +600,22 @@ export function Cockpit() {
           <div className="card text-sm text-ink3">Nichts in dieser Auswahl.</div>
         ) : (
           <section className="card overflow-hidden p-0">
-            {/* Kopfzeile mit den Wochentagen — einmal, nicht pro Team */}
-            {/* Schmal: nur die Tage (Team steht in jeder Zeile darüber). Breit: Team-Spalte + Tage in einer Zeile. */}
+            {/* Kopfzeile: Mo–So mit Datum und Total — einmal, ausgerichtet auf die Tageskästchen jeder Zeile */}
+            <div className="border-b border-line bg-surface-2 px-3 py-2">
+              <span className="block text-[11px] font-medium text-ink3">Team · Baustelle</span>
+              <span className="mt-1 grid grid-cols-[repeat(7,minmax(0,1fr))_3.2rem] gap-x-1">
+                {wochenTage.map((datum, i) => {
+                  const d = addTage(wochenStart, i);
+                  const heute = datum === iso(new Date());
+                  return (
+                    <span key={datum} className={'text-center text-[11px] leading-tight ' + (heute ? 'font-semibold text-accent-deep' : 'text-ink3')}>
+                      <span className="font-medium">{TAGE[i]}</span> <span className="tabular-nums">{ch(d)}</span>
+                    </span>
+                  );
+                })}
+                <span className="text-right text-[11px] font-medium text-ink3">Total</span>
+              </span>
+            </div>
             {sichtbar.map((z) => {
               const auf = offenesTeam === z.team.id;
               const faelle = verdachtsfaelle.filter((f) => f.meldung.team?.id === z.team.id);
