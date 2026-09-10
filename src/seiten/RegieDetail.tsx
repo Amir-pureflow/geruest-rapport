@@ -635,19 +635,6 @@ export function RegieDetail() {
                 Ohne Anhang geht die Mail trotzdem raus — für Tests okay, für echte Kunden nicht.
               </p>
             </div>
-            {!verwerfenFrage ? (
-              <button type="button" onClick={() => setVerwerfenFrage(true)} className="text-xs font-semibold text-ink3 underline underline-offset-2">
-                Entwurf verwerfen
-              </button>
-            ) : (
-              <div className="rounded-[10px] border border-accent/40 bg-accent-soft p-3 text-sm">
-                <p>Diesen Entwurf löschen? Die Meldung des Teams bleibt bestehen, du kannst später wieder einen Rapport daraus machen.</p>
-                <div className="mt-2 grid grid-cols-2 gap-2">
-                  <button type="button" className="btn-ghost" onClick={() => setVerwerfenFrage(false)}>Behalten</button>
-                  <button type="button" className="btn-ghost border-accent text-accent-deep" onClick={() => void entwurfVerwerfen()}>Verwerfen</button>
-                </div>
-              </div>
-            )}
             <div>
               <label className="lbl">E-Mail der Bauleitung</label>
               <input
@@ -666,6 +653,21 @@ export function RegieDetail() {
               Fester Betreff «Regie {rapport.baustelle?.bezeichnung} · {rapport.baustelle?.konto_nr}»,
               Frist läuft ab Versand 3 Tage.
             </p>
+            <div className="border-t border-line pt-3">
+              {!verwerfenFrage ? (
+              <button type="button" onClick={() => setVerwerfenFrage(true)} className="text-xs font-semibold text-ink3 underline underline-offset-2">
+                Entwurf verwerfen
+              </button>
+            ) : (
+              <div className="rounded-[10px] border border-accent/40 bg-accent-soft p-3 text-sm">
+                <p>Diesen Entwurf löschen? Die Meldung des Teams bleibt bestehen, du kannst später wieder einen Rapport daraus machen.</p>
+                <div className="mt-2 grid grid-cols-2 gap-2">
+                  <button type="button" className="btn-ghost" onClick={() => setVerwerfenFrage(false)}>Behalten</button>
+                  <button type="button" className="btn-ghost border-accent text-accent-deep" onClick={() => void entwurfVerwerfen()}>Verwerfen</button>
+                </div>
+              </div>
+              )}
+            </div>
           </section>
         ) : (
           <section className="panel space-y-2">
