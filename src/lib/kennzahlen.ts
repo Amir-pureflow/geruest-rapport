@@ -12,47 +12,54 @@ import type { Stufe } from '../ui/Diagramm';
 export interface WochenTag {
   label: string;
   datum: string;
-  /** Wartet noch auf die Freigabe des Bauführers — das ist seine Arbeit. */
-  offenMin: number;
-  freigegebenMin: number;
+  /** Teams, bei denen an diesem Tag noch mindestens ein Eintrag auf die Freigabe wartet — die Arbeit des Bauführers. */
+  offen: number;
+  /** Teams, deren Tag komplett freigegeben ist. */
+  freigegeben: number;
 }
 
 /**
- * Stunden je Tag der Woche, aufgeteilt nach Freigabestand.
+ * Teams je Tag der Woche, aufgeteilt nach Freigabestand.
  *
- * Vorher war es «Normal- und Überstunden» — eine Zahl ohne Frage dahinter. Der
- * Bauführer will wissen, was noch bei ihm liegt, nicht wie viel gearbeitet wurde;
- * die Arbeitsmenge steht in der Wochenübersicht. Über alle Teams zusammen, nie pro Person.
+ * Stunden waren hier eine Firmensumme ohne Frage dahinter («64 h am Dienstag» — wie viele Leute?).
+ * Der Bauführer denkt in Teams, wie die Wochenübersicht: «8 Teams offen, 2 freigegeben» versteht
+ * er sofort. Ein Team-Tag gilt als freigegeben, wenn alle seine Einträge freigegeben sind.
  */
-export async function wochenStunden(c: SupabaseClient, bezug: Date): Promise<WochenTag[]> {
+export async function wochenTeams(c: SupabaseClient, bezug: Date): Promise<WochenTag[]> {
   const mo = montag(bezug);
   const tage: WochenTag[] = WOCHENTAGE.map((label, i) => ({
     label,
     datum: kurz(addTage(mo, i)),
-    offenMin: 0,
-    freigegebenMin: 0,
+    offen: 0,
+    freigegeben: 0,
   }));
   const { data } = await c
     .from('zeiteintrag')
-    .select('normal_min,ueber_min,status,tagesmeldung!inner(datum)')
+    .select('status,tagesmeldung!inner(datum,team_id)')
     .gte('tagesmeldung.datum', iso(mo))
     .lte('tagesmeldung.datum', iso(addTage(mo, 6)));
 
+  // Tag → Team → hat noch offene Einträge?
+  const proTag: Map<string, boolean>[] = tage.map(() => new Map());
   for (const z of (data ?? []) as unknown as {
-    normal_min: number;
-    ueber_min: number;
     status: string;
-    tagesmeldung: { datum: string } | { datum: string }[];
+    tagesmeldung: { datum: string; team_id: string | null } | { datum: string; team_id: string | null }[];
   }[]) {
     // Supabase liefert die verknüpfte Zeile je nach Version als Objekt oder als Liste
     const tm = Array.isArray(z.tagesmeldung) ? z.tagesmeldung[0] : z.tagesmeldung;
     if (!tm?.datum) continue;
     const index = Math.round((new Date(tm.datum + 'T12:00:00').getTime() - mo.getTime()) / 86400000);
     if (index < 0 || index > 6) continue;
-    const min = (z.normal_min ?? 0) + (z.ueber_min ?? 0);
-    if (z.status === 'freigegeben') tage[index].freigegebenMin += min;
-    else tage[index].offenMin += min;
+    const team = tm.team_id ?? 'ohne-team';
+    const bisher = proTag[index].get(team) ?? false;
+    proTag[index].set(team, bisher || z.status !== 'freigegeben');
   }
+  proTag.forEach((teams, i) => {
+    for (const offen of teams.values()) {
+      if (offen) tage[i].offen += 1;
+      else tage[i].freigegeben += 1;
+    }
+  });
   return tage;
 }
 

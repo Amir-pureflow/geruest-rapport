@@ -7,9 +7,9 @@ import { addTage, iso, kurz, kw, lang, montag } from '../lib/datum';
 import { flushNachSupabase, offeneAnzahl } from '../lib/db';
 import { Kachel, MONATE, NavKarte } from '../ui/Karten';
 import { navFuer } from '../ui/Shell';
-import { DiagrammKarte, Trichter, WochenStunden } from '../ui/Diagramm';
+import { DiagrammKarte, Trichter, WochenTeams } from '../ui/Diagramm';
 import { TeamBoard } from '../ui/TeamBoard';
-import { teamStand, trichter, wochenStunden, type TeamStand, type TrichterDaten, type WochenTag } from '../lib/kennzahlen';
+import { teamStand, trichter, wochenTeams, type TeamStand, type TrichterDaten, type WochenTag } from '../lib/kennzahlen';
 import { useAnsicht } from '../lib/ansicht';
 import { StartChef } from './StartChef';
 import { StartMonteur } from './StartMonteur';
@@ -118,7 +118,8 @@ function StartBauf() {
         inArbeitAltRappen: inArbeit.filter((r) => new Date(r.versendet_am ?? r.erstellt_am).getTime() < dreissigTage).reduce((s, r) => s + (r.betrag_rappen ?? 0), 0),
       });
       // Diagramme und Board danach — die Kacheln sollen nicht darauf warten
-      const [w, t, ts] = await Promise.all([wochenStunden(c, heute), trichter(c), teamStand(c, heute)]);
+      // Die Vorwoche ist die, die zur Freigabe ansteht (Mo/Di prüft der Bauführer) — die laufende wäre halb leer
+      const [w, t, ts] = await Promise.all([wochenTeams(c, addTage(montag(heute), -7)), trichter(c), teamStand(c, heute)]);
       setWoche(w);
       setTr(t);
       setStand(ts);
@@ -181,11 +182,11 @@ function StartBauf() {
         <div className="hidden gap-4 lg:grid lg:grid-cols-2">
           {woche && (
             <DiagrammKarte
-              titel="Freigabe diese Woche"
-              unter="Was noch bei dir liegt — Stunden je Tag"
-              aktion={<Link to="/cockpit" className="text-xs font-semibold text-steel">Wochenübersicht ›</Link>}
+              titel="Freigabe Vorwoche"
+              unter={`${kurz(addTage(montag(heute), -7))} bis ${kurz(addTage(montag(heute), -1))} — Teams je Tag, die noch auf dich warten`}
+              aktion={<Link to={`/cockpit?woche=${vorwoche}`} className="text-xs font-semibold text-steel">Wochenübersicht ›</Link>}
             >
-              <WochenStunden tage={woche} heuteIndex={(heute.getDay() + 6) % 7} />
+              <WochenTeams tage={woche} />
             </DiagrammKarte>
           )}
           {tr && (

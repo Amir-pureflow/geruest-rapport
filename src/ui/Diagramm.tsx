@@ -174,36 +174,37 @@ function Saeulen({
 }
 
 /**
- * Woche: Stunden je Tag nach Freigabestand. Beantwortet «was liegt noch bei mir»,
- * nicht «wie viel wurde gearbeitet» — das steht in der Wochenübersicht.
+ * Woche: Teams je Tag nach Freigabestand. Beantwortet «was liegt noch bei mir»,
+ * in der Einheit, in der der Bauführer denkt — Teams, nicht Stunden.
  */
-export function WochenStunden({
+export function WochenTeams({
   tage,
-  heuteIndex,
+  hervorIndex = -1,
 }: {
-  tage: { label: string; offenMin: number; freigegebenMin: number; datum: string }[];
-  heuteIndex: number;
+  tage: { label: string; offen: number; freigegeben: number; datum: string }[];
+  hervorIndex?: number;
 }) {
+  const teamsText = (n: number) => `${n} ${n === 1 ? 'Team' : 'Teams'}`;
   return (
     <Saeulen
-      ariaLabel="Stunden je Tag dieser Woche, aufgeteilt in freigegeben und wartet auf Freigabe"
+      ariaLabel="Teams je Tag, aufgeteilt in freigegeben und wartet auf Freigabe"
       punkte={tage.map((t, i) => ({
         label: t.label,
-        werte: [t.freigegebenMin, t.offenMin],
-        hervor: i === heuteIndex,
+        werte: [t.freigegeben, t.offen],
+        hervor: i === hervorIndex,
         titel:
           `${t.label} ${t.datum} · ` +
-          (t.offenMin > 0
-            ? `${(t.offenMin / 60).toFixed(1)} h warten auf dich`
-            : t.freigegebenMin > 0
-              ? 'alles freigegeben'
-              : 'nichts gemeldet'),
+          (t.offen > 0
+            ? `${teamsText(t.offen)} warten auf dich${t.freigegeben > 0 ? ` · ${teamsText(t.freigegeben)} freigegeben` : ''}`
+            : t.freigegeben > 0
+              ? `alle ${teamsText(t.freigegeben)} freigegeben`
+              : 'kein Team hat gemeldet'),
       }))}
       reihen={[
         { farbe: DATENFARBE.bestaetigt, text: 'freigegeben' },
         { farbe: DATENFARBE.offen, text: 'wartet auf Freigabe' },
       ]}
-      wertText={(min) => (min / 60).toFixed(0)}
+      wertText={(n) => String(n)}
     />
   );
 }
