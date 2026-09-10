@@ -513,15 +513,11 @@ export function Cockpit() {
   return (
     <Shell zurueck>
       <div className="space-y-4">
-        <header className="flex items-start justify-between gap-4">
-          <div>
-            <p className="lbl mb-0">Wochenübersicht</p>
-            <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1">
-              <h1 className="text-[40px] font-semibold leading-none tracking-tight lg:text-[48px]">KW {kw(wochenStart)}</h1>
-              <span className="text-[15px] font-medium text-ink">{ch(wochenStart)} – {ch(addTage(wochenStart, 6))} {wochenStart.getFullYear()}</span>
-            </div>
+        <header className="flex flex-wrap items-end justify-between gap-x-6 gap-y-3">
+          <div className="min-w-0">
+            <h1 className="text-[26px] font-semibold tracking-tight lg:text-[28px]">Wochenübersicht</h1>
             {!laedt && teams.length > 0 && (
-              <p className="mt-1.5 text-sm text-ink3">
+              <p className="mt-1 text-sm text-ink3">
                 {istVorwoche ? 'Vorwoche' : istAktuelleWoche ? 'Diese Woche' : 'Woche'} · {zaehler.gemeldet} von {teams.length} Teams gemeldet
                 {zaehler.anschauen > 0
                   ? <> · <span className="font-medium text-accent-deep">{zaehler.anschauen} zum Anschauen</span></>
@@ -529,9 +525,14 @@ export function Cockpit() {
               </p>
             )}
           </div>
-          <div className="flex shrink-0 items-center gap-1.5">
-            <button type="button" className="btn-ghost px-3" onClick={() => setWochenStart(addTage(wochenStart, -7))} aria-label="Vorherige Woche">‹</button>
-            <button type="button" className="btn-ghost px-3" onClick={() => setWochenStart(addTage(wochenStart, 7))} aria-label="Nächste Woche">›</button>
+          {/* Wochenwahl als ein Element: Pfeil · KW und Zeitraum · Pfeil */}
+          <div className="inline-flex shrink-0 items-stretch overflow-hidden rounded-xl border border-line-strong bg-surface">
+            <button type="button" className="px-3 text-ink2 transition-colors hover:bg-surface-2" onClick={() => setWochenStart(addTage(wochenStart, -7))} aria-label="Vorherige Woche">‹</button>
+            <span className="border-x border-line px-3.5 py-2 text-sm whitespace-nowrap">
+              <span className="font-semibold">KW {kw(wochenStart)}</span>
+              <span className="text-ink3"> · {ch(wochenStart)} – {ch(addTage(wochenStart, 6))}</span>
+            </span>
+            <button type="button" className="px-3 text-ink2 transition-colors hover:bg-surface-2" onClick={() => setWochenStart(addTage(wochenStart, 7))} aria-label="Nächste Woche">›</button>
           </div>
         </header>
 
