@@ -43,7 +43,8 @@ export function Pegel({ stream, farbe = '#d82816' }: { stream: MediaStream | nul
         ctx.fillStyle = farbe;
         ctx.globalAlpha = 0.35 + pegel[i] * 0.65;
         ctx.beginPath();
-        ctx.roundRect(x, y, b, h, b / 2);
+        if (typeof ctx.roundRect === 'function') ctx.roundRect(x, y, b, h, b / 2);
+        else ctx.rect(x, y, b, h); // ältere iPhones kennen roundRect nicht
         ctx.fill();
       }
       ctx.globalAlpha = 1;
@@ -55,9 +56,18 @@ export function Pegel({ stream, farbe = '#d82816' }: { stream: MediaStream | nul
     }
 
     const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
-    const audio = new AudioCtx();
-    const quelle = audio.createMediaStreamSource(stream);
-    const analyser = audio.createAnalyser();
+    let audio: AudioContext;
+    let quelle: MediaStreamAudioSourceNode;
+    let analyser: AnalyserNode;
+    try {
+      audio = new AudioCtx();
+      quelle = audio.createMediaStreamSource(stream);
+      analyser = audio.createAnalyser();
+    } catch {
+      // Kein Web Audio (sehr alte Geräte): ruhige Balken, die Aufnahme selbst läuft trotzdem
+      zeichnen(Array.from({ length: BALKEN }, () => 0.15));
+      return;
+    }
     analyser.fftSize = 256;
     analyser.smoothingTimeConstant = 0.75;
     quelle.connect(analyser);

@@ -358,7 +358,16 @@ export function Erfassung() {
     return lo === hi ? `${stunden(lo)} h` : `${stunden(lo)}–${stunden(hi)} h`;
   }
 
+  /** Speichern darf nie stumm scheitern: jeder Fehler landet als Satz auf dem Bildschirm. */
   async function speichern(normal: boolean, modus: SpeicherModus = 'normal') {
+    try {
+      await speichernInnen(normal, modus);
+    } catch (e) {
+      setGespeichert(null);
+      setHinweis('Speichern fehlgeschlagen: ' + (e instanceof Error ? e.message : String(e)) + ' — nochmals versuchen; die Aufnahme ist noch da.');
+    }
+  }
+  async function speichernInnen(normal: boolean, modus: SpeicherModus) {
     if (!baustelle) { setHinweis('Zuerst die Baustelle antippen.'); return; }
     if (dabei.length === 0) { setHinweis('Niemand angehakt.'); return; }
     setHinweis('');
