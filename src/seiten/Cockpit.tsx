@@ -127,6 +127,28 @@ export function Cockpit() {
   // Laufende Korrektur: erst Wert einstellen, dann Grund wählen, dann speichern (Regel #7: warum)
   const [korrektur, setKorrektur] = useState<{ id: string; total: number; alt: number; team?: { meldungId: string; datum: string; teamName: string } } | null>(null);
   const [speichert, setSpeichert] = useState(false);
+  // Wochenwahl: Klick auf «KW 36» öffnet eine Liste aller Wochen des Jahres — statt zwanzigmal ‹ zu drücken
+  const [wochenwahlOffen, setWochenwahlOffen] = useState(false);
+  const wochenwahlRef = useRef<HTMLDivElement | null>(null);
+  const gewaehlteWocheRef = useRef<HTMLButtonElement | null>(null);
+  const wochenListe = useMemo(() => {
+    // Alle Wochen des Jahres: ISO-KW 1 ist die Woche mit dem 4. Januar, die letzte enthält den 28. Dezember
+    const jahr = wochenStart.getFullYear();
+    const erste = montag(new Date(jahr, 0, 4, 12));
+    const ende = montag(new Date(jahr, 11, 28, 12));
+    const liste: Date[] = [];
+    for (let d = erste; d <= ende; d = addTage(d, 7)) liste.push(d);
+    return liste;
+  }, [wochenStart]);
+  useEffect(() => {
+    if (!wochenwahlOffen) return;
+    gewaehlteWocheRef.current?.scrollIntoView({ block: 'center' });
+    const zu = (ev: MouseEvent) => { if (wochenwahlRef.current && !wochenwahlRef.current.contains(ev.target as Node)) setWochenwahlOffen(false); };
+    const esc = (ev: KeyboardEvent) => { if (ev.key === 'Escape') setWochenwahlOffen(false); };
+    document.addEventListener('mousedown', zu);
+    document.addEventListener('keydown', esc);
+    return () => { document.removeEventListener('mousedown', zu); document.removeEventListener('keydown', esc); };
+  }, [wochenwahlOffen]);
   // Transkription auf Knopfdruck (Aufnahmen von vor dem Einbau, oder nach einem Fehler)
   const [transkribiert, setTranskribiert] = useState<Set<string>>(new Set());
   async function transkribieren(meldungId: string) {
@@ -526,13 +548,46 @@ export function Cockpit() {
             )}
           </div>
           {/* Wochenwahl als ein Element: Pfeil · KW und Zeitraum · Pfeil */}
-          <div className="inline-flex shrink-0 items-stretch overflow-hidden rounded-xl border border-line-strong bg-surface">
-            <button type="button" className="px-3 text-ink2 transition-colors hover:bg-surface-2" onClick={() => setWochenStart(addTage(wochenStart, -7))} aria-label="Vorherige Woche">‹</button>
-            <span className="border-x border-line px-3.5 py-2 text-sm whitespace-nowrap">
-              <span className="font-semibold">KW {kw(wochenStart)}</span>
-              <span className="text-ink3"> · {ch(wochenStart)} – {ch(addTage(wochenStart, 6))}</span>
-            </span>
-            <button type="button" className="px-3 text-ink2 transition-colors hover:bg-surface-2" onClick={() => setWochenStart(addTage(wochenStart, 7))} aria-label="Nächste Woche">›</button>
+          <div ref={wochenwahlRef} className="relative shrink-0">
+            <div className="inline-flex items-stretch overflow-hidden rounded-xl border border-line-strong bg-surface">
+              <button type="button" className="px-3 text-ink2 transition-colors hover:bg-surface-2" onClick={() => setWochenStart(addTage(wochenStart, -7))} aria-label="Vorherige Woche">‹</button>
+              <button
+                type="button"
+                className="border-x border-line px-3.5 py-2 text-sm whitespace-nowrap transition-colors hover:bg-surface-2"
+                onClick={() => setWochenwahlOffen((o) => !o)}
+                aria-haspopup="listbox"
+                aria-expanded={wochenwahlOffen}
+                title="Woche wählen"
+              >
+                <span className="font-semibold">KW {kw(wochenStart)}</span>
+                <span className="text-ink3"> · {ch(wochenStart)} – {ch(addTage(wochenStart, 6))}</span>
+                <span className="ml-1.5 text-ink3" aria-hidden="true">▾</span>
+              </button>
+              <button type="button" className="px-3 text-ink2 transition-colors hover:bg-surface-2" onClick={() => setWochenStart(addTage(wochenStart, 7))} aria-label="Nächste Woche">›</button>
+            </div>
+            {wochenwahlOffen && (
+              <div role="listbox" className="absolute right-0 z-30 mt-2 max-h-80 w-64 overflow-y-auto rounded-xl border border-line bg-surface p-1.5 shadow-[0_8px_30px_rgb(26_25_23/0.12)]">
+                {wochenListe.map((d) => {
+                  const aktiv = iso(d) === iso(wochenStart);
+                  const heute = iso(d) === iso(montag(new Date()));
+                  const zukunft = d > montag(new Date());
+                  return (
+                    <button
+                      key={iso(d)}
+                      ref={aktiv ? gewaehlteWocheRef : undefined}
+                      type="button"
+                      role="option"
+                      aria-selected={aktiv}
+                      onClick={() => { setWochenStart(d); setWochenwahlOffen(false); }}
+                      className={'flex w-full items-center justify-between rounded-lg px-2.5 py-1.5 text-left text-sm transition-colors ' + (aktiv ? 'bg-accent-soft text-accent-deep' : zukunft ? 'text-ink3 hover:bg-surface-2' : 'hover:bg-surface-2')}
+                    >
+                      <span className={aktiv ? 'font-semibold' : 'font-medium'}>KW {kw(d)}</span>
+                      <span className="tabular-nums text-ink3">{ch(d)} – {ch(addTage(d, 6))}{heute ? ' · jetzt' : ''}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
           </div>
         </header>
 
