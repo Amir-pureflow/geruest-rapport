@@ -21,8 +21,8 @@
   --color-ink: #111113;
   --color-ink2: #4b4b52;
   --color-ink3: #86868e;
-  --color-accent: #d82816;      /* Firmenrot geruestgmbh.ch — nur Hauptaktion */
-  --color-accent-deep: #b51f10;
+  --color-accent: #e0301e;      /* Firmenrot geruestgmbh.ch, leicht wärmer — Knöpfe und Auswahl */
+  --color-accent-deep: #c4271a;
   --color-accent-soft: #fdecea;
   --color-steel: #1f1f23;       /* Auswahl, Links: neutral dunkel statt Stahlblau */
   --color-steel-soft: #f1f1f3;
@@ -58,7 +58,7 @@
     letter-spacing: 0;
   }
   :focus-visible {
-    outline: 2px solid var(--color-ink);
+    outline: 2px solid var(--color-accent);
     outline-offset: 2px;
     border-radius: 4px;
   }
@@ -107,7 +107,7 @@
     display: block;
     width: 100%;
     border-radius: 12px;
-    background: var(--color-ink);
+    background: var(--color-accent);
     padding: 0.875rem 1rem;
     text-align: center;
     font-family: var(--font-sans);
@@ -115,11 +115,10 @@
     font-weight: 600;
     letter-spacing: -0.01em;
     color: #fff;
-    box-shadow: 0 1px 2px rgb(17 17 19 / 0.12);
     transition: background 150ms ease, transform 150ms ease;
   }
   .cta:hover {
-    background: #2a2a2e;
+    background: var(--color-accent-deep);
   }
   .cta:active {
     transform: translateY(1px);
@@ -169,11 +168,12 @@
     background: #ebebee;
   }
   .chip-on {
-    background: var(--color-ink);
-    color: #fff;
+    background: var(--color-accent-soft);
+    color: var(--color-accent-deep);
+    border-color: rgb(224 48 30 / 0.25);
   }
   .chip-on:hover {
-    background: #2a2a2e;
+    background: #fbdcd8;
   }
 
   .field {
@@ -190,8 +190,8 @@
     color: var(--color-ink3);
   }
   .field:focus {
-    border-color: var(--color-ink);
-    box-shadow: 0 0 0 3px rgb(17 17 19 / 0.08);
+    border-color: var(--color-accent);
+    box-shadow: 0 0 0 3px rgb(224 48 30 / 0.12);
     outline: none;
   }
 
@@ -216,7 +216,7 @@
     position: absolute;
     inset: -6px;
     border-radius: 9999px;
-    border: 2px solid var(--color-ink);
+    border: 2px solid var(--color-accent);
     opacity: 0;
     animation: aufnahme-puls 1.8s ease-out infinite;
   }
@@ -254,7 +254,7 @@
     height: 1em;
     margin-left: 1px;
     vertical-align: -0.15em;
-    background: var(--color-ink);
+    background: var(--color-accent);
     animation: ki-blinken 0.8s steps(2) infinite;
   }
   @keyframes ki-blinken {
