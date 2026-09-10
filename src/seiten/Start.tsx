@@ -75,14 +75,19 @@ function StartBauf() {
     const monatsStart = iso(new Date(heute.getFullYear(), heute.getMonth(), 1, 12));
     const wochenStart = iso(montag(heute));
     void (async () => {
-      // Erst die lokale Warteschlange leeren, dann zählen — sonst zählt das Dashboard hinterher
-      if (navigator.onLine) {
-        const erg = await flushNachSupabase(c);
-        const rest = await offeneAnzahl();
-        setWartend(rest > 0 ? { anzahl: rest, grund: erg.fehlerText } : null);
-      } else {
-        const rest = await offeneAnzahl();
-        setWartend(rest > 0 ? { anzahl: rest } : null);
+      // Erst die lokale Warteschlange leeren, dann zählen — sonst zählt das Dashboard hinterher.
+      // Ist der lokale Speicher kaputt (privater Modus, volle Platte), darf das Dashboard trotzdem laden.
+      try {
+        if (navigator.onLine) {
+          const erg = await flushNachSupabase(c);
+          const rest = await offeneAnzahl();
+          setWartend(rest > 0 ? { anzahl: rest, grund: erg.fehlerText } : null);
+        } else {
+          const rest = await offeneAnzahl();
+          setWartend(rest > 0 ? { anzahl: rest } : null);
+        }
+      } catch {
+        setWartend(null);
       }
       const [za, zaHeute, tm, teams, zp, ro, ru, rm, om, ia] = await Promise.all([
         c.from('zusatzauftrag_stand').select('id', { count: 'exact', head: true }).in('stand', ['bestellt', 'gemeldet']),
