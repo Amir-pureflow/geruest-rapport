@@ -19,6 +19,25 @@ interface Plan { team_id: string; baustelle: { konto_nr: string; bezeichnung: st
 
 const ABWEICHUNG: Record<string, string> = { zusaetzlich: 'zusätzlich', warten: 'gewartet', kaputt: 'etwas kaputt' };
 
+/** Meldungen eines Teams nach Baustelle bündeln: normale Stunden + Abweichungen je Art. */
+function proBaustelle(ms: Meldung[]) {
+  const map = new Map<string, { schluessel: string; konto_nr: string | null; bezeichnung: string; zuletzt: string; normalMin: number; abweichungen: { typ: string; min: number }[] }>();
+  for (const m of ms) {
+    const schluessel = m.baustelle?.konto_nr ?? 'ohne';
+    const b = map.get(schluessel) ?? { schluessel, konto_nr: m.baustelle?.konto_nr ?? null, bezeichnung: m.baustelle?.bezeichnung ?? '', zuletzt: m.erfasst_am, normalMin: 0, abweichungen: [] };
+    const min = m.zeiteintrag.reduce((s, z) => s + z.normal_min + z.ueber_min, 0);
+    if (m.normalfall) b.normalMin += min;
+    else {
+      const typ = m.abweichung_typ ?? 'abweichung';
+      const a = b.abweichungen.find((x) => x.typ === typ);
+      if (a) a.min += min; else b.abweichungen.push({ typ, min });
+    }
+    if (m.erfasst_am > b.zuletzt) b.zuletzt = m.erfasst_am;
+    map.set(schluessel, b);
+  }
+  return [...map.values()];
+}
+
 function uhrzeit(ts: string): string {
   const d = new Date(ts);
   return `${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}`;
@@ -114,14 +133,15 @@ export function Tag() {
                     <p className="font-display font-bold">{t.bezeichnung} <span className="font-body text-sm font-normal text-ink3">· {t.chefmonteur?.name ?? ''}</span></p>
                     <span className="font-mono text-sm tabular-nums">{stunden(total)} h · {leute} Pers.</span>
                   </div>
-                  {ms.map((m) => (
-                    <div key={m.id} className="flex flex-wrap items-center gap-2 text-sm">
-                      <span className="font-mono text-xs text-ink3">{uhrzeit(m.erfasst_am)}</span>
-                      {m.baustelle && <><span className="knr">{m.baustelle.konto_nr}</span><span className="truncate text-ink2">{m.baustelle.bezeichnung ?? ''}</span></>}
-                      {m.normalfall
-                        ? <span className="chip bg-good-soft text-good-deep">wie geplant</span>
-                        : <span className="chip bg-amber-soft text-amber-deep">{ABWEICHUNG[m.abweichung_typ ?? ''] ?? 'Abweichung'}</span>}
-                      <span className="font-mono text-xs tabular-nums text-ink3">{stunden(m.zeiteintrag.reduce((s, z) => s + z.normal_min + z.ueber_min, 0))} h</span>
+                  {/* Eine Zeile pro Baustelle: normaler Tag + Abweichung sind zwei Meldungen derselben Leute am selben Ort */}
+                  {proBaustelle(ms).map((b) => (
+                    <div key={b.schluessel} className="flex flex-wrap items-center gap-2 text-sm">
+                      <span className="font-mono text-xs text-ink3">{uhrzeit(b.zuletzt)}</span>
+                      {b.konto_nr && <><span className="knr">{b.konto_nr}</span><span className="truncate text-ink2">{b.bezeichnung}</span></>}
+                      {b.normalMin > 0 && <span className="chip bg-good-soft py-1 text-xs text-good-deep">wie geplant · {stunden(b.normalMin)} h</span>}
+                      {b.abweichungen.map((a) => (
+                        <span key={a.typ} className="chip bg-amber-soft py-1 text-xs text-amber-deep">{ABWEICHUNG[a.typ] ?? 'Abweichung'} · {stunden(a.min)} h</span>
+                      ))}
                     </div>
                   ))}
                   <div className="text-right">
