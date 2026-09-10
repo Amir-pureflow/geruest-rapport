@@ -155,6 +155,7 @@ src/lib/demo.ts                   Deterministischer Demo-Betrieb + Tests
 src/lib/datum.ts                  Wochen-/Datumshelfer
 src/lib/foto.ts                   Fotos verkleinern (1600 px, JPEG) vor Queue/Upload
 src/ui/FotoGalerie.tsx            Vorschau aus dem Bucket «anhaenge» (signierte Links)
+src/ui/Sprachnotiz.tsx            Pegelbalken während der Aufnahme (Web Audio), Text-Enthüllung nach dem Speichern (fragt transkript ab)
 src/ui/Shell.tsx                  Rahmen: Büro-Ansichten (Bauführer, Sekretariat) am PC mit Seitenleiste ab «lg», Baustellen-Ansichten bleiben Handy-Spalte; `schmal` für Formulare
 supabase/functions/beschrieb-vorschlagen  Leistungsbeschrieb (Text für SORBA/Kunde) aus Sprachnotiz + Positionen vorschlagen — Mistral, nie ungeprüft gespeichert
 supabase/migrations/              0001 Schema · 0002 Bezeichnung · 0003 Auftrag-UUID · 0004 Versand · 0005 Stammdaten · 0006 Auftrag-Stand (Sicht) · 0007 Rapport-Ursprung · 0008 Fotos · 0009 Verbesserungen (Sichten, RPCs, Nummern, Fristen) · 0010 Beschrieb · 0009 Verbesserungen (Indizes, RPCs zeit_freigeben/zeit_korrigieren/zeit_team_setzen/regierapport_anlegen, Nummer RR-JJJJ-NNNN, Sichten regie_kennzahlen/regie_auswertung, Fristen-Job, Storage ohne Delete)

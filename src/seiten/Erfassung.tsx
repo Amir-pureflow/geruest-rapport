@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
 import { Link } from 'react-router-dom';
 import { Shell } from '../ui/Shell';
+import { Pegel, TranskriptLive } from '../ui/Sprachnotiz';
 import { supabase } from '../lib/supabase';
 import { enqueueMeldung, flushNachSupabase, offeneMeldungen, offeneAnzahl, lokaleMeldungEntfernen, type MeldungPayload } from '../lib/db';
 import { addTage, iso, lang, stunden } from '../lib/datum';
@@ -164,7 +165,7 @@ export function Erfassung() {
   // Längere Rückmeldung nach dem Speichern (z. B. «normaler Tag 8.0 h + 1.0 h zusätzlich») — eigene Zeile, nicht im Knopf
   const [bestaetigung, setBestaetigung] = useState<string | null>(null);
   // Abschluss-Seite nach dem Speichern: was steht jetzt für den Tag, und wohin jetzt?
-  const [fertig, setFertig] = useState<{ text: string; stand: 'gesendet' | 'wartet' | 'fehler' } | null>(null);
+  const [fertig, setFertig] = useState<{ text: string; stand: 'gesendet' | 'wartet' | 'fehler'; notizUuid?: string } | null>(null);
   const [hinweis, setHinweis] = useState('');
   const [heuteGemeldet, setHeuteGemeldet] = useState<Gemeldet[]>([]);
   // An diesem Tag schon eine Normalmeldung (egal welche Baustelle) → erst nachfragen, statt still eine zweite anzulegen
@@ -172,7 +173,10 @@ export function Erfassung() {
   const [userId, setUserId] = useState<string | null>(null);
   const [wartend, setWartend] = useState(0);
   const recorder = useRef<MediaRecorder | null>(null);
+  const [mikroStream, setMikroStream] = useState<MediaStream | null>(null);
   const ticker = useRef<number | null>(null);
+  /** Wer beim Speichern noch aufnimmt, verliert nichts: die Aufnahme wird beendet und mitgenommen. */
+  const aufnahmeFertig = useRef<((a: { blob: Blob; sekunden: number } | null) => void) | null>(null);
 
   const heute = new Date();
   const heuteIso = iso(heute);
@@ -332,12 +336,12 @@ export function Erfassung() {
   }
 
   /** Meldung für die gewählte Baustelle bauen: normaler Tag (alle Anwesenden, Stunden wie eingestellt) oder Abweichung (nur die Beteiligten, Zusatzminuten). */
-  function meldungBauen(normal: boolean, b: Baustelle): MeldungPayload {
+  function meldungBauen(normal: boolean, b: Baustelle, notiz: { blob: Blob; sekunden: number } | null = aufnahme): MeldungPayload {
     const beteiligt = normal ? dabei : dabei.filter((p) => abLeute.has(p.id));
     return {
       id: crypto.randomUUID(), team_id: teamId!, datum: tagIso, baustelle_id: b.id,
       normalfall: normal, abweichung_typ: normal ? null : abweichung, wer_hats_gewollt: normal ? null : wer,
-      audio_sekunden: normal ? null : aufnahme?.sekunden ?? null, erfasst_von: userId,
+      audio_sekunden: normal ? null : notiz?.sekunden ?? null, erfasst_von: userId,
       eintraege: beteiligt.map((p) => {
         const a = anw[p.id];
         const min = normal ? a.min : abMin;
@@ -360,6 +364,8 @@ export function Erfassung() {
     setHinweis('');
     const clientUuids: string[] = [];
     let normalMitgespeichert = false;
+    // Meldung mit Sprachnotiz — die Abschluss-Seite zeigt dann den Text, sobald er da ist
+    let notizUuid: string | undefined;
 
     if (normal) {
       const bisher = heuteGemeldet.filter((m) => m.normalfall);
@@ -391,7 +397,10 @@ export function Erfassung() {
         clientUuids.push(await enqueueMeldung(meldungBauen(true, baustelle)));
         normalMitgespeichert = true;
       }
-      clientUuids.push(await enqueueMeldung(meldungBauen(false, baustelle), aufnahme?.blob, fotos.map((f) => f.blob)));
+      const notiz = await aufnahmeAbschliessen();
+      const uuid = await enqueueMeldung(meldungBauen(false, baustelle, notiz), notiz?.blob, fotos.map((f) => f.blob));
+      clientUuids.push(uuid);
+      if (notiz) notizUuid = uuid;
     }
 
     const abText = abweichung ? `${stunden(abMin)} h ${AB_KURZ[abweichung]}` : '';
@@ -407,19 +416,19 @@ export function Erfassung() {
       if (alleDurch) {
         setGespeichert(normal ? 'Gespeichert ✓' : 'Abweichung gespeichert ✓');
         setBestaetigung(zusammenfassung + ' ✓');
-        setFertig({ text: zusammenfassung, stand: 'gesendet' });
+        setFertig({ text: zusammenfassung, stand: 'gesendet', notizUuid });
         if (erg.verworfen > 0) setHinweis(`${erg.verworfen} alte Meldung${erg.verworfen === 1 ? '' : 'en'} aussortiert: ${erg.fehlerText ?? ''}`);
       } else {
         // Ehrlich bleiben: auf dem Gerät ist es sicher, aber der Server hat abgelehnt — Grund zeigen
         setHinweis(`Auf dem Gerät gespeichert, aber noch nicht gesendet: ${erg.fehlerText ?? 'unbekannter Fehler'}`);
         setGespeichert('Lokal gespeichert — Senden fehlgeschlagen');
         setBestaetigung(zusammenfassung + ' — noch nicht gesendet');
-        setFertig({ text: zusammenfassung, stand: 'fehler' });
+        setFertig({ text: zusammenfassung, stand: 'fehler', notizUuid });
       }
     } else {
       setGespeichert('Gespeichert — wird gesendet, sobald Netz da ist');
       setBestaetigung(zusammenfassung + ' — wird gesendet, sobald Netz da ist');
-      setFertig({ text: zusammenfassung, stand: 'wartet' });
+      setFertig({ text: zusammenfassung, stand: 'wartet', notizUuid });
     }
     void heutigeLaden();
     void offeneAnzahl().then(setWartend);
@@ -435,15 +444,20 @@ export function Erfassung() {
   async function aufnahmeStart() {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      setMikroStream(stream);
       const mime = MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm' : '';
       const rec = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
       const teile: BlobPart[] = [];
       rec.ondataavailable = (ev) => teile.push(ev.data);
       rec.onstop = () => {
         stream.getTracks().forEach((t) => t.stop());
-        setAufnahme({ blob: new Blob(teile, { type: mime || 'audio/webm' }), sekunden: Math.max(1, Math.round((Date.now() - start) / 1000)) });
+        setMikroStream(null);
+        const fertig = { blob: new Blob(teile, { type: mime || 'audio/webm' }), sekunden: Math.max(1, Math.round((Date.now() - start) / 1000)) };
+        setAufnahme(fertig);
         setNimmtAuf(false);
         if (ticker.current) window.clearInterval(ticker.current);
+        aufnahmeFertig.current?.(fertig);
+        aufnahmeFertig.current = null;
       };
       const start = Date.now();
       recorder.current = rec;
@@ -454,6 +468,15 @@ export function Erfassung() {
     } catch {
       setHinweis('Mikrofon nicht verfügbar — die Meldung geht auch ohne Sprachnotiz.');
     }
+  }
+  /** Laufende Aufnahme beenden und auf die Datei warten — sonst geht sie beim Speichern verloren. */
+  function aufnahmeAbschliessen(): Promise<{ blob: Blob; sekunden: number } | null> {
+    if (!nimmtAuf || !recorder.current || recorder.current.state === 'inactive') return Promise.resolve(aufnahme);
+    return new Promise((resolve) => {
+      aufnahmeFertig.current = resolve;
+      recorder.current?.stop();
+      window.setTimeout(() => { if (aufnahmeFertig.current === resolve) { aufnahmeFertig.current = null; resolve(aufnahme); } }, 3000);
+    });
   }
   function aufnahmeStop() {
     recorder.current?.stop();
@@ -502,6 +525,8 @@ export function Erfassung() {
             <p className="mt-1 text-sm text-ink2">{fertig?.text}</p>
             {stand === 'fehler' && hinweis && <p className="mt-1 text-xs text-amber-deep">{hinweis}</p>}
           </section>
+
+          {fertig?.notizUuid && <TranskriptLive clientUuid={fertig.notizUuid} stand={stand} />}
 
           <section className="card">
             <p className="lbl mb-1">{istHeute ? 'Das steht jetzt für heute' : `Das steht jetzt für ${lang(datum)}`} · {team?.bezeichnung ?? 'Team'}</p>
@@ -603,13 +628,16 @@ export function Erfassung() {
               </div>
             ) : (
               <button type="button" onClick={() => (nimmtAuf ? aufnahmeStop() : void aufnahmeStart())} className="w-full">
-                <svg viewBox="0 0 40 48" className="mx-auto h-11 w-9" aria-hidden="true" fill={nimmtAuf ? '#D82816' : '#29506B'}>
-                  <rect x="13" y="4" width="14" height="24" rx="7" />
-                  <path d="M8 22a12 12 0 0 0 24 0" fill="none" stroke={nimmtAuf ? '#D82816' : '#29506B'} strokeWidth="3.5" strokeLinecap="round" />
-                  <rect x="18.2" y="34" width="3.6" height="8" rx="1.8" />
-                </svg>
-                <span className="mt-2 block font-display font-bold">{nimmtAuf ? `Aufnahme läuft · ${sekunden} Sek. — antippen zum Stoppen` : 'Antippen und kurz erzählen, was war'}</span>
-                <span className="mt-1 block text-xs text-ink3">In deiner Sprache. Freiwillig — die Meldung geht auch ohne.</span>
+                <span className={'mx-auto grid h-16 w-16 place-items-center rounded-full ' + (nimmtAuf ? 'aufnahme-ring bg-accent text-white' : 'bg-surface text-steel ring-1 ring-line-strong')}>
+                  <svg viewBox="0 0 40 48" className="h-8 w-7" aria-hidden="true" fill="currentColor">
+                    <rect x="13" y="4" width="14" height="24" rx="7" />
+                    <path d="M8 22a12 12 0 0 0 24 0" fill="none" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round" />
+                    <rect x="18.2" y="34" width="3.6" height="8" rx="1.8" />
+                  </svg>
+                </span>
+                {nimmtAuf && <span className="mt-3 block"><Pegel stream={mikroStream} /></span>}
+                <span className="mt-2 block font-display font-bold">{nimmtAuf ? `${sekunden} Sek. — antippen zum Stoppen` : 'Antippen und kurz erzählen, was war'}</span>
+                <span className="mt-1 block text-xs text-ink3">{nimmtAuf ? 'Die App hört zu und schreibt danach mit.' : 'In deiner Sprache. Freiwillig — die Meldung geht auch ohne.'}</span>
               </button>
             )}
           </div>

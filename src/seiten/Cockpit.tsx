@@ -272,9 +272,15 @@ export function Cockpit() {
   const verdachtsfaelle = useMemo(() => {
     const gesehen = new Set<string>();
     const faelle: { meldung: Eintrag['tagesmeldung']; eintraege: Eintrag[]; ausloeser: string[] }[] = [];
+    // Normaltag + Abweichung derselben Baustelle am selben Tag: die Abweichung IST die Antwort auf den
+    // offenen Zusatzauftrag — der Normaltag bekommt dann keine eigene Verdachtskarte mehr.
+    const mitAbweichung = new Set(
+      eintraege.filter((x) => !x.tagesmeldung.normalfall).map((x) => `${x.tagesmeldung.team?.id}|${x.tagesmeldung.datum}|${x.tagesmeldung.baustelle?.id}`),
+    );
     for (const e of eintraege) {
       const tm = e.tagesmeldung;
       if (gesehen.has(tm.id)) continue;
+      if (tm.normalfall && mitAbweichung.has(`${tm.team?.id}|${tm.datum}|${tm.baustelle?.id}`)) continue;
       const ausloeser: string[] = [];
       if (tm.abweichung_typ) ausloeser.push(`Team meldet «${tm.abweichung_typ}»`);
       if (tm.wer_hats_gewollt === 'kunde') ausloeser.push('Team: der Kunde wollte es');
