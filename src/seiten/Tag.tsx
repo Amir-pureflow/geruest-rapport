@@ -13,7 +13,7 @@ interface Team { id: string; bezeichnung: string; fahrzeug: string | null; chefm
 interface Meldung {
   id: string; team_id: string; normalfall: boolean; abweichung_typ: string | null; erfasst_am: string;
   baustelle: { konto_nr: string; bezeichnung: string | null } | null;
-  zeiteintrag: { normal_min: number; ueber_min: number }[];
+  zeiteintrag: { normal_min: number; ueber_min: number; mitarbeiter_id: string }[];
 }
 interface Plan { team_id: string; baustelle: { konto_nr: string; bezeichnung: string | null } | null }
 
@@ -40,7 +40,7 @@ export function Tag() {
     void (async () => {
       const [t, m, p] = await Promise.all([
         c.from('team').select('id,bezeichnung,fahrzeug,chefmonteur:chefmonteur_id(name)').eq('aktiv', true).order('bezeichnung'),
-        c.from('tagesmeldung').select('id,team_id,normalfall,abweichung_typ,erfasst_am,baustelle:baustelle_id(konto_nr,bezeichnung),zeiteintrag(normal_min,ueber_min)').eq('datum', tagIso).order('erfasst_am'),
+        c.from('tagesmeldung').select('id,team_id,normalfall,abweichung_typ,erfasst_am,baustelle:baustelle_id(konto_nr,bezeichnung),zeiteintrag(normal_min,ueber_min,mitarbeiter_id)').eq('datum', tagIso).order('erfasst_am'),
         c.from('jahresplan').select('team_id,baustelle:baustelle_id(konto_nr,bezeichnung)').lte('von', tagIso).gte('bis', tagIso),
       ]);
       setTeams(((t.data ?? []) as unknown as Team[]).sort((a, b) => a.bezeichnung.localeCompare(b.bezeichnung, 'de', { numeric: true })));
@@ -106,7 +106,8 @@ export function Tag() {
             {gemeldet.map((t) => {
               const ms = proTeam.get(t.id) ?? [];
               const total = ms.flatMap((m) => m.zeiteintrag).reduce((s, z) => s + z.normal_min + z.ueber_min, 0);
-              const leute = new Set(ms.flatMap((m) => m.zeiteintrag)).size;
+              // Personen, nicht Einträge: normaler Tag + Abweichung sind zwei Meldungen derselben Leute
+              const leute = new Set(ms.flatMap((m) => m.zeiteintrag.map((z) => z.mitarbeiter_id))).size;
               return (
                 <div key={t.id} className="card space-y-1.5">
                   <div className="flex items-center justify-between gap-3">
@@ -120,6 +121,7 @@ export function Tag() {
                       {m.normalfall
                         ? <span className="chip bg-good-soft text-good-deep">wie geplant</span>
                         : <span className="chip bg-amber-soft text-amber-deep">{ABWEICHUNG[m.abweichung_typ ?? ''] ?? 'Abweichung'}</span>}
+                      <span className="font-mono text-xs tabular-nums text-ink3">{stunden(m.zeiteintrag.reduce((s, z) => s + z.normal_min + z.ueber_min, 0))} h</span>
                     </div>
                   ))}
                   <div className="text-right">
