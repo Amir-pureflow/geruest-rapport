@@ -28,7 +28,7 @@ export function Verwaltung() {
   return (
     <Shell zurueck>
       <div className="space-y-4">
-        <h1 className="font-display text-2xl font-bold">Verwaltung</h1>
+        <h1 className="font-display text-2xl font-semibold">Verwaltung</h1>
         <div className="flex gap-1.5 overflow-x-auto pb-1">
           {TABS.map(([t, label]) => (
             <button key={t} type="button" onClick={() => wechseln(t)} className={'chip whitespace-nowrap px-3 py-1.5 text-xs ' + (tab === t ? 'chip-on' : '')}>

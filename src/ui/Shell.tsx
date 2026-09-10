@@ -18,7 +18,7 @@ export function Marke({ className = 'h-7 w-7' }: { className?: string }) {
 /** Wortmarke — überall gleich, damit die App wiedererkennbar bleibt. */
 export function Wortmarke({ gross = false }: { gross?: boolean }) {
   return (
-    <span className={'font-display font-extrabold tracking-tight ' + (gross ? 'text-2xl' : 'text-[15px]')}>
+    <span className={'font-semibold tracking-tight ' + (gross ? 'text-2xl' : 'text-[15px]')}>
       Gerüst<span className="text-accent">Rapport</span>
     </span>
   );
@@ -77,8 +77,8 @@ function NavLink({ e, aktiv }: { e: NavEintrag; aktiv: boolean }) {
       to={e.zu}
       aria-current={aktiv ? 'page' : undefined}
       className={
-        'block rounded-[9px] px-3 py-[7px] text-[14px] transition ' +
-        (aktiv ? 'bg-ground font-semibold text-ink' : 'font-medium text-ink2 hover:bg-ground/70 hover:text-ink')
+        'block rounded-[10px] px-3 py-[7px] text-[14px] transition-colors duration-150 ' +
+        (aktiv ? 'bg-surface-2 font-medium text-ink' : 'font-normal text-ink2 hover:bg-surface-2/70 hover:text-ink')
       }
     >
       {e.label}
@@ -114,15 +114,15 @@ export function Shell({
   return (
     <div className={'min-h-screen ' + (buero ? 'lg:grid lg:grid-cols-[236px_minmax(0,1fr)]' : '')}>
       {buero && nav && (
-        <aside className="hidden lg:sticky lg:top-0 lg:flex lg:h-screen lg:flex-col lg:border-r lg:border-line lg:bg-surface lg:px-4 lg:py-5">
+        <aside className="hidden lg:sticky lg:top-0 lg:flex lg:h-screen lg:flex-col lg:border-r lg:border-line lg:bg-ground lg:px-4 lg:py-6">
           <Link to="/" className="flex items-center gap-2.5 px-2" aria-label="Zur Übersicht">
             <Marke />
             <Wortmarke />
           </Link>
-          <nav className="mt-6 flex flex-col gap-5" aria-label="Bereiche">
+          <nav className="mt-8 flex flex-col gap-6" aria-label="Bereiche">
             {nav.map((g, i) => (
               <div key={g.titel ?? i}>
-                {g.titel && <p className="lbl mb-1 px-3">{g.titel}</p>}
+                {g.titel && <p className="mb-1 px-3 text-xs font-medium text-ink3">{g.titel}</p>}
                 <div className="flex flex-col gap-0.5">
                   {g.eintraege.map((e) => <NavLink key={e.zu} e={e} aktiv={istAktiv(e.zu)} />)}
                 </div>
@@ -153,7 +153,7 @@ export function Shell({
         <main
           className={
             'mx-auto w-full max-w-md px-5 py-6 ' +
-            (buero ? (schmal ? 'lg:max-w-2xl lg:px-10 lg:py-9' : 'lg:max-w-5xl lg:px-10 lg:py-9') : '')
+            (buero ? (schmal ? 'lg:max-w-2xl lg:px-12 lg:py-12' : 'lg:max-w-5xl lg:px-12 lg:py-12') : '')
           }
         >
           {children}

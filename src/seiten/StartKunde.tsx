@@ -44,7 +44,7 @@ export function StartKunde() {
       <div className="space-y-5">
         <header>
           <p className="lbl mb-0.5">Kunde · Bauleitung</p>
-          <h1 className="font-display text-2xl font-bold">Regierapporte zum Bestätigen</h1>
+          <h1 className="font-display text-2xl font-semibold">Regierapporte zum Bestätigen</h1>
           <p className="mt-1 text-sm text-ink3">
             Die Bauleitung bekommt eine Mail mit einem Link und braucht kein Konto. Hier sind die Links zum Öffnen, so wie der Kunde sie sieht.
           </p>
@@ -59,9 +59,9 @@ export function StartKunde() {
         )}
 
         {liste.filter((r) => !!r.link_token).map((r) => (
-          <Link key={r.id} to={`/b/${r.link_token}`} className="card block space-y-1 hover:border-line-strong">
+          <Link key={r.id} to={`/b/${r.link_token}`} className="card block space-y-1">
             <div className="flex items-baseline justify-between gap-3">
-              <span className="font-display font-bold">{r.baustelle?.bezeichnung ?? 'Baustelle'}</span>
+              <span className="font-display font-semibold">{r.baustelle?.bezeichnung ?? 'Baustelle'}</span>
               <span className="font-mono text-sm tabular-nums">{formatChf(r.betrag_rappen ?? 0)}</span>
             </div>
             <p className="text-xs text-ink3">

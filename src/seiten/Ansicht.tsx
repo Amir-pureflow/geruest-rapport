@@ -34,10 +34,10 @@ export function Ansicht({ hinweis }: { hinweis?: string }) {
                   key={a.key}
                   type="button"
                   onClick={() => waehlen(a.key)}
-                  className={'card flex w-full items-center justify-between gap-3 text-left transition active:bg-ground lg:min-h-[6.5rem] ' + (aktuell === a.key ? 'border-accent' : 'hover:border-line-strong')}
+                  className={'card flex w-full items-center justify-between gap-3 text-left transition active:bg-ground lg:min-h-[6.5rem] ' + (aktuell === a.key ? 'ring-1 ring-ink' : '')}
                 >
                   <span>
-                    <span className="flex items-baseline gap-2 font-display text-[17px] font-bold">{a.titel}{aktuell === a.key ? <span className="font-body text-xs font-normal text-accent-deep">zuletzt</span> : null}</span>
+                    <span className="flex items-baseline gap-2 font-display text-[17px] font-semibold">{a.titel}{aktuell === a.key ? <span className="font-body text-xs font-normal text-accent-deep">zuletzt</span> : null}</span>
                     <span className="block text-sm text-ink3">{a.text}</span>
                   </span>
                   <span className="text-ink3" aria-hidden="true">›</span>

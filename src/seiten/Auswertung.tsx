@@ -116,7 +116,7 @@ export function Auswertung() {
         <header className="flex flex-wrap items-end justify-between gap-3">
           <div>
             <p className="lbl mb-0.5">Regie</p>
-            <h1 className="font-display text-2xl font-bold">Auswertung</h1>
+            <h1 className="font-display text-2xl font-semibold">Auswertung</h1>
           </div>
           {proBaustelle.length > 0 && <button type="button" className="btn-ghost" onClick={csv}>CSV herunterladen</button>}
         </header>
@@ -133,10 +133,10 @@ export function Auswertung() {
         {!laedt && !fehler && (
           <>
             <div className="grid grid-cols-2 gap-2.5 lg:grid-cols-4 lg:gap-4">
-              <div className="card"><span className="block font-display text-2xl font-extrabold tabular-nums">{formatChf(total)}</span><span className="block text-xs text-ink3">Regie im {monatsName(monat)}{monatVorher ? ` · Vormonat ${formatChf(totalVorher)}` : ''}</span></div>
-              <div className="card"><span className="block font-display text-2xl font-extrabold tabular-nums">{formatChf(summe((z) => z.entwurf))}</span><span className="block text-xs text-ink3">noch Entwurf</span></div>
-              <div className="card"><span className="block font-display text-2xl font-extrabold tabular-nums">{formatChf(summe((z) => z.kunde_r))}</span><span className="block text-xs text-ink3">beim Kunden</span></div>
-              <div className="card"><span className="block font-display text-2xl font-extrabold tabular-nums text-good-deep">{formatChf(summe((z) => z.bestaetigt))}</span><span className="block text-xs text-ink3">bestätigt</span></div>
+              <div className="card"><span className="block font-display text-2xl font-semibold tabular-nums">{formatChf(total)}</span><span className="block text-xs text-ink3">Regie im {monatsName(monat)}{monatVorher ? ` · Vormonat ${formatChf(totalVorher)}` : ''}</span></div>
+              <div className="card"><span className="block font-display text-2xl font-semibold tabular-nums">{formatChf(summe((z) => z.entwurf))}</span><span className="block text-xs text-ink3">noch Entwurf</span></div>
+              <div className="card"><span className="block font-display text-2xl font-semibold tabular-nums">{formatChf(summe((z) => z.kunde_r))}</span><span className="block text-xs text-ink3">beim Kunden</span></div>
+              <div className="card"><span className="block font-display text-2xl font-semibold tabular-nums text-good-deep">{formatChf(summe((z) => z.bestaetigt))}</span><span className="block text-xs text-ink3">bestätigt</span></div>
             </div>
 
             <section className="card p-0">

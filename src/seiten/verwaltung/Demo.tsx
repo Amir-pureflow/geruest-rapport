@@ -60,7 +60,7 @@ export function Demo() {
       )}
 
       <section className="card space-y-3 p-4">
-        <p className="font-display text-lg font-bold">Demo-Betrieb</p>
+        <p className="font-display text-lg font-semibold">Demo-Betrieb</p>
         <p className="text-sm text-ink2">
           Erzeugt einen vollständigen Gerüstbaubetrieb: <b>75 Mitarbeitende</b> (45 fest, 30 temporär),
           5 Bauführer, <b>20 Teams</b> mit Chefmonteur, 30 Kunden mit Bauleitung, alle 217 Konten zugeordnet,

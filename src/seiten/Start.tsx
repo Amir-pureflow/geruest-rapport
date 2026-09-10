@@ -138,20 +138,20 @@ function StartBauf() {
         <header className="flex items-end justify-between gap-4">
           <div>
             <p className="lbl mb-0.5">Bauführer</p>
-            <h1 className="font-display text-2xl font-bold lg:text-3xl">{lang(heute)}</h1>
+            <h1 className="font-display text-2xl font-semibold lg:text-3xl">{lang(heute)}</h1>
             <p className="mt-1 hidden text-sm text-ink3 lg:block">Woche {kw(heute)} · {kurz(montag(heute))} bis {kurz(addTage(montag(heute), 6))}</p>
           </div>
           <div className="flex items-center gap-3">
             <span className="flex items-center gap-1.5 font-mono text-xs text-ink3">
-              <span className={'inline-block h-2 w-2 rounded-full ' + (supabase ? 'bg-good' : 'bg-accent')} />
+              <span className={'inline-block h-2 w-2 rounded-full ' + (supabase ? 'bg-good' : 'bg-ink3')} />
               {supabase ? 'verbunden' : 'offline-Modus'}
             </span>
-            <Link to="/zusatzauftrag" className="cta hidden w-auto px-5 py-2.5 text-[15px] lg:block">+ Zusatzarbeit</Link>
+            <Link to="/zusatzauftrag" className="cta cta-accent hidden w-auto px-5 py-2.5 lg:block">+ Zusatzarbeit</Link>
           </div>
         </header>
 
-        <Link to="/zusatzauftrag" className="block rounded-[14px] bg-accent p-5 text-white shadow-[0_3px_14px_rgb(216_40_22/0.35)] transition active:bg-accent-deep lg:hidden">
-          <span className="block font-display text-lg font-extrabold">+ Zusatzarbeit</span>
+        <Link to="/zusatzauftrag" className="cta cta-accent block p-5 text-left lg:hidden">
+          <span className="block text-[17px] font-semibold">+ Zusatzarbeit</span>
           <span className="mt-0.5 block text-sm text-white/85">Kundenbestellung festhalten, während er noch am Telefon ist — 20 Sekunden</span>
         </Link>
 

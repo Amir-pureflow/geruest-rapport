@@ -237,7 +237,7 @@ export function Export() {
     <Shell zurueck>
       <div className="space-y-4">
         <header className="flex flex-wrap items-center justify-between gap-2">
-          <h1 className="font-display text-2xl font-bold">Export</h1>
+          <h1 className="font-display text-2xl font-semibold">Export</h1>
           <div className="flex items-center gap-2">
             <button type="button" className="btn-ghost" onClick={() => blaettern(-1)} aria-label={zeitraum === 'monat' ? 'Monat zurück' : 'Woche zurück'}>‹</button>
             <span className="font-mono text-xs text-ink2">{titel}</span>

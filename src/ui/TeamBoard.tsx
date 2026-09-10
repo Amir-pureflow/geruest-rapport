@@ -44,7 +44,7 @@ function Kachel({ t }: { t: TeamStand }) {
       <span className={'absolute inset-y-0 left-0 w-[3px] ' + rand} aria-hidden="true" />
       <div className="py-2 pl-3.5 pr-3">
         <div className="flex items-baseline justify-between gap-2">
-          <span className="font-display text-[15px] font-bold text-ink">{t.bezeichnung}</span>
+          <span className="font-display text-[15px] font-semibold text-ink">{t.bezeichnung}</span>
           <span className={'font-mono text-[11px] tabular-nums ' + zeitFarbe}>{t.gemeldetUm ?? '—'}</span>
         </div>
         <p className="truncate text-[12px] text-ink2">{t.chefmonteur ?? 'kein Chefmonteur hinterlegt'}</p>
@@ -73,7 +73,7 @@ export function TeamBoard({ teams }: { teams: TeamStand[] }) {
       <div className="flex items-start justify-between gap-4">
         <div className="min-w-0 flex-1">
           <p className="lbl mb-1">Heute</p>
-          <p className="font-display text-[17px] font-bold text-ink">
+          <p className="font-display text-[17px] font-semibold text-ink">
             {gemeldet} von {teams.length} Teams haben gemeldet
           </p>
         </div>

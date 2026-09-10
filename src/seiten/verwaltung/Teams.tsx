@@ -80,7 +80,7 @@ export function Teams() {
       {team && (
         <section className="card space-y-3 p-4">
           <div className="flex items-baseline justify-between">
-            <p className="font-display text-lg font-bold">{team.bezeichnung}</p>
+            <p className="font-display text-lg font-semibold">{team.bezeichnung}</p>
             <label className="flex items-center gap-1.5 text-xs"><input type="checkbox" checked={team.aktiv} onChange={(e) => void aendern({ aktiv: e.target.checked })} /> aktiv</label>
           </div>
           <div>
@@ -95,7 +95,7 @@ export function Teams() {
                 return (
                   <div key={m.mitarbeiter_id} className="flex items-center justify-between gap-2 px-3 py-2 text-sm">
                     <button type="button" onClick={() => void aendern({ chefmonteur_id: m.mitarbeiter_id })} className="flex min-w-0 items-center gap-2 text-left">
-                      <span className={'flex h-6 w-6 flex-none items-center justify-center rounded-full text-[10px] font-bold ' + (chef ? 'bg-accent text-white' : 'border border-line-strong text-ink3')}>{chef ? 'C' : ''}</span>
+                      <span className={'flex h-6 w-6 flex-none items-center justify-center rounded-full text-[10px] font-semibold ' + (chef ? 'bg-accent text-white' : 'border border-line-strong text-ink3')}>{chef ? 'C' : ''}</span>
                       <span className="truncate">{m.mitarbeiter.name}{m.mitarbeiter.typ === 'temporaer' && <span className="ml-1 text-[10px] text-ink3">temp</span>}</span>
                     </button>
                     <button type="button" onClick={() => void entfernen(m)} className="btn-ghost px-2 text-xs">entfernen</button>

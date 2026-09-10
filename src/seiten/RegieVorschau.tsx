@@ -80,7 +80,7 @@ export function RegieVorschau() {
       <div className="space-y-5">
         <header>
           <p className="lbl mb-1">Regierapport · Vorschau</p>
-          <h1 className="font-display text-2xl font-bold">{meldung?.baustelle?.bezeichnung ?? (zustand === 'laedt' ? 'Lädt …' : '—')}</h1>
+          <h1 className="font-display text-2xl font-semibold">{meldung?.baustelle?.bezeichnung ?? (zustand === 'laedt' ? 'Lädt …' : '—')}</h1>
           {meldung?.baustelle && <p className="mt-1 text-sm text-ink3"><span className="knr">{meldung.baustelle.konto_nr}</span> · noch nicht gespeichert</p>}
         </header>
 
@@ -113,8 +113,8 @@ export function RegieVorschau() {
                 ))}
               </div>
               <div className="mt-2 flex items-center justify-between border-t border-line pt-2">
-                <span className="font-display font-bold">Total</span>
-                <span className="font-mono text-lg font-bold tabular-nums text-accent-deep">{formatChf(summe(positionen))}</span>
+                <span className="font-display font-semibold">Total</span>
+                <span className="font-mono text-lg font-semibold tabular-nums text-accent-deep">{formatChf(summe(positionen))}</span>
               </div>
               <p className="mt-1 text-[11px] text-ink3">
                 Lieferwagen, Etappenzuschlag und Materialmiete kommen im Entwurf dazu, Stunden lassen sich dort anpassen.

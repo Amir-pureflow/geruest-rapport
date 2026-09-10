@@ -188,7 +188,7 @@ export function StartChef() {
     return (
       <Shell>
         <div className="space-y-4">
-          <h1 className="font-display text-2xl font-bold">Welches Team?</h1>
+          <h1 className="font-display text-2xl font-semibold">Welches Team?</h1>
           <p className="text-sm text-ink3">Einmal wählen — das Gerät merkt es sich. Das ist dann auch das Team in der Erfassung.</p>
           <div className="grid grid-cols-2 gap-2">
             {teamAuswahl.erste.map((t) => (
@@ -229,7 +229,7 @@ export function StartChef() {
         <header className="flex items-start justify-between gap-3">
           <div>
             <p className="lbl mb-0.5">Chefmonteur</p>
-            <h1 className="font-display text-2xl font-bold">{team?.bezeichnung ?? 'Team'}</h1>
+            <h1 className="font-display text-2xl font-semibold">{team?.bezeichnung ?? 'Team'}</h1>
             <p className="text-sm text-ink3">
               {team?.chefmonteur?.name ?? 'kein Chefmonteur hinterlegt'}{leute.length > 0 ? ` · ${leute.length} Personen` : ''}{team?.fahrzeug ? ` · ${team.fahrzeug}` : ''}
             </p>

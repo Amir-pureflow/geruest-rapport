@@ -152,7 +152,7 @@ function Saeulen({
                 x={x + breite / 2}
                 y={H - 8}
                 textAnchor="middle"
-                className={'font-mono text-[10px] ' + (p.hervor ? 'fill-ink font-bold' : 'fill-ink3')}
+                className={'font-mono text-[10px] ' + (p.hervor ? 'fill-ink font-semibold' : 'fill-ink3')}
               >
                 {p.label}
               </text>

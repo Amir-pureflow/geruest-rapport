@@ -87,7 +87,7 @@ export function RegieListe() {
   return (
     <Shell zurueck>
       <div className="space-y-4">
-        <h1 className="font-display text-2xl font-bold">Regierapporte</h1>
+        <h1 className="font-display text-2xl font-semibold">Regierapporte</h1>
         {zeilen.length === 0 && (
           <div className="card text-sm text-ink3">
             {laedt ? (
@@ -107,9 +107,9 @@ export function RegieListe() {
             </div>
             {g.hinweis && <p className="-mt-1 text-[11px] text-ink3">{g.hinweis}</p>}
             {g.zeilen.map((z) => (
-          <Link key={z.id} to={`/regie/${z.id}`} className="card block hover:border-line-strong">
+          <Link key={z.id} to={`/regie/${z.id}`} className="card block">
             <div className="flex items-baseline justify-between gap-2">
-              <span className="font-display text-[15px] font-bold">
+              <span className="font-display text-[15px] font-semibold">
                 {z.baustelle?.bezeichnung ?? '—'}
                 {z.nummer && <span className="ml-1.5 font-mono text-xs font-semibold text-ink3">{z.nummer}</span>}
               </span>

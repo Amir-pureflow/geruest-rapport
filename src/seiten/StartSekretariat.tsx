@@ -91,13 +91,13 @@ export function StartSekretariat() {
         <header className="flex items-end justify-between gap-4">
           <div>
             <p className="lbl mb-0.5">Sekretariat</p>
-            <h1 className="font-display text-2xl font-bold lg:text-3xl">{lang(heute)}</h1>
+            <h1 className="font-display text-2xl font-semibold lg:text-3xl">{lang(heute)}</h1>
           </div>
-          <Link to="/zusatzauftrag" className="cta hidden w-auto px-5 py-2.5 text-[15px] lg:block">+ Kunde ruft an</Link>
+          <Link to="/zusatzauftrag" className="cta cta-accent hidden w-auto px-5 py-2.5 lg:block">+ Kunde ruft an</Link>
         </header>
 
-        <Link to="/zusatzauftrag" className="block rounded-[14px] bg-accent p-5 text-white shadow-[0_3px_14px_rgb(216_40_22/0.35)] transition active:bg-accent-deep lg:hidden">
-          <span className="block font-display text-lg font-extrabold">+ Kunde ruft an: Zusatzauftrag</span>
+        <Link to="/zusatzauftrag" className="cta cta-accent block p-5 text-left lg:hidden">
+          <span className="block text-[17px] font-semibold">+ Kunde ruft an: Zusatzauftrag</span>
           <span className="mt-0.5 block text-sm text-white/85">Bestellung festhalten, während er noch am Telefon ist — der Bauführer sieht sie sofort</span>
         </Link>
 

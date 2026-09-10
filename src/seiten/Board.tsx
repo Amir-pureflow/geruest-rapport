@@ -87,7 +87,7 @@ export function Board() {
     <Shell zurueck>
       <div className="space-y-4">
         <header>
-          <h1 className="font-display text-2xl font-bold">Board</h1>
+          <h1 className="font-display text-2xl font-semibold">Board</h1>
           <p className="text-sm text-ink3">Jahresplan — Block antippen, um Termine zu verschieben. Jede Verschiebung wird festgehalten.</p>
         </header>
 
@@ -134,7 +134,7 @@ export function Board() {
 
         {gewaehlt && (
           <section className="card space-y-3 p-4">
-            <p className="font-display font-bold">{gewaehlt.baustelle?.bezeichnung} <span className="knr ml-1">{gewaehlt.baustelle?.konto_nr}</span></p>
+            <p className="font-display font-semibold">{gewaehlt.baustelle?.bezeichnung} <span className="knr ml-1">{gewaehlt.baustelle?.konto_nr}</span></p>
             <div className="grid grid-cols-2 gap-2">
               <div><label className="lbl">Von</label><input type="date" value={von} onChange={(e) => setVon(e.target.value)} className="field" /></div>
               <div><label className="lbl">Bis</label><input type="date" value={bis} onChange={(e) => setBis(e.target.value)} className="field" /></div>

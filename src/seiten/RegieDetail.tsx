@@ -401,7 +401,7 @@ export function RegieDetail() {
       <Shell zurueck schmal>
         {zustand === 'fehlt' || !supabase || !id ? (
           <div className="card space-y-3">
-            <p className="font-display font-bold">Dieser Regierapport existiert nicht mehr.</p>
+            <p className="font-display font-semibold">Dieser Regierapport existiert nicht mehr.</p>
             <p className="text-sm text-ink3">Vielleicht wurde der Entwurf verworfen oder der Link ist veraltet.</p>
             <Link to="/regie" className="btn-ghost inline-block">Zu den Regierapporten ›</Link>
           </div>
@@ -417,7 +417,7 @@ export function RegieDetail() {
       <div className="space-y-5">
         <header>
           <p className="lbl mb-1">Regierapport</p>
-          <h1 className="font-display text-2xl font-bold">
+          <h1 className="font-display text-2xl font-semibold">
             {rapport.baustelle?.bezeichnung ?? '—'}
           </h1>
           <p className="mt-1 flex items-center gap-2 text-sm text-ink3">
@@ -556,7 +556,7 @@ export function RegieDetail() {
             </div>
           )}
           <div className="mt-3 flex items-baseline justify-between border-t border-line-strong pt-2.5">
-            <span className="font-display font-bold">Total</span>
+            <span className="font-display font-semibold">Total</span>
             <span className="font-mono text-lg font-semibold text-accent-deep tabular-nums">
               {formatChf(total)}
             </span>

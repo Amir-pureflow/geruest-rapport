@@ -86,7 +86,7 @@ export function Tag() {
         <header className="flex items-center justify-between gap-3">
           <div>
             <p className="lbl mb-0.5">Tagesübersicht</p>
-            <h1 className="font-display text-2xl font-bold">{lang(datum)}</h1>
+            <h1 className="font-display text-2xl font-semibold">{lang(datum)}</h1>
             <p className="text-sm text-ink3">
               {laedt ? 'lädt …' : `${gemeldet.length} von ${teams.length} Teams haben gemeldet`}
               {wochenende && !laedt ? ' · Wochenende' : ''}
@@ -107,7 +107,7 @@ export function Tag() {
               return (
                 <div key={t.id} className="card flex items-center justify-between gap-3 border-accent/30">
                   <div className="min-w-0">
-                    <p className="font-display font-bold">{t.bezeichnung} <span className="font-body text-sm font-normal text-ink3">· {t.chefmonteur?.name ?? 'kein Chefmonteur'}</span></p>
+                    <p className="font-display font-semibold">{t.bezeichnung} <span className="font-body text-sm font-normal text-ink3">· {t.chefmonteur?.name ?? 'kein Chefmonteur'}</span></p>
                     <p className="truncate text-sm text-ink3">
                       {bs ? <>laut Plan: <span className="knr">{bs.konto_nr}</span> {bs.bezeichnung ?? ''}</> : 'heute nichts im Jahresplan'}
                     </p>
@@ -130,7 +130,7 @@ export function Tag() {
               return (
                 <div key={t.id} className="card space-y-1.5">
                   <div className="flex items-center justify-between gap-3">
-                    <p className="font-display font-bold">{t.bezeichnung} <span className="font-body text-sm font-normal text-ink3">· {t.chefmonteur?.name ?? ''}</span></p>
+                    <p className="font-display font-semibold">{t.bezeichnung} <span className="font-body text-sm font-normal text-ink3">· {t.chefmonteur?.name ?? ''}</span></p>
                     <span className="font-mono text-sm tabular-nums">{stunden(total)} h · {leute} Pers.</span>
                   </div>
                   {/* Eine Zeile pro Baustelle: normaler Tag + Abweichung sind zwei Meldungen derselben Leute am selben Ort */}

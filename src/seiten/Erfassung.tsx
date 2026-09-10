@@ -152,7 +152,7 @@ export function Erfassung() {
           {fotos.map((f) => (
             <span key={f.id} className="relative h-16 w-16 overflow-hidden rounded-[8px] border border-line">
               <img src={f.url} alt="" className="h-full w-full object-cover" />
-              <button type="button" onClick={() => fotoEntfernen(f.id)} aria-label="Foto entfernen" className="absolute right-0.5 top-0.5 h-5 w-5 rounded-full bg-ink/80 text-[11px] font-bold leading-5 text-white">×</button>
+              <button type="button" onClick={() => fotoEntfernen(f.id)} aria-label="Foto entfernen" className="absolute right-0.5 top-0.5 h-5 w-5 rounded-full bg-ink/80 text-[11px] font-semibold leading-5 text-white">×</button>
             </span>
           ))}
           <label className={'flex h-16 min-w-16 cursor-pointer items-center justify-center gap-2 rounded-[8px] border-2 border-dashed px-3 text-sm font-semibold ' + (fotos.length === 0 ? 'border-steel bg-steel-soft text-steel' : 'border-line-strong text-ink2')}>
@@ -517,7 +517,7 @@ export function Erfassung() {
     return (
       <Shell zurueck schmal>
         <div className="space-y-4">
-          <h1 className="font-display text-2xl font-bold">Welches Team?</h1>
+          <h1 className="font-display text-2xl font-semibold">Welches Team?</h1>
           <p className="text-sm text-ink3">Einmal wählen — das Gerät merkt es sich.</p>
           <div className="grid grid-cols-2 gap-2">
             {teamAuswahl.erste.map((t) => (
@@ -548,7 +548,7 @@ export function Erfassung() {
       <Shell zurueck schmal>
         <div className="space-y-4">
           <section className={'rounded-[14px] border px-4 py-4 ' + (stand === 'fehler' ? 'border-amber/50 bg-amber-soft' : 'border-good/40 bg-good-soft')}>
-            <p className={'font-display text-xl font-bold ' + (stand === 'fehler' ? 'text-amber-deep' : 'text-good-deep')}>
+            <p className={'font-display text-xl font-semibold ' + (stand === 'fehler' ? 'text-amber-deep' : 'text-good-deep')}>
               {stand === 'gesendet' ? '✓ Gespeichert und gesendet' : stand === 'wartet' ? '✓ Gespeichert — wird gesendet, sobald Netz da ist' : 'Gespeichert, aber noch nicht gesendet'}
             </p>
             <p className="mt-1 text-sm text-ink2">{fertig?.text}</p>
@@ -589,7 +589,7 @@ export function Erfassung() {
       <Shell zurueck schmal>
         <div className="space-y-4">
           <p className="lbl mb-0">Abweichung</p>
-          <h1 className="font-display text-2xl font-bold">Was war anders?</h1>
+          <h1 className="font-display text-2xl font-semibold">Was war anders?</h1>
           <div className="grid grid-cols-3 gap-2">
             {SYMBOLE.map((s) => (
               <button key={s.typ} type="button" onClick={() => { setAbweichung(s.typ); setAbLeute(new Set(dabei.map((p) => p.id))); setSchritt('wer'); }} className="chip flex flex-col items-center gap-2 py-5 text-ink2">
@@ -609,7 +609,7 @@ export function Erfassung() {
       <Shell zurueck schmal>
         <div className="space-y-4">
           <p className="lbl mb-0">{SYMBOLE.find((s) => s.typ === abweichung)?.label}</p>
-          <h1 className="font-display text-2xl font-bold">Wer wollte das?</h1>
+          <h1 className="font-display text-2xl font-semibold">Wer wollte das?</h1>
           <div className="grid grid-cols-3 gap-2">
             {([['kunde', 'Kunde', '#D82816'], ['chef', 'Unser Chef', '#29506B'], ['niemand', 'Niemand', '']] as const).map(([w, label, farbe]) => (
               <button key={w} type="button" onClick={() => { setWer(w); setSchritt('notiz'); }} className="chip flex flex-col items-center gap-2 py-5">
@@ -632,7 +632,7 @@ export function Erfassung() {
       <Shell zurueck schmal>
         <div className="space-y-4">
           <p className="lbl mb-0">{SYMBOLE.find((s) => s.typ === abweichung)?.label} · {wer === 'kunde' ? 'Kunde' : wer === 'chef' ? 'unser Chef' : 'niemand'}</p>
-          <h1 className="font-display text-2xl font-bold">Wie lange?</h1>
+          <h1 className="font-display text-2xl font-semibold">Wie lange?</h1>
           <Stepper wert={abMin} setWert={(v) => { setAbMin(v); setAbMinPerson({}); }} schritt={30} min={30} format={(v) => (v / 60).toFixed(1) + ' h'} />
           <p className="-mt-2 text-center text-xs text-ink3">Gilt für alle — unten kann jede Person einzeln anders sein.</p>
 
@@ -645,13 +645,13 @@ export function Erfassung() {
                 return (
                   <div key={p.id} className="flex items-center justify-between gap-2 px-3 py-2">
                     <button type="button" onClick={() => setAbLeute((s) => { const n = new Set(s); if (n.has(p.id)) n.delete(p.id); else n.add(p.id); return n; })} className="flex min-w-0 items-center gap-2 text-left">
-                      <span className={'grid h-7 w-7 flex-none place-items-center rounded-[7px] text-sm font-bold ' + (dabeiAb ? 'bg-good text-white' : 'border border-line-strong text-transparent')}>✓</span>
+                      <span className={'grid h-7 w-7 flex-none place-items-center rounded-[7px] text-sm font-semibold ' + (dabeiAb ? 'bg-good text-white' : 'border border-line-strong text-transparent')}>✓</span>
                       <span className={'truncate ' + (dabeiAb ? '' : 'text-ink3')}>{p.name}{p.typ === 'temporaer' && <span className="ml-1 text-[10px] text-ink3">temp</span>}</span>
                     </button>
                     {dabeiAb ? (
                       <span className="flex flex-none items-center gap-1">
                         <button type="button" className="btn-ghost px-2.5" onClick={() => setAbMinPerson((m) => ({ ...m, [p.id]: Math.max(30, min - 30) }))}>−</button>
-                        <span className={'w-12 text-center font-mono text-sm tabular-nums ' + (abMinPerson[p.id] !== undefined && abMinPerson[p.id] !== abMin ? 'font-bold text-steel' : '')}>{stunden(min)}</span>
+                        <span className={'w-12 text-center font-mono text-sm tabular-nums ' + (abMinPerson[p.id] !== undefined && abMinPerson[p.id] !== abMin ? 'font-semibold text-steel' : '')}>{stunden(min)}</span>
                         <button type="button" className="btn-ghost px-2.5" onClick={() => setAbMinPerson((m) => ({ ...m, [p.id]: min + 30 }))}>+</button>
                       </span>
                     ) : (
@@ -668,7 +668,7 @@ export function Erfassung() {
           <div className={'rounded-[14px] border-2 border-dashed p-5 text-center ' + (nimmtAuf ? 'border-accent bg-accent-soft' : 'border-steel bg-steel-soft')}>
             {aufnahme ? (
               <div className="space-y-2">
-                <p className="font-display font-bold">Sprachnotiz · {aufnahme.sekunden} Sek. ✓</p>
+                <p className="font-display font-semibold">Sprachnotiz · {aufnahme.sekunden} Sek. ✓</p>
                 <audio controls src={URL.createObjectURL(aufnahme.blob)} className="mx-auto h-9 w-full max-w-xs" />
                 <button type="button" onClick={() => setAufnahme(null)} className="btn-ghost">nochmal</button>
               </div>
@@ -682,7 +682,7 @@ export function Erfassung() {
                   </svg>
                 </span>
                 {nimmtAuf && <span className="mt-3 block"><Pegel stream={mikroStream} /></span>}
-                <span className="mt-2 block font-display font-bold">{nimmtAuf ? `${sekunden} Sek. — antippen zum Stoppen` : 'Antippen und kurz erzählen, was war'}</span>
+                <span className="mt-2 block font-display font-semibold">{nimmtAuf ? `${sekunden} Sek. — antippen zum Stoppen` : 'Antippen und kurz erzählen, was war'}</span>
                 <span className="mt-1 block text-xs text-ink3">{nimmtAuf ? 'Die App hört zu und schreibt danach mit.' : 'In deiner Sprache. Freiwillig — die Meldung geht auch ohne.'}</span>
               </button>
             )}
@@ -704,7 +704,7 @@ export function Erfassung() {
           <div className="min-w-0">
             <div className="flex items-center gap-1.5">
               <button type="button" className="btn-ghost px-2.5 py-1" disabled={tagIso <= fruehesterIso} onClick={() => setDatum((d) => addTage(d, -1))} aria-label="Tag zurück">◀</button>
-              <h1 className="font-display text-2xl font-bold">{istHeute ? 'Heute' : lang(datum)}</h1>
+              <h1 className="font-display text-2xl font-semibold">{istHeute ? 'Heute' : lang(datum)}</h1>
               <button type="button" className="btn-ghost px-2.5 py-1" disabled={istHeute} onClick={() => setDatum((d) => addTage(d, 1))} aria-label="Tag vor">▶</button>
             </div>
             <p className="mt-0.5 text-xs text-ink3">
@@ -769,7 +769,7 @@ export function Erfassung() {
           <div className="grid grid-cols-2 gap-2">
             {kacheln.map((b, i) => (
               <button key={b.id} type="button" onClick={() => setBaustelle(b)} className={'chip flex min-h-[4.5rem] flex-col items-start justify-center py-2.5 text-left ' + (baustelle?.id === b.id ? 'chip-on' : '')}>
-                <span className="text-sm font-bold leading-tight">{b.bezeichnung}</span>
+                <span className="text-sm font-semibold leading-tight">{b.bezeichnung}</span>
                 <span className="mt-1 flex items-center gap-1.5"><span className="knr">{b.konto_nr}</span>{i === 0 && <span className="text-[10px] text-ink3">zuletzt</span>}</span>
               </button>
             ))}
@@ -808,7 +808,7 @@ export function Erfassung() {
                   <div className="mt-2 grid gap-2">
                     {suchTreffer.map((b) => (
                       <button key={b.id} type="button" onClick={() => { setBaustelle(b); setZeigeAndere(false); setZiffern(''); }} className={'chip flex items-center justify-between py-2.5 text-left ' + (baustelle?.id === b.id ? 'chip-on' : '')}>
-                        <span className="text-sm font-bold">{b.bezeichnung ?? 'Baustelle'}</span><span className="knr">{b.konto_nr}</span>
+                        <span className="text-sm font-semibold">{b.bezeichnung ?? 'Baustelle'}</span><span className="knr">{b.konto_nr}</span>
                       </button>
                     ))}
                   </div>
@@ -827,7 +827,7 @@ export function Erfassung() {
               return (
                 <div key={p.id} className="px-3 py-2">
                   <div className="flex items-center gap-2">
-                    <button type="button" onClick={() => setAnw((s) => ({ ...s, [p.id]: { ...a, dabei: !a.dabei } }))} className={'flex h-8 w-8 flex-none items-center justify-center rounded-md border text-lg font-bold ' + (a.dabei ? 'border-good bg-good text-white' : 'border-line-strong text-ink3')}>
+                    <button type="button" onClick={() => setAnw((s) => ({ ...s, [p.id]: { ...a, dabei: !a.dabei } }))} className={'flex h-8 w-8 flex-none items-center justify-center rounded-md border text-lg font-semibold ' + (a.dabei ? 'border-good bg-good text-white' : 'border-line-strong text-ink3')}>
                       {a.dabei ? '✓' : ''}
                     </button>
                     <span className={'min-w-0 flex-1 truncate text-sm ' + (a.dabei ? 'font-medium' : 'text-ink3 line-through')}>

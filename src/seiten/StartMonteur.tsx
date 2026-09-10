@@ -134,7 +134,7 @@ export function StartMonteur() {
     return (
       <Shell>
         <div className="space-y-4">
-          <h1 className="font-display text-2xl font-bold">Wer bist du?</h1>
+          <h1 className="font-display text-2xl font-semibold">Wer bist du?</h1>
           <p className="text-sm text-ink3">Zuerst dein Team, dann dein Name. Das Gerät merkt es sich.</p>
           <div className="grid grid-cols-2 gap-2">{teamAuswahl.erste.map(teamKnopf)}</div>
           {weitereTeams > 0 && <div className="grid grid-cols-2 gap-2">{teamAuswahl.rest.slice(0, weitereTeams).map(teamKnopf)}</div>}
@@ -171,7 +171,7 @@ export function StartMonteur() {
         <header className="flex items-start justify-between gap-3">
           <div>
             <p className="lbl mb-0.5">Monteur</p>
-            <h1 className="font-display text-2xl font-bold">{person?.name ?? '…'}</h1>
+            <h1 className="font-display text-2xl font-semibold">{person?.name ?? '…'}</h1>
             <p className="text-sm text-ink3">Meine Woche · KW {kw(wochenStart)}</p>
           </div>
           <button type="button" className="btn-ghost shrink-0 text-xs" onClick={() => { localStorage.removeItem(MONTEUR_KEY); setPerson(null); setPersonId(null); setTeamId(null); }}>Nicht ich</button>
@@ -226,7 +226,7 @@ export function StartMonteur() {
             );
           })}
           <div className="flex items-center justify-between gap-2 px-4 py-2.5 text-sm">
-            <span className="font-display font-bold">Total</span>
+            <span className="font-display font-semibold">Total</span>
             <span className="flex items-center gap-2 font-mono tabular-nums">
               <span className="w-24 text-right text-xs text-ink3">
                 {oevTage > 0 ? `öV ${oevTage}×` : ''}{oevTage > 0 && km > 0 ? ' · ' : ''}{km > 0 ? `${km} km` : ''}

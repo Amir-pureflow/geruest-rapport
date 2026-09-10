@@ -104,7 +104,7 @@ export function Bestaetigung() {
           <>
             <header>
               <p className="lbl mb-1">Regierapport</p>
-              <h1 className="font-display text-2xl font-bold">{daten.bezeichnung ?? '—'}</h1>
+              <h1 className="font-display text-2xl font-semibold">{daten.bezeichnung ?? '—'}</h1>
               <p className="mt-1 flex flex-wrap items-center gap-2 text-sm text-ink3">
                 {daten.konto_nr && <span className="knr">{daten.konto_nr}</span>}
                 {daten.betrag_rappen != null && (
@@ -137,8 +137,8 @@ export function Bestaetigung() {
                 </div>
                 {daten.betrag_rappen != null && (
                   <div className="mt-2 flex items-center justify-between border-t border-line pt-2">
-                    <span className="font-display font-bold">Total</span>
-                    <span className="font-mono font-bold tabular-nums text-accent-deep">{formatChf(daten.betrag_rappen)}</span>
+                    <span className="font-display font-semibold">Total</span>
+                    <span className="font-mono font-semibold tabular-nums text-accent-deep">{formatChf(daten.betrag_rappen)}</span>
                   </div>
                 )}
                 <p className="mt-2 text-[11px] text-ink3">Verbindlich ist das Dokument, das Ihnen per Mail zugestellt wurde.</p>
@@ -166,7 +166,7 @@ export function Bestaetigung() {
                 <button
                   type="button"
                   onClick={() => { setSendeFehler(''); setZustand('rueckfrage_text'); }}
-                  className="rounded-xl border border-line-strong bg-surface py-4 font-display font-bold text-ink2 hover:border-ink3"
+                  className="rounded-xl border border-line-strong bg-surface py-4 font-display font-semibold text-ink2 hover:border-ink3"
                 >
                   Rückfrage
                 </button>
@@ -175,7 +175,7 @@ export function Bestaetigung() {
 
             {zustand === 'bestaetigen_frage' && (
               <div className="card space-y-3 p-5">
-                <p className="font-display text-lg font-bold">
+                <p className="font-display text-lg font-semibold">
                   Regie{daten.betrag_rappen != null ? ` über ${formatChf(daten.betrag_rappen)}` : ''} bestätigen?
                 </p>
                 <p className="text-sm text-ink2">Mit der Bestätigung anerkennen Sie die aufgeführte Zusatzarbeit.</p>
@@ -217,7 +217,7 @@ export function Bestaetigung() {
 
             {zustand === 'fertig' && (
               <div className="card border-good/40 bg-good-soft">
-                <p className="font-display font-bold text-good-deep">{meldung}</p>
+                <p className="font-display font-semibold text-good-deep">{meldung}</p>
               </div>
             )}
           </>

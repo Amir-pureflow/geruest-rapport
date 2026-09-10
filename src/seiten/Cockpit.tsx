@@ -514,7 +514,7 @@ export function Cockpit() {
     <Shell zurueck>
       <div className="space-y-4">
         <header className="flex items-center justify-between">
-          <h1 className="font-display text-2xl font-bold">Wochenübersicht</h1>
+          <h1 className="font-display text-2xl font-semibold">Wochenübersicht</h1>
           <div className="flex items-center gap-2">
             <button type="button" className="btn-ghost" onClick={() => setWochenStart(addTage(wochenStart, -7))}>‹</button>
             <span className="font-mono text-xs text-ink2">
@@ -611,7 +611,7 @@ export function Cockpit() {
                       className="flex w-full items-center justify-between gap-3 px-3 py-2.5 text-left"
                     >
                       <span className="min-w-0 truncate">
-                        <span className="font-display text-[14px] font-bold">{z.team.bezeichnung}</span>
+                        <span className="font-display text-[14px] font-semibold">{z.team.bezeichnung}</span>
                         {z.team.chefmonteur && <span className="ml-1.5 text-xs text-ink3">{kurzName(z.team.chefmonteur.name)}</span>}
                       </span>
                       <span className="shrink-0 text-right text-xs text-ink3">
@@ -632,7 +632,7 @@ export function Cockpit() {
                     >
                       <span className="flex min-w-0 items-baseline justify-between gap-2">
                         <span className="min-w-0 truncate">
-                          <span className="font-display text-[14px] font-bold">{z.team.bezeichnung}</span>
+                          <span className="font-display text-[14px] font-semibold">{z.team.bezeichnung}</span>
                           {z.team.chefmonteur && <span className="ml-1.5 font-body text-xs font-normal text-ink3">{kurzName(z.team.chefmonteur.name)}</span>}
                         </span>
                         <span
@@ -707,7 +707,7 @@ export function Cockpit() {
                                           >
                                             {st === 'leer' ? '–' : stunden(summe)}
                                             {liste && doppelteNormalmeldungen(liste) > 1 && (
-                                              <sup className="ml-0.5 text-[9px] font-bold text-amber-deep" title="der normale Tag wurde mehrfach gemeldet">{doppelteNormalmeldungen(liste)}×</sup>
+                                              <sup className="ml-0.5 text-[9px] font-semibold text-amber-deep" title="der normale Tag wurde mehrfach gemeldet">{doppelteNormalmeldungen(liste)}×</sup>
                                             )}
                                           </button>
                                         </td>
@@ -742,7 +742,7 @@ export function Cockpit() {
                                   </span>
                                   <span className="flex items-center gap-1.5">
                                     {darfFreigeben && e.status === 'offen' && <button type="button" className="btn-ghost px-2.5" onClick={() => korrekturStarten(e, -30)}>−</button>}
-                                    <span className={'w-12 text-center font-mono text-sm tabular-nums ' + (korrektur?.id === e.id && korrektur.total !== korrektur.alt ? 'font-bold text-steel' : '')}>
+                                    <span className={'w-12 text-center font-mono text-sm tabular-nums ' + (korrektur?.id === e.id && korrektur.total !== korrektur.alt ? 'font-semibold text-steel' : '')}>
                                       {stunden(korrektur?.id === e.id ? korrektur.total : e.normal_min + e.ueber_min)} h
                                     </span>
                                     {darfFreigeben && e.status === 'offen' && <button type="button" className="btn-ghost px-2.5" onClick={() => korrekturStarten(e, 30)}>+</button>}
@@ -801,7 +801,7 @@ export function Cockpit() {
                           {faelle.map(({ meldung, eintraege: liste, ausloeser }) => (
                             <div key={meldung.id} className={'rounded-[12px] border border-amber/40 bg-amber-soft/60 p-3' + (markierteMeldung === meldung.id ? ' ring-2 ring-steel' : '')}>
                               <div className="flex items-baseline justify-between gap-2">
-                                <span className="font-display text-[14px] font-bold">
+                                <span className="font-display text-[14px] font-semibold">
                                   {markierteMeldung === meldung.id ? 'Diese Meldung · ' : 'Regieverdacht · '}{meldung.baustelle?.bezeichnung ?? '—'}
                                 </span>
                                 <span className="font-mono text-xs text-ink3">{ch(new Date(meldung.datum + 'T12:00:00'))}</span>

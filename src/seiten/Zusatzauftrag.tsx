@@ -250,7 +250,7 @@ export function Zusatzauftrag() {
   return (
     <Shell zurueck schmal>
       <div className="space-y-6">
-        <h1 className="font-display text-2xl font-bold">Zusatzauftrag erfassen</h1>
+        <h1 className="font-display text-2xl font-semibold">Zusatzauftrag erfassen</h1>
 
         <section className="card space-y-4 p-5">
           <div>
@@ -264,7 +264,7 @@ export function Zusatzauftrag() {
                 }}
                 className="w-full rounded-[10px] border border-accent bg-accent-soft px-3.5 py-2.5 text-left"
               >
-                <span className="font-display font-bold">{gewaehlt.bezeichnung}</span>
+                <span className="font-display font-semibold">{gewaehlt.bezeichnung}</span>
                 <span className="mt-0.5 flex items-center gap-2 text-xs text-ink3">
                   <span className="knr">{gewaehlt.konto_nr}</span>
                   antippen zum Ändern
@@ -403,7 +403,7 @@ export function Zusatzauftrag() {
             return (
               <div key={e.client_uuid} className="rounded-[14px] border border-dashed border-line-strong bg-surface p-3.5">
                 <div className="flex items-baseline justify-between gap-2">
-                  <span className="font-display text-[15px] font-bold">{b?.bezeichnung ?? b?.konto_nr ?? 'Baustelle'}</span>
+                  <span className="font-display text-[15px] font-semibold">{b?.bezeichnung ?? b?.konto_nr ?? 'Baustelle'}</span>
                   <span className="rounded-md bg-amber-soft px-1.5 py-0.5 font-mono text-[11px] font-semibold text-amber-deep">bestellt</span>
                 </div>
                 <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-ink2">
@@ -426,7 +426,7 @@ export function Zusatzauftrag() {
           {[...offene, ...(zeigeErledigte ? erledigte : [])].map((a) => (
             <div key={a.id} className={'card ' + (a.ohne_meldung ? 'border-amber/40' : '')}>
               <div className="flex items-baseline justify-between gap-2">
-                <span className="font-display text-[15px] font-bold">
+                <span className="font-display text-[15px] font-semibold">
                   {a.baustelle_bezeichnung ?? a.konto_nr}
                 </span>
                 <span
