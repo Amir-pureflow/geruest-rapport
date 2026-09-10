@@ -103,12 +103,12 @@ export function StartSekretariat() {
 
         {k && (
           <div className="grid grid-cols-2 gap-2.5 lg:grid-cols-3 lg:gap-4">
-            <Kachel zu="/regie" wert={String(k.regieOffen)} label={`Regierapporte beim Kunden · ${formatChf(k.regieOffenRappen)}`} />
-            <Kachel zu="/regie" wert={String(k.regieUeberfaellig)} label="Frist abgelaufen — nachfassen" warn={k.regieUeberfaellig > 0} />
-            <Kachel zu="/regie" wert={formatChf(k.regieMonatRappen)} label={`Regie an Kunden verschickt im ${MONATE[heute.getMonth()]}`} />
-            <Kachel zu="/regie" wert={String(k.entwuerfe)} label="Entwürfe beim Bauführer" />
+            <Kachel zu="/regie" wert={String(k.regieOffen)} label={`Regierapporte beim Kunden · ${formatChf(k.regieOffenRappen)}`} farbe="blau" />
+            <Kachel zu="/regie" wert={String(k.regieUeberfaellig)} label="Frist abgelaufen — nachfassen" farbe={k.regieUeberfaellig > 0 ? 'rot' : 'neutral'} />
+            <Kachel zu="/regie" wert={formatChf(k.regieMonatRappen)} label={`Regie an Kunden verschickt im ${MONATE[heute.getMonth()]}`} farbe="gruen" />
+            <Kachel zu="/regie" wert={String(k.entwuerfe)} label="Entwürfe beim Bauführer" farbe={k.entwuerfe > 0 ? 'gelb' : 'neutral'} />
             <Kachel zu="/zusatzauftrag" wert={String(k.offeneAuftraege)} label="offene Zusatzaufträge" />
-            <Kachel zu="/zusatzauftrag" wert={String(k.ohneMeldung)} label="Bestellungen ohne Meldung — geplanter Tag vorbei, Team hat nichts gemeldet" warn={k.ohneMeldung > 0} />
+            <Kachel zu="/zusatzauftrag" wert={String(k.ohneMeldung)} label="Bestellungen ohne Meldung — geplanter Tag vorbei, Team hat nichts gemeldet" farbe={k.ohneMeldung > 0 ? 'gelb' : 'neutral'} />
             <Kachel zu="/heute" wert={`${k.teamsGemeldet}/${k.teams}`} label="Teams haben heute gemeldet" />
           </div>
         )}

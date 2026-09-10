@@ -78,7 +78,7 @@ function NavLink({ e, aktiv }: { e: NavEintrag; aktiv: boolean }) {
       aria-current={aktiv ? 'page' : undefined}
       className={
         'block rounded-[10px] px-3 py-[7px] text-[14px] transition-colors duration-150 ' +
-        (aktiv ? 'bg-surface-2 font-medium text-ink' : 'font-normal text-ink2 hover:bg-surface-2/70 hover:text-ink')
+        (aktiv ? 'bg-accent-soft font-medium text-accent-deep' : 'font-normal text-ink2 hover:bg-surface-2 hover:text-ink')
       }
     >
       {e.label}

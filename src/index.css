@@ -13,25 +13,25 @@
   --font-sans: 'Inter', 'Segoe UI', system-ui, sans-serif;
   --font-mono: 'Inter', 'Segoe UI', system-ui, sans-serif;
 
-  --color-ground: #fafafa;      /* Seitengrund */
+  --color-ground: #f7f6f3;      /* Seitengrund — leicht warm, kein kaltes Grau */
   --color-surface: #ffffff;     /* Karten, Felder */
-  --color-surface-2: #f4f4f5;   /* leise Flächen: Chips, Kontonummern, Tabellenköpfe */
-  --color-line: #ececec;
-  --color-line-strong: #d4d4d8;
-  --color-ink: #111113;
-  --color-ink2: #4b4b52;
-  --color-ink3: #86868e;
+  --color-surface-2: #f1efea;   /* leise Flächen: Chips, Kontonummern, Tabellenköpfe */
+  --color-line: #e9e6e0;
+  --color-line-strong: #d3cfc7;
+  --color-ink: #1a1917;
+  --color-ink2: #4d4a45;
+  --color-ink3: #8a867e;
   --color-accent: #e0301e;      /* Firmenrot geruestgmbh.ch, leicht wärmer — Knöpfe und Auswahl */
   --color-accent-deep: #c4271a;
   --color-accent-soft: #fdecea;
-  --color-steel: #1f1f23;       /* Auswahl, Links: neutral dunkel statt Stahlblau */
-  --color-steel-soft: #f1f1f3;
-  --color-good: #178a4c;
-  --color-good-deep: #116a3a;
-  --color-good-soft: #e8f5ee;
-  --color-amber: #b7791f;       /* Hinweis/Warnung */
-  --color-amber-deep: #8f5d14;
-  --color-amber-soft: #fbf3e4;
+  --color-steel: #2b6cb0;       /* Blau: Links, «beim Kunden», Information */
+  --color-steel-soft: #e7f0fb;
+  --color-good: #1f9d55;
+  --color-good-deep: #15733d;
+  --color-good-soft: #e3f5ea;
+  --color-amber: #d9930f;       /* Bernstein: Entwurf, wartet, Hinweis */
+  --color-amber-deep: #9a6508;
+  --color-amber-soft: #fff3d6;
 }
 
 @layer base {

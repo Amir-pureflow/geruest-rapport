@@ -174,12 +174,12 @@ function StartBauf() {
         )}
         {k && (
           <div className="grid grid-cols-2 gap-2.5 lg:grid-cols-3 lg:gap-4">
-            <Kachel zu="/heute" wert={`${k.teamsGemeldet}/${k.teams}`} label="Teams haben heute gemeldet" warn={k.teamsGemeldet < k.teams && heute.getDay() >= 1 && heute.getDay() <= 5 && heute.getHours() >= 17} />
-            <Kachel zu={`/cockpit?woche=${vorwoche}`} wert={String(k.zuPruefen)} label="Zeiteinträge der Vorwoche warten auf Freigabe" warn={k.zuPruefen > 0} />
+            <Kachel zu="/heute" wert={`${k.teamsGemeldet}/${k.teams}`} label="Teams haben heute gemeldet" farbe={k.teams > 0 && k.teamsGemeldet === k.teams ? 'gruen' : k.teamsGemeldet < k.teams && heute.getDay() >= 1 && heute.getDay() <= 5 && heute.getHours() >= 17 ? 'gelb' : 'neutral'} />
+            <Kachel zu={`/cockpit?woche=${vorwoche}`} wert={String(k.zuPruefen)} label="Zeiteinträge der Vorwoche warten auf Freigabe" farbe={k.zuPruefen > 0 ? 'gelb' : 'gruen'} />
             <Kachel zu="/zusatzauftrag" wert={String(k.offeneAuftraege)} label={k.ohneMeldung > 0 ? `offene Zusatzaufträge · ${k.ohneMeldung} ohne Meldung vom Team` : k.heuteGeplant > 0 ? `offene Zusatzaufträge · ${k.heuteGeplant} heute` : 'offene Zusatzaufträge'} warn={k.ohneMeldung > 0} />
             <Kachel zu="/regie" wert={formatChf(k.inArbeitRappen)} label={k.inArbeitAltRappen > 0 ? `Regie in Arbeit · ${formatChf(k.inArbeitAltRappen)} älter als 30 Tage` : `Regie in Arbeit · ${k.regieOffen} beim Kunden`} warn={k.inArbeitAltRappen > 0} />
-            <Kachel zu="/regie" wert={String(k.regieUeberfaellig)} label="Frist abgelaufen — nachfassen" warn={k.regieUeberfaellig > 0} />
-            <Kachel zu="/auswertung" wert={formatChf(k.regieMonatRappen)} label={`Regie an Kunden verschickt im ${MONATE[heute.getMonth()]}`} />
+            <Kachel zu="/regie" wert={String(k.regieUeberfaellig)} label="Frist abgelaufen — nachfassen" farbe={k.regieUeberfaellig > 0 ? 'rot' : 'neutral'} />
+            <Kachel zu="/auswertung" wert={formatChf(k.regieMonatRappen)} label={`Regie an Kunden verschickt im ${MONATE[heute.getMonth()]}`} farbe="gruen" />
           </div>
         )}
 

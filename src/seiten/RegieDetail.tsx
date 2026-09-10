@@ -443,8 +443,8 @@ export function RegieDetail() {
 
         {/* Ursprung: woher die Zahlen kommen — Tagesmeldung des Teams und die Bestellung des Kunden */}
         {(rapport.tagesmeldung || rapport.zusatzauftrag) && (
-          <section className="panel space-y-3">
-            <p className="lbl mb-0">Ursprung</p>
+          <section className="panel space-y-3 bg-steel-soft">
+            <p className="lbl mb-0 text-steel">Ursprung</p>
             {rapport.tagesmeldung && (() => {
               const m = rapport.tagesmeldung;
               const total = m.zeiteintrag.reduce((s, z) => s + z.normal_min + z.ueber_min, 0);
