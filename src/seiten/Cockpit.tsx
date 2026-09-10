@@ -66,6 +66,7 @@ const TAGE = ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'];
 /** Feste Gründe für Korrekturen — kein Freitext, aber immer ein «warum» (Regel #7). */
 const GRUENDE = ['Mit Chefmonteur abgeklärt', 'Pause abgezogen', 'Anreise ist keine Arbeitszeit', 'Tippfehler im Teamgerät'];
 const FELD: Record<string, string> = { normal_min: 'Normalzeit', ueber_min: 'Überzeit' };
+const ABWEICHUNG_KURZ: Record<string, string> = { zusaetzlich: 'zusätzlich gearbeitet', warten: 'warten müssen', kaputt: 'etwas kaputt' };
 const SPRACHE: Record<string, string> = { de: 'Deutsch', ar: 'Arabisch', pl: 'Polnisch', en: 'Englisch' };
 /** Normaler Tag + Abweichung sind zwei Meldungen und richtig so. Verdächtig ist nur: der normale Tag mehrfach. */
 function doppelteNormalmeldungen(liste: Eintrag[]): number {
@@ -485,9 +486,9 @@ export function Cockpit() {
     void laden();
   }
 
-  const detail = gewaehlt
+  const detail = (gewaehlt
     ? personen.find(([id]) => id === gewaehlt.mit)?.[1].tage.get(gewaehlt.datum) ?? []
-    : [];
+    : []).slice().sort((a, b) => Number(b.tagesmeldung.normalfall) - Number(a.tagesmeldung.normalfall));
   /** Alle Einträge des Teams am gewählten Tag — für «alle auf X h». */
   const gewaehltesTeamAmTag: Eintrag[] = gewaehlt
     ? eintraege.filter((e) => e.tagesmeldung.datum === gewaehlt.datum && e.tagesmeldung.team?.id === personen.find(([id]) => id === gewaehlt.mit)?.[1].teamId)
@@ -732,7 +733,12 @@ export function Cockpit() {
                                 <div key={e.id} className="flex items-center justify-between gap-2 border-b border-line pb-2 last:border-b-0 last:pb-0">
                                   <span className="min-w-0 text-sm">
                                     <span className="block truncate font-medium">{e.tagesmeldung.baustelle?.bezeichnung ?? 'ohne Baustelle'}</span>
-                                    {e.tagesmeldung.baustelle && <span className="knr">{e.tagesmeldung.baustelle.konto_nr}</span>}
+                                    <span className="flex flex-wrap items-center gap-1.5">
+                                      {e.tagesmeldung.baustelle && <span className="knr">{e.tagesmeldung.baustelle.konto_nr}</span>}
+                                      {e.tagesmeldung.normalfall
+                                        ? <span className="text-[11px] text-ink3">normaler Tag</span>
+                                        : <span className="rounded-md bg-amber-soft px-1.5 py-0.5 text-[11px] font-semibold text-amber-deep">Zusatzarbeit · {ABWEICHUNG_KURZ[e.tagesmeldung.abweichung_typ ?? ''] ?? 'Abweichung'}</span>}
+                                    </span>
                                   </span>
                                   <span className="flex items-center gap-1.5">
                                     {darfFreigeben && e.status === 'offen' && <button type="button" className="btn-ghost px-2.5" onClick={() => korrekturStarten(e, -30)}>−</button>}
