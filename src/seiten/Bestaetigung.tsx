@@ -18,6 +18,7 @@ interface Daten {
   bezeichnung: string | null;
   konto_nr: string | null;
   datum: string | null;
+  beschrieb: string | null;
   positionen: { bezeichnung: string; betrag_rappen: number }[];
   fotos: string[];
 }
@@ -115,6 +116,13 @@ export function Bestaetigung() {
               </p>
               {daten.datum && <p className="mt-2 text-sm text-ink2">Zusatzarbeit vom {lang(ausIso(daten.datum))}.</p>}
             </header>
+
+            {daten.beschrieb && (
+              <section className="card">
+                <p className="lbl">Was gemacht wurde</p>
+                <p className="whitespace-pre-line text-sm text-ink2">{daten.beschrieb}</p>
+              </section>
+            )}
 
             {(daten.positionen?.length ?? 0) > 0 && (
               <section className="card">

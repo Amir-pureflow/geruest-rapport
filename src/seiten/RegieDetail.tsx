@@ -24,6 +24,9 @@ interface Rapport {
   empfaenger_email: string | null;
   anhang_pfad: string | null;
   link_token: string;
+  /** Leistungsbeschrieb für SORBA und den Kunden — Vorschlag aus Sprachnotiz und Positionen, vom Bauführer geprüft */
+  beschrieb: string | null;
+  beschrieb_quelle: 'ki' | 'hand' | null;
   baustelle: { bezeichnung: string | null; konto_nr: string; kunde: { email: string | null; ansprechperson: string | null } | null } | null;
   /** Ursprung: die Tagesmeldung, aus der der Rapport gerechnet wurde (bei alten Rapporten evtl. leer). */
   tagesmeldung: {
@@ -118,6 +121,44 @@ export function RegieDetail() {
   const [sendet, setSendet] = useState(false);
   const [fehler, setFehler] = useState('');
   const [kopiert, setKopiert] = useState(false);
+  // Leistungsbeschrieb: Entwurf im Feld, Vorschlag aus der Edge Function, gespeichert erst auf Knopfdruck
+  const [beschrieb, setBeschrieb] = useState('');
+  const [beschriebLaeuft, setBeschriebLaeuft] = useState(false);
+  const [beschriebInfo, setBeschriebInfo] = useState('');
+  const [beschriebKopiert, setBeschriebKopiert] = useState(false);
+
+  async function beschriebVorschlagen() {
+    if (!supabase || !rapport) return;
+    setBeschriebLaeuft(true);
+    setBeschriebInfo('');
+    const { data, error } = await supabase.functions.invoke('beschrieb-vorschlagen', { body: { regierapport_id: rapport.id } });
+    let antwortFehler: string | undefined;
+    if (error && 'context' in error && error.context instanceof Response) {
+      try { antwortFehler = ((await error.context.json()) as { fehler?: string }).fehler; } catch { /* keine JSON-Antwort */ }
+    }
+    if (error || !data?.beschrieb) {
+      setBeschriebInfo('Vorschlag nicht möglich: ' + (antwortFehler ?? data?.fehler ?? error?.message ?? 'unbekannter Fehler'));
+    } else {
+      setBeschrieb(data.beschrieb);
+      const q = data.quellen as { transkript: boolean; zusatzauftrag: boolean; fotos: number } | undefined;
+      setBeschriebInfo(`Vorschlag aus ${[q?.transkript ? 'Sprachnotiz' : null, 'Positionen', q?.zusatzauftrag ? 'Zusatzauftrag' : null].filter(Boolean).join(', ')} — bitte lesen und anpassen, dann speichern.`);
+    }
+    setBeschriebLaeuft(false);
+  }
+  async function beschriebSpeichern(quelle: 'ki' | 'hand') {
+    if (!supabase || !rapport) return;
+    const text = beschrieb.trim();
+    const { error } = await supabase.from('regierapport').update({ beschrieb: text || null, beschrieb_quelle: text ? quelle : null }).eq('id', rapport.id);
+    if (error) { setBeschriebInfo('Speichern fehlgeschlagen: ' + error.message); return; }
+    setBeschriebInfo(text ? 'Gespeichert ✓ — steht jetzt in der Kundenmail und auf dem Kundenlink.' : 'Beschrieb entfernt.');
+    void laden();
+  }
+  function beschriebKopieren() {
+    void navigator.clipboard.writeText(beschrieb.trim()).then(() => {
+      setBeschriebKopiert(true);
+      setTimeout(() => setBeschriebKopiert(false), 2000);
+    });
+  }
   const [verwerfenFrage, setVerwerfenFrage] = useState(false);
   const navigiere = useNavigate();
 
@@ -172,7 +213,7 @@ export function RegieDetail() {
     const c = supabase;
     // Transkript-Spalten kommen mit Migration 0009 — fehlen sie noch, ohne sie laden
     const auswahl = (mitTranskript: boolean) =>
-      'id,status,betrag_rappen,frist_bis,versendet_am,bestaetigt_am,empfaenger_email,anhang_pfad,link_token,baustelle:baustelle_id(bezeichnung,konto_nr,kunde:kunde_id(email,ansprechperson)),tagesmeldung:tagesmeldung_id(id,datum,abweichung_typ,wer_hats_gewollt,transkript,' +
+      'id,status,betrag_rappen,frist_bis,versendet_am,bestaetigt_am,empfaenger_email,anhang_pfad,link_token,beschrieb,beschrieb_quelle,baustelle:baustelle_id(bezeichnung,konto_nr,kunde:kunde_id(email,ansprechperson)),tagesmeldung:tagesmeldung_id(id,datum,abweichung_typ,wer_hats_gewollt,transkript,' +
       (mitTranskript ? 'transkript_quelle,transkript_sprache,' : '') +
       'audio_pfad,audio_sekunden,team:team_id(id,bezeichnung,chefmonteur:chefmonteur_id(name)),zeiteintrag(normal_min,ueber_min,status,mitarbeiter:mitarbeiter_id(name)),foto(id,pfad)),foto(id,pfad),zusatzauftrag:zusatzauftrag_id(besteller_name,kanal,taetigkeit,geplant_fuer,bestellt_am,notiz)';
     const rapportLaden = async () => {
@@ -191,6 +232,7 @@ export function RegieDetail() {
       return;
     }
     const rp = r.data as unknown as Rapport;
+    setBeschrieb(rp.beschrieb ?? '');
     setRapport(rp);
     if (rp.empfaenger_email) setEmpfaenger(rp.empfaenger_email);
     else if (rp.baustelle?.kunde?.email) setEmpfaenger(rp.baustelle.kunde.email);
@@ -523,6 +565,34 @@ export function RegieDetail() {
             Vorgerechnet als Entscheidungshilfe — der verbindliche Beleg ist das SORBA-Dokument im Anhang.
             {entwurf && ' Mit − / + nur die Stunden stehen lassen, die wirklich Zusatzarbeit waren.'}
           </p>
+        </section>
+
+        {/* Leistungsbeschrieb: der Text, den der Bauführer in SORBA tippt — vorgeschlagen, nie ungeprüft */}
+        <section className="card space-y-2">
+          <div className="flex items-baseline justify-between gap-3">
+            <p className="lbl mb-0">Was gemacht wurde · Text für SORBA und Kunde</p>
+            {rapport.beschrieb && <span className="text-[11px] text-ink3">{rapport.beschrieb_quelle === 'ki' ? 'Vorschlag, geprüft' : 'von Hand'}</span>}
+          </div>
+          <textarea
+            value={beschrieb}
+            onChange={(e) => setBeschrieb(e.target.value)}
+            rows={4}
+            placeholder="z. B. Gerüst an der Westfassade auf Wunsch der Bauleitung versetzt, 3 Mann, 1 h."
+            className="field min-h-[6rem] text-sm"
+          />
+          <div className="flex flex-wrap items-center gap-2">
+            <button type="button" className="btn-ghost border-steel text-steel disabled:opacity-60" disabled={beschriebLaeuft} onClick={() => void beschriebVorschlagen()}>
+              {beschriebLaeuft ? 'Schreibt …' : rapport.tagesmeldung?.transkript ? 'Vorschlag aus Sprachnotiz und Positionen' : 'Vorschlag aus den Positionen'}
+            </button>
+            <button type="button" className="btn-ghost" disabled={beschrieb.trim() === (rapport.beschrieb ?? '')} onClick={() => void beschriebSpeichern(beschriebInfo.startsWith('Vorschlag aus') ? 'ki' : 'hand')}>
+              Speichern
+            </button>
+            <button type="button" className="btn-ghost" disabled={!beschrieb.trim()} onClick={beschriebKopieren}>
+              {beschriebKopiert ? 'Kopiert ✓' : 'Für SORBA kopieren'}
+            </button>
+          </div>
+          {beschriebInfo && <p className={'text-xs ' + (beschriebInfo.includes('fehlgeschlagen') || beschriebInfo.includes('nicht möglich') ? 'font-semibold text-accent-deep' : 'text-ink2')}>{beschriebInfo}</p>}
+          <p className="text-[11px] text-ink3">Die KI schreibt nur den Text. Zahlen kommen aus den Positionen, entscheiden tust du.</p>
         </section>
 
         {entwurf ? (

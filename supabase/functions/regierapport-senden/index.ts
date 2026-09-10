@@ -44,6 +44,7 @@ interface Rapport {
   tagesmeldung_id: string | null;
   empfaenger_email: string | null;
   versendet_am: string | null;
+  beschrieb: string | null;
   baustelle: { bezeichnung: string | null; konto_nr: string; kunde: { email: string | null; ansprechperson: string | null } | null } | null;
 }
 
@@ -96,7 +97,7 @@ Deno.serve(async (req) => {
 
     const { data: rRoh } = await supa
       .from('regierapport')
-      .select('id, status, nummer, link_token, betrag_rappen, frist_bis, anhang_pfad, tagesmeldung_id, empfaenger_email, versendet_am, baustelle:baustelle_id(bezeichnung, konto_nr, kunde:kunde_id(email, ansprechperson))')
+      .select('id, status, nummer, link_token, betrag_rappen, frist_bis, anhang_pfad, tagesmeldung_id, empfaenger_email, versendet_am, beschrieb, baustelle:baustelle_id(bezeichnung, konto_nr, kunde:kunde_id(email, ansprechperson))')
       .eq('id', regierapport_id)
       .single();
     if (!rRoh) return antwort(404, { fehler: 'Regierapport nicht gefunden' });
@@ -214,6 +215,7 @@ Deno.serve(async (req) => {
       <div style="${STIL}">
       <p>${anrede}</p>
       <p>${r.anhang_pfad ? 'Im Anhang finden Sie' : 'Hiermit erhalten Sie'} den <strong>${name}</strong> für <strong>${bez}</strong> (Konto ${knr})${chf ? ` über Fr. ${chf}` : ''}.</p>
+      ${r.beschrieb ? `<p style="border-left:3px solid #dfe5e4;padding-left:12px;color:#46565d">${r.beschrieb.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/\n/g, '<br>')}</p>` : ''}
       ${fotoSatz}
       <p>Bitte bestätigen Sie ihn unter diesem Link — ohne Anmeldung:</p>
       <p><a href="${link}" style="${KNOPF}">${name} ansehen &amp; bestätigen</a></p>
@@ -227,6 +229,7 @@ Deno.serve(async (req) => {
       anrede,
       '',
       `${r.anhang_pfad ? 'Im Anhang finden Sie' : 'Hiermit erhalten Sie'} den ${name} für ${bez} (Konto ${knr})${chf ? ` über Fr. ${chf}` : ''}.`,
+      ...(r.beschrieb ? ['', r.beschrieb, ''] : []),
       fotoAnzahl && fotoAnzahl > 0 ? `Unter dem Link sehen Sie die Positionen und ${fotoAnzahl} Foto(s) von der Baustelle.` : 'Unter dem Link sehen Sie die einzelnen Positionen.',
       '',
       'Bitte bestätigen Sie ihn unter diesem Link — ohne Anmeldung:',

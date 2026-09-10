@@ -32,7 +32,7 @@ Deno.serve(async (req) => {
       if (!token) return antwort(400, { fehler: 'token fehlt' });
       const { data: r } = await supa
         .from('regierapport')
-        .select('id, status, betrag_rappen, versendet_am, frist_bis, empfaenger_email, tagesmeldung_id, baustelle:baustelle_id(bezeichnung, konto_nr), tagesmeldung:tagesmeldung_id(datum)')
+        .select('id, status, betrag_rappen, versendet_am, frist_bis, empfaenger_email, tagesmeldung_id, beschrieb, baustelle:baustelle_id(bezeichnung, konto_nr), tagesmeldung:tagesmeldung_id(datum)')
         .eq('link_token', token)
         .single();
       if (!r) return antwort(404, { fehler: 'Dieser Link ist ungültig.' });
@@ -73,6 +73,7 @@ Deno.serve(async (req) => {
         bezeichnung: bs?.bezeichnung ?? null,
         konto_nr: bs?.konto_nr ?? null,
         datum: tm?.datum ?? null,
+        beschrieb: (r as { beschrieb?: string | null }).beschrieb ?? null,
         positionen: (pos ?? []).map((p: { bezeichnung: string; betrag_rappen: number }) => ({ bezeichnung: p.bezeichnung, betrag_rappen: p.betrag_rappen })),
         fotos: fotoUrls,
       });
