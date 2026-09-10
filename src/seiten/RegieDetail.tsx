@@ -17,6 +17,7 @@ import { ausIso, lang } from '../lib/datum';
 interface Rapport {
   id: string;
   status: string;
+  nummer: string | null;
   betrag_rappen: number | null;
   frist_bis: string | null;
   versendet_am: string | null;
@@ -48,6 +49,13 @@ interface Rapport {
   zusatzauftrag: { besteller_name: string; kanal: string; taetigkeit: string; geplant_fuer: string | null; bestellt_am: string; notiz: string | null } | null;
 }
 
+const STATUS_STIL: Record<string, string> = {
+  entwurf: 'bg-surface-2 text-ink2',
+  versendet: 'bg-amber-soft text-amber-deep',
+  rueckfrage: 'bg-amber-soft text-amber-deep',
+  frist_abgelaufen: 'bg-accent-soft text-accent-deep',
+  bestaetigt: 'bg-good-soft text-good-deep',
+};
 const STATUS_TEXT: Record<string, string> = {
   entwurf: 'Entwurf',
   versendet: 'versendet',
@@ -213,7 +221,7 @@ export function RegieDetail() {
     const c = supabase;
     // Transkript-Spalten kommen mit Migration 0009 — fehlen sie noch, ohne sie laden
     const auswahl = (mitTranskript: boolean) =>
-      'id,status,betrag_rappen,frist_bis,versendet_am,bestaetigt_am,empfaenger_email,anhang_pfad,link_token,beschrieb,beschrieb_quelle,baustelle:baustelle_id(bezeichnung,konto_nr,kunde:kunde_id(email,ansprechperson)),tagesmeldung:tagesmeldung_id(id,datum,abweichung_typ,wer_hats_gewollt,transkript,' +
+      'id,status,nummer,betrag_rappen,frist_bis,versendet_am,bestaetigt_am,empfaenger_email,anhang_pfad,link_token,beschrieb,beschrieb_quelle,baustelle:baustelle_id(bezeichnung,konto_nr,kunde:kunde_id(email,ansprechperson)),tagesmeldung:tagesmeldung_id(id,datum,abweichung_typ,wer_hats_gewollt,transkript,' +
       (mitTranskript ? 'transkript_quelle,transkript_sprache,' : '') +
       'audio_pfad,audio_sekunden,team:team_id(id,bezeichnung,chefmonteur:chefmonteur_id(name)),zeiteintrag(normal_min,ueber_min,status,mitarbeiter:mitarbeiter_id(name)),foto(id,pfad)),foto(id,pfad),zusatzauftrag:zusatzauftrag_id(besteller_name,kanal,taetigkeit,geplant_fuer,bestellt_am,notiz)';
     const rapportLaden = async () => {
@@ -414,24 +422,28 @@ export function RegieDetail() {
 
   return (
     <Shell zurueck schmal>
-      <div className="space-y-5">
-        <header>
-          <p className="lbl mb-1">Regierapport</p>
-          <h1 className="font-display text-2xl font-semibold">
-            {rapport.baustelle?.bezeichnung ?? '—'}
-          </h1>
-          <p className="mt-1 flex items-center gap-2 text-sm text-ink3">
-            {rapport.baustelle && <span className="knr">{rapport.baustelle.konto_nr}</span>}
-            <span>{STATUS_TEXT[rapport.status] ?? rapport.status}</span>
-            {rapport.frist_bis && rapport.status === 'versendet' && (
-              <span>· Frist bis {lang(ausIso(rapport.frist_bis))}</span>
-            )}
-          </p>
+      <div className="space-y-6">
+        <header className="flex items-start justify-between gap-4">
+          <div className="min-w-0">
+            <p className="lbl mb-1">Regierapport{rapport.nummer ? ` ${rapport.nummer}` : ''}</p>
+            <h1 className="text-[26px] font-semibold tracking-tight lg:text-[28px]">
+              {rapport.baustelle?.bezeichnung ?? '—'}
+            </h1>
+            <p className="mt-1.5 flex flex-wrap items-center gap-2 text-sm text-ink3">
+              {rapport.baustelle && <span className="knr">{rapport.baustelle.konto_nr}</span>}
+              {rapport.frist_bis && rapport.status === 'versendet' && (
+                <span>Frist bis {lang(ausIso(rapport.frist_bis))}</span>
+              )}
+            </p>
+          </div>
+          <span className={'shrink-0 rounded-full px-2.5 py-1 text-xs font-medium ' + (STATUS_STIL[rapport.status] ?? 'bg-surface-2 text-ink2')}>
+            {STATUS_TEXT[rapport.status] ?? rapport.status}
+          </span>
         </header>
 
         {/* Ursprung: woher die Zahlen kommen — Tagesmeldung des Teams und die Bestellung des Kunden */}
         {(rapport.tagesmeldung || rapport.zusatzauftrag) && (
-          <section className="card space-y-3">
+          <section className="panel space-y-3">
             <p className="lbl mb-0">Ursprung</p>
             {rapport.tagesmeldung && (() => {
               const m = rapport.tagesmeldung;
@@ -513,15 +525,17 @@ export function RegieDetail() {
           </section>
         )}
 
-        <section className="card space-y-2">
-          <p className="lbl mb-0">Bilder zum Rapport</p>
+        <section className="panel space-y-2">
+          <div className="flex items-center justify-between gap-3">
+            <p className="lbl mb-0">Bilder zum Rapport</p>
+            <label className="btn-ghost inline-block cursor-pointer">
+              {fotoLaedt ? 'lädt …' : '+ Bilder nachreichen'}
+              <input type="file" accept="image/*" multiple className="hidden" onChange={(e) => void fotosNachreichen(e)} />
+            </label>
+          </div>
           {rapport.foto?.length > 0
             ? <FotoGalerie pfade={rapport.foto.map((f) => f.pfad)} />
             : <p className="text-xs text-ink3">{rapport.tagesmeldung?.foto?.length ? 'Die Bilder des Teams stehen oben beim Ursprung.' : 'Noch keine Bilder — der Kunde will sehen, was gemacht wurde.'}</p>}
-          <label className="btn-ghost inline-block cursor-pointer">
-            {fotoLaedt ? 'lädt …' : '+ Bilder nachreichen'}
-            <input type="file" accept="image/*" multiple className="hidden" onChange={(e) => void fotosNachreichen(e)} />
-          </label>
         </section>
 
         <section className="card">
@@ -555,9 +569,9 @@ export function RegieDetail() {
               </button>
             </div>
           )}
-          <div className="mt-3 flex items-baseline justify-between border-t border-line-strong pt-2.5">
-            <span className="font-display font-semibold">Total</span>
-            <span className="font-mono text-lg font-semibold text-accent-deep tabular-nums">
+          <div className="mt-4 flex items-baseline justify-between border-t border-line pt-3">
+            <span className="text-[15px] font-semibold">Total</span>
+            <span className="text-[22px] font-semibold tracking-tight tabular-nums">
               {formatChf(total)}
             </span>
           </div>
@@ -581,7 +595,7 @@ export function RegieDetail() {
             className="field min-h-[6rem] text-sm"
           />
           <div className="flex flex-wrap items-center gap-2">
-            <button type="button" className="btn-ghost border-steel text-steel disabled:opacity-60" disabled={beschriebLaeuft} onClick={() => void beschriebVorschlagen()}>
+            <button type="button" className="btn-ghost disabled:opacity-60" disabled={beschriebLaeuft} onClick={() => void beschriebVorschlagen()}>
               {beschriebLaeuft ? 'Schreibt …' : 'Text vorschlagen'}
             </button>
             <button type="button" className="btn-ghost" disabled={beschrieb.trim() === (rapport.beschrieb ?? '')} onClick={() => void beschriebSpeichern(beschriebInfo.startsWith('Vorschlag aus') ? 'ki' : 'hand')}>
@@ -599,7 +613,8 @@ export function RegieDetail() {
         </section>
 
         {entwurf ? (
-          <section className="card space-y-3 p-5">
+          <section className="card space-y-4">
+            <p className="text-[15px] font-semibold">An die Bauleitung senden</p>
             <div>
               <label className="lbl">Anhang (Regierapport aus SORBA)</label>
               {rapport.anhang_pfad ? (
@@ -643,7 +658,7 @@ export function RegieDetail() {
                 className="field"
               />
             </div>
-            <button type="button" onClick={() => void senden()} disabled={sendet} className="cta">
+            <button type="button" onClick={() => void senden()} disabled={sendet} className="cta cta-accent">
               {sendet ? 'Sendet …' : 'Regierapport senden'}
             </button>
             {fehler && <p className="text-sm font-semibold text-accent-deep">{fehler}</p>}
@@ -653,7 +668,7 @@ export function RegieDetail() {
             </p>
           </section>
         ) : (
-          <section className="card space-y-2">
+          <section className="panel space-y-2">
             <p className="lbl">Verlauf</p>
             {rapport.versendet_am && !logs.some((l) => l.ereignis === 'gesendet') && (
               <div className="flex items-baseline justify-between gap-2 text-sm">

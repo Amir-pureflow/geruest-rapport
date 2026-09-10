@@ -266,6 +266,13 @@
 
   /* Kontonummer — gestempelt wie auf dem Blatt */
 
+  /* Leise Fläche: Nebeninformation ohne Schatten — hebt die weissen Karten hervor */
+  .panel {
+    background: var(--color-surface-2);
+    border-radius: 16px;
+    padding: 1.125rem 1.25rem;
+  }
+
   /* Kontonummer: leise Pille, gleich breite Ziffern */
   .knr {
     display: inline-block;
