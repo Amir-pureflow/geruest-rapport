@@ -609,7 +609,7 @@ export function Cockpit() {
                   const heute = datum === iso(new Date());
                   return (
                     <span key={datum} className={'text-center text-[11px] leading-tight ' + (heute ? 'font-semibold text-accent-deep' : 'text-ink3')}>
-                      <span className="font-medium">{TAGE[i]}</span> <span className="tabular-nums">{ch(d)}</span>
+                      <span className="block font-medium">{TAGE[i]}</span><span className="block tabular-nums">{ch(d)}</span>
                     </span>
                   );
                 })}
