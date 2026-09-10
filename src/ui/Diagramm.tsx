@@ -15,12 +15,12 @@ import { Link } from 'react-router-dom';
 import { formatChf } from '../lib/tarif';
 
 export const DATENFARBE = {
-  normal: '#2f7fb0',
-  ueber: '#1a4f70',
-  offen: '#2f7fb0',
-  bestaetigt: '#1e8a57',
+  normal: '#3f3f46',
+  ueber: '#111113',
+  offen: '#9a9aa3',
+  bestaetigt: '#178a4c',
   /** Trichterstufen hell → dunkel: je weiter fortgeschritten, desto kräftiger. */
-  stufe: ['#cfe3ef', '#a3c8de', '#74acce', '#4a90bd', '#1f6491'],
+  stufe: ['#e4e4e7', '#c4c4cb', '#9a9aa3', '#5e5e66', '#111113'],
 } as const;
 
 /** Fr. 1'711 — ohne Rappen, für knappe Beschriftungen im Diagramm. */
@@ -112,7 +112,7 @@ function Saeulen({
     <div className="relative">
       <svg viewBox={`0 0 ${B} ${H}`} className="h-auto w-full" role="img" aria-label={ariaLabel}>
         {/* Grundlinie — zurückhaltend, kein Gitternetz */}
-        <line x1="0" y1={OBEN + hoehe + 0.5} x2={B} y2={OBEN + hoehe + 0.5} stroke="#dce3e1" strokeWidth="1" />
+        <line x1="0" y1={OBEN + hoehe + 0.5} x2={B} y2={OBEN + hoehe + 0.5} stroke="#ececec" strokeWidth="1" />
         {punkte.map((p, i) => {
           const summe = summen[i];
           const x = i * band + (band - breite) / 2;

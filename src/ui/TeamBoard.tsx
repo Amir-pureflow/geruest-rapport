@@ -27,9 +27,9 @@ function Fortschritt({ von, bis }: { von: number; bis: number }) {
 
 function Kachel({ t }: { t: TeamStand }) {
   const gemeldet = t.gemeldetUm !== null;
-  const rand = t.abweichung ? 'bg-amber-400' : gemeldet ? 'bg-good' : 'bg-line-strong';
-  const flaeche = t.abweichung ? 'bg-amber-50' : gemeldet ? 'bg-good-soft/50' : 'bg-surface';
-  const zeitFarbe = t.abweichung ? 'text-amber-800' : gemeldet ? 'text-good-deep' : 'text-ink3';
+  const rand = t.abweichung ? 'bg-amber' : gemeldet ? 'bg-good' : 'bg-line-strong';
+  const flaeche = t.abweichung ? 'bg-amber-soft' : gemeldet ? 'bg-good-soft/50' : 'bg-surface';
+  const zeitFarbe = t.abweichung ? 'text-amber-deep' : gemeldet ? 'text-good-deep' : 'text-ink3';
   const ort = t.anzahlMeldungen > 1 ? `${t.anzahlMeldungen} Baustellen` : t.baustelle;
 
   return (
@@ -52,7 +52,7 @@ function Kachel({ t }: { t: TeamStand }) {
         <p className="truncate text-[11px] text-ink3">
           {t.abweichung ? (
             <>
-              <span className="font-semibold text-amber-800">Abweichung</span>
+              <span className="font-semibold text-amber-deep">Abweichung</span>
               {ort ? ` · ${ort}` : ''}
             </>
           ) : (
@@ -97,7 +97,7 @@ export function TeamBoard({ teams }: { teams: TeamStand[] }) {
           <span className="inline-block h-2.5 w-2.5 rounded-[3px] bg-good" />gemeldet
         </span>
         <span className="flex items-center gap-1.5">
-          <span className="inline-block h-2.5 w-2.5 rounded-[3px] bg-amber-400" />
+          <span className="inline-block h-2.5 w-2.5 rounded-[3px] bg-amber" />
           Abweichung{abweichungen > 0 ? ` · ${abweichungen}` : ''}
         </span>
         <span className="flex items-center gap-1.5">
