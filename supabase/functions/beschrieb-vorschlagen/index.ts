@@ -4,7 +4,8 @@
 // Die KI schreibt nur den Text — Zahlen kommen aus der App, entschieden wird vom Bauführer,
 // der den Vorschlag bearbeitet und speichert (Regel #1: kein Urteil, Regel #8: Beleg bleibt Beleg).
 //
-// Anbieter Mistral (Paris, EU). Schlüssel `MISTRAL_API_KEY`, optional `BESCHRIEB_MODELL` (Standard mistral-small-latest)
+// Anbieter Mistral (Paris, EU). Schlüssel `MISTRAL_API_KEY`, optional `BESCHRIEB_MODELL` (Standard mistral-medium-latest —
+// «small» liess im Test Umlaute weg)
 // in `konfiguration`. Speichert NICHTS — die Antwort ist ein Vorschlag, gespeichert wird in der App.
 // Deploy: verify_jwt true. Quelle der Wahrheit: supabase/functions/beschrieb-vorschlagen/index.ts.
 import { createClient } from 'npm:@supabase/supabase-js@2';
@@ -22,6 +23,12 @@ function antwort(status: number, body: unknown): Response {
 const ABWEICHUNG: Record<string, string> = { zusaetzlich: 'zusätzliche Arbeit', warten: 'Wartezeit', kaputt: 'Reparatur / etwas kaputt' };
 const WER: Record<string, string> = { kunde: 'auf Wunsch des Kunden (Bauleitung)', chef: 'auf Anweisung des Chefmonteurs', niemand: 'ohne ausdrücklichen Auftrag' };
 
+/** «Do 3.9.2026» — die KI bekommt das Datum fertig formatiert, sonst schreibt sie ISO. */
+function datumText(isoDatum: string): string {
+  const d = new Date(isoDatum + 'T12:00:00');
+  return `${['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa'][d.getDay()]} ${d.getDate()}.${d.getMonth() + 1}.${d.getFullYear()}`;
+}
+
 function chf(rappen: number | null): string {
   return rappen != null ? (rappen / 100).toFixed(2) : '–';
 }
@@ -36,7 +43,7 @@ Deno.serve(async (req) => {
     const { data: conf } = await supa.from('konfiguration').select('schluessel,wert');
     const k: Record<string, string> = Object.fromEntries((conf ?? []).map((r: { schluessel: string; wert: string }) => [r.schluessel, r.wert]));
     if (!k.MISTRAL_API_KEY) return antwort(500, { fehler: 'MISTRAL_API_KEY fehlt in konfiguration' });
-    const modell = k.BESCHRIEB_MODELL || 'mistral-small-latest';
+    const modell = k.BESCHRIEB_MODELL || 'mistral-medium-latest';
 
     const { data: r } = await supa
       .from('regierapport')
@@ -69,10 +76,11 @@ Deno.serve(async (req) => {
     const fakten = [
       `Baustelle: ${bs?.bezeichnung ?? '–'} (Konto ${bs?.konto_nr ?? '–'})`,
       bs?.kunde?.name ? `Kunde: ${bs.kunde.name}${bs.kunde.ansprechperson ? `, Bauleitung ${bs.kunde.ansprechperson}` : ''}` : null,
-      tm ? `Datum der Arbeit: ${tm.datum}` : null,
+      tm ? `Datum der Arbeit: ${datumText(tm.datum)}` : null,
       tm?.team ? `Team: ${tm.team.bezeichnung}${tm.team.chefmonteur ? `, Chefmonteur ${tm.team.chefmonteur.name}` : ''}` : null,
       tm?.abweichung_typ ? `Art laut Team: ${ABWEICHUNG[tm.abweichung_typ] ?? tm.abweichung_typ}` : null,
-      tm?.wer_hats_gewollt ? `Veranlasst: ${WER[tm.wer_hats_gewollt] ?? tm.wer_hats_gewollt}` : null,
+      // «niemand» kommt nicht in den Kundentext — das klärt der Bauführer, nicht der Rapport
+      tm?.wer_hats_gewollt && tm.wer_hats_gewollt !== 'niemand' ? `Veranlasst: ${WER[tm.wer_hats_gewollt] ?? tm.wer_hats_gewollt}` : null,
       za ? `Zusatzauftrag: «${za.taetigkeit}», bestellt von ${za.besteller_name}${za.besteller_rolle ? ` (${za.besteller_rolle})` : ''} am ${za.bestellt_am.slice(0, 10)}${za.notiz ? `, Notiz: ${za.notiz}` : ''}` : null,
       tm?.transkript ? `Sprachnotiz des Chefmonteurs (transkribiert): «${tm.transkript}»` : 'Sprachnotiz: keine',
       personen.length > 0 ? `Eingesetzte Personen und Stunden:\n- ${personen.join('\n- ')}` : null,
@@ -84,8 +92,9 @@ Deno.serve(async (req) => {
     const system =
       'Du schreibst den Leistungsbeschrieb für einen Regierapport einer Schweizer Gerüstbaufirma. ' +
       'Der Text kommt in das Rapportprogramm (SORBA) und wird vom Kunden gegengezeichnet. ' +
-      'Regeln: Schweizer Hochdeutsch, «ss» statt «ß». Sachlich, in der Vergangenheit, 2 bis 4 kurze Sätze, kein Gruss, keine Anrede, keine Überschrift. ' +
-      'Nenne: was gemacht wurde, wo (Gebäudeteil, wenn bekannt), warum bzw. wer es veranlasst hat, mit wie vielen Leuten und wie lange. ' +
+      'Regeln: Schweizer Hochdeutsch mit korrekten Umlauten (ä, ö, ü), «ss» statt «ß». Sachlich, in der Vergangenheit, 2 bis 4 kurze Sätze, kein Gruss, keine Anrede, keine Überschrift. ' +
+      'Nenne: was gemacht wurde, wo (Gebäudeteil, wenn bekannt), wer es veranlasst hat (nur wenn angegeben, dann «auf Wunsch der Bauleitung» ohne Firmenname), mit wie vielen Personen und wie lange. ' +
+      'Das Datum im Format «3.9.2026», nie als Jahr-Monat-Tag. Personen als Anzahl nennen, nicht mit Namen. ' +
       'Verwende NUR die gelieferten Fakten. Erfinde keine Mengen, Bauteile, Namen oder Zeiten. Ist etwas unklar, lass es weg. ' +
       'Nenne keine Frankenbeträge (die stehen in den Positionen). Gib nur den Text aus.';
 
