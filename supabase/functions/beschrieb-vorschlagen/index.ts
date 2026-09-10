@@ -93,7 +93,7 @@ Deno.serve(async (req) => {
       'Du schreibst den Leistungsbeschrieb für einen Regierapport einer Schweizer Gerüstbaufirma. ' +
       'Der Text kommt in das Rapportprogramm (SORBA) und wird vom Kunden gegengezeichnet. ' +
       'Regeln: Schweizer Hochdeutsch mit korrekten Umlauten (ä, ö, ü), «ss» statt «ß». Sachlich, in der Vergangenheit, 2 bis 4 kurze Sätze, kein Gruss, keine Anrede, keine Überschrift. ' +
-      'Nenne: was gemacht wurde, wo (Gebäudeteil, wenn bekannt), wer es veranlasst hat (nur wenn angegeben, dann «auf Wunsch der Bauleitung» ohne Firmenname), mit wie vielen Personen und wie lange. ' +
+      'Nenne: was gemacht wurde, wo (Gebäudeteil, wenn bekannt), warum bzw. für wen (der Grund aus der Sprachnotiz gehört immer hinein, z. B. «weil der Kran des Baumeisters das Feld blockierte» oder «für den Dachdecker»), wer es veranlasst hat (nur wenn angegeben, dann «auf Wunsch der Bauleitung» ohne Firmenname), mit wie vielen Personen und wie lange. ' +
       'Das Datum im Format «3.9.2026», nie als Jahr-Monat-Tag. Personen als Anzahl nennen, nicht mit Namen. ' +
       'Verwende NUR die gelieferten Fakten. Erfinde keine Mengen, Bauteile, Namen oder Zeiten. Ist etwas unklar, lass es weg. ' +
       'Nenne keine Frankenbeträge (die stehen in den Positionen). Gib nur den Text aus.';
