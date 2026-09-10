@@ -162,22 +162,22 @@ export function Auswertung() {
                         <tr key={z.konto_nr} className="border-t border-line">
                           <td className="px-4 py-2"><span className="knr">{z.konto_nr}</span> <span className="ml-1">{z.bezeichnung}</span></td>
                           <td className="px-2 py-2 text-ink2">{z.kunde}</td>
-                          <td className="px-2 py-2 text-right font-mono tabular-nums">{z.anzahl}</td>
-                          <td className={'px-2 py-2 text-right font-mono tabular-nums ' + (z.entwurf ? 'text-amber-deep' : 'text-ink3')}>{z.entwurf ? formatChf(z.entwurf) : '–'}</td>
-                          <td className={'px-2 py-2 text-right font-mono tabular-nums ' + (z.kunde_r ? 'text-steel' : 'text-ink3')}>{z.kunde_r ? formatChf(z.kunde_r) : '–'}</td>
-                          <td className="px-2 py-2 text-right font-mono tabular-nums text-good-deep">{z.bestaetigt ? formatChf(z.bestaetigt) : '–'}</td>
-                          <td className="px-4 py-2 text-right font-mono font-semibold tabular-nums">{formatChf(z.entwurf + z.kunde_r + z.bestaetigt)}</td>
+                          <td className="px-2 py-2 text-right font-mono whitespace-nowrap tabular-nums">{z.anzahl}</td>
+                          <td className={'px-2 py-2 text-right font-mono whitespace-nowrap tabular-nums ' + (z.entwurf ? 'text-amber-deep' : 'text-ink3')}>{z.entwurf ? formatChf(z.entwurf) : '–'}</td>
+                          <td className={'px-2 py-2 text-right font-mono whitespace-nowrap tabular-nums ' + (z.kunde_r ? 'text-steel' : 'text-ink3')}>{z.kunde_r ? formatChf(z.kunde_r) : '–'}</td>
+                          <td className="px-2 py-2 text-right font-mono whitespace-nowrap tabular-nums text-good-deep">{z.bestaetigt ? formatChf(z.bestaetigt) : '–'}</td>
+                          <td className="px-4 py-2 text-right font-mono whitespace-nowrap font-semibold tabular-nums">{formatChf(z.entwurf + z.kunde_r + z.bestaetigt)}</td>
                         </tr>
                       ))}
                     </tbody>
                     <tfoot>
                       <tr className="border-t border-line-strong font-semibold">
                         <td className="px-4 py-2" colSpan={2}>Total</td>
-                        <td className="px-2 py-2 text-right font-mono tabular-nums">{summe((z) => z.anzahl)}</td>
-                        <td className="px-2 py-2 text-right font-mono tabular-nums text-amber-deep">{formatChf(summe((z) => z.entwurf))}</td>
-                        <td className="px-2 py-2 text-right font-mono tabular-nums text-steel">{formatChf(summe((z) => z.kunde_r))}</td>
-                        <td className="px-2 py-2 text-right font-mono tabular-nums text-good-deep">{formatChf(summe((z) => z.bestaetigt))}</td>
-                        <td className="px-4 py-2 text-right font-mono tabular-nums">{formatChf(total)}</td>
+                        <td className="px-2 py-2 text-right font-mono whitespace-nowrap tabular-nums">{summe((z) => z.anzahl)}</td>
+                        <td className="px-2 py-2 text-right font-mono whitespace-nowrap tabular-nums text-amber-deep">{formatChf(summe((z) => z.entwurf))}</td>
+                        <td className="px-2 py-2 text-right font-mono whitespace-nowrap tabular-nums text-steel">{formatChf(summe((z) => z.kunde_r))}</td>
+                        <td className="px-2 py-2 text-right font-mono whitespace-nowrap tabular-nums text-good-deep">{formatChf(summe((z) => z.bestaetigt))}</td>
+                        <td className="px-4 py-2 text-right font-mono whitespace-nowrap tabular-nums">{formatChf(total)}</td>
                       </tr>
                     </tfoot>
                   </table>
