@@ -105,6 +105,13 @@ Korrekturen in der Wochenübersicht brauchen einen Grund aus vier Vorgaben (Rege
 laufen über die RPCs aus 0009; fehlt die Migration, fällt der Code auf den zweistufigen Weg zurück.
 Farben: Rot nur für Aktion, Auswahl Stahlblau (`chip-on`), Warnung Bernstein (`amber`).
 
+## Mehrkostenanzeige (12.09.)
+
+Bausitzungsprotokoll HPAG 7.1: «Mehrkosten ohne vorzeitige und schriftliche Anzeige werden nicht entschädigt.»
+Darum hat der Zusatzauftrag den Knopf «Bauleitung informieren» (Edge Function `mehrkosten-anzeigen`, Mail an
+kunde.email, Vermerk `angezeigt_am/an/text`). Pro Kunde einstellbar: `kunde.anzeige_noetig` (Standard ja) und
+`kunde.frist_tage` (Frist für die Gegenzeichnung, Standard 3; die Sendefunktion liest sie). Migration 0011.
+
 ## Nicht bauen
 
 - SORBA ersetzen oder in SORBA schreiben (kein DB-Write, keine UI-Automation)
