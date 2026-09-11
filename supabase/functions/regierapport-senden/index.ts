@@ -45,7 +45,7 @@ interface Rapport {
   empfaenger_email: string | null;
   versendet_am: string | null;
   beschrieb: string | null;
-  baustelle: { bezeichnung: string | null; konto_nr: string; kunde: { email: string | null; ansprechperson: string | null } | null } | null;
+  baustelle: { bezeichnung: string | null; konto_nr: string; kunde: { email: string | null; ansprechperson: string | null; frist_tage: number | null } | null } | null;
 }
 
 interface Absender {
@@ -97,7 +97,7 @@ Deno.serve(async (req) => {
 
     const { data: rRoh } = await supa
       .from('regierapport')
-      .select('id, status, nummer, link_token, betrag_rappen, frist_bis, anhang_pfad, tagesmeldung_id, empfaenger_email, versendet_am, beschrieb, baustelle:baustelle_id(bezeichnung, konto_nr, kunde:kunde_id(email, ansprechperson))')
+      .select('id, status, nummer, link_token, betrag_rappen, frist_bis, anhang_pfad, tagesmeldung_id, empfaenger_email, versendet_am, beschrieb, baustelle:baustelle_id(bezeichnung, konto_nr, kunde:kunde_id(email, ansprechperson, frist_tage))')
       .eq('id', regierapport_id)
       .single();
     if (!rRoh) return antwort(404, { fehler: 'Regierapport nicht gefunden' });
@@ -105,6 +105,9 @@ Deno.serve(async (req) => {
 
     const bez = r.baustelle?.bezeichnung ?? 'Baustelle';
     const knr = r.baustelle?.konto_nr ?? '';
+    // Frist aus dem Werkvertrag des Kunden (Verwaltung → Kunden), Standard 3 Tage
+    const fristTage = Math.min(60, Math.max(1, Number(r.baustelle?.kunde?.frist_tage ?? 3) || 3));
+    const fristSatz = `Gemäss Vertrag ist der Rapport innert ${fristTage} ${fristTage === 1 ? 'Tag' : 'Tagen'} gegenzuzeichnen`;
     const betreffBasis = `Regie ${bez} · ${knr}`; // fester Betreff pro Baustelle → ein Mailverlauf
     const firma = k.MAIL_FIRMA ?? 'Gerüst Rapport';
     const gruss = absender.name ? `Freundliche Grüsse<br>${absender.name}` : 'Freundliche Grüsse';
@@ -140,7 +143,7 @@ Deno.serve(async (req) => {
         <div style="${STIL}">
         <p>Guten Tag</p>
         <p>Wir haben noch keine Rückmeldung zum <strong>${name}</strong> für <strong>${bez}</strong> (Konto ${knr})${chf ? ` über Fr. ${chf}` : ''}${versandTag ? `, den wir Ihnen am ${versandTag} zugestellt haben` : ''}.</p>
-        <p>Gemäss Vertrag ist der Rapport innert 3 Tagen gegenzuzeichnen${r.frist_bis ? ` — die Frist war der ${new Date(r.frist_bis).toLocaleDateString('de-CH')}` : ''}.</p>
+        <p>${fristSatz}${r.frist_bis ? ` — die Frist war der ${new Date(r.frist_bis).toLocaleDateString('de-CH')}` : ''}.</p>
         ${link ? `<p>Bitte bestätigen Sie ihn unter diesem Link — ohne Anmeldung:</p>
         <p><a href="${link}" style="${KNOPF}">${name} ansehen &amp; bestätigen</a></p>
         <p style="${LEISE}">Oder den Link kopieren: ${link}</p>` : ''}
@@ -152,7 +155,7 @@ Deno.serve(async (req) => {
         'Guten Tag',
         '',
         `Wir haben noch keine Rückmeldung zum ${name} für ${bez} (Konto ${knr})${chf ? ` über Fr. ${chf}` : ''}${versandTag ? `, den wir Ihnen am ${versandTag} zugestellt haben` : ''}.`,
-        `Gemäss Vertrag ist der Rapport innert 3 Tagen gegenzuzeichnen${r.frist_bis ? ` — die Frist war der ${new Date(r.frist_bis).toLocaleDateString('de-CH')}` : ''}.`,
+        `${fristSatz}${r.frist_bis ? ` — die Frist war der ${new Date(r.frist_bis).toLocaleDateString('de-CH')}` : ''}.`,
         '',
         ...(link ? ['Bitte bestätigen Sie ihn unter diesem Link — ohne Anmeldung:', link, ''] : []),
         'Bei Fragen antworten Sie einfach auf diese Mail.',
@@ -220,7 +223,7 @@ Deno.serve(async (req) => {
       <p>Bitte bestätigen Sie ihn unter diesem Link — ohne Anmeldung:</p>
       <p><a href="${link}" style="${KNOPF}">${name} ansehen &amp; bestätigen</a></p>
       <p style="${LEISE}">Oder den Link kopieren: ${link}</p>
-      <p style="${LEISE}">Gemäss Vertrag ist der Rapport innert 3 Tagen gegenzuzeichnen.</p>
+      <p style="${LEISE}">${fristSatz}.</p>
       <p>${gruss}</p>
       <p style="font-size:12px;color:#6C7B81;border-top:1px solid #dfe5e4;padding-top:8px">${fuss}</p>
       </div>`;
@@ -235,7 +238,7 @@ Deno.serve(async (req) => {
       'Bitte bestätigen Sie ihn unter diesem Link — ohne Anmeldung:',
       link,
       '',
-      'Gemäss Vertrag ist der Rapport innert 3 Tagen gegenzuzeichnen.',
+      `${fristSatz}.`,
       '',
       grussText,
       '',
@@ -261,7 +264,7 @@ Deno.serve(async (req) => {
     if (!erg.ok) return antwort(502, { fehler: erg.fehler });
 
     const jetzt = new Date();
-    const frist = r.frist_bis ?? new Date(jetzt.getTime() + 3 * 86400000).toISOString().slice(0, 10);
+    const frist = r.frist_bis ?? new Date(jetzt.getTime() + fristTage * 86400000).toISOString().slice(0, 10);
     await supa
       .from('regierapport')
       .update({ status: 'versendet', versendet_am: jetzt.toISOString(), empfaenger_email, frist_bis: frist })
