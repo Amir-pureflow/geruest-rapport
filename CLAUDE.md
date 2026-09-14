@@ -111,6 +111,18 @@ Bausitzungsprotokoll HPAG 7.1: «Mehrkosten ohne vorzeitige und schriftliche Anz
 Darum hat der Zusatzauftrag den Knopf «Bauleitung informieren» (Edge Function `mehrkosten-anzeigen`, Mail an
 kunde.email, Vermerk `angezeigt_am/an/text`). Pro Kunde einstellbar: `kunde.anzeige_noetig` (Standard ja) und
 `kunde.frist_tage` (Frist für die Gegenzeichnung, Standard 3; die Sendefunktion liest sie). Migration 0011.
+**Vorerst ausgeblendet** (14.09., bis Arbnor klärt, ob er Mehrkosten vorher anmeldet): `MEHRKOSTENANZEIGE_AKTIV = false`
+in Zusatzauftrag.tsx, Feld «Anzeige nötig» in Kunden.tsx versteckt. Function und Spalten bleiben.
+
+## Regierapport als PDF (14.09.)
+
+Die Kundenmail hängt automatisch ein PDF an, im Aufbau des SORBA-Ausdrucks (Briefkopf aus `konfiguration.FIRMA_*`,
+Rechnungsadresse `kunde.adresse`, Objekt, «Regierapport RR-JJJJ-NNNN», Tabelle Text/Me/Menge/Preis/Summe nach
+Tarifklasse, Unterschriftszeile, Fristsatz, Online-Link). Bauer: `supabase/functions/_shared/rapport_pdf.ts` (pdf-lib);
+liegt beim Deploy via MCP neben index.ts (Import `./rapport_pdf.ts`). Genutzt von `regierapport-pdf` («PDF ansehen»
+im RegieDetail, signierter Link 1 h) und `regierapport-senden` (Anhang; ein hochgeladenes eigenes Dokument geht vor).
+Datei im Bucket `anhaenge` unter `rapporte/<id>.pdf`, Pfad in `regierapport.pdf_pfad`; der Kundenlink (`bestaetigung`)
+liefert `pdf_url` zum Herunterladen. Migration 0012.
 
 ## Nicht bauen
 

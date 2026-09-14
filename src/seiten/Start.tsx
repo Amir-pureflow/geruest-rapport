@@ -188,10 +188,10 @@ function StartBauf() {
           {woche && (
             <DiagrammKarte
               titel="Freigabe Vorwoche"
-              unter={`${kurz(addTage(montag(heute), -7))} bis ${kurz(addTage(montag(heute), -1))} — Teams je Tag, die noch auf dich warten`}
+              unter={`${kurz(addTage(montag(heute), -7))} bis ${kurz(addTage(montag(heute), -1))} — je Tag: wie viele der ${k?.teams ?? 0} Teams gemeldet haben, davon freigegeben oder noch bei dir`}
               aktion={<Link to={`/cockpit?woche=${vorwoche}`} className="text-xs font-semibold text-steel">Wochenübersicht ›</Link>}
             >
-              <WochenTeams tage={woche} />
+              <WochenTeams tage={woche} gesamt={k?.teams ?? 0} />
             </DiagrammKarte>
           )}
           {tr && (

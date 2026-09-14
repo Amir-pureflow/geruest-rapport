@@ -89,15 +89,18 @@ function Saeulen({
   reihen,
   wertText,
   ariaLabel,
+  skala,
 }: {
   punkte: { label: string; werte: [number, number]; hervor?: boolean; titel: string }[];
   reihen: { farbe: string; text: string }[];
   wertText: (summe: number) => string;
   ariaLabel: string;
+  /** Feste Obergrenze der Säulen (z. B. alle Teams), damit «2 von 20» auch optisch 2 von 20 ist. */
+  skala?: number;
 }) {
   const [hinweis, setHinweis] = useState<Hinweis | null>(null);
   const summen = punkte.map((p) => p.werte[0] + p.werte[1]);
-  const max = Math.max(...summen, 1);
+  const max = Math.max(...summen, skala ?? 0, 1);
   if (summen.every((s) => s === 0)) return <LeerHinweis text="Noch nichts erfasst in diesem Zeitraum." />;
 
   const B = 360;
@@ -180,11 +183,15 @@ function Saeulen({
 export function WochenTeams({
   tage,
   hervorIndex = -1,
+  gesamt = 0,
 }: {
   tage: { label: string; offen: number; freigegeben: number; datum: string }[];
   hervorIndex?: number;
+  /** Anzahl aller aktiven Teams — die Zahl über der Säule heisst dann «3 von 20». */
+  gesamt?: number;
 }) {
   const teamsText = (n: number) => `${n} ${n === 1 ? 'Team' : 'Teams'}`;
+  const vonAllen = (n: number) => (gesamt > 0 ? `${n} von ${gesamt} Teams` : teamsText(n));
   return (
     <Saeulen
       ariaLabel="Teams je Tag, aufgeteilt in freigegeben und wartet auf Freigabe"
@@ -194,17 +201,19 @@ export function WochenTeams({
         hervor: i === hervorIndex,
         titel:
           `${t.label} ${t.datum} · ` +
+          `${vonAllen(t.offen + t.freigegeben)} gemeldet` +
           (t.offen > 0
-            ? `${teamsText(t.offen)} warten auf dich${t.freigegeben > 0 ? ` · ${teamsText(t.freigegeben)} freigegeben` : ''}`
+            ? ` · ${t.offen} warten auf dich${t.freigegeben > 0 ? ` · ${t.freigegeben} freigegeben` : ''}`
             : t.freigegeben > 0
-              ? `alle ${teamsText(t.freigegeben)} freigegeben`
-              : 'kein Team hat gemeldet'),
+              ? ' · alle freigegeben'
+              : ''),
       }))}
       reihen={[
         { farbe: DATENFARBE.bestaetigt, text: 'freigegeben' },
         { farbe: DATENFARBE.offen, text: 'wartet auf Freigabe' },
       ]}
-      wertText={(n) => String(n)}
+      wertText={(n) => (gesamt > 0 ? `${n} von ${gesamt}` : String(n))}
+      skala={gesamt}
     />
   );
 }
