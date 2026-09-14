@@ -278,6 +278,9 @@ export function Cockpit() {
 
   function zellStatus(liste: Eintrag[] | undefined): ZellStatus {
     if (!liste || liste.length === 0) return 'leer';
+    // Freigegeben = der Bauführer hat es angeschaut und entschieden — dann ist der Hinweis erledigt,
+    // auch bei Regieverdacht oder über 10 h. Sonst bliebe das Team ewig unter «Zum Anschauen».
+    if (liste.every((e) => e.status === 'freigegeben')) return 'frei';
     const summe = liste.reduce((s, e) => s + e.normal_min + e.ueber_min, 0);
     if (summe > ZEHN_STUNDEN_MIN) return 'rot';
     const verdacht = liste.some(
@@ -287,14 +290,13 @@ export function Cockpit() {
         passenderAuftrag(e.tagesmeldung.baustelle?.id, e.tagesmeldung.datum) !== undefined,
     );
     if (verdacht) return 'gelb';
-    if (liste.every((e) => e.status === 'freigegeben')) return 'frei';
     return 'gruen';
   }
 
   // Regieverdacht: eine Karte pro betroffener Tagesmeldung
   const verdachtsfaelle = useMemo(() => {
     const gesehen = new Set<string>();
-    const faelle: { meldung: Eintrag['tagesmeldung']; eintraege: Eintrag[]; ausloeser: string[] }[] = [];
+    const faelle: { meldung: Eintrag['tagesmeldung']; eintraege: Eintrag[]; ausloeser: string[]; geprueft: boolean }[] = [];
     // Normaltag + Abweichung derselben Baustelle am selben Tag: die Abweichung IST die Antwort auf den
     // offenen Zusatzauftrag — der Normaltag bekommt dann keine eigene Verdachtskarte mehr.
     const mitAbweichung = new Set(
@@ -312,10 +314,13 @@ export function Cockpit() {
         ausloeser.push(`offener Zusatzauftrag: ${auftrag.taetigkeit} (${auftrag.besteller_name})`);
       if (ausloeser.length === 0) continue;
       gesehen.add(tm.id);
+      const liste = eintraege.filter((x) => x.tagesmeldung.id === tm.id);
       faelle.push({
         meldung: tm,
-        eintraege: eintraege.filter((x) => x.tagesmeldung.id === tm.id),
+        eintraege: liste,
         ausloeser,
+        // alle Stunden dieser Meldung freigegeben → der Bauführer hat den Verdacht geprüft
+        geprueft: liste.length > 0 && liste.every((x) => x.status === 'freigegeben'),
       });
     }
     return faelle;
@@ -693,7 +698,7 @@ export function Cockpit() {
                           ? <span className="font-semibold text-ink2">keine Meldung</span>
                           : <>
                               <span className="font-mono tabular-nums">{z.tageMitEintrag} {z.tageMitEintrag === 1 ? 'Tag' : 'Tage'} · {stunden(z.totalMin)} h</span>
-                              <span className={'ml-2 font-semibold ' + (z.rang === 2 ? 'text-good-deep' : 'text-ink2')}>{z.rang === 2 ? '✓ freigegeben' : '✓ wie geplant · ' + z.wort}</span>
+                              <span className={'ml-2 font-semibold ' + (z.rang === 2 ? 'text-good-deep' : 'text-ink2')}>{z.rang === 2 ? (faelle.some((f) => f.geprueft) ? '✓ freigegeben · Regieverdacht geprüft' : '✓ freigegeben') : '✓ wie geplant · ' + z.wort}</span>
                             </>}
                       </span>
                     </button>
@@ -872,11 +877,11 @@ export function Cockpit() {
                             </div>
                           )}
 
-                          {faelle.map(({ meldung, eintraege: liste, ausloeser }) => (
-                            <div key={meldung.id} className={'rounded-[12px] border border-amber/40 bg-amber-soft/60 p-3' + (markierteMeldung === meldung.id ? ' ring-2 ring-steel' : '')}>
+                          {faelle.map(({ meldung, eintraege: liste, ausloeser, geprueft }) => (
+                            <div key={meldung.id} className={'rounded-[12px] border p-3 ' + (geprueft ? 'border-line bg-ground' : 'border-amber/40 bg-amber-soft/60') + (markierteMeldung === meldung.id ? ' ring-2 ring-steel' : '')}>
                               <div className="flex items-baseline justify-between gap-2">
                                 <span className="font-display text-[14px] font-semibold">
-                                  {markierteMeldung === meldung.id ? 'Diese Meldung · ' : 'Regieverdacht · '}{meldung.baustelle?.bezeichnung ?? '—'}
+                                  {markierteMeldung === meldung.id ? 'Diese Meldung · ' : geprueft ? 'Regieverdacht geprüft ✓ · ' : 'Regieverdacht · '}{meldung.baustelle?.bezeichnung ?? '—'}
                                 </span>
                                 <span className="font-mono text-xs text-ink3">{ch(new Date(meldung.datum + 'T12:00:00'))}</span>
                               </div>
