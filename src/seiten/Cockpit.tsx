@@ -45,9 +45,11 @@ interface Eintrag {
     baustelle: { id: string; konto_nr: string; bezeichnung: string | null } | null;
     foto: { id: string; pfad: string }[];
     /** Schon ein Regierapport zu dieser Meldung? Dann dorthin, nie einen zweiten anlegen. */
-    regierapport: { id: string; status: string }[];
+    regierapport: { id: string; status: string; nummer: string | null }[];
   };
 }
+
+const RAPPORT_STAND: Record<string, string> = { entwurf: 'Entwurf', versendet: 'beim Kunden', rueckfrage: 'Rückfrage', frist_abgelaufen: 'Frist abgelaufen', bestaetigt: 'bestätigt' };
 
 interface Team { id: string; bezeichnung: string; chefmonteur: { name: string } | null }
 
@@ -207,7 +209,7 @@ export function Cockpit() {
     const auswahl = (mitTranskript: boolean) =>
       'id,normal_min,ueber_min,status,freigabe_log(feld,alt,neu,begruendung,wann),mitarbeiter:mitarbeiter_id(id,name,funktion,typ),tagesmeldung:tagesmeldung_id!inner(id,datum,normalfall,abweichung_typ,wer_hats_gewollt,transkript,' +
       (mitTranskript ? 'transkript_quelle,transkript_sprache,transkript_fehler,' : '') +
-      'audio_pfad,audio_sekunden,team:team_id(id,bezeichnung),baustelle:baustelle_id(id,konto_nr,bezeichnung),foto(id,pfad),regierapport(id,status))';
+      'audio_pfad,audio_sekunden,team:team_id(id,bezeichnung),baustelle:baustelle_id(id,konto_nr,bezeichnung),foto(id,pfad),regierapport(id,status,nummer))';
     const eintraegeLaden = async () => {
       const erst = await c.from('zeiteintrag').select(auswahl(true)).gte('tagesmeldung.datum', vonIso).lte('tagesmeldung.datum', bisIso);
       if (erst.error && /transkript_\w+ does not exist/.test(erst.error.message)) {
@@ -283,11 +285,13 @@ export function Cockpit() {
     if (liste.every((e) => e.status === 'freigegeben')) return 'frei';
     const summe = liste.reduce((s, e) => s + e.normal_min + e.ueber_min, 0);
     if (summe > ZEHN_STUNDEN_MIN) return 'rot';
+    // Gibt es zur Meldung schon einen Regierapport, ist der Verdacht beantwortet — die Zelle wird wieder normal.
     const verdacht = liste.some(
       (e) =>
-        e.tagesmeldung.abweichung_typ !== null ||
-        e.tagesmeldung.wer_hats_gewollt === 'kunde' ||
-        passenderAuftrag(e.tagesmeldung.baustelle?.id, e.tagesmeldung.datum) !== undefined,
+        (e.tagesmeldung.regierapport?.length ?? 0) === 0 &&
+        (e.tagesmeldung.abweichung_typ !== null ||
+          e.tagesmeldung.wer_hats_gewollt === 'kunde' ||
+          passenderAuftrag(e.tagesmeldung.baustelle?.id, e.tagesmeldung.datum) !== undefined),
     );
     if (verdacht) return 'gelb';
     return 'gruen';
@@ -296,7 +300,7 @@ export function Cockpit() {
   // Regieverdacht: eine Karte pro betroffener Tagesmeldung
   const verdachtsfaelle = useMemo(() => {
     const gesehen = new Set<string>();
-    const faelle: { meldung: Eintrag['tagesmeldung']; eintraege: Eintrag[]; ausloeser: string[]; geprueft: boolean }[] = [];
+    const faelle: { meldung: Eintrag['tagesmeldung']; eintraege: Eintrag[]; ausloeser: string[]; geprueft: boolean; rapport: { id: string; status: string; nummer: string | null } | null }[] = [];
     // Normaltag + Abweichung derselben Baustelle am selben Tag: die Abweichung IST die Antwort auf den
     // offenen Zusatzauftrag — der Normaltag bekommt dann keine eigene Verdachtskarte mehr.
     const mitAbweichung = new Set(
@@ -321,6 +325,7 @@ export function Cockpit() {
         ausloeser,
         // alle Stunden dieser Meldung freigegeben → der Bauführer hat den Verdacht geprüft
         geprueft: liste.length > 0 && liste.every((x) => x.status === 'freigegeben'),
+        rapport: tm.regierapport?.[0] ?? null,
       });
     }
     return faelle;
@@ -698,7 +703,13 @@ export function Cockpit() {
                           ? <span className="font-semibold text-ink2">keine Meldung</span>
                           : <>
                               <span className="font-mono tabular-nums">{z.tageMitEintrag} {z.tageMitEintrag === 1 ? 'Tag' : 'Tage'} · {stunden(z.totalMin)} h</span>
-                              <span className={'ml-2 font-semibold ' + (z.rang === 2 ? 'text-good-deep' : 'text-ink2')}>{z.rang === 2 ? (faelle.some((f) => f.geprueft) ? '✓ freigegeben · Regieverdacht geprüft' : '✓ freigegeben') : '✓ wie geplant · ' + z.wort}</span>
+                              <span className={'ml-2 font-semibold ' + (z.rang === 2 ? 'text-good-deep' : 'text-ink2')}>
+                                {(() => {
+                                  const erledigt = faelle.some((f) => f.rapport) ? 'Regierapport angelegt' : faelle.some((f) => f.geprueft) ? 'Regieverdacht geprüft' : null;
+                                  if (z.rang === 2) return erledigt ? `✓ freigegeben · ${erledigt}` : '✓ freigegeben';
+                                  return erledigt ? `${erledigt} · ${z.wort}` : `✓ wie geplant · ${z.wort}`;
+                                })()}
+                              </span>
                             </>}
                       </span>
                     </button>
@@ -877,11 +888,11 @@ export function Cockpit() {
                             </div>
                           )}
 
-                          {faelle.map(({ meldung, eintraege: liste, ausloeser, geprueft }) => (
-                            <div key={meldung.id} className={'rounded-[12px] border p-3 ' + (geprueft ? 'border-line bg-ground' : 'border-amber/40 bg-amber-soft/60') + (markierteMeldung === meldung.id ? ' ring-2 ring-steel' : '')}>
+                          {faelle.map(({ meldung, eintraege: liste, ausloeser, geprueft, rapport }) => (
+                            <div key={meldung.id} className={'rounded-[12px] border p-3 ' + (rapport || geprueft ? 'border-line bg-ground' : 'border-amber/40 bg-amber-soft/60') + (markierteMeldung === meldung.id ? ' ring-2 ring-steel' : '')}>
                               <div className="flex items-baseline justify-between gap-2">
                                 <span className="font-display text-[14px] font-semibold">
-                                  {markierteMeldung === meldung.id ? 'Diese Meldung · ' : geprueft ? 'Regieverdacht geprüft ✓ · ' : 'Regieverdacht · '}{meldung.baustelle?.bezeichnung ?? '—'}
+                                  {markierteMeldung === meldung.id ? 'Diese Meldung · ' : rapport ? 'Regierapport angelegt ✓ · ' : geprueft ? 'Regieverdacht geprüft ✓ · ' : 'Regieverdacht · '}{meldung.baustelle?.bezeichnung ?? '—'}
                                 </span>
                                 <span className="font-mono text-xs text-ink3">{ch(new Date(meldung.datum + 'T12:00:00'))}</span>
                               </div>
@@ -941,7 +952,7 @@ export function Cockpit() {
                                   </span>
                                   {meldung.regierapport?.length > 0 ? (
                                     <Link to={`/regie/${meldung.regierapport[0].id}`} className="btn-ghost shrink-0 border-steel text-steel">
-                                      Regierapport {meldung.regierapport[0].status === 'entwurf' ? '(Entwurf)' : '(' + meldung.regierapport[0].status + ')'} ›
+                                      {meldung.regierapport[0].nummer ?? 'Regierapport'} · {RAPPORT_STAND[meldung.regierapport[0].status] ?? meldung.regierapport[0].status} ›
                                     </Link>
                                   ) : (
                                     <Link to={`/regie/neu?meldung=${meldung.id}`} className="btn-ghost shrink-0 border-accent text-accent-deep">
