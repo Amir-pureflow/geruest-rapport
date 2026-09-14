@@ -140,47 +140,50 @@ export function Auswertung() {
             </div>
 
             <section className="card p-0">
-              <p className="lbl px-4 pt-4">Pro Baustelle · {proBaustelle.length}</p>
+              <div className="flex flex-wrap items-baseline justify-between gap-2 px-4 pt-4">
+                <p className="lbl mb-0">Pro Baustelle · {proBaustelle.length}</p>
+                <p className="flex flex-wrap gap-x-3 text-[11px] text-ink3">
+                  <span><span className="mr-1 inline-block h-2 w-2 rounded-sm bg-amber" />Entwurf</span>
+                  <span><span className="mr-1 inline-block h-2 w-2 rounded-sm bg-steel" />beim Kunden</span>
+                  <span><span className="mr-1 inline-block h-2 w-2 rounded-sm bg-good" />bestätigt</span>
+                </p>
+              </div>
               {proBaustelle.length === 0 ? (
-                <p className="px-4 pb-4 text-sm text-ink3">Keine Regierapporte in diesem Monat.</p>
+                <p className="px-4 pb-4 pt-2 text-sm text-ink3">Keine Regierapporte in diesem Monat.</p>
               ) : (
-                <div className="overflow-x-auto">
-                  <table className="w-full min-w-[640px] text-sm">
-                    <thead>
-                      <tr className="text-[10px] font-semibold uppercase tracking-wide text-ink3">
-                        <th className="px-4 pb-2 text-left font-semibold">Baustelle</th>
-                        <th className="px-2 pb-2 text-left font-semibold">Kunde</th>
-                        <th className="px-2 pb-2 text-right font-semibold">Rapporte</th>
-                        <th className="px-2 pb-2 text-right font-semibold">Entwurf</th>
-                        <th className="px-2 pb-2 text-right font-semibold">Beim Kunden</th>
-                        <th className="px-2 pb-2 text-right font-semibold">Bestätigt</th>
-                        <th className="px-4 pb-2 text-right font-semibold">Total</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {proBaustelle.map((z) => (
-                        <tr key={z.konto_nr} className="border-t border-line">
-                          <td className="px-4 py-2"><span className="knr">{z.konto_nr}</span> <span className="ml-1">{z.bezeichnung}</span></td>
-                          <td className="px-2 py-2 text-ink2">{z.kunde}</td>
-                          <td className="px-2 py-2 text-right font-mono whitespace-nowrap tabular-nums">{z.anzahl}</td>
-                          <td className={'px-2 py-2 text-right font-mono whitespace-nowrap tabular-nums ' + (z.entwurf ? 'text-amber-deep' : 'text-ink3')}>{z.entwurf ? formatChf(z.entwurf) : '–'}</td>
-                          <td className={'px-2 py-2 text-right font-mono whitespace-nowrap tabular-nums ' + (z.kunde_r ? 'text-steel' : 'text-ink3')}>{z.kunde_r ? formatChf(z.kunde_r) : '–'}</td>
-                          <td className="px-2 py-2 text-right font-mono whitespace-nowrap tabular-nums text-good-deep">{z.bestaetigt ? formatChf(z.bestaetigt) : '–'}</td>
-                          <td className="px-4 py-2 text-right font-mono whitespace-nowrap font-semibold tabular-nums">{formatChf(z.entwurf + z.kunde_r + z.bestaetigt)}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                    <tfoot>
-                      <tr className="border-t border-line-strong font-semibold">
-                        <td className="px-4 py-2" colSpan={2}>Total</td>
-                        <td className="px-2 py-2 text-right font-mono whitespace-nowrap tabular-nums">{summe((z) => z.anzahl)}</td>
-                        <td className="px-2 py-2 text-right font-mono whitespace-nowrap tabular-nums text-amber-deep">{formatChf(summe((z) => z.entwurf))}</td>
-                        <td className="px-2 py-2 text-right font-mono whitespace-nowrap tabular-nums text-steel">{formatChf(summe((z) => z.kunde_r))}</td>
-                        <td className="px-2 py-2 text-right font-mono whitespace-nowrap tabular-nums text-good-deep">{formatChf(summe((z) => z.bestaetigt))}</td>
-                        <td className="px-4 py-2 text-right font-mono whitespace-nowrap tabular-nums">{formatChf(total)}</td>
-                      </tr>
-                    </tfoot>
-                  </table>
+                <div className="mt-3 divide-y divide-line">
+                  {proBaustelle.map((z) => {
+                    const t = z.entwurf + z.kunde_r + z.bestaetigt;
+                    const teile = [
+                      { wert: z.bestaetigt, farbe: 'bg-good', text: 'text-good-deep', label: 'bestätigt' },
+                      { wert: z.kunde_r, farbe: 'bg-steel', text: 'text-steel', label: 'beim Kunden' },
+                      { wert: z.entwurf, farbe: 'bg-amber', text: 'text-amber-deep', label: 'Entwurf' },
+                    ].filter((x) => x.wert > 0);
+                    return (
+                      <div key={z.konto_nr} className="grid gap-x-4 gap-y-1.5 px-4 py-3 sm:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)_auto] sm:items-center">
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-medium"><span className="knr">{z.konto_nr}</span> <span className="ml-1">{z.bezeichnung}</span></p>
+                          <p className="truncate text-xs text-ink3">{z.kunde} · {z.anzahl} {z.anzahl === 1 ? 'Rapport' : 'Rapporte'}</p>
+                        </div>
+                        <div className="min-w-0">
+                          {/* Ein Balken je Baustelle: wie viel davon schon bestätigt, beim Kunden oder noch Entwurf ist */}
+                          <div className="flex h-1.5 w-full gap-px overflow-hidden rounded-full bg-ground">
+                            {teile.map((x) => <span key={x.label} className={x.farbe} style={{ width: `${(x.wert / t) * 100}%` }} />)}
+                          </div>
+                          <p className="mt-1 flex flex-wrap gap-x-3 text-xs">
+                            {teile.length === 1
+                              ? <span className={teile[0].text}>alles {teile[0].label}</span>
+                              : teile.map((x) => <span key={x.label} className={x.text + ' whitespace-nowrap'}><span className="font-mono tabular-nums">{formatChf(x.wert)}</span> {x.label}</span>)}
+                          </p>
+                        </div>
+                        <p className="text-right font-mono text-sm font-semibold tabular-nums">{formatChf(t)}</p>
+                      </div>
+                    );
+                  })}
+                  <div className="flex items-baseline justify-between gap-3 px-4 py-3 text-sm font-semibold">
+                    <span>Total · {summe((z) => z.anzahl)} Rapporte</span>
+                    <span className="font-mono tabular-nums">{formatChf(total)}</span>
+                  </div>
                 </div>
               )}
             </section>
@@ -192,7 +195,7 @@ export function Auswertung() {
                   <div className="divide-y divide-line">
                     {proKunde.map((k) => (
                       <div key={k.kunde} className="flex items-baseline justify-between gap-3 py-1.5 text-sm">
-                        <span className="min-w-0 truncate">{k.kunde} <span className="text-xs text-ink3">· {k.anzahl}</span></span>
+                        <span className="min-w-0 truncate">{k.kunde} <span className="text-xs text-ink3">· {k.anzahl} {k.anzahl === 1 ? 'Rapport' : 'Rapporte'}</span></span>
                         <span className="shrink-0 font-mono tabular-nums">{formatChf(k.total)}{k.bestaetigt > 0 && <span className="ml-2 text-xs text-good-deep">{Math.round((k.bestaetigt / k.total) * 100)} % bestätigt</span>}</span>
                       </div>
                     ))}
