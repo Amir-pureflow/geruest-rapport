@@ -95,6 +95,8 @@ interface LogZeile {
   ereignis: string;
   zeitpunkt: string;
   an: string;
+  /** Bei «rueckfrage»: der Text, den die Bauleitung geschrieben hat */
+  detail: { kommentar?: string } | null;
 }
 
 const EREIGNIS_LABEL: Record<string, string> = {
@@ -105,6 +107,7 @@ const EREIGNIS_LABEL: Record<string, string> = {
   bestaetigt: 'vom Kunden bestätigt',
   rueckfrage: 'Rückfrage des Kunden',
   erinnert: 'Erinnerung gesendet',
+  korrektur: 'zurück auf Entwurf zum Korrigieren',
 };
 
 export function RegieDetail() {
@@ -195,6 +198,16 @@ export function RegieDetail() {
   }
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
 
+  /** Nach einer Rückfrage korrigieren: zurück auf Entwurf. Nummer und Kundenlink bleiben, der Verlauf auch —
+   *  beim nächsten Senden entsteht ein neues PDF und ein neuer Eintrag «Mail gesendet». */
+  async function korrigieren() {
+    if (!supabase || !id || rapport?.status !== 'rueckfrage') return;
+    const { error } = await supabase.from('regierapport').update({ status: 'entwurf', frist_bis: null }).eq('id', id);
+    if (error) { setFehler('Korrigieren: ' + error.message); return; }
+    await supabase.from('zustellung_log').insert({ regierapport_id: id, an: rapport.empfaenger_email ?? 'kunde', ereignis: 'korrektur' });
+    void laden();
+  }
+
   const [fotoLaedt, setFotoLaedt] = useState(false);
   /** Bilder nachreichen — z. B. vom Bauführer selbst gemacht oder per Mail vom Team bekommen. */
   async function fotosNachreichen(e: ChangeEvent<HTMLInputElement>) {
@@ -243,7 +256,7 @@ export function RegieDetail() {
     const [r, p, l] = await Promise.all([
       rapportLaden(),
       supabase.from('regie_position').select('id,tarif_code,bezeichnung,menge_hundertstel,ansatz_rappen,betrag_rappen').eq('regierapport_id', id),
-      supabase.from('zustellung_log').select('id,ereignis,zeitpunkt,an').eq('regierapport_id', id).order('zeitpunkt'),
+      supabase.from('zustellung_log').select('id,ereignis,zeitpunkt,an,detail').eq('regierapport_id', id).order('zeitpunkt'),
     ]);
     if (r.error || !r.data) {
       setRapport(null);
@@ -451,6 +464,23 @@ export function RegieDetail() {
             {STATUS_TEXT[rapport.status] ?? rapport.status}
           </span>
         </header>
+
+        {/* Rückfrage der Bauleitung: der Text steht im zustellung_log — hier zuoberst, sonst sieht ihn niemand */}
+        {rapport.status === 'rueckfrage' && (() => {
+          const rf = [...logs].reverse().find((l) => l.ereignis === 'rueckfrage');
+          return (
+            <section className="rounded-[14px] border border-amber/40 bg-amber-soft/60 px-4 py-3 space-y-1.5">
+              <p className="text-sm font-semibold text-amber-deep">Rückfrage der Bauleitung{rf ? ` · ${zeitstempel(rf.zeitpunkt)}` : ''}</p>
+              {rf?.detail?.kommentar
+                ? <p className="rounded-[10px] bg-surface px-3 py-2 text-sm italic">«{rf.detail.kommentar}»</p>
+                : <p className="text-sm text-ink2">Ohne Text.</p>}
+              <p className="text-xs text-ink2">
+                Antworten per Mail oder Telefon{rapport.empfaenger_email ? ` (${rapport.empfaenger_email})` : ''}. Stimmt alles, reicht die Antwort — der Kunde bestätigt über seinen Link. Stimmt etwas nicht: korrigieren und nochmals senden, Nummer und Link bleiben gleich.
+              </p>
+              <button type="button" className="btn-ghost" onClick={() => void korrigieren()}>Korrigieren — zurück auf Entwurf</button>
+            </section>
+          );
+        })()}
 
         {/* Ursprung: woher die Zahlen kommen — Tagesmeldung des Teams und die Bestellung des Kunden */}
         {(rapport.tagesmeldung || rapport.zusatzauftrag) && (
@@ -695,9 +725,12 @@ export function RegieDetail() {
             )}
             {logs.length === 0 && !rapport.versendet_am && <p className="text-sm text-ink3">Noch keine Ereignisse.</p>}
             {logs.map((l) => (
-              <div key={l.id} className="flex items-baseline justify-between gap-2 text-sm">
-                <span>{EREIGNIS_LABEL[l.ereignis] ?? l.ereignis}</span>
-                <span className="font-mono text-xs text-ink3">{zeitstempel(l.zeitpunkt)}</span>
+              <div key={l.id} className="text-sm">
+                <div className="flex items-baseline justify-between gap-2">
+                  <span>{EREIGNIS_LABEL[l.ereignis] ?? l.ereignis}</span>
+                  <span className="font-mono text-xs text-ink3">{zeitstempel(l.zeitpunkt)}</span>
+                </div>
+                {l.ereignis === 'rueckfrage' && l.detail?.kommentar && <p className="mt-0.5 text-xs italic text-ink2">«{l.detail.kommentar}»</p>}
               </div>
             ))}
             <div className="flex gap-2 pt-2">
