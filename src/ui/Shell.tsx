@@ -1,6 +1,7 @@
-import type { ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { ANSICHT_LABEL, useAnsicht, type Ansicht } from '../lib/ansicht';
+import { supabase } from '../lib/supabase';
 
 /** Kleine Bildmarke: drei Gerüstlagen. Steht allein für die App, ohne Text. */
 export function Marke({ className = 'h-7 w-7' }: { className?: string }) {
@@ -35,7 +36,7 @@ interface NavEintrag { zu: string; label: string }
 interface NavGruppe { titel?: string; eintraege: NavEintrag[] }
 
 /** Gleiche Ordnung für beide Büro-Ansichten: erst das Tägliche, dann Geld, dann Planung. */
-export function navFuer(a: 'bauf' | 'sekretariat'): NavGruppe[] {
+export function navFuer(a: 'bauf' | 'sekretariat', kundenToken: string | null = null): NavGruppe[] {
   return [
     { eintraege: [{ zu: '/', label: 'Übersicht' }] },
     {
@@ -65,7 +66,8 @@ export function navFuer(a: 'bauf' | 'sekretariat'): NavGruppe[] {
       titel: 'Weitere',
       eintraege: [
         ...(a === 'bauf' ? [{ zu: '/erfassung?wahl', label: 'Erfassung (Teamgerät)' }] : []),
-        { zu: '/b/demo-token', label: 'Kundenlink ansehen' },
+        // Der neueste verschickte Regierapport, so wie ihn die Bauleitung sieht — ohne Rapport zeigt der Link nichts.
+        ...(kundenToken ? [{ zu: `/b/${kundenToken}`, label: 'Kundenlink ansehen' }] : []),
       ],
     },
   ];
@@ -99,7 +101,14 @@ export function Shell({
   const ansicht = useAnsicht();
   const { pathname } = useLocation();
   const buero = ansicht !== null && BUERO.includes(ansicht);
-  const nav = ansicht === 'bauf' || ansicht === 'sekretariat' ? navFuer(ansicht) : null;
+  const [kundenToken, setKundenToken] = useState<string | null>(null);
+  useEffect(() => {
+    if (!supabase) return;
+    void supabase.from('regierapport').select('link_token').neq('status', 'entwurf').not('link_token', 'is', null)
+      .order('versendet_am', { ascending: false }).limit(1).maybeSingle()
+      .then(({ data }) => setKundenToken((data as { link_token?: string } | null)?.link_token ?? null));
+  }, []);
+  const nav = ansicht === 'bauf' || ansicht === 'sekretariat' ? navFuer(ansicht, kundenToken) : null;
   const istAktiv = (zu: string) => {
     const pfad = zu.split('?')[0];
     return pfad === '/' ? pathname === '/' : pathname === pfad || pathname.startsWith(pfad + '/');
