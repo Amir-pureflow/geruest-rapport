@@ -21,6 +21,8 @@ interface Daten {
   beschrieb: string | null;
   positionen: { bezeichnung: string; betrag_rappen: number }[];
   fotos: string[];
+  nummer?: string | null;
+  pdf_url?: string | null;
 }
 
 type Zustand = 'laedt' | 'fehler' | 'offen' | 'bestaetigen_frage' | 'rueckfrage_text' | 'fertig';
@@ -145,6 +147,12 @@ export function Bestaetigung() {
               </section>
             )}
 
+            {daten.pdf_url && (
+              <a href={daten.pdf_url} target="_blank" rel="noreferrer" className="btn-ghost flex items-center justify-between gap-3 px-4 py-3 text-sm">
+                <span>Regierapport {daten.nummer ?? ''} als PDF</span>
+                <span className="text-ink3">herunterladen ›</span>
+              </a>
+            )}
             {(daten.fotos?.length ?? 0) > 0 && (
               <section className="card">
                 <p className="lbl">Fotos von der Baustelle · {daten.fotos.length}</p>

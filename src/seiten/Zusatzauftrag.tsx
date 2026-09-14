@@ -113,6 +113,9 @@ const CACHE_KEY = 'baustellen-cache-v2';
 
 type Rueckmeldung = { art: 'gesendet' | 'wartet'; text: string };
 
+/** Mehrkostenanzeige an die Bauleitung: gebaut, aber ausgeblendet, bis mit Arbnor geklärt ist, wie sie es heute machen (15.09.). */
+const MEHRKOSTENANZEIGE_AKTIV = false;
+
 export function Zusatzauftrag() {
   const [baustellen, setBaustellen] = useState<Baustelle[]>([]);
   const [suche, setSuche] = useState('');
@@ -506,7 +509,7 @@ export function Zusatzauftrag() {
               </p>
 
               {/* Mehrkostenanzeige — vor der Arbeit, sonst zahlt die Bauleitung nicht (Protokoll 7.1) */}
-              {a.anzeige_noetig && (a.stand === 'bestellt' || a.stand === 'gemeldet') && !a.angezeigt_am && anzeige?.id !== a.id && (
+              {MEHRKOSTENANZEIGE_AKTIV && a.anzeige_noetig && (a.stand === 'bestellt' || a.stand === 'gemeldet') && !a.angezeigt_am && anzeige?.id !== a.id && (
                 <div className="mt-2.5 flex flex-wrap items-center justify-between gap-2 rounded-[12px] border border-amber/40 bg-amber-soft px-3 py-2.5">
                   <span className="text-xs text-amber-deep">
                     <strong>Bauleitung noch nicht informiert.</strong> Bei diesem Kunden zählt Zusatzarbeit nur, wenn sie vorher schriftlich angezeigt wurde.
@@ -534,7 +537,7 @@ export function Zusatzauftrag() {
                   </div>
                 </div>
               )}
-              {a.angezeigt_am && (
+              {MEHRKOSTENANZEIGE_AKTIV && a.angezeigt_am && (
                 <p className="mt-2 text-xs text-good-deep">✓ Bauleitung informiert am {kurz(new Date(a.angezeigt_am))}{a.angezeigt_an ? ` · ${a.angezeigt_an}` : ''}</p>
               )}
 

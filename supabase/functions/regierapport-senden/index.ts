@@ -15,6 +15,7 @@
 // Quelle der Wahrheit ist DIESE Datei im Repo. Deploy: Supabase-MCP `deploy_edge_function`
 // (verify_jwt: true) oder `supabase functions deploy regierapport-senden`.
 import { createClient } from 'npm:@supabase/supabase-js@2';
+import { rapportPdfErzeugen } from '../_shared/rapport_pdf.ts';
 
 const cors = {
   'Access-Control-Allow-Origin': '*',
@@ -217,7 +218,7 @@ Deno.serve(async (req) => {
     const html = `
       <div style="${STIL}">
       <p>${anrede}</p>
-      <p>${r.anhang_pfad ? 'Im Anhang finden Sie' : 'Hiermit erhalten Sie'} den <strong>${name}</strong> für <strong>${bez}</strong> (Konto ${knr})${chf ? ` über Fr. ${chf}` : ''}.</p>
+      <p>Anbei erhalten Sie den <strong>${name}</strong> zu den ausgeführten Arbeiten auf <strong>${bez}</strong> (Objekt ${knr})${chf ? ` über Fr. ${chf}` : ''}.</p>
       ${r.beschrieb ? `<p style="border-left:3px solid #dfe5e4;padding-left:12px;color:#46565d">${r.beschrieb.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/\n/g, '<br>')}</p>` : ''}
       ${fotoSatz}
       <p>Bitte bestätigen Sie ihn unter diesem Link — ohne Anmeldung:</p>
@@ -231,7 +232,7 @@ Deno.serve(async (req) => {
     const text = [
       anrede,
       '',
-      `${r.anhang_pfad ? 'Im Anhang finden Sie' : 'Hiermit erhalten Sie'} den ${name} für ${bez} (Konto ${knr})${chf ? ` über Fr. ${chf}` : ''}.`,
+      `Anbei erhalten Sie den ${name} zu den ausgeführten Arbeiten auf ${bez} (Objekt ${knr})${chf ? ` über Fr. ${chf}` : ''}.`,
       ...(r.beschrieb ? ['', r.beschrieb, ''] : []),
       fotoAnzahl && fotoAnzahl > 0 ? `Unter dem Link sehen Sie die Positionen und ${fotoAnzahl} Foto(s) von der Baustelle.` : 'Unter dem Link sehen Sie die einzelnen Positionen.',
       '',
@@ -248,15 +249,19 @@ Deno.serve(async (req) => {
     const mail: Record<string, unknown> = { from: von, to: [empfaenger_email], subject: betreff, html, text };
     if (absender.email) mail.reply_to = absender.email;
 
+    // Anhang: das SORBA-Dokument, falls hochgeladen — sonst das automatisch erzeugte PDF (wie der SORBA-Ausdruck).
+    const b64 = (buf: Uint8Array) => { let bin = ''; for (let i = 0; i < buf.length; i += 0x8000) bin += String.fromCharCode(...buf.subarray(i, i + 0x8000)); return btoa(bin); };
+    let pdfInfo = '';
     if (r.anhang_pfad) {
       const { data: datei } = await supa.storage.from('anhaenge').download(r.anhang_pfad);
-      if (datei) {
-        const buf = new Uint8Array(await datei.arrayBuffer());
-        let bin = '';
-        for (let i = 0; i < buf.length; i += 0x8000) {
-          bin += String.fromCharCode(...buf.subarray(i, i + 0x8000));
-        }
-        mail.attachments = [{ filename: r.anhang_pfad.split('/').pop(), content: btoa(bin) }];
+      if (datei) mail.attachments = [{ filename: r.anhang_pfad.split('/').pop(), content: b64(new Uint8Array(await datei.arrayBuffer())) }];
+    } else {
+      try {
+        const pdf = await rapportPdfErzeugen(supa, r.id, { basisUrl: body?.basis_url, sachbearbeiter: absender.name });
+        mail.attachments = [{ filename: pdf.dateiname, content: b64(pdf.bytes) }];
+        pdfInfo = pdf.pfad;
+      } catch (e) {
+        pdfInfo = 'FEHLER ' + (e instanceof Error ? e.message : String(e));
       }
     }
 
@@ -273,7 +278,7 @@ Deno.serve(async (req) => {
       regierapport_id: r.id,
       an: empfaenger_email,
       ereignis: 'gesendet',
-      detail: { resend_id: erg.id, betreff, nummer: r.nummer, fotos: fotoAnzahl ?? 0, testempfaenger: gewuenscht !== kundenMail },
+      detail: { resend_id: erg.id, betreff, nummer: r.nummer, fotos: fotoAnzahl ?? 0, testempfaenger: gewuenscht !== kundenMail, anhang: r.anhang_pfad ?? pdfInfo },
     });
 
     return antwort(200, { ok: true, resend_id: erg.id, empfaenger_email });

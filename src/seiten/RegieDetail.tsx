@@ -132,6 +132,17 @@ export function RegieDetail() {
   // Leistungsbeschrieb: Entwurf im Feld, Vorschlag aus der Edge Function, gespeichert erst auf Knopfdruck
   const [beschrieb, setBeschrieb] = useState('');
   const [beschriebLaeuft, setBeschriebLaeuft] = useState(false);
+  // PDF wie der SORBA-Ausdruck: erzeugt der Server, öffnet in neuem Tab
+  const [pdfLaeuft, setPdfLaeuft] = useState(false);
+  async function pdfAnsehen() {
+    if (!supabase || !rapport || pdfLaeuft) return;
+    setPdfLaeuft(true);
+    const fenster = window.open('', '_blank');
+    const { data, error } = await supabase.functions.invoke('regierapport-pdf', { body: { regierapport_id: rapport.id, basis_url: window.location.origin } });
+    setPdfLaeuft(false);
+    if (error || !data?.url) { fenster?.close(); setFehler('PDF konnte nicht erstellt werden: ' + (data?.fehler ?? error?.message ?? '')); return; }
+    if (fenster) fenster.location.href = data.url; else window.open(data.url, '_blank');
+  }
   const [beschriebInfo, setBeschriebInfo] = useState('');
   const [beschriebKopiert, setBeschriebKopiert] = useState(false);
 
@@ -616,7 +627,11 @@ export function RegieDetail() {
           <section className="card space-y-4">
             <p className="text-[15px] font-semibold">An die Bauleitung senden</p>
             <div>
-              <label className="lbl">Anhang (Regierapport aus SORBA)</label>
+              <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-[12px] bg-ground px-3.5 py-3">
+                <span className="text-sm text-ink2">Die Mail nimmt automatisch ein PDF mit, im Aufbau des SORBA-Ausdrucks.</span>
+                <button type="button" className="btn-ghost shrink-0" disabled={pdfLaeuft} onClick={() => void pdfAnsehen()}>{pdfLaeuft ? 'Erstellt …' : 'PDF ansehen'}</button>
+              </div>
+              <label className="lbl">Eigenes Dokument statt PDF (optional, z. B. aus SORBA)</label>
               {rapport.anhang_pfad ? (
                 <p className="text-sm">
                   📎 {rapport.anhang_pfad.split('/').pop()}{' '}
@@ -632,7 +647,7 @@ export function RegieDetail() {
                 </label>
               )}
               <p className="mt-1 text-[11px] text-ink3">
-                Ohne Anhang geht die Mail trotzdem raus — für Tests okay, für echte Kunden nicht.
+                Ohne eigenes Dokument hängt die App ihr PDF an.
               </p>
             </div>
             <div>

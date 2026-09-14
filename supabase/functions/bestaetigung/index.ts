@@ -32,7 +32,7 @@ Deno.serve(async (req) => {
       if (!token) return antwort(400, { fehler: 'token fehlt' });
       const { data: r } = await supa
         .from('regierapport')
-        .select('id, status, betrag_rappen, versendet_am, frist_bis, empfaenger_email, tagesmeldung_id, beschrieb, baustelle:baustelle_id(bezeichnung, konto_nr), tagesmeldung:tagesmeldung_id(datum)')
+        .select('id, nummer, status, betrag_rappen, versendet_am, frist_bis, empfaenger_email, tagesmeldung_id, beschrieb, pdf_pfad, baustelle:baustelle_id(bezeichnung, konto_nr), tagesmeldung:tagesmeldung_id(datum)')
         .eq('link_token', token)
         .single();
       if (!r) return antwort(404, { fehler: 'Dieser Link ist ungültig.' });
@@ -65,7 +65,16 @@ Deno.serve(async (req) => {
 
       const bs = r.baustelle as unknown as { bezeichnung: string | null; konto_nr: string } | null;
       const tm = r.tagesmeldung as unknown as { datum: string } | null;
+      // PDF wie der SORBA-Ausdruck — zum Herunterladen und Ausdrucken, 1 Stunde gültig
+      const pdfPfad = (r as { pdf_pfad?: string | null }).pdf_pfad ?? null;
+      let pdfUrl: string | null = null;
+      if (pdfPfad) {
+        const { data: s } = await supa.storage.from('anhaenge').createSignedUrl(pdfPfad, 3600, { download: `${(r as { nummer?: string | null }).nummer ?? 'Regierapport'}.pdf` });
+        pdfUrl = s?.signedUrl ?? null;
+      }
       return antwort(200, {
+        nummer: (r as { nummer?: string | null }).nummer ?? null,
+        pdf_url: pdfUrl,
         status: r.status,
         betrag_rappen: r.betrag_rappen,
         versendet_am: r.versendet_am,
