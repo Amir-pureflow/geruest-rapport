@@ -4,7 +4,7 @@ import { Shell } from '../ui/Shell';
 import { FotoGalerie } from '../ui/FotoGalerie';
 import { supabase } from '../lib/supabase';
 import { minutenBetrag, formatChf, tarifNachCode, RUECKFALL_ANSATZ_RAPPEN } from '../lib/tarif';
-import { addTage, iso, kurz as ch, kw, montag, stunden } from '../lib/datum';
+import { addTage, iso, kurz as ch, kw, montag, stunden, NORMALTAG_MIN } from '../lib/datum';
 import { useAnsicht } from '../lib/ansicht';
 
 /**
@@ -496,9 +496,9 @@ export function Cockpit() {
     void laden();
   }
 
-  /** Korrektur in Gesamtminuten (Normal + Über), nach der 480-Regel aufgeteilt — wie die Erfassung. */
+  /** Korrektur in Gesamtminuten (Normal + Über), am normalen Tag (8.4 h) aufgeteilt — wie die Erfassung. */
   function aufteilen(total: number): { normal_min: number; ueber_min: number } {
-    return { normal_min: Math.min(total, 480), ueber_min: Math.max(0, total - 480) };
+    return { normal_min: Math.min(total, NORMALTAG_MIN), ueber_min: Math.max(0, total - NORMALTAG_MIN) };
   }
   function korrekturStarten(e: Eintrag, deltaMin: number) {
     setKorrektur((k) => {

@@ -5,7 +5,7 @@ import { Shell } from '../ui/Shell';
 import { Pegel, TranskriptLive } from '../ui/Sprachnotiz';
 import { supabase } from '../lib/supabase';
 import { enqueueMeldung, flushNachSupabase, offeneMeldungen, offeneAnzahl, lokaleMeldungEntfernen, type MeldungPayload } from '../lib/db';
-import { addTage, iso, lang, stunden } from '../lib/datum';
+import { addTage, iso, lang, stunden, NORMALTAG_MIN } from '../lib/datum';
 import { fotoVerkleinern } from '../lib/foto';
 
 /**
@@ -29,7 +29,7 @@ type Wer = 'kunde' | 'chef' | 'niemand';
 const TEAM_KEY = 'teamgeraet-team-id';
 /** Zuletzt gewählte Teams auf diesem Gerät (max. 5, neuestes vorne) — damit die Teamwahl nie mehr als 5 Kacheln braucht (Regel 3). */
 const ZULETZT_KEY = 'teamgeraet-zuletzt';
-const STANDARD_MIN = 480;
+const STANDARD_MIN = NORMALTAG_MIN;
 
 function zuletztLesen(): string[] {
   try {

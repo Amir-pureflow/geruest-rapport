@@ -47,6 +47,9 @@ export function kw(d: Date): number {
   return Math.ceil(((x.getTime() - jahresStart.getTime()) / 86400000 + 1) / 7);
 }
 
+/** Normaler Arbeitstag bei Gerüst GmbH: 8.4 h = 504 min (42-Stunden-Woche). Alles darüber sind Überstunden. */
+export const NORMALTAG_MIN = 504;
+
 export function stunden(min: number): string {
   return (min / 60).toFixed(1);
 }

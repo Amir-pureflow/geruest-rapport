@@ -283,7 +283,7 @@ export function erzeugeDemoBetrieb(opts: { baustellen: BaustelleQuelle[]; heute:
           erfasst_von: opts.userId, erfasst_am: ts(tag, 16, z.int(30, 59)), status,
         };
         meldungen.push(meldung);
-        const basis = t === 4 && z.chance(0.3) ? 420 : z.chance(0.08) ? 510 : 480;
+        const basis = t === 4 && z.chance(0.3) ? 420 : z.chance(0.08) ? 534 : 504;
         for (const m of leute) {
           const istChef = m.id === team.chefmonteur_id;
           const anwesend = istChef ? z.chance(0.97) : m.typ === 'temporaer' ? z.chance(0.88) : z.chance(0.93);
@@ -291,7 +291,7 @@ export function erzeugeDemoBetrieb(opts: { baustellen: BaustelleQuelle[]; heute:
           const total = z.chance(0.02) ? 630 : basis;
           const e: ZeiteintragRow = {
             id: z.uuid(), tagesmeldung_id: meldung.id, mitarbeiter_id: m.id,
-            normal_min: Math.min(total, 480), ueber_min: Math.max(0, total - 480),
+            normal_min: Math.min(total, 504), ueber_min: Math.max(0, total - 504),
             oev: m.oev_standard, km: istChef ? m.km_standard : m.km_standard,
             baustelle_id: bs.id, konto_nr: bs.konto_nr, status,
           };
