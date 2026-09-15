@@ -623,31 +623,35 @@ export function Cockpit() {
 
         {/* Der eine Knopf — zuoberst, nicht unter 20 Teams versteckt */}
         {!laedt && darfFreigeben && gruene.length > 0 && wocheAbgeschlossen && (
-          <div className="space-y-1.5">
-            <button type="button" className="cta cta-good disabled:opacity-60" disabled={!userId || speichert} onClick={() => void freigeben(gruene)}>
-              {speichert ? 'Speichert …' : `Alle ${gruene.length} Einträge ohne Hinweis freigeben`}
-            </button>
-            {/* Damit klar ist, was «16 Einträge» heisst: eine Person an einem Tag, nur grüne Zellen, über alle Teams */}
-            <details className="px-1 text-xs text-ink3">
-              <summary className="cursor-pointer select-none">Ein Eintrag = eine Person an einem Tag. Welche sind das?</summary>
-              <p className="mt-1 leading-relaxed">
-                {(() => {
-                  const m = new Map<string, { team: string; datum: string; n: number }>();
-                  for (const e of gruene) {
-                    const k = `${e.tagesmeldung.team?.id}|${e.tagesmeldung.datum}`;
-                    const x = m.get(k) ?? { team: e.tagesmeldung.team?.bezeichnung ?? '?', datum: e.tagesmeldung.datum, n: 0 };
-                    x.n += 1;
-                    m.set(k, x);
-                  }
-                  return [...m.values()]
-                    .sort((a, b) => a.team.localeCompare(b.team, 'de', { numeric: true }) || a.datum.localeCompare(b.datum))
-                    .map((x) => `${x.team} · ${TAGE[(new Date(x.datum + 'T12:00:00').getDay() + 6) % 7]} ${ch(new Date(x.datum + 'T12:00:00'))} · ${x.n} Pers.`)
-                    .join('  ·  ');
-                })()}
-              </p>
-              <p className="mt-1">Tage mit Regieverdacht oder über 10 h sind nicht dabei — die gibst du einzeln frei, nachdem du sie angeschaut hast.</p>
-            </details>
-          </div>
+          (() => {
+            // Was der Knopf freigibt, in Worten des Bauführers: Person-Tage, gruppiert nach Team und Tag.
+            const m = new Map<string, { team: string; datum: string; n: number }>();
+            for (const e of gruene) {
+              const k = `${e.tagesmeldung.team?.id}|${e.tagesmeldung.datum}`;
+              const x = m.get(k) ?? { team: e.tagesmeldung.team?.bezeichnung ?? '?', datum: e.tagesmeldung.datum, n: 0 };
+              x.n += 1;
+              m.set(k, x);
+            }
+            const gruppen = [...m.values()].sort((a, b) => a.team.localeCompare(b.team, 'de', { numeric: true }) || a.datum.localeCompare(b.datum));
+            const teamsN = new Set(gruppen.map((g) => g.team)).size;
+            const tag = (d: string) => `${TAGE[(new Date(d + 'T12:00:00').getDay() + 6) % 7]} ${ch(new Date(d + 'T12:00:00'))}`;
+            return (
+              <div className="rounded-[14px] border border-good/30 bg-good-soft/50 p-3 space-y-2">
+                <button type="button" className="cta cta-good disabled:opacity-60" disabled={!userId || speichert} onClick={() => void freigeben(gruene)}>
+                  {speichert ? 'Speichert …' : `Alle normalen Tage freigeben · ${teamsN} ${teamsN === 1 ? 'Team' : 'Teams'}`}
+                </button>
+                <p className="text-xs text-ink2">
+                  Das sind die Tage ohne Regieverdacht und ohne «über 10 h» — {gruene.length} Stunden-Einträge (eine Person an einem Tag):
+                </p>
+                <p className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-ink2">
+                  {gruppen.map((g) => (
+                    <span key={g.team + g.datum} className="whitespace-nowrap"><span className="font-semibold text-ink">{g.team}</span> {tag(g.datum)} · {g.n} Pers.</span>
+                  ))}
+                </p>
+                <p className="text-[11px] text-ink3">Gelbe und rote Tage bleiben offen — die gibst du einzeln frei, nachdem du sie angeschaut hast.</p>
+              </div>
+            );
+          })()
         )}
         {!laedt && darfFreigeben && eintraege.length > 0 && !wocheAbgeschlossen && (
           <p className="rounded-[12px] border border-line bg-surface px-4 py-2.5 text-sm text-ink2">
