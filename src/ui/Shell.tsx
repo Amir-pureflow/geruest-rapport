@@ -48,17 +48,17 @@ export function navFuer(a: 'bauf' | 'sekretariat', kundenToken: string | null = 
       ],
     },
     {
-      titel: 'Regie & Export',
+      titel: 'Regie',
       eintraege: [
         { zu: '/regie', label: 'Regierapporte' },
         { zu: '/auswertung', label: 'Auswertung' },
-        { zu: '/export', label: 'Export' },
       ],
     },
     {
       titel: 'Planung & Daten',
       eintraege: [
         { zu: '/board', label: 'Board' },
+        { zu: '/export', label: 'Export' },
         { zu: '/verwaltung', label: 'Verwaltung' },
       ],
     },
