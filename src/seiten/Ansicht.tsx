@@ -6,6 +6,9 @@ import { useNavigate } from 'react-router-dom';
 import { Marke, Wortmarke } from '../ui/Shell';
 import { ANSICHTEN, GRUPPEN, ansichtSetzen, useAnsicht, type Ansicht } from '../lib/ansicht';
 import { supabase } from '../lib/supabase';
+import { HardHat, ClipboardList, Users, User, Handshake, ChevronRight, type LucideIcon } from 'lucide-react';
+
+const ICON: Record<Ansicht, LucideIcon> = { bauf: HardHat, sekretariat: ClipboardList, chef: Users, monteur: User, kunde: Handshake };
 
 export function Ansicht({ hinweis }: { hinweis?: string }) {
   const navigiere = useNavigate();
@@ -19,10 +22,11 @@ export function Ansicht({ hinweis }: { hinweis?: string }) {
   return (
     <div className="flex min-h-screen flex-col">
       <main className="mx-auto flex w-full max-w-md flex-1 flex-col justify-center px-5 py-10 lg:max-w-4xl lg:px-10">
-        <div className="mb-7 text-center">
-          <div className="mb-3 flex justify-center"><Marke className="h-12 w-12 rounded-[12px]" /></div>
+        <div className="mb-8 text-center">
+          <div className="mb-4 flex justify-center"><Marke className="h-16 w-16 rounded-[18px]" /></div>
           <p><Wortmarke gross /></p>
-          <p className="mt-2 text-sm text-ink3">Wer bist du? Die App zeigt dann nur, was du brauchst.</p>
+          <p className="mx-auto mt-2 max-w-xs text-sm text-ink2">Tagesmeldung, Regie und Freigabe — ohne Papier, ohne Suchen.</p>
+          <p className="mt-4 text-xs font-medium uppercase tracking-[0.12em] text-ink3">Wer bist du?</p>
         </div>
 
         <div className="grid gap-6 lg:grid-cols-3 lg:gap-8">
@@ -36,11 +40,14 @@ export function Ansicht({ hinweis }: { hinweis?: string }) {
                   onClick={() => waehlen(a.key)}
                   className={'card flex w-full items-center justify-between gap-3 text-left transition active:bg-ground lg:min-h-[6.5rem] ' + (aktuell === a.key ? 'ring-1 ring-accent' : '')}
                 >
-                  <span>
-                    <span className="flex items-baseline gap-2 font-display text-[17px] font-semibold">{a.titel}{aktuell === a.key ? <span className="font-body text-xs font-normal text-accent-deep">zuletzt</span> : null}</span>
-                    <span className="block text-sm text-ink3">{a.text}</span>
+                  <span className="flex min-w-0 items-center gap-3.5">
+                    {(() => { const I = ICON[a.key]; return <span className="grid h-11 w-11 shrink-0 place-items-center rounded-[12px] bg-accent-soft text-accent-deep"><I size={22} strokeWidth={1.8} aria-hidden="true" /></span>; })()}
+                    <span className="min-w-0">
+                      <span className="flex items-baseline gap-2 font-display text-[17px] font-semibold">{a.titel}{aktuell === a.key ? <span className="font-body text-xs font-normal text-accent-deep">zuletzt</span> : null}</span>
+                      <span className="block text-sm text-ink3">{a.text}</span>
+                    </span>
                   </span>
-                  <span className="text-ink3" aria-hidden="true">›</span>
+                  <ChevronRight size={18} className="shrink-0 text-ink3" aria-hidden="true" />
                 </button>
               ))}
             </section>

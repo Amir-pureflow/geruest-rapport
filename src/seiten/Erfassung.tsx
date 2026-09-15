@@ -1,3 +1,4 @@
+import { Check, CheckCircle2, ChevronLeft, ChevronRight, Flag, Minus, Plus, Car } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
 import { Link } from 'react-router-dom';
 import { Shell } from '../ui/Shell';
@@ -85,11 +86,20 @@ function Helm({ farbe }: { farbe: string }) {
 
 function Stepper({ wert, setWert, schritt, min, format }: { wert: number; setWert: (v: number) => void; schritt: number; min: number; format: (v: number) => string }) {
   return (
-    <div className="flex items-center justify-between rounded-[10px] border border-line-strong bg-surface-2 px-2 py-1">
-      <button type="button" onClick={() => setWert(Math.max(min, wert - schritt))} className="px-3 py-1.5 font-mono text-xl text-steel">◄</button>
-      <span className="font-mono text-xl font-semibold tabular-nums">{format(wert)}</span>
-      <button type="button" onClick={() => setWert(wert + schritt)} className="px-3 py-1.5 font-mono text-xl text-steel">►</button>
+    <div className="flex items-center justify-between rounded-[14px] border border-line bg-surface p-1.5 shadow-[0_1px_2px_rgb(17_17_19/0.04)]">
+      <button type="button" onClick={() => setWert(Math.max(min, wert - schritt))} aria-label="weniger" className="grid h-12 w-14 place-items-center rounded-[10px] bg-surface-2 text-ink active:scale-95"><Minus size={22} strokeWidth={2.2} /></button>
+      <span className="font-mono text-2xl font-semibold tabular-nums">{format(wert)}</span>
+      <button type="button" onClick={() => setWert(wert + schritt)} aria-label="mehr" className="grid h-12 w-14 place-items-center rounded-[10px] bg-surface-2 text-ink active:scale-95"><Plus size={22} strokeWidth={2.2} /></button>
     </div>
+  );
+}
+
+/** Kleiner −/+ Knopf in Zeilen: 40 px Tippfläche, damit man mit Handschuhen trifft. */
+function MiniKnopf({ art, onClick }: { art: 'minus' | 'plus'; onClick: () => void }) {
+  return (
+    <button type="button" onClick={onClick} aria-label={art === 'minus' ? 'weniger' : 'mehr'} className="grid h-10 w-10 place-items-center rounded-[10px] border border-line bg-surface text-ink2 active:scale-95 active:bg-surface-2">
+      {art === 'minus' ? <Minus size={18} strokeWidth={2.2} /> : <Plus size={18} strokeWidth={2.2} />}
+    </button>
   );
 }
 
@@ -563,7 +573,7 @@ export function Erfassung() {
               {heuteGemeldet.map((m, i) => (
                 <li key={i} className="flex items-start justify-between gap-2 py-1.5">
                   <span className="min-w-0">
-                    <span className="block">{m.normalfall ? '✓' : '⚑'} {m.bezeichnung}{!m.normalfall && <span className="ml-1 text-xs text-amber-deep">{m.abweichung_typ ? AB_KURZ[m.abweichung_typ] : 'Abweichung'}</span>}</span>
+                    <span className="flex items-center gap-1.5">{m.normalfall ? <CheckCircle2 size={16} className="shrink-0 text-good" /> : <Flag size={16} className="shrink-0 text-amber-deep" />} <span>{m.bezeichnung}</span>{!m.normalfall && <span className="ml-1 text-xs text-amber-deep">{m.abweichung_typ ? AB_KURZ[m.abweichung_typ] : 'Abweichung'}</span>}</span>
                     <span className="block text-[11px] text-ink3">{m.lokal ? 'wartet auf Netz' : 'gesendet'}</span>
                   </span>
                   <span className="shrink-0 text-right font-mono tabular-nums">
@@ -645,14 +655,14 @@ export function Erfassung() {
                 return (
                   <div key={p.id} className="flex items-center justify-between gap-2 px-3 py-2">
                     <button type="button" onClick={() => setAbLeute((s) => { const n = new Set(s); if (n.has(p.id)) n.delete(p.id); else n.add(p.id); return n; })} className="flex min-w-0 items-center gap-2 text-left">
-                      <span className={'grid h-7 w-7 flex-none place-items-center rounded-[7px] text-sm font-semibold ' + (dabeiAb ? 'bg-good text-white' : 'border border-line-strong text-transparent')}>✓</span>
+                      <span className={'grid h-9 w-9 flex-none place-items-center rounded-[10px] border ' + (dabeiAb ? 'border-good bg-good text-white' : 'border-line-strong bg-surface text-transparent')}><Check size={18} strokeWidth={2.6} /></span>
                       <span className={'truncate ' + (dabeiAb ? '' : 'text-ink3')}>{p.name}{p.typ === 'temporaer' && <span className="ml-1 text-[10px] text-ink3">temp</span>}</span>
                     </button>
                     {dabeiAb ? (
                       <span className="flex flex-none items-center gap-1">
-                        <button type="button" className="btn-ghost px-2.5" onClick={() => setAbMinPerson((m) => ({ ...m, [p.id]: Math.max(30, min - 30) }))}>−</button>
-                        <span className={'w-12 text-center font-mono text-sm tabular-nums ' + (abMinPerson[p.id] !== undefined && abMinPerson[p.id] !== abMin ? 'font-semibold text-steel' : '')}>{stunden(min)}</span>
-                        <button type="button" className="btn-ghost px-2.5" onClick={() => setAbMinPerson((m) => ({ ...m, [p.id]: min + 30 }))}>+</button>
+                        <MiniKnopf art="minus" onClick={() => setAbMinPerson((m) => ({ ...m, [p.id]: Math.max(30, min - 30) }))} />
+                        <span className={'w-12 text-center font-mono text-[15px] tabular-nums ' + (abMinPerson[p.id] !== undefined && abMinPerson[p.id] !== abMin ? 'font-semibold text-steel' : '')}>{stunden(min)}</span>
+                        <MiniKnopf art="plus" onClick={() => setAbMinPerson((m) => ({ ...m, [p.id]: min + 30 }))} />
                       </span>
                     ) : (
                       <span className="text-xs text-ink3">nicht dabei</span>
@@ -703,9 +713,9 @@ export function Erfassung() {
         <header className="flex items-start justify-between gap-3">
           <div className="min-w-0">
             <div className="flex items-center gap-1.5">
-              <button type="button" className="btn-ghost px-2.5 py-1" disabled={tagIso <= fruehesterIso} onClick={() => setDatum((d) => addTage(d, -1))} aria-label="Tag zurück">◀</button>
+              <button type="button" className="grid h-9 w-9 place-items-center rounded-[10px] border border-line bg-surface text-ink2 disabled:opacity-30" disabled={tagIso <= fruehesterIso} onClick={() => setDatum((d) => addTage(d, -1))} aria-label="Tag zurück"><ChevronLeft size={18} /></button>
               <h1 className="font-display text-2xl font-semibold">{istHeute ? 'Heute' : lang(datum)}</h1>
-              <button type="button" className="btn-ghost px-2.5 py-1" disabled={istHeute} onClick={() => setDatum((d) => addTage(d, 1))} aria-label="Tag vor">▶</button>
+              <button type="button" className="grid h-9 w-9 place-items-center rounded-[10px] border border-line bg-surface text-ink2 disabled:opacity-30" disabled={istHeute} onClick={() => setDatum((d) => addTage(d, 1))} aria-label="Tag vor"><ChevronRight size={18} /></button>
             </div>
             <p className="mt-0.5 text-xs text-ink3">
               {istHeute ? lang(datum) : <span className="font-semibold text-accent-deep">Nachtrag — nicht heute</span>}
@@ -715,9 +725,10 @@ export function Erfassung() {
               </button>
             </p>
           </div>
-          <span className="shrink-0 font-mono text-xs text-ink3">
+          <span className="flex shrink-0 items-center gap-1.5 text-xs text-ink3">
+            <span className={'inline-block h-2 w-2 rounded-full ' + (navigator.onLine ? 'bg-good' : 'bg-amber')} aria-hidden="true" />
             {navigator.onLine ? 'online' : 'offline'}
-            {wartend > 0 && <span className="ml-2 rounded bg-accent-soft px-1.5 py-0.5 font-semibold text-accent-deep">{wartend} wartet</span>}
+            {wartend > 0 && <span className="ml-1 rounded-md bg-accent-soft px-1.5 py-0.5 font-semibold text-accent-deep">{wartend} wartet</span>}
           </span>
         </header>
 
@@ -737,8 +748,8 @@ export function Erfassung() {
               {heuteGemeldet.map((m, i) => (
                 <li key={i} className="flex items-start justify-between gap-2">
                   <span className="min-w-0">
-                    <span className="block">
-                      {m.normalfall ? '✓' : '⚑'} {m.bezeichnung}
+                    <span className="flex items-center gap-1.5">
+                      {m.normalfall ? <CheckCircle2 size={16} className="shrink-0 text-good" /> : <Flag size={16} className="shrink-0 text-amber-deep" />} <span>{m.bezeichnung}</span>
                       {!m.normalfall && <span className="ml-1 text-xs text-amber-deep">{m.abweichung_typ ? AB_KURZ[m.abweichung_typ] : 'Abweichung'}</span>}
                     </span>
                     <span className="block text-[11px] text-ink3">
@@ -752,7 +763,7 @@ export function Erfassung() {
               ))}
             </ul>
             <p className="mt-1.5 text-[11px] text-ink3">
-              Zweite Baustelle an diesem Tag? Unten antippen und speichern. Einen anderen Tag vergessen? Oben mit ◀ zurück.
+              Zweite Baustelle an diesem Tag? Unten antippen und speichern. Einen anderen Tag vergessen? Oben mit dem Pfeil zurück.
             </p>
           </section>
         )}
@@ -825,20 +836,20 @@ export function Erfassung() {
               const a = anw[p.id];
               if (!a) return null;
               return (
-                <div key={p.id} className="px-3 py-2">
-                  <div className="flex items-center gap-2">
-                    <button type="button" onClick={() => setAnw((s) => ({ ...s, [p.id]: { ...a, dabei: !a.dabei } }))} className={'flex h-8 w-8 flex-none items-center justify-center rounded-md border text-lg font-semibold ' + (a.dabei ? 'border-good bg-good text-white' : 'border-line-strong text-ink3')}>
-                      {a.dabei ? '✓' : ''}
+                <div key={p.id} className="px-3 py-2.5">
+                  <div className="flex items-center gap-2.5">
+                    <button type="button" onClick={() => setAnw((s) => ({ ...s, [p.id]: { ...a, dabei: !a.dabei } }))} aria-pressed={a.dabei} className={'grid h-10 w-10 flex-none place-items-center rounded-[10px] border transition active:scale-95 ' + (a.dabei ? 'border-good bg-good text-white shadow-[0_6px_14px_-8px_rgb(31_157_85/0.7)]' : 'border-line-strong bg-surface text-transparent')}>
+                      <Check size={20} strokeWidth={2.6} />
                     </button>
                     <span className={'min-w-0 flex-1 truncate text-sm ' + (a.dabei ? 'font-medium' : 'text-ink3 line-through')}>
                       {p.name}{p.typ === 'temporaer' && <span className="ml-1 text-[10px] text-ink3">temp</span>}
                     </span>
                     {a.dabei && (
                       <>
-                        <button type="button" onClick={() => setAnw((s) => ({ ...s, [p.id]: { ...a, min: Math.max(30, a.min - 30) } }))} className="btn-ghost px-2">−</button>
-                        <span className="w-11 text-center font-mono text-sm tabular-nums">{(a.min / 60).toFixed(1)}</span>
-                        <button type="button" onClick={() => setAnw((s) => ({ ...s, [p.id]: { ...a, min: a.min + 30 } }))} className="btn-ghost px-2">+</button>
-                        <button type="button" onClick={() => setAnreiseOffen(anreiseOffen === p.id ? null : p.id)} className="btn-ghost px-2 text-[11px]">{a.oev ? 'öV' : a.km > 0 ? `${a.km} km` : '–'}</button>
+                        <MiniKnopf art="minus" onClick={() => setAnw((s) => ({ ...s, [p.id]: { ...a, min: Math.max(30, a.min - 30) } }))} />
+                        <span className="w-11 text-center font-mono text-[15px] font-semibold tabular-nums">{(a.min / 60).toFixed(1)}</span>
+                        <MiniKnopf art="plus" onClick={() => setAnw((s) => ({ ...s, [p.id]: { ...a, min: a.min + 30 } }))} />
+                        <button type="button" onClick={() => setAnreiseOffen(anreiseOffen === p.id ? null : p.id)} aria-label="Anreise" className={'grid h-10 min-w-10 place-items-center rounded-[10px] border px-1.5 text-[11px] ' + (a.oev || a.km > 0 ? 'border-steel/40 bg-steel-soft text-steel' : 'border-line bg-surface text-ink3')}>{a.oev ? 'öV' : a.km > 0 ? `${a.km} km` : <Car size={16} />}</button>
                       </>
                     )}
                   </div>
@@ -893,8 +904,8 @@ export function Erfassung() {
           </section>
         )}
 
-        <button type="button" disabled={speichert} onClick={() => void speichern(true)} className="cta cta-good py-5 disabled:opacity-70">
-          {gespeichert ?? '✓ Alles wie geplant'}
+        <button type="button" disabled={speichert} onClick={() => void speichern(true)} className="cta cta-good py-5 text-[17px] disabled:opacity-70">
+          <span className="inline-flex items-center gap-2">{gespeichert ? gespeichert : <><CheckCircle2 size={22} strokeWidth={2.2} aria-hidden="true" /> Alles wie geplant</>}</span>
         </button>
         {hinweis && <p className="text-sm font-semibold text-accent-deep">{hinweis}</p>}
 

@@ -2,6 +2,7 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { ANSICHT_LABEL, useAnsicht, type Ansicht } from '../lib/ansicht';
 import { supabase } from '../lib/supabase';
+import { ChevronRight, LayoutDashboard, PhoneCall, CalendarDays, CalendarRange, FileText, BarChart3, LayoutGrid, Download, Settings, Smartphone, ExternalLink, type LucideIcon } from 'lucide-react';
 
 /**
  * Bildmarke: Gerüst als Netz — zwei Stiele, zwei Lagen, eine Strebe, und an den Knoten leuchtende Punkte
@@ -38,42 +39,42 @@ export function Wortmarke({ gross = false }: { gross?: boolean }) {
  */
 const BUERO: Ansicht[] = ['bauf', 'sekretariat'];
 
-interface NavEintrag { zu: string; label: string }
+interface NavEintrag { zu: string; label: string; icon?: LucideIcon }
 interface NavGruppe { titel?: string; eintraege: NavEintrag[] }
 
 /** Gleiche Ordnung für beide Büro-Ansichten: erst das Tägliche, dann Geld, dann Planung. */
 export function navFuer(a: 'bauf' | 'sekretariat', kundenToken: string | null = null): NavGruppe[] {
   return [
-    { eintraege: [{ zu: '/', label: 'Übersicht' }] },
+    { eintraege: [{ zu: '/', label: 'Übersicht', icon: LayoutDashboard }] },
     {
       titel: 'Tagesgeschäft',
       eintraege: [
-        { zu: '/zusatzauftrag', label: 'Zusatzauftrag' },
-        { zu: '/heute', label: 'Tagesübersicht' },
-        { zu: '/cockpit', label: 'Wochenübersicht' },
+        { zu: '/zusatzauftrag', label: 'Zusatzauftrag', icon: PhoneCall },
+        { zu: '/heute', label: 'Tagesübersicht', icon: CalendarDays },
+        { zu: '/cockpit', label: 'Wochenübersicht', icon: CalendarRange },
       ],
     },
     {
       titel: 'Regie',
       eintraege: [
-        { zu: '/regie', label: 'Regierapporte' },
-        { zu: '/auswertung', label: 'Auswertung' },
+        { zu: '/regie', label: 'Regierapporte', icon: FileText },
+        { zu: '/auswertung', label: 'Auswertung', icon: BarChart3 },
       ],
     },
     {
       titel: 'Planung & Daten',
       eintraege: [
-        { zu: '/board', label: 'Board' },
-        { zu: '/export', label: 'Export' },
-        { zu: '/verwaltung', label: 'Verwaltung' },
+        { zu: '/board', label: 'Board', icon: LayoutGrid },
+        { zu: '/export', label: 'Export', icon: Download },
+        { zu: '/verwaltung', label: 'Verwaltung', icon: Settings },
       ],
     },
     {
       titel: 'Weitere',
       eintraege: [
-        ...(a === 'bauf' ? [{ zu: '/erfassung?wahl', label: 'Erfassung (Teamgerät)' }] : []),
+        ...(a === 'bauf' ? [{ zu: '/erfassung?wahl', label: 'Erfassung (Teamgerät)', icon: Smartphone }] : []),
         // Der neueste verschickte Regierapport, so wie ihn die Bauleitung sieht — ohne Rapport zeigt der Link nichts.
-        ...(kundenToken ? [{ zu: `/b/${kundenToken}`, label: 'Kundenlink ansehen' }] : []),
+        ...(kundenToken ? [{ zu: `/b/${kundenToken}`, label: 'Kundenlink ansehen', icon: ExternalLink }] : []),
       ],
     },
   ];
@@ -85,24 +86,71 @@ function NavLink({ e, aktiv }: { e: NavEintrag; aktiv: boolean }) {
       to={e.zu}
       aria-current={aktiv ? 'page' : undefined}
       className={
-        'nav-link block rounded-[10px] px-3 py-[7px] text-[14px] ' +
+        'nav-link flex items-center gap-2.5 rounded-[10px] px-3 py-[7px] text-[14px] ' +
         (aktiv ? 'nav-link-on font-medium text-accent-deep' : 'font-normal text-ink2 hover:bg-surface-2 hover:text-ink')
       }
     >
+      {e.icon && <e.icon size={17} strokeWidth={1.8} className={aktiv ? 'text-accent' : 'text-ink3'} aria-hidden="true" />}
       {e.label}
     </Link>
   );
 }
 
-/** App-Rahmen. `schmal`: Formulare und Detailseiten bleiben auch am PC eine Lesespalte. */
+/** Seitentitel je Pfad — für die Brotkrumen oben. Unbekannte Segmente (IDs) bekommen `krume` aus der Seite. */
+const TITEL: Record<string, string> = {
+  '/': 'Übersicht',
+  '/zusatzauftrag': 'Zusatzauftrag',
+  '/heute': 'Tagesübersicht',
+  '/cockpit': 'Wochenübersicht',
+  '/regie': 'Regierapporte',
+  '/regie/neu': 'Neuer Regierapport',
+  '/auswertung': 'Auswertung',
+  '/export': 'Export',
+  '/board': 'Board',
+  '/verwaltung': 'Verwaltung',
+  '/erfassung': 'Erfassung',
+  '/ansicht': 'Ansicht wählen',
+};
+
+/** Brotkrumen: Übersicht › Regierapporte › RR-2026-0008. Jede Stufe ist anklickbar, die letzte nicht. */
+function Brotkrumen({ pathname, krume }: { pathname: string; krume?: string }) {
+  const teile = pathname.split('/').filter(Boolean);
+  if (teile.length === 0) return null;
+  const stufen: { zu: string; label: string }[] = [{ zu: '/', label: TITEL['/'] }];
+  let pfad = '';
+  for (const t of teile) {
+    pfad += '/' + t;
+    stufen.push({ zu: pfad, label: TITEL[pfad] ?? (pfad === pathname && krume ? krume : t.length > 12 ? 'Detail' : t) });
+  }
+  return (
+    <nav aria-label="Pfad" className="mb-4 flex flex-wrap items-center gap-1 text-[13px] text-ink3">
+      {stufen.map((s, i) => {
+        const letzte = i === stufen.length - 1;
+        return (
+          <span key={s.zu} className="flex items-center gap-1">
+            {i > 0 && <ChevronRight size={14} className="text-ink3/60" aria-hidden="true" />}
+            {letzte
+              ? <span className="font-medium text-ink" aria-current="page">{s.label}</span>
+              : <Link to={s.zu} className="rounded-md px-1 py-0.5 transition-colors hover:bg-surface-2 hover:text-ink">{s.label}</Link>}
+          </span>
+        );
+      })}
+    </nav>
+  );
+}
+
+/** App-Rahmen. `schmal`: Formulare und Detailseiten bleiben auch am PC eine Lesespalte. `krume`: Name der Detailseite im Pfad oben. */
 export function Shell({
   children,
   zurueck = false,
+  krume,
   schmal = false,
 }: {
   children: ReactNode;
+  /** Früher der Knopf «‹ Übersicht» — heute zeigen alle Seiten ausser der Startseite die Brotkrumen. Bleibt für die Aufrufer. */
   zurueck?: boolean;
   schmal?: boolean;
+  krume?: string;
 }) {
   const ansicht = useAnsicht();
   const { pathname } = useLocation();
@@ -156,11 +204,6 @@ export function Shell({
               <Wortmarke />
             </Link>
             <span className="flex items-center gap-1.5">
-              {zurueck && (
-                <Link to="/" className="btn-ghost text-xs">
-                  ‹ Übersicht
-                </Link>
-              )}
               {wechsel}
             </span>
           </div>
@@ -171,6 +214,7 @@ export function Shell({
             (buero ? (schmal ? 'lg:max-w-2xl lg:px-12 lg:py-12' : 'lg:max-w-5xl lg:px-12 lg:py-12') : '')
           }
         >
+          {(zurueck || pathname !== '/') && <Brotkrumen pathname={pathname} krume={krume} />}
           {children}
         </main>
       </div>

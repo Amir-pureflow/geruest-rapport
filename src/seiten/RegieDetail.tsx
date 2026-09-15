@@ -445,7 +445,7 @@ export function RegieDetail() {
   }
 
   return (
-    <Shell zurueck schmal>
+    <Shell zurueck schmal krume={rapport.nummer ?? 'Regierapport'}>
       <div className="space-y-6">
         <header className="flex items-start justify-between gap-4">
           <div className="min-w-0">
