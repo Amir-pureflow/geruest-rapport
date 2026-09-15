@@ -4,8 +4,8 @@
  * Oben Filter-Chips mit Anzahl, rechts je Zeile Betrag und Stand. Keine Urteile, nur Stände (CLAUDE.md #1).
  */
 import { useEffect, useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
-import { ChevronRight, FileText, Send, CheckCircle2, AlertCircle, MessageCircleQuestion } from 'lucide-react';
+import { Link, useSearchParams } from 'react-router-dom';
+import { ChevronRight, FileText, Send, CheckCircle2, AlertCircle, MessageCircleQuestion, X } from 'lucide-react';
 import { Shell } from '../ui/Shell';
 import { supabase } from '../lib/supabase';
 import { formatChf } from '../lib/tarif';
@@ -72,6 +72,10 @@ export function RegieListe() {
   const [zeilen, setZeilen] = useState<Zeile[]>([]);
   const [laedt, setLaedt] = useState(true);
   const [filter, setFilter] = useState<Filter>('alle');
+  // Baustellen-Filter in der URL (?baustelle=903091), damit man einen Link darauf setzen kann
+  const [params, setParams] = useSearchParams();
+  const baustelleFilter = params.get('baustelle') ?? '';
+  const baustelleSetzen = (knr: string) => setParams(knr ? { baustelle: knr } : {}, { replace: true });
 
   useEffect(() => {
     if (!supabase) return;
@@ -87,21 +91,33 @@ export function RegieListe() {
   }, []);
 
   const heuteIso = new Date().toISOString().slice(0, 10);
+  // Alle Baustellen mit Rapporten, für den Filter — nach Anzahl, dann Name
+  const baustellen = useMemo(() => {
+    const m = new Map<string, { konto_nr: string; bezeichnung: string; n: number }>();
+    for (const z of zeilen) {
+      if (!z.baustelle) continue;
+      const e = m.get(z.baustelle.konto_nr) ?? { konto_nr: z.baustelle.konto_nr, bezeichnung: z.baustelle.bezeichnung ?? '', n: 0 };
+      e.n += 1;
+      m.set(z.baustelle.konto_nr, e);
+    }
+    return [...m.values()].sort((a, b) => b.n - a.n || a.bezeichnung.localeCompare(b.bezeichnung, 'de'));
+  }, [zeilen]);
+  const gefiltert = useMemo(() => (baustelleFilter ? zeilen.filter((z) => z.baustelle?.konto_nr === baustelleFilter) : zeilen), [zeilen, baustelleFilter]);
   const proGruppe = useMemo(() => {
     const m: Record<Gruppe, Zeile[]> = { entwurf: [], kunde: [], bestaetigt: [] };
-    for (const z of zeilen) m[GRUPPE_VON[z.status] ?? 'kunde'].push(z);
+    for (const z of gefiltert) m[GRUPPE_VON[z.status] ?? 'kunde'].push(z);
     // Beim Kunden: das Dringende zuoberst (Frist abgelaufen, Rückfrage), dann nach Frist
     m.kunde.sort((a, b) => {
       const r = (z: Zeile) => (z.status === 'frist_abgelaufen' ? 0 : z.status === 'rueckfrage' ? 1 : 2);
       return r(a) - r(b) || (a.frist_bis ?? '').localeCompare(b.frist_bis ?? '');
     });
     return m;
-  }, [zeilen]);
+  }, [gefiltert]);
   const summe = (l: Zeile[]) => l.reduce((s, z) => s + (z.betrag_rappen ?? 0), 0);
   const dringend = proGruppe.kunde.filter((z) => z.status === 'frist_abgelaufen' || z.status === 'rueckfrage').length;
 
   const chips: { key: Filter; label: string; n: number }[] = [
-    { key: 'alle', label: 'Alle', n: zeilen.length },
+    { key: 'alle', label: 'Alle', n: gefiltert.length },
     ...GRUPPEN.map((g) => ({ key: g.key as Filter, label: g.titel, n: proGruppe[g.key].length })),
   ];
   const sichtbar = GRUPPEN.filter((g) => (filter === 'alle' || filter === g.key) && proGruppe[g.key].length > 0);
@@ -126,14 +142,41 @@ export function RegieListe() {
           <Link to="/cockpit" className="btn-ghost">Wochenübersicht ›</Link>
         </header>
 
-        <div className="flex flex-wrap gap-1.5">
+        <div className="flex flex-wrap items-center gap-1.5">
           {chips.map((c) => (
             <button key={c.key} type="button" onClick={() => setFilter(c.key)} className={'chip px-3 py-1.5 text-xs ' + (filter === c.key ? 'chip-on' : '')}>
               {c.label} <span className={filter === c.key ? 'text-accent-deep/70' : 'text-ink3'}>{c.n}</span>
             </button>
           ))}
+          {baustellen.length > 1 && (
+            <span className="ml-auto flex items-center gap-1.5">
+              <select
+                value={baustelleFilter}
+                onChange={(e) => baustelleSetzen(e.target.value)}
+                aria-label="Nach Baustelle filtern"
+                className={'chip max-w-[260px] cursor-pointer appearance-none truncate px-3 py-1.5 pr-7 text-xs ' + (baustelleFilter ? 'chip-on' : '')}
+                style={{ backgroundImage: "url(\"data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%236c7b81' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'><path d='m6 9 6 6 6-6'/></svg>\")", backgroundRepeat: 'no-repeat', backgroundPosition: 'right 9px center' }}
+              >
+                <option value="">Alle Baustellen</option>
+                {baustellen.map((b) => (
+                  <option key={b.konto_nr} value={b.konto_nr}>{b.konto_nr} {b.bezeichnung} ({b.n})</option>
+                ))}
+              </select>
+              {baustelleFilter && (
+                <button type="button" onClick={() => baustelleSetzen('')} aria-label="Baustellen-Filter aufheben" className="grid h-8 w-8 place-items-center rounded-full text-ink3 hover:bg-surface-2 hover:text-ink"><X size={15} /></button>
+              )}
+            </span>
+          )}
         </div>
+        {baustelleFilter && (
+          <p className="-mt-2 text-xs text-ink3">
+            Nur <span className="knr">{baustelleFilter}</span> {baustellen.find((b) => b.konto_nr === baustelleFilter)?.bezeichnung} · {gefiltert.length} {gefiltert.length === 1 ? 'Rapport' : 'Rapporte'} · {formatChf(summe(gefiltert))}
+          </p>
+        )}
 
+        {!laedt && zeilen.length > 0 && gefiltert.length === 0 && (
+          <div className="card text-sm text-ink3">Keine Regierapporte für diese Baustelle.</div>
+        )}
         {!laedt && zeilen.length === 0 && (
           <div className="card text-sm text-ink3">
             Noch keine Regierapporte. Der Weg: <Link to="/cockpit" className="font-semibold text-steel">Wochenübersicht</Link> → gelbe Karte «Regieverdacht» → «Regierapport vorrechnen ›».
