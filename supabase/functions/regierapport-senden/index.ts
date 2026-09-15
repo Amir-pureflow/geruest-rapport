@@ -110,7 +110,7 @@ Deno.serve(async (req) => {
     const fristTage = Math.min(60, Math.max(1, Number(r.baustelle?.kunde?.frist_tage ?? 3) || 3));
     const fristSatz = `Gemäss Vertrag ist der Rapport innert ${fristTage} ${fristTage === 1 ? 'Tag' : 'Tagen'} gegenzuzeichnen`;
     const betreffBasis = `Regie ${bez} · ${knr}`; // fester Betreff pro Baustelle → ein Mailverlauf
-    const firma = k.MAIL_FIRMA ?? 'Gerüst Rapport';
+    const firma = k.MAIL_FIRMA ?? 'Rapporto';
     const gruss = absender.name ? `Freundliche Grüsse<br>${absender.name}` : 'Freundliche Grüsse';
     const grussText = absender.name ? `Freundliche Grüsse\n${absender.name}` : 'Freundliche Grüsse';
     const fuss = `${firma}${absender.email ? ` · Rückfragen an ${absender.email}` : ''}`;

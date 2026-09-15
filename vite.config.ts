@@ -13,9 +13,9 @@ export default defineConfig({
     VitePWA({
       registerType: 'autoUpdate',
       manifest: {
-        name: 'Gerüst Rapport',
-        short_name: 'Rapport',
-        description: 'Zeiterfassung, Rapporte und Regie',
+        name: 'Rapporto',
+        short_name: 'Rapporto',
+        description: 'Tagesmeldung, Regie und Rapporte für Gerüstbauer',
         lang: 'de',
         start_url: '/',
         display: 'standalone',

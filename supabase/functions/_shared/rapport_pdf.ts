@@ -104,7 +104,7 @@ function sicher(s: string): string {
 export async function pdfBauen(d: RapportDaten): Promise<Uint8Array> {
   const doc = await PDFDocument.create();
   doc.setTitle(`Regierapport ${d.nummer ?? ''}`.trim());
-  doc.setAuthor(d.firma.FIRMA_NAME ?? 'Gerüst Rapport');
+  doc.setAuthor(d.firma.FIRMA_NAME ?? 'Rapporto');
   const seite = doc.addPage([595.28, 841.89]);
   const normal = await doc.embedFont(StandardFonts.Helvetica);
   const fett = await doc.embedFont(StandardFonts.HelveticaBold);
@@ -122,7 +122,7 @@ export async function pdfBauen(d: RapportDaten): Promise<Uint8Array> {
   };
 
   // ── Briefkopf ──────────────────────────────────────────────────────────────
-  const firma = d.firma.FIRMA_NAME ?? 'Gerüst Rapport';
+  const firma = d.firma.FIRMA_NAME ?? 'Rapporto';
   t(`${firma}${d.firma.FIRMA_SLOGAN ? ' ' + d.firma.FIRMA_SLOGAN : ''}`, L, y, { f: fett, g: 9, farbe: grau });
   y -= 12;
   for (const zeile of [
@@ -195,7 +195,7 @@ export async function pdfBauen(d: RapportDaten): Promise<Uint8Array> {
   t(`Wir bitten Sie, den Regierapport innert ${d.frist_tage} ${d.frist_tage === 1 ? 'Tag' : 'Tagen'} unterschrieben zu retournieren.`, L, y, { g: 10 }); y -= 14;
   if (d.link) { t(`Oder online bestätigen, ohne Anmeldung: ${d.link}`, L, y, { g: 9, farbe: grau }); y -= 14; }
 
-  t('Erstellt mit Gerüst Rapport', L, 40, { g: 7.5, farbe: grau });
+  t('Erstellt mit Rapporto', L, 40, { g: 7.5, farbe: grau });
   return await doc.save();
 }
 

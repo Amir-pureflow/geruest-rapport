@@ -1,4 +1,4 @@
-# Gerüst Rapport — Zeiterfassung, Rapporte und Regie
+# Rapporto (Arbeitstitel bis 15.09.: Gerüst Rapport) — Zeiterfassung, Rapporte und Regie
 
 Digitales Erfassungswerkzeug für eine Gerüstbaufirma im Raum Bern.
 45 Festangestellte + ~30 Temporäre in der Hochsaison, 217 aktive Baustellen.

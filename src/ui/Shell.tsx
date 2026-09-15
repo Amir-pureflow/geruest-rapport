@@ -23,11 +23,11 @@ export function Marke({ className = 'h-7 w-7' }: { className?: string }) {
   );
 }
 
-/** Wortmarke — überall gleich, damit die App wiedererkennbar bleibt. «Rapport» im roten Verlauf. */
+/** Wortmarke «Rapporto» (Name seit 15.09.) — überall gleich, damit die App wiedererkennbar bleibt. Das «o» im roten Verlauf. */
 export function Wortmarke({ gross = false }: { gross?: boolean }) {
   return (
     <span className={'font-semibold tracking-[-0.02em] ' + (gross ? 'text-2xl' : 'text-[15px]')}>
-      Gerüst<span className="wortmarke-akzent">Rapport</span>
+      Rapport<span className="wortmarke-akzent">o</span>
     </span>
   );
 }

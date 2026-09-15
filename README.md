@@ -1,4 +1,4 @@
-# Gerüst Rapport
+# Rapporto
 
 Zeiterfassung, Rapporte und Regie für eine Gerüstbaufirma — SORBA wird gefüttert,
 nicht ersetzt. Fachkonzept und Bauplan liegen eine Ebene höher

@@ -100,7 +100,7 @@ Deno.serve(async (req) => {
 
     const bez = a.baustelle?.bezeichnung ?? 'Baustelle';
     const knr = a.baustelle?.konto_nr ?? '';
-    const firma = k.MAIL_FIRMA ?? 'Gerüst Rapport';
+    const firma = k.MAIL_FIRMA ?? 'Rapporto';
     const anrede = a.baustelle?.kunde?.ansprechperson && gewuenscht === kundenMail ? `Guten Tag ${a.baustelle.kunde.ansprechperson}` : 'Guten Tag';
     const taetigkeit = TAETIGKEIT[a.taetigkeit] ?? a.taetigkeit;
     const bestellt = `${datumCh(a.bestellt_am)}${KANAL[a.kanal] ? ` ${KANAL[a.kanal]}` : ''}`;

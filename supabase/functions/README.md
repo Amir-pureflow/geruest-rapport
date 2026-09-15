@@ -55,7 +55,7 @@ Die Tabelle hat RLS ohne Policies — nur die Service-Role (in der Function) und
 | `MISTRAL_API_KEY` | für Transkription | Mistral (Paris, EU). Ohne Schlüssel bleibt die Sprachnotiz nur zum Anhören. |
 | `TRANSKRIPT_MODELL` | nein | Standard `voxtral-mini-latest` |
 | `UEBERSETZUNG_MODELL` | nein | Standard `mistral-small-latest` |
-| `MAIL_ABSENDER` | empfohlen | z. B. `Gerüst Rapport <regie@pureflow-ai.com>` (Domain muss bei Resend verifiziert sein) |
+| `MAIL_ABSENDER` | empfohlen | z. B. `Rapporto <regie@pureflow-ai.com>` (Domain muss bei Resend verifiziert sein) |
 | `MAIL_FIRMA` | nein | Firmenname in Fusszeile und Absender-Rückfall |
 | `MAIL_TESTEMPFAENGER` | nein | Kommagetrennte Adressen, an die ein Rapport **zusätzlich zur Kunden-Mail** gesendet werden darf (Pilot, eigene Tests). Alles andere lehnt die Function mit 403 ab: «Empfänger muss die hinterlegte Kunden-Mail sein». |
 | `SUPABASE_URL`, `SUPABASE_ANON_KEY` | für pg_net | Damit `regie_erinnerungen_anstossen()` die Function aus der Datenbank aufrufen kann. Der anon key genügt (`verify_jwt` akzeptiert ihn); der Service-Role-Key gehört **nicht** in diese Tabelle. |
