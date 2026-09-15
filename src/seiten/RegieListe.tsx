@@ -1,5 +1,11 @@
-import { useEffect, useState } from 'react';
+/**
+ * Regierapporte: eine Liste, nach Stand gruppiert — Entwürfe, beim Kunden, bestätigt.
+ * Eine Karte pro Gruppe mit Zeilen (nicht eine Karte pro Rapport): weniger Weiss, mehr Überblick.
+ * Oben Filter-Chips mit Anzahl, rechts je Zeile Betrag und Stand. Keine Urteile, nur Stände (CLAUDE.md #1).
+ */
+import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
+import { ChevronRight, FileText, Send, CheckCircle2, AlertCircle, MessageCircleQuestion } from 'lucide-react';
 import { Shell } from '../ui/Shell';
 import { supabase } from '../lib/supabase';
 import { formatChf } from '../lib/tarif';
@@ -16,44 +22,56 @@ interface Zeile {
   baustelle: { bezeichnung: string | null; konto_nr: string } | null;
 }
 
-const STATUS_LABEL: Record<string, string> = {
-  entwurf: 'Entwurf',
-  versendet: 'versendet',
-  bestaetigt: 'bestätigt',
-  rueckfrage: 'Rückfrage',
-  frist_abgelaufen: 'Frist abgelaufen',
+type Gruppe = 'entwurf' | 'kunde' | 'bestaetigt';
+type Filter = 'alle' | Gruppe;
+
+const GRUPPE_VON: Record<string, Gruppe> = {
+  entwurf: 'entwurf',
+  versendet: 'kunde',
+  rueckfrage: 'kunde',
+  frist_abgelaufen: 'kunde',
+  bestaetigt: 'bestaetigt',
 };
 
-const MONATE = ['Januar', 'Februar', 'März', 'April', 'Mai', 'Juni', 'Juli', 'August', 'September', 'Oktober', 'November', 'Dezember'];
+const GRUPPEN: { key: Gruppe; titel: string; text: string; icon: typeof FileText; farbe: string }[] = [
+  { key: 'entwurf', titel: 'Entwürfe', text: 'noch nicht verschickt — prüfen und senden', icon: FileText, farbe: 'text-amber-deep' },
+  { key: 'kunde', titel: 'Beim Kunden', text: 'warten auf die Unterschrift der Bauleitung', icon: Send, farbe: 'text-steel' },
+  { key: 'bestaetigt', titel: 'Bestätigt', text: 'vom Kunden gegengezeichnet — bereit für die Rechnung in SORBA', icon: CheckCircle2, farbe: 'text-good-deep' },
+];
+
+const STATUS: Record<string, { label: string; stil: string; streifen: string }> = {
+  entwurf: { label: 'Entwurf', stil: 'bg-amber-soft text-amber-deep', streifen: 'bg-amber' },
+  versendet: { label: 'beim Kunden', stil: 'bg-steel-soft text-steel', streifen: 'bg-steel' },
+  rueckfrage: { label: 'Rückfrage', stil: 'bg-amber-soft text-amber-deep', streifen: 'bg-amber' },
+  frist_abgelaufen: { label: 'Frist abgelaufen', stil: 'bg-accent-soft text-accent-deep', streifen: 'bg-accent' },
+  bestaetigt: { label: 'bestätigt', stil: 'bg-good-soft text-good-deep', streifen: 'bg-good' },
+};
 
 function kurz(ts: string): string {
   const d = new Date(ts);
   return `${d.getDate()}.${d.getMonth() + 1}.`;
 }
 
-/** Zeile in Worten: was ist wann passiert — dieselben Daten, die die Startseiten-Kacheln zählen. */
-function verlauf(z: Zeile): string {
-  if (z.status === 'entwurf') return `Entwurf vom ${kurz(z.erstellt_am)} — noch nicht verschickt`;
+/** Zweite Zeile in Worten: was ist wann passiert, und wie viel Zeit bleibt. */
+function verlauf(z: Zeile, heuteIso: string): { text: string; warn: boolean } {
+  if (z.status === 'entwurf') return { text: `angelegt ${kurz(z.erstellt_am)}`, warn: false };
   const teile: string[] = [];
   if (z.versendet_am) teile.push(`verschickt ${kurz(z.versendet_am)}`);
   if (z.status === 'bestaetigt' && z.bestaetigt_am) teile.push(`bestätigt ${kurz(z.bestaetigt_am)}`);
-  else if (z.status === 'versendet' && z.frist_bis) teile.push(`Frist bis ${kurz(z.frist_bis + 'T12:00:00')}`);
-  else if (z.status === 'frist_abgelaufen') teile.push('Frist verstrichen — nachfassen');
   else if (z.status === 'rueckfrage') teile.push('Kunde hat eine Rückfrage');
-  return teile.join(' · ');
+  else if (z.status === 'frist_abgelaufen') teile.push('Frist verstrichen — nachfassen');
+  else if (z.status === 'versendet' && z.frist_bis) {
+    const tage = Math.round((new Date(z.frist_bis + 'T12:00:00').getTime() - new Date(heuteIso + 'T12:00:00').getTime()) / 86400000);
+    teile.push(tage > 1 ? `noch ${tage} Tage` : tage === 1 ? 'noch 1 Tag' : tage === 0 ? 'Frist heute' : 'Frist verstrichen');
+    return { text: teile.join(' · '), warn: tage <= 0 };
+  }
+  return { text: teile.join(' · '), warn: z.status === 'frist_abgelaufen' || z.status === 'rueckfrage' };
 }
-
-const STATUS_STIL: Record<string, string> = {
-  entwurf: 'bg-ground text-ink2',
-  versendet: 'bg-steel-soft text-steel',
-  bestaetigt: 'bg-good-soft text-good-deep',
-  rueckfrage: 'bg-amber-soft text-amber-deep',
-  frist_abgelaufen: 'bg-accent-soft text-accent-deep',
-};
 
 export function RegieListe() {
   const [zeilen, setZeilen] = useState<Zeile[]>([]);
   const [laedt, setLaedt] = useState(true);
+  const [filter, setFilter] = useState<Filter>('alle');
 
   useEffect(() => {
     if (!supabase) return;
@@ -61,80 +79,113 @@ export function RegieListe() {
       .from('regierapport')
       .select('id,nummer,status,betrag_rappen,frist_bis,erstellt_am,versendet_am,bestaetigt_am,baustelle:baustelle_id(bezeichnung,konto_nr)')
       .order('erstellt_am', { ascending: false })
-      .limit(50)
+      .limit(100)
       .then(({ data }) => {
         if (data) setZeilen(data as unknown as Zeile[]);
         setLaedt(false);
       });
   }, []);
 
-  // Gruppen wie die Kacheln auf der Startseite: Entwürfe · beim Kunden · diesen Monat verschickt · früher
-  const heute = new Date();
-  const monatsStart = new Date(heute.getFullYear(), heute.getMonth(), 1).toISOString();
-  const imMonat = (z: Zeile) => !!z.versendet_am && z.versendet_am >= monatsStart && z.status !== 'entwurf';
-  const gruppen: { titel: string; hinweis?: string; zeilen: Zeile[] }[] = [
-    { titel: 'Entwürfe — noch nicht verschickt', zeilen: zeilen.filter((z) => z.status === 'entwurf') },
-    { titel: 'Beim Kunden — warten auf Bestätigung', zeilen: zeilen.filter((z) => ['versendet', 'rueckfrage', 'frist_abgelaufen'].includes(z.status)) },
-    {
-      titel: `Im ${MONATE[heute.getMonth()]} verschickt`,
-      hinweis: 'Das ist die Summe auf der Startseite.',
-      zeilen: zeilen.filter((z) => imMonat(z)),
-    },
-    { titel: 'Früher', zeilen: zeilen.filter((z) => z.status !== 'entwurf' && !imMonat(z) && !['versendet', 'rueckfrage', 'frist_abgelaufen'].includes(z.status)) },
-  ];
+  const heuteIso = new Date().toISOString().slice(0, 10);
+  const proGruppe = useMemo(() => {
+    const m: Record<Gruppe, Zeile[]> = { entwurf: [], kunde: [], bestaetigt: [] };
+    for (const z of zeilen) m[GRUPPE_VON[z.status] ?? 'kunde'].push(z);
+    // Beim Kunden: das Dringende zuoberst (Frist abgelaufen, Rückfrage), dann nach Frist
+    m.kunde.sort((a, b) => {
+      const r = (z: Zeile) => (z.status === 'frist_abgelaufen' ? 0 : z.status === 'rueckfrage' ? 1 : 2);
+      return r(a) - r(b) || (a.frist_bis ?? '').localeCompare(b.frist_bis ?? '');
+    });
+    return m;
+  }, [zeilen]);
   const summe = (l: Zeile[]) => l.reduce((s, z) => s + (z.betrag_rappen ?? 0), 0);
+  const dringend = proGruppe.kunde.filter((z) => z.status === 'frist_abgelaufen' || z.status === 'rueckfrage').length;
+
+  const chips: { key: Filter; label: string; n: number }[] = [
+    { key: 'alle', label: 'Alle', n: zeilen.length },
+    ...GRUPPEN.map((g) => ({ key: g.key as Filter, label: g.titel, n: proGruppe[g.key].length })),
+  ];
+  const sichtbar = GRUPPEN.filter((g) => (filter === 'alle' || filter === g.key) && proGruppe[g.key].length > 0);
 
   return (
     <Shell zurueck>
-      <div className="space-y-4">
-        <h1 className="font-display text-2xl font-semibold">Regierapporte</h1>
-        {zeilen.length === 0 && (
-          <div className="card text-sm text-ink3">
-            {laedt ? (
-              'Lädt …'
-            ) : (
-              <>
-                Noch keine. Der Weg: <Link to="/cockpit" className="font-semibold text-steel">Wochenübersicht</Link> → gelbe Karte «Regieverdacht» → «Regierapport vorrechnen ›».
-              </>
-            )}
-          </div>
-        )}
-        {gruppen.filter((g) => g.zeilen.length > 0).map((g) => (
-          <section key={g.titel} className="space-y-2">
-            <div className="flex items-baseline justify-between">
-              <h2 className="lbl mb-0">{g.titel} · {g.zeilen.length}</h2>
-              <span className="font-mono text-xs text-ink3">{formatChf(summe(g.zeilen))}</span>
-            </div>
-            {g.hinweis && <p className="-mt-1 text-[11px] text-ink3">{g.hinweis}</p>}
-            {g.zeilen.map((z) => (
-          <Link key={z.id} to={`/regie/${z.id}`} className="card block">
-            <div className="flex items-baseline justify-between gap-2">
-              <span className="font-display text-[15px] font-semibold">
-                {z.baustelle?.bezeichnung ?? '—'}
-                {z.nummer && <span className="ml-1.5 font-mono text-xs font-semibold text-ink3">{z.nummer}</span>}
-              </span>
-              <span
-                className={
-                  'rounded-md px-1.5 py-0.5 font-mono text-[11px] font-semibold ' +
-                  (STATUS_STIL[z.status] ?? 'bg-ground text-ink3')
-                }
-              >
-                {STATUS_LABEL[z.status] ?? z.status}
-              </span>
-            </div>
-            <p className="mt-1 flex items-center gap-2 text-xs text-ink2">
-              {z.baustelle && <span className="knr">{z.baustelle.konto_nr}</span>}
-              {z.betrag_rappen != null && (
-                <span className="font-mono font-semibold text-accent-deep">
-                  {formatChf(z.betrag_rappen)}
-                </span>
+      <div className="space-y-5">
+        <header className="flex flex-wrap items-end justify-between gap-x-6 gap-y-2">
+          <div>
+            <h1 className="text-[26px] font-semibold tracking-tight lg:text-[28px]">Regierapporte</h1>
+            <p className="mt-1 text-sm text-ink3">
+              {laedt ? 'lädt …' : (
+                <>
+                  <span className="font-medium text-ink">{formatChf(summe(proGruppe.entwurf) + summe(proGruppe.kunde))}</span> unterwegs
+                  {' · '}
+                  <span className="font-medium text-ink">{formatChf(summe(proGruppe.bestaetigt))}</span> bestätigt
+                  {dringend > 0 && <> · <span className="font-medium text-accent-deep">{dringend} zum Nachfassen</span></>}
+                </>
               )}
             </p>
-            <p className="mt-1 text-[11px] text-ink3">{verlauf(z)}</p>
-          </Link>
-            ))}
-          </section>
-        ))}
+          </div>
+          <Link to="/cockpit" className="btn-ghost">Wochenübersicht ›</Link>
+        </header>
+
+        <div className="flex flex-wrap gap-1.5">
+          {chips.map((c) => (
+            <button key={c.key} type="button" onClick={() => setFilter(c.key)} className={'chip px-3 py-1.5 text-xs ' + (filter === c.key ? 'chip-on' : '')}>
+              {c.label} <span className={filter === c.key ? 'text-accent-deep/70' : 'text-ink3'}>{c.n}</span>
+            </button>
+          ))}
+        </div>
+
+        {!laedt && zeilen.length === 0 && (
+          <div className="card text-sm text-ink3">
+            Noch keine Regierapporte. Der Weg: <Link to="/cockpit" className="font-semibold text-steel">Wochenübersicht</Link> → gelbe Karte «Regieverdacht» → «Regierapport vorrechnen ›».
+          </div>
+        )}
+
+        {sichtbar.map((g) => {
+          const liste = proGruppe[g.key];
+          const I = g.icon;
+          return (
+            <section key={g.key} className="card p-0">
+              <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 px-4 pt-4 pb-3">
+                <div className="flex items-center gap-2">
+                  <I size={17} strokeWidth={1.9} className={g.farbe} aria-hidden="true" />
+                  <h2 className="text-[15px] font-semibold">{g.titel} <span className="font-normal text-ink3">· {liste.length}</span></h2>
+                  <span className="hidden text-xs text-ink3 sm:inline">— {g.text}</span>
+                </div>
+                <span className="font-mono text-sm font-semibold tabular-nums">{formatChf(summe(liste))}</span>
+              </div>
+              <div className="divide-y divide-line border-t border-line">
+                {liste.map((z) => {
+                  const st = STATUS[z.status] ?? { label: z.status, stil: 'bg-ground text-ink3', streifen: 'bg-line-strong' };
+                  const v = verlauf(z, heuteIso);
+                  return (
+                    <Link key={z.id} to={`/regie/${z.id}`} className="group relative flex items-center gap-3 py-3 pl-5 pr-3 transition-colors hover:bg-ground">
+                      <span className={'absolute inset-y-2 left-0 w-[3px] rounded-r ' + st.streifen} aria-hidden="true" />
+                      <div className="min-w-0 flex-1">
+                        <p className="flex flex-wrap items-baseline gap-x-2 text-[15px] font-semibold leading-tight">
+                          <span className="truncate">{z.baustelle?.bezeichnung ?? 'Baustelle'}</span>
+                          {z.nummer && <span className="font-mono text-xs font-medium text-ink3">{z.nummer}</span>}
+                        </p>
+                        <p className="mt-1 flex flex-wrap items-center gap-x-2 text-xs text-ink3">
+                          {z.baustelle && <span className="knr">{z.baustelle.konto_nr}</span>}
+                          <span className={v.warn ? 'font-medium text-accent-deep' : ''}>
+                            {z.status === 'rueckfrage' && <MessageCircleQuestion size={13} className="mr-1 inline -mt-0.5" aria-hidden="true" />}
+                            {z.status === 'frist_abgelaufen' && <AlertCircle size={13} className="mr-1 inline -mt-0.5" aria-hidden="true" />}
+                            {v.text}
+                          </span>
+                        </p>
+                      </div>
+                      <div className="flex shrink-0 items-center gap-3">
+                        <span className="font-mono text-[15px] font-semibold tabular-nums">{z.betrag_rappen != null ? formatChf(z.betrag_rappen) : '—'}</span>
+                        <span className={'hidden rounded-md px-2 py-0.5 text-[11px] font-semibold sm:inline ' + st.stil}>{st.label}</span>
+                        <ChevronRight size={16} className="text-ink3/60 transition-transform group-hover:translate-x-0.5" aria-hidden="true" />
+                      </div>
+                    </Link>
+                  );
+                })}
+              </div>
+            </section>
+          );
+        })}
       </div>
     </Shell>
   );
