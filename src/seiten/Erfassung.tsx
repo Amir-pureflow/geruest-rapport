@@ -131,6 +131,25 @@ export function Erfassung() {
   const abMinVon = (id: string) => abMinPerson[id] ?? abMin;
   const [abLeute, setAbLeute] = useState<Set<string>>(new Set());
   const [aufnahme, setAufnahme] = useState<{ blob: Blob; sekunden: number } | null>(null);
+  // Text der Sprachnotiz — entsteht sofort nach der Aufnahme, der Chefmonteur prüft ihn VOR dem Speichern
+  const [vorschau, setVorschau] = useState<{ status: 'laeuft' | 'fertig' | 'fehler'; text: string; quelle: string | null; sprache: string; grund?: string } | null>(null);
+  async function textVorschau(blob: Blob) {
+    if (!supabase || !navigator.onLine) { setVorschau({ status: 'fehler', text: '', quelle: null, sprache: 'de', grund: 'Kein Netz — der Text kommt, sobald die Meldung gesendet ist.' }); return; }
+    setVorschau({ status: 'laeuft', text: '', quelle: null, sprache: 'de' });
+    try {
+      const b64 = await new Promise<string>((resolve, reject) => {
+        const fr = new FileReader();
+        fr.onload = () => resolve(String(fr.result).split(',')[1] ?? '');
+        fr.onerror = () => reject(fr.error);
+        fr.readAsDataURL(blob);
+      });
+      const { data, error } = await supabase.functions.invoke('transkribieren', { body: { audio_base64: b64, mime: blob.type || 'audio/webm', team_id: teamId } });
+      if (error || !data?.transkript) throw new Error(data?.fehler ?? error?.message ?? 'kein Text');
+      setVorschau({ status: 'fertig', text: data.transkript, quelle: data.quelle ?? null, sprache: data.sprache ?? 'de' });
+    } catch (e) {
+      setVorschau({ status: 'fehler', text: '', quelle: null, sprache: 'de', grund: 'Text konnte jetzt nicht erstellt werden — er kommt nach dem Senden. ' + (e instanceof Error ? e.message : '') });
+    }
+  }
   // Fotos zur Meldung — der Bauführer verlangt Bilder bei Regie; hier ohne Umweg über die Galerie
   const [fotos, setFotos] = useState<{ id: string; blob: Blob; url: string }[]>([]);
   const [fotoLaedt, setFotoLaedt] = useState(false);
@@ -361,6 +380,10 @@ export function Erfassung() {
       id: crypto.randomUUID(), team_id: teamId!, datum: tagIso, baustelle_id: b.id,
       normalfall: normal, abweichung_typ: normal ? null : abweichung, wer_hats_gewollt: normal ? null : wer,
       audio_sekunden: normal ? null : notiz?.sekunden ?? null, erfasst_von: userId,
+      // geprüfter Text (ggf. vom Chefmonteur korrigiert) geht mit — sonst erstellt der Server ihn nach dem Upload
+      transkript: !normal && notiz && vorschau?.status === 'fertig' && vorschau.text.trim() ? vorschau.text.trim() : null,
+      transkript_quelle: !normal && notiz && vorschau?.status === 'fertig' && vorschau.text.trim() ? vorschau.quelle : null,
+      transkript_sprache: !normal && notiz && vorschau?.status === 'fertig' && vorschau.text.trim() ? vorschau.sprache : null,
       eintraege: beteiligt.map((p) => {
         const a = anw[p.id];
         const min = normal ? a.min : abMinVon(p.id);
@@ -473,7 +496,7 @@ export function Erfassung() {
     void offeneAnzahl().then(setWartend);
     setTimeout(() => setGespeichert(null), 3500);
     setTimeout(() => setBestaetigung(null), 8000);
-    setAbweichung(null); setWer(null); setAufnahme(null); setAbMin(60); setAbMinPerson({}); setAbLeute(new Set());
+    setAbweichung(null); setWer(null); setAufnahme(null); setVorschau(null); setAbMin(60); setAbMinPerson({}); setAbLeute(new Set());
     for (const f of fotos) URL.revokeObjectURL(f.url);
     setFotos([]);
     setSchritt('fertig');
@@ -494,6 +517,7 @@ export function Erfassung() {
         const fertig = { blob: new Blob(teile, { type: mime || 'audio/webm' }), sekunden: Math.max(1, Math.round((Date.now() - start) / 1000)) };
         setAufnahme(fertig);
         setNimmtAuf(false);
+        void textVorschau(fertig.blob);
         if (ticker.current) window.clearInterval(ticker.current);
         aufnahmeFertig.current?.(fertig);
         aufnahmeFertig.current = null;
@@ -680,7 +704,22 @@ export function Erfassung() {
               <div className="space-y-2">
                 <p className="font-display font-semibold">Sprachnotiz · {aufnahme.sekunden} Sek. ✓</p>
                 <audio controls src={URL.createObjectURL(aufnahme.blob)} className="mx-auto h-9 w-full max-w-xs" />
-                <button type="button" onClick={() => setAufnahme(null)} className="btn-ghost">nochmal</button>
+                {/* Der Text entsteht sofort — prüfen und korrigieren, bevor gespeichert wird */}
+                {vorschau?.status === 'laeuft' && (
+                  <div className="space-y-1.5 rounded-[10px] bg-surface p-3 text-left" aria-live="polite">
+                    <p className="text-xs font-medium text-ink2">Die App schreibt mit …</p>
+                    <div className="ki-schimmer h-3 w-11/12 rounded" /><div className="ki-schimmer h-3 w-3/4 rounded" />
+                  </div>
+                )}
+                {vorschau?.status === 'fertig' && (
+                  <div className="space-y-1.5 rounded-[10px] bg-surface p-3 text-left">
+                    <p className="text-xs font-medium text-ink2">Stimmt das so? Sonst hier korrigieren.</p>
+                    <textarea value={vorschau.text} onChange={(e) => setVorschau({ ...vorschau, text: e.target.value })} rows={3} className="field text-sm" />
+                    {vorschau.quelle && <p className="text-[11px] text-ink3">Gesprochen{vorschau.sprache !== 'de' ? ` (${vorschau.sprache})` : ''}: «{vorschau.quelle}»</p>}
+                  </div>
+                )}
+                {vorschau?.status === 'fehler' && <p className="text-xs text-ink3">{vorschau.grund}</p>}
+                <button type="button" onClick={() => { setAufnahme(null); setVorschau(null); }} className="btn-ghost">nochmal aufnehmen</button>
               </div>
             ) : (
               <button type="button" onClick={() => (nimmtAuf ? aufnahmeStop() : void aufnahmeStart())} className="w-full">

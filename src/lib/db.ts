@@ -88,6 +88,10 @@ export interface MeldungPayload {
   wer_hats_gewollt: 'kunde' | 'chef' | 'niemand' | null;
   audio_sekunden: number | null;
   erfasst_von: string | null;
+  /** Text der Sprachnotiz, wenn er schon beim Erfassen erstellt und vom Chefmonteur geprüft wurde (sonst nach dem Upload). */
+  transkript?: string | null;
+  transkript_quelle?: string | null;
+  transkript_sprache?: string | null;
   eintraege: {
     id: string;
     mitarbeiter_id: string;
@@ -246,7 +250,10 @@ async function flushMeldungen(client: SupabaseClient): Promise<FlushErgebnis> {
         if (e3b) { fehler += 1; fehlerText = 'Sprachnotiz konnte nicht verknüpft werden: ' + fehlerDeuten(e3b).text; continue; }
         await db.audio.delete(e.client_uuid);
         // Text zur Aufnahme — läuft im Hintergrund; ein Fehler hier hält die Warteschlange nicht auf.
-        try { void client.functions?.invoke('transkribieren', { body: { client_uuid: e.client_uuid } }).catch(() => undefined); } catch { /* kein Functions-Client (Test) */ }
+        // Text nur noch nachträglich erstellen, wenn er nicht schon geprüft mitkam (z. B. offline erfasst)
+        if (!p.transkript) {
+          try { void client.functions?.invoke('transkribieren', { body: { client_uuid: e.client_uuid } }).catch(() => undefined); } catch { /* kein Functions-Client (Test) */ }
+        }
       }
 
       // Fotos: eins nach dem andern, jedes idempotent (Pfad und Zeile über die id) — bricht eins ab, kommt der Rest beim nächsten Mal

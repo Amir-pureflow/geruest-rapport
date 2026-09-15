@@ -114,6 +114,13 @@ kunde.email, Vermerk `angezeigt_am/an/text`). Pro Kunde einstellbar: `kunde.anze
 **Vorerst ausgeblendet** (14.09., bis Arbnor klärt, ob er Mehrkosten vorher anmeldet): `MEHRKOSTENANZEIGE_AKTIV = false`
 in Zusatzauftrag.tsx, Feld «Anzeige nötig» in Kunden.tsx versteckt. Function und Spalten bleiben.
 
+## Sprachnotiz: Text vor dem Speichern (15.09.)
+
+Nach der Aufnahme schickt die Erfassung das Audio direkt an `transkribieren` (Weg «Vorschau», `audio_base64` + `team_id`),
+zeigt den Text in einem Textfeld, der Chefmonteur prüft/korrigiert ihn und speichert dann. Der geprüfte Text geht als
+`transkript/transkript_quelle/transkript_sprache` mit der Meldung in die Warteschlange; `db.ts` stösst die nachträgliche
+Transkription nur an, wenn kein Text mitkam (offline, Fehler). Die Aufnahme bleibt immer der Beleg (Regel #8).
+
 ## Regieverdacht beantworten (15.09.)
 
 Ein Regieverdacht in der Wochenübersicht gilt als beantwortet, sobald (a) ein Regierapport zur Meldung existiert,
