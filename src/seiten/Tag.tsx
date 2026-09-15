@@ -95,7 +95,9 @@ export function Tag() {
 
   const proTeam = new Map<string, Meldung[]>();
   for (const m of meldungen) proTeam.set(m.team_id, [...(proTeam.get(m.team_id) ?? []), m]);
-  const gemeldet = teams.filter((t) => proTeam.has(t.id));
+  // Neueste Meldung zuoberst — was gerade reinkam, will der Bauführer zuerst sehen
+  const zuletztVon = (teamId: string) => (proTeam.get(teamId) ?? []).reduce((z, m) => (m.erfasst_am > z ? m.erfasst_am : z), '');
+  const gemeldet = teams.filter((t) => proTeam.has(t.id)).sort((a, b) => zuletztVon(b.id).localeCompare(zuletztVon(a.id)));
   const offen = teams.filter((t) => !proTeam.has(t.id));
   const planFuer = (teamId: string) => plan.find((p) => p.team_id === teamId)?.baustelle ?? null;
   const wochenende = datum.getDay() === 0 || datum.getDay() === 6;

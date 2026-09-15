@@ -30,7 +30,7 @@ function Kachel({ t }: { t: TeamStand }) {
   const rand = t.abweichung ? 'bg-amber' : gemeldet ? 'bg-good' : 'bg-line-strong';
   const flaeche = t.abweichung ? 'bg-amber-soft' : gemeldet ? 'bg-good-soft/50' : 'bg-surface';
   const zeitFarbe = t.abweichung ? 'text-amber-deep' : gemeldet ? 'text-good-deep' : 'text-ink3';
-  const ort = t.anzahlMeldungen > 1 ? `${t.anzahlMeldungen} Baustellen` : t.baustelle;
+  const ort = t.anzahlBaustellen > 1 ? `${t.anzahlBaustellen} Baustellen` : t.baustelle;
 
   return (
     <li

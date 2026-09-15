@@ -149,8 +149,9 @@ export interface TeamStand {
   chefmonteur: string | null;
   gemeldetUm: string | null;
   baustelle: string | null;
-  /** Mehrere Baustellen am selben Tag — dann zählt die Zahl statt eines Namens. */
-  anzahlMeldungen: number;
+  /** Verschiedene Baustellen am selben Tag — dann zählt die Zahl statt eines Namens.
+   *  Normaler Tag + Abweichung auf derselben Baustelle sind zwei Meldungen, aber EINE Baustelle. */
+  anzahlBaustellen: number;
   abweichung: boolean;
 }
 
@@ -199,7 +200,7 @@ export async function teamStand(c: SupabaseClient, datum: Date): Promise<TeamSta
           ? new Date(erste.erfasst_am).toLocaleTimeString('de-CH', { hour: '2-digit', minute: '2-digit' })
           : null,
         baustelle: b ? b.bezeichnung || `Konto ${b.konto_nr}` : null,
-        anzahlMeldungen: liste.length,
+        anzahlBaustellen: new Set(liste.map((m) => (Array.isArray(m.baustelle) ? m.baustelle[0] : m.baustelle)?.konto_nr ?? '')).size,
         abweichung: liste.some((m) => !m.normalfall || !!m.abweichung_typ),
       };
     })
