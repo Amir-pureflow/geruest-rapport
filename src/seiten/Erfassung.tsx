@@ -56,7 +56,6 @@ interface Gemeldet {
   personen: number;
 }
 type SpeicherModus = 'normal' | 'ersetzen' | 'zusaetzlich';
-const WER_KURZ: Record<Wer, string> = { kunde: 'der Kunde wollte es', chef: 'unser Chef wollte es', niemand: 'niemand hat es verlangt' };
 const AB_KURZ: Record<Abweichung, string> = { zusaetzlich: 'zusätzlich', warten: 'gewartet', kaputt: 'repariert', laenger: 'länger' };
 
 const SYMBOLE: { typ: Abweichung; label: string; svg: ReactElement }[] = [
@@ -93,6 +92,28 @@ function Stepper({ wert, setWert, schritt, min, max, format }: { wert: number; s
       <span className="font-mono text-2xl font-semibold tabular-nums">{format(wert)}</span>
       <button type="button" onClick={() => setWert(max !== undefined ? Math.min(max, wert + schritt) : wert + schritt)} disabled={max !== undefined && wert >= max} aria-label="mehr" className="grid h-12 w-14 place-items-center rounded-[10px] bg-surface-2 text-ink active:scale-95 disabled:opacity-40"><Plus size={22} strokeWidth={2.2} /></button>
     </div>
+  );
+}
+
+/** Stundenzahl zum direkten Tippen (Zifferntastatur), in 0.1-h-Schritten; −/+ daneben ändern denselben Wert. */
+function ZahlFeld({ wert, setWert, max = 16 * 60, klasse = '' }: { wert: number; setWert: (v: number) => void; max?: number; klasse?: string }) {
+  const [text, setText] = useState((wert / 60).toFixed(1));
+  const [fokus, setFokus] = useState(false);
+  useEffect(() => { if (!fokus) setText((wert / 60).toFixed(1)); }, [wert, fokus]);
+  const uebernehmen = (t: string) => {
+    const v = parseFloat(t.replace(',', '.'));
+    if (!Number.isNaN(v)) setWert(Math.max(0, Math.min(max, Math.round(v * 10) * 6)));
+  };
+  return (
+    <input
+      type="number" inputMode="decimal" step="0.5" min="0" max={max / 60}
+      value={text}
+      onFocus={(e) => { setFokus(true); e.target.select(); }}
+      onChange={(e) => { setText(e.target.value); uebernehmen(e.target.value); }}
+      onBlur={() => { setFokus(false); setText((wert / 60).toFixed(1)); }}
+      className={'h-10 rounded-[10px] border border-line bg-surface text-center font-mono text-[15px] font-semibold tabular-nums focus:border-accent focus:outline-none ' + klasse}
+      aria-label="Stunden"
+    />
   );
 }
 
@@ -133,8 +154,8 @@ export function Erfassung() {
   const abMinVon = (id: string) => abMinPerson[id] ?? abMin;
   const [abLeute, setAbLeute] = useState<Set<string>>(new Set());
   const [aufnahme, setAufnahme] = useState<{ blob: Blob; sekunden: number } | null>(null);
-  // Überstunden: «wer wollte das» (Pflicht) + Sprachnotiz (freiwillig) — hängt am normalen Tag, kein eigener Ablauf
-  const [ueberWer, setUeberWer] = useState<Wer | null>(null);
+  // Überstunden: Sprachnotiz als Warum (Pflicht, ausser das Mikrofon fehlt) — hängt am normalen Tag, kein eigener Ablauf
+  const [mikroFehlt, setMikroFehlt] = useState(false);
   const [ueberAufnahme, setUeberAufnahme] = useState<{ blob: Blob; sekunden: number } | null>(null);
   type Vorschau = { status: 'laeuft' | 'fertig' | 'fehler'; text: string; quelle: string | null; sprache: string; grund?: string };
   const [ueberVorschau, setUeberVorschau] = useState<Vorschau | null>(null);
@@ -378,6 +399,21 @@ export function Erfassung() {
     setAnw((alt) => Object.fromEntries(Object.entries(alt).map(([k, a]) => [k, { ...a, ueber: v }])));
   }
 
+  /** Abweichung beginnen: Leute mit Überstunden sind vorbelegt, ihre Überstunden werden die Abweichungs-Stunden (nicht doppelt).
+   *  Eine schon aufgenommene Überstunden-Notiz wandert mit, falls noch keine Abweichungs-Notiz da ist. */
+  function abweichungStarten(typ: Abweichung) {
+    if (!baustelle) { setHinweis('Zuerst die Baustelle antippen.'); return; }
+    const mitUeber = dabei.filter((p) => (anw[p.id]?.ueber ?? 0) > 0);
+    setAbweichung(typ);
+    setAbLeute(new Set((mitUeber.length > 0 ? mitUeber : dabei).map((p) => p.id)));
+    if (mitUeber.length > 0) {
+      setAbMin(anw[mitUeber[0].id].ueber);
+      setAbMinPerson(Object.fromEntries(mitUeber.map((p) => [p.id, anw[p.id].ueber])));
+    }
+    if (!aufnahme && ueberAufnahme) { setAufnahme(ueberAufnahme); setVorschau(ueberVorschau); }
+    setSchritt('wer');
+  }
+
   /** Frühere Normal-Meldungen des Teams an diesem Tag entfernen (alle Baustellen) — lokal und auf dem Server, nur solange nichts freigegeben ist. */
   async function fruehereEntfernen(liste: Gemeldet[]) {
     const alte = liste.filter((m) => m.normalfall && !m.freigegeben);
@@ -390,16 +426,17 @@ export function Erfassung() {
   }
 
   /** Meldung für die gewählte Baustelle bauen: normaler Tag (alle Anwesenden, Stunden wie eingestellt) oder Abweichung (nur die Beteiligten, Zusatzminuten). */
-  function meldungBauen(normal: boolean, b: Baustelle, notiz: { blob: Blob; sekunden: number } | null = aufnahme): MeldungPayload {
+  function meldungBauen(normal: boolean, b: Baustelle, notiz: { blob: Blob; sekunden: number } | null = aufnahme, ohneUeberFuer: Set<string> = new Set()): MeldungPayload {
     const beteiligt = normal ? dabei : dabei.filter((p) => abLeute.has(p.id));
     // Normaler Tag mit Überstunden: «wer wollte das» + Notiz hängen an dieser Meldung (keine eigene Abweichung)
-    const hatUeber = normal && beteiligt.some((p) => (anw[p.id]?.ueber ?? 0) > 0);
+    const ueberVon = (p: Person) => (ohneUeberFuer.has(p.id) ? 0 : anw[p.id]?.ueber ?? 0);
+    const hatUeber = normal && beteiligt.some((p) => ueberVon(p) > 0);
     const nz = normal ? (hatUeber ? notiz : null) : notiz;
     const vs = normal ? ueberVorschau : vorschau;
     const textOk = !!nz && vs?.status === 'fertig' && !!vs.text.trim();
     return {
       id: crypto.randomUUID(), team_id: teamId!, datum: tagIso, baustelle_id: b.id,
-      normalfall: normal, abweichung_typ: normal ? null : abweichung, wer_hats_gewollt: normal ? (hatUeber ? ueberWer : null) : wer,
+      normalfall: normal, abweichung_typ: normal ? null : abweichung, wer_hats_gewollt: normal ? null : wer,
       audio_sekunden: nz?.sekunden ?? null, erfasst_von: userId,
       // geprüfter Text (ggf. vom Chefmonteur korrigiert) geht mit — sonst erstellt der Server ihn nach dem Upload
       transkript: textOk ? vs!.text.trim() : null,
@@ -409,7 +446,7 @@ export function Erfassung() {
         const a = anw[p.id];
         // Normaler Tag: Normal- und Überstunden so, wie sie eingetragen sind. Abweichung: die Regiestunden je Person.
         const normalMin = normal ? Math.min(a.min, STANDARD_MIN) : Math.min(abMinVon(p.id), STANDARD_MIN);
-        const ueberMin = normal ? Math.max(0, a.min - STANDARD_MIN) + a.ueber : Math.max(0, abMinVon(p.id) - STANDARD_MIN);
+        const ueberMin = normal ? Math.max(0, a.min - STANDARD_MIN) + ueberVon(p) : Math.max(0, abMinVon(p.id) - STANDARD_MIN);
         return { id: crypto.randomUUID(), mitarbeiter_id: p.id, normal_min: normalMin, ueber_min: ueberMin, oev: normal ? a.oev : false, km: normal ? a.km : 0, baustelle_id: b.id, konto_nr: b.konto_nr };
       }),
     };
@@ -444,7 +481,7 @@ export function Erfassung() {
     if (!baustelle) { setHinweis('Zuerst die Baustelle antippen.'); return; }
     if (dabei.length === 0) { setHinweis('Niemand angehakt.'); return; }
     const hatUeber = dabei.some((p) => (anw[p.id]?.ueber ?? 0) > 0);
-    if (normal && hatUeber && !ueberWer) { setHinweis('Bei Überstunden bitte antippen, wer das wollte.'); return; }
+    if (normal && hatUeber && !ueberAufnahme && !(nimmtAuf && aufnahmeZiel.current === 'ueber') && !mikroFehlt) { setHinweis('Bei Überstunden bitte kurz sagen, warum — Mikrofon antippen.'); return; }
     setHinweis('');
     const clientUuids: string[] = [];
     let normalMitgespeichert = false;
@@ -481,7 +518,7 @@ export function Erfassung() {
       try { aktuell = await heutigeLaden(); } catch { /* lokaler Stand reicht */ }
       const hatNormal = aktuell.some((m) => m.normalfall && m.baustelle_id === baustelle.id);
       if (!hatNormal) {
-        clientUuids.push(await enqueueMeldung(meldungBauen(true, baustelle, ueberAufnahme), ueberAufnahme?.blob));
+        clientUuids.push(await enqueueMeldung(meldungBauen(true, baustelle, ueberAufnahme, abLeute), ueberAufnahme?.blob));
         normalMitgespeichert = true;
       }
       const notiz = await aufnahmeAbschliessen();
@@ -497,7 +534,7 @@ export function Erfassung() {
       ? (abGleich ? `${stunden(abMinVon(abLeuteListe[0]?.id ?? ''))} h ${AB_KURZ[abweichung]} je ${abLeuteListe.length} Pers.` : `${stunden(abGesamt)} h ${AB_KURZ[abweichung]} (${abLeuteListe.length} Pers., unterschiedlich)`)
       : '';
     const zusammenfassung = normal
-      ? `Gespeichert: normaler Tag ${normalStundenText()}${hatUeber && ueberWer ? ` (${WER_KURZ[ueberWer]})` : ''}`
+      ? `Gespeichert: normaler Tag ${normalStundenText()}`
       : normalMitgespeichert ? `Gespeichert: normaler Tag ${normalStundenText()} + ${abText}` : `Gespeichert: ${abText} (normaler Tag war schon gemeldet)`;
 
     setGespeichert('Lokal gespeichert …');
@@ -528,7 +565,7 @@ export function Erfassung() {
     setTimeout(() => setBestaetigung(null), 8000);
     setAbweichung(null); setWer(null); setAufnahme(null); setVorschau(null); setAbMin(60); setAbMinPerson({}); setAbLeute(new Set());
     setTeamUeber(0); setAnw((alt) => Object.fromEntries(Object.entries(alt).map(([k, a]) => [k, { ...a, ueber: 0 }])));
-    setUeberWer(null); setUeberAufnahme(null); setUeberVorschau(null);
+    setUeberAufnahme(null); setUeberVorschau(null);
     for (const f of fotos) URL.revokeObjectURL(f.url);
     setFotos([]);
     setSchritt('fertig');
@@ -562,6 +599,7 @@ export function Erfassung() {
       setSekunden(0);
       ticker.current = window.setInterval(() => setSekunden(Math.round((Date.now() - start) / 1000)), 250);
     } catch {
+      setMikroFehlt(true);
       setHinweis('Mikrofon nicht verfügbar — die Meldung geht auch ohne Sprachnotiz.');
     }
   }
@@ -660,7 +698,7 @@ export function Erfassung() {
           <h1 className="font-display text-2xl font-semibold">Was war anders?</h1>
           <div className="grid grid-cols-3 gap-2">
             {SYMBOLE.map((s) => (
-              <button key={s.typ} type="button" onClick={() => { setAbweichung(s.typ); setAbLeute(new Set(dabei.map((p) => p.id))); setSchritt('wer'); }} className="chip flex flex-col items-center gap-2 py-5 text-ink2">
+              <button key={s.typ} type="button" onClick={() => abweichungStarten(s.typ)} className="chip flex flex-col items-center gap-2 py-5 text-ink2">
                 {s.svg}
                 <span className="text-xs leading-tight">{s.label}</span>
               </button>
@@ -702,7 +740,7 @@ export function Erfassung() {
           <p className="lbl mb-0">{SYMBOLE.find((s) => s.typ === abweichung)?.label} · {wer === 'kunde' ? 'Kunde' : wer === 'chef' ? 'unser Chef' : 'niemand'}</p>
           <h1 className="font-display text-2xl font-semibold">Wie lange?</h1>
           <Stepper wert={abMin} setWert={(v) => { setAbMin(v); setAbMinPerson({}); }} schritt={30} min={30} format={(v) => (v / 60).toFixed(1) + ' h'} />
-          <p className="-mt-2 text-center text-xs text-ink3">Gilt für alle — unten kann jede Person einzeln anders sein.</p>
+          <p className="-mt-2 text-center text-xs text-ink3">{dabei.some((p) => (anw[p.id]?.ueber ?? 0) > 0) ? 'Vorbelegt mit den Überstunden — die zählen dann hier, nicht doppelt.' : 'Gilt für alle — unten kann jede Person einzeln anders sein.'}</p>
 
           <div>
             <p className="lbl">Wer war dabei · wie lange</p>
@@ -910,8 +948,12 @@ export function Erfassung() {
               <Stepper wert={teamMin} setWert={setzeTeamMin} schritt={30} min={30} max={STANDARD_MIN} format={(v) => (v / 60).toFixed(1) + ' h'} />
             </div>
             <div>
-              <p className="mb-1 text-[11px] text-ink3">Überstunden</p>
-              <Stepper wert={teamUeber} setWert={setzeTeamUeber} schritt={30} min={0} format={(v) => (v / 60).toFixed(1) + ' h'} />
+              <p className="mb-1 text-[11px] text-ink3">Überstunden · tippen oder ±</p>
+              <div className="flex items-center justify-between rounded-[14px] border border-line bg-surface p-1.5 shadow-[0_1px_2px_rgb(17_17_19/0.04)]">
+                <button type="button" onClick={() => setzeTeamUeber(Math.max(0, teamUeber - 30))} aria-label="weniger" className="grid h-12 w-12 place-items-center rounded-[10px] bg-surface-2 text-ink active:scale-95"><Minus size={22} strokeWidth={2.2} /></button>
+                <ZahlFeld wert={teamUeber} setWert={setzeTeamUeber} klasse="w-16 h-12 text-xl" />
+                <button type="button" onClick={() => setzeTeamUeber(teamUeber + 30)} aria-label="mehr" className="grid h-12 w-12 place-items-center rounded-[10px] bg-surface-2 text-ink active:scale-95"><Plus size={22} strokeWidth={2.2} /></button>
+              </div>
             </div>
           </div>
           <p className="mt-1.5 text-[11px] text-ink3">Wie auf dem Wochenblatt: normale Stunden und Überstunden getrennt. Unten kann jede Person anders sein.</p>
@@ -951,7 +993,7 @@ export function Erfassung() {
                       <div className="flex items-center gap-1">
                         <span className="w-10 text-[10px] leading-tight text-ink3">Über-<br />stunden</span>
                         <MiniKnopf klein art="minus" onClick={() => setAnw((s) => ({ ...s, [p.id]: { ...a, ueber: Math.max(0, a.ueber - 30) } }))} />
-                        <span className={'w-9 text-center font-mono text-[15px] font-semibold tabular-nums ' + (a.ueber > 0 ? 'text-amber-deep' : 'text-ink3')}>{(a.ueber / 60).toFixed(1)}</span>
+                        <ZahlFeld wert={a.ueber} setWert={(v) => setAnw((s) => ({ ...s, [p.id]: { ...a, ueber: v } }))} klasse={'w-12 ' + (a.ueber > 0 ? 'text-amber-deep' : 'text-ink3')} />
                         <MiniKnopf klein art="plus" onClick={() => setAnw((s) => ({ ...s, [p.id]: { ...a, ueber: a.ueber + 30 } }))} />
                       </div>
                     </div>
@@ -972,37 +1014,24 @@ export function Erfassung() {
         </section>
 
         {dabei.some((p) => (anw[p.id]?.ueber ?? 0) > 0) && (
-          /* Überstunden brauchen einen Grund: ein Chip (Pflicht) und eine Sprachnotiz (freiwillig) — kein eigener Bildschirm */
-          <section className="card space-y-3 border-amber/30">
+          /* Überstunden brauchen ein Warum: eine Sprachnotiz — Pflicht, ausser das Mikrofon fehlt. Kein eigener Bildschirm. */
+          <section className="card space-y-2.5 border-amber/30">
             <p className="text-sm font-semibold">
-              Überstunden · {stunden(dabei.reduce((s, p) => s + (anw[p.id]?.ueber ?? 0), 0))} h — wer wollte das?
+              Überstunden · {stunden(dabei.reduce((s, p) => s + (anw[p.id]?.ueber ?? 0), 0))} h — kurz sagen, warum
             </p>
-            <div className="grid grid-cols-3 gap-2">
-              {([['kunde', 'Kunde', '#D82816'], ['chef', 'Unser Chef', '#29506B'], ['niemand', 'Niemand', '']] as const).map(([w, label, farbe]) => (
-                <button key={w} type="button" onClick={() => setUeberWer(w)} className={'chip flex flex-col items-center gap-1.5 py-3 ' + (ueberWer === w ? 'chip-on' : '')}>
-                  {farbe ? <Helm farbe={farbe} /> : (
-                    <svg viewBox="0 0 48 40" className="h-10 w-12" aria-hidden="true"><circle cx="24" cy="20" r="12" fill="none" stroke="#6C7B81" strokeWidth="3" /><line x1="15.5" y1="28.5" x2="32.5" y2="11.5" stroke="#6C7B81" strokeWidth="3" /></svg>
-                  )}
-                  <span className="text-sm font-semibold">{label}</span>
-                </button>
-              ))}
-            </div>
-            <p className="text-xs text-ink3">
-              Kunde = die Bauleitung hat es verlangt (der Bauführer prüft, ob das Regie ist). War es Zusatzarbeit für den Kunden, unten «zusätzlich» antippen.
-            </p>
-            <div className={'rounded-[12px] border-2 border-dashed p-4 text-center ' + (nimmtAuf && aufnahmeZiel.current === 'ueber' ? 'border-accent bg-accent-soft' : 'border-line-strong bg-surface')}>
+            <div className={'rounded-[12px] border-2 border-dashed p-4 text-center ' + (nimmtAuf && aufnahmeZiel.current === 'ueber' ? 'border-accent bg-accent-soft' : ueberAufnahme ? 'border-good/50 bg-good-soft/40' : 'border-steel bg-steel-soft')}>
               {ueberAufnahme ? (
                 <div className="space-y-2">
                   <p className="text-sm font-semibold">Sprachnotiz · {ueberAufnahme.sekunden} Sek. ✓</p>
                   <audio controls src={URL.createObjectURL(ueberAufnahme.blob)} className="mx-auto h-9 w-full max-w-xs" />
                   {ueberVorschau?.status === 'laeuft' && (
-                    <div className="space-y-1.5 rounded-[10px] bg-ground p-3 text-left" aria-live="polite">
+                    <div className="space-y-1.5 rounded-[10px] bg-surface p-3 text-left" aria-live="polite">
                       <p className="text-xs font-medium text-ink2">Die App schreibt mit …</p>
                       <div className="ki-schimmer h-3 w-11/12 rounded" /><div className="ki-schimmer h-3 w-3/4 rounded" />
                     </div>
                   )}
                   {ueberVorschau?.status === 'fertig' && (
-                    <div className="space-y-1.5 rounded-[10px] bg-ground p-3 text-left">
+                    <div className="space-y-1.5 rounded-[10px] bg-surface p-3 text-left">
                       <p className="text-xs font-medium text-ink2">Stimmt das so? Sonst hier korrigieren.</p>
                       <textarea value={ueberVorschau.text} onChange={(e) => setUeberVorschau({ ...ueberVorschau, text: e.target.value })} rows={2} className="field text-sm" />
                     </div>
@@ -1012,19 +1041,20 @@ export function Erfassung() {
                 </div>
               ) : (
                 <button type="button" onClick={() => (nimmtAuf ? aufnahmeStop() : void aufnahmeStart('ueber'))} className="w-full">
-                  <span className={'mx-auto grid h-12 w-12 place-items-center rounded-full ' + (nimmtAuf && aufnahmeZiel.current === 'ueber' ? 'aufnahme-ring bg-accent text-white' : 'bg-surface-2 text-steel')}>
-                    <svg viewBox="0 0 40 48" className="h-6 w-5" aria-hidden="true" fill="currentColor">
+                  <span className={'mx-auto grid h-14 w-14 place-items-center rounded-full ' + (nimmtAuf && aufnahmeZiel.current === 'ueber' ? 'aufnahme-ring bg-accent text-white' : 'bg-surface text-steel ring-1 ring-line-strong')}>
+                    <svg viewBox="0 0 40 48" className="h-7 w-6" aria-hidden="true" fill="currentColor">
                       <rect x="13" y="4" width="14" height="24" rx="7" />
                       <path d="M8 22a12 12 0 0 0 24 0" fill="none" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round" />
                       <rect x="18.2" y="34" width="3.6" height="8" rx="1.8" />
                     </svg>
                   </span>
                   {nimmtAuf && aufnahmeZiel.current === 'ueber' && <span className="mt-2 block"><Pegel stream={mikroStream} /></span>}
-                  <span className="mt-1.5 block text-sm font-semibold">{nimmtAuf && aufnahmeZiel.current === 'ueber' ? `${sekunden} Sek. — antippen zum Stoppen` : 'Kurz sagen, warum — 10 Sekunden reichen'}</span>
-                  <span className="mt-0.5 block text-xs text-ink3">Freiwillig, in deiner Sprache. Hilft dem Bauführer am Montag.</span>
+                  <span className="mt-2 block text-sm font-semibold">{nimmtAuf && aufnahmeZiel.current === 'ueber' ? `${sekunden} Sek. — antippen zum Stoppen` : 'Antippen und kurz erzählen, warum'}</span>
+                  <span className="mt-0.5 block text-xs text-ink3">{mikroFehlt ? 'Mikrofon nicht verfügbar — Speichern geht trotzdem.' : 'In deiner Sprache, 10 Sekunden reichen. Der Bauführer liest es am Montag.'}</span>
                 </button>
               )}
             </div>
+            <p className="text-xs text-ink3">War es Zusatzarbeit für den Kunden? Dann unten «zusätzlich» antippen — die Überstunden werden übernommen.</p>
           </section>
         )}
 
@@ -1068,7 +1098,7 @@ export function Erfassung() {
           <p className="mb-2 text-center text-sm text-ink3">War etwas anders?</p>
           <div className="grid grid-cols-3 gap-2">
             {SYMBOLE.map((s) => (
-              <button key={s.typ} type="button" onClick={() => { if (!baustelle) { setHinweis('Zuerst die Baustelle antippen.'); return; } setAbweichung(s.typ); setAbLeute(new Set(dabei.map((p) => p.id))); setSchritt('wer'); }} className="chip flex flex-col items-center gap-1.5 py-3 text-ink2">
+              <button key={s.typ} type="button" onClick={() => abweichungStarten(s.typ)} className="chip flex flex-col items-center gap-1.5 py-3 text-ink2">
                 {s.svg}
                 <span className="text-[11px] leading-tight">{KURZ_LABEL[s.typ]}</span>
               </button>

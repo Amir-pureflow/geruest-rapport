@@ -82,6 +82,8 @@ const FELD: Record<string, string> = { normal_min: 'Normalzeit', ueber_min: 'Üb
 const ABWEICHUNG_KURZ: Record<string, string> = { zusaetzlich: 'zusätzlich gearbeitet', warten: 'warten müssen', kaputt: 'etwas kaputt', laenger: 'länger gearbeitet' };
 /** «länger» ohne Kunden ist Lohn, keine Regie — erklärt den langen Tag, macht ihn aber nicht verdächtig. */
 const laengerOhneKunde = (tm: { abweichung_typ: string | null; wer_hats_gewollt: string | null }) => tm.abweichung_typ === 'laenger' && tm.wer_hats_gewollt !== 'kunde';
+/** Überstunden am normalen Tag mit Sprachnotiz: erklärt — Lohn, kein offener Hinweis; der Bauführer liest das Warum. */
+const ueberMitNotiz = (tm: { normalfall: boolean; audio_pfad: string | null; transkript: string | null; audio_sekunden: number | null }) => tm.normalfall && (tm.audio_pfad !== null || tm.transkript !== null || (tm.audio_sekunden ?? 0) > 0);
 const SPRACHE: Record<string, string> = { de: 'Deutsch', ar: 'Arabisch', pl: 'Polnisch', en: 'Englisch' };
 /** Normaler Tag + Abweichung sind zwei Meldungen und richtig so. Verdächtig ist nur: der normale Tag mehrfach. */
 function doppelteNormalmeldungen(liste: Eintrag[]): number {
@@ -314,7 +316,7 @@ export function Cockpit() {
     if (liste.every((e) => e.status === 'freigegeben')) return 'frei';
     const summe = liste.reduce((s, e) => s + e.normal_min + e.ueber_min, 0);
     // Über 10 h ist nur dann ein offener Hinweis, wenn das Team den langen Tag nicht selbst erklärt hat («länger gearbeitet»)
-    const erklaert = liste.some((e) => e.tagesmeldung.abweichung_typ === 'laenger' || (e.tagesmeldung.normalfall && e.tagesmeldung.wer_hats_gewollt !== null));
+    const erklaert = liste.some((e) => e.tagesmeldung.abweichung_typ === 'laenger' || ueberMitNotiz(e.tagesmeldung));
     if (summe > ZEHN_STUNDEN_MIN && !erklaert) return 'rot';
     // Gibt es zur Meldung schon einen Regierapport, ist der Verdacht beantwortet — die Zelle wird wieder normal.
     const verdacht = liste.some(
@@ -345,13 +347,13 @@ export function Cockpit() {
       const ausloeser: string[] = [];
       const meldungEintraege = eintraege.filter((x) => x.tagesmeldung.id === tm.id);
       const ueberMin = meldungEintraege.reduce((s, x) => s + x.ueber_min, 0);
-      // Überstunden am normalen Tag mit Grund: Kunde → Regieverdacht, Chef/niemand → ruhige Infokarte (Lohn)
-      const ueberErklaert = tm.normalfall && tm.wer_hats_gewollt !== null;
+      // Überstunden am normalen Tag mit Sprachnotiz: ruhige Infokarte (Lohn) — das Warum steht in der Notiz
+      const ueberErklaert = ueberMitNotiz(tm) && ueberMin > 0;
       // «länger» ohne Kunden: keine Regie, aber die Erklärung für den langen Tag — als ruhige Infokarte
-      const info = laengerOhneKunde(tm) || (ueberErklaert && tm.wer_hats_gewollt !== 'kunde');
+      const info = laengerOhneKunde(tm) || ueberErklaert;
       if (tm.abweichung_typ && !info) ausloeser.push(`Team meldet «${ABWEICHUNG_KURZ[tm.abweichung_typ] ?? tm.abweichung_typ}»`);
-      if (tm.wer_hats_gewollt === 'kunde') ausloeser.push(ueberErklaert ? `Team meldet ${stunden(ueberMin)} h Überstunden — der Kunde wollte es` : 'Team: der Kunde wollte es');
-      if (ueberErklaert && tm.wer_hats_gewollt !== 'kunde') ausloeser.push(`Team meldet ${stunden(ueberMin)} h Überstunden`, tm.wer_hats_gewollt === 'chef' ? 'unser Chef wollte es — Lohnstunden, keine Regie' : 'niemand hat es verlangt — Lohnstunden, keine Regie');
+      if (tm.wer_hats_gewollt === 'kunde') ausloeser.push('Team: der Kunde wollte es');
+      if (ueberErklaert) ausloeser.push(`Team meldet ${stunden(ueberMin)} h Überstunden — Sprachnotiz unten`);
       const auftrag = passenderAuftrag(tm.baustelle?.id, tm.datum);
       if (auftrag && !info)
         ausloeser.push(`offener Zusatzauftrag: ${auftrag.taetigkeit} (${auftrag.besteller_name})`);
@@ -1008,7 +1010,7 @@ export function Cockpit() {
                                   {audio?.meldung === meldung.id && <audio controls autoPlay src={audio.url} className="h-8 flex-1" />}
                                 </div>
                               )}
-                              {meldung.normalfall && meldung.wer_hats_gewollt === null ? (
+                              {meldung.normalfall && !ueberMitNotiz(meldung) ? (
                                 /* Normaler Tag mit offenem Auftrag: die 8 h sind Aufbau (Offerte), nicht Regie.
                                    Regie entsteht nur aus dem gemeldeten Extra — sonst beim Team nachfragen. */
                                 <p className="mt-2 rounded-[10px] border border-dashed border-amber/60 px-3 py-2 text-xs text-ink2">
@@ -1033,6 +1035,9 @@ export function Cockpit() {
                                       <span>keine Regie · {keineRegieGrund}</span>
                                       {darfFreigeben && <button type="button" className="font-semibold text-steel" onClick={() => void dochRegie(meldung.id)}>doch Regie</button>}
                                     </span>
+                                  ) : info ? (
+                                    /* Infokarte: Lohn — nur falls die Notiz doch nach Regie klingt, gibt es den leisen Weg zum Rapport */
+                                    <Link to={`/regie/neu?meldung=${meldung.id}${meldung.normalfall ? '&nur=ueber' : ''}`} className="shrink-0 text-xs font-semibold text-steel">Doch Regie? Vorrechnen ›</Link>
                                   ) : (
                                     <span className="flex shrink-0 flex-wrap items-center justify-end gap-2">
                                       {darfFreigeben && (

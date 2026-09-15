@@ -97,7 +97,7 @@ export function RegieVorschau() {
                 {meldung.team && <> · {meldung.team.bezeichnung}{meldung.team.chefmonteur ? ` (${meldung.team.chefmonteur.name})` : ''}</>}
               </p>
               <p className="text-ink2">
-                Team meldet: <strong>{nurUeber || (!meldung.abweichung_typ && meldung.wer_hats_gewollt) ? 'Überstunden (nur die Mehrzeit wird vorgerechnet)' : ABWEICHUNG_TEXT[meldung.abweichung_typ ?? ''] ?? '—'}</strong>
+                Team meldet: <strong>{nurUeber || !meldung.abweichung_typ ? 'Überstunden (nur die Mehrzeit wird vorgerechnet)' : ABWEICHUNG_TEXT[meldung.abweichung_typ ?? ''] ?? '—'}</strong>
                 {meldung.wer_hats_gewollt && <> · {WER_TEXT[meldung.wer_hats_gewollt] ?? meldung.wer_hats_gewollt}</>}
               </p>
               {meldung.transkript && <p className="rounded-[10px] bg-ground px-3 py-2 italic text-ink2">«{meldung.transkript}»</p>}

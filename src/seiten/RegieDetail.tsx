@@ -496,7 +496,7 @@ export function RegieDetail() {
                     {m.team && <> · {m.team.bezeichnung}{m.team.chefmonteur ? ` (${m.team.chefmonteur.name})` : ''}</>}
                   </p>
                   <p className="text-ink2">
-                    Team meldet: <strong>{ABWEICHUNG_TEXT[m.abweichung_typ ?? ''] ?? (m.wer_hats_gewollt ? 'Überstunden' : '—')}</strong>
+                    Team meldet: <strong>{ABWEICHUNG_TEXT[m.abweichung_typ ?? ''] ?? 'Überstunden'}</strong>
                     {m.wer_hats_gewollt && <> · {WER_TEXT[m.wer_hats_gewollt] ?? m.wer_hats_gewollt}</>}
                   </p>
                   {m.zeiteintrag.length > 0 && (
