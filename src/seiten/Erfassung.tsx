@@ -19,12 +19,11 @@ import { fotoVerkleinern } from '../lib/foto';
 interface Team { id: string; bezeichnung: string; fahrzeug: string | null }
 interface Person { id: string; name: string; typ: string; funktion: string; oev_standard: boolean; km_standard: number }
 interface Baustelle { id: string; konto_nr: string; bezeichnung: string | null }
-interface Anwesenheit { dabei: boolean; min: number; oev: boolean; km: number }
+/** Wie auf dem Wochenblatt: Normalstunden (Standard 8 h) und Überstunden getrennt — beides Lohn, keine Fragen. */
+interface Anwesenheit { dabei: boolean; min: number; ueber: number; oev: boolean; km: number }
 
 type Schritt = 'team' | 'tag' | 'symbol' | 'wer' | 'notiz' | 'fertig';
 type Abweichung = 'zusaetzlich' | 'warten' | 'kaputt' | 'laenger';
-/** Ab hier fragt die App vor «Alles wie geplant» nach dem Grund — dieselbe Grenze wie der Hinweis «über 10 h» in der Wochenübersicht. */
-const LANGER_TAG_MIN = 600;
 type Wer = 'kunde' | 'chef' | 'niemand';
 
 const TEAM_KEY = 'teamgeraet-team-id';
@@ -56,7 +55,7 @@ interface Gemeldet {
   /** Anzahl Personen — «8.0 h je 4 Pers.» statt einer erschreckenden Teamsumme */
   personen: number;
 }
-type SpeicherModus = 'normal' | 'ersetzen' | 'zusaetzlich' | 'langerOk';
+type SpeicherModus = 'normal' | 'ersetzen' | 'zusaetzlich';
 const AB_KURZ: Record<Abweichung, string> = { zusaetzlich: 'zusätzlich', warten: 'gewartet', kaputt: 'repariert', laenger: 'länger' };
 
 const SYMBOLE: { typ: Abweichung; label: string; svg: ReactElement }[] = [
@@ -72,11 +71,6 @@ const SYMBOLE: { typ: Abweichung; label: string; svg: ReactElement }[] = [
     typ: 'kaputt', label: 'etwas kaputt / repariert',
     svg: <svg viewBox="0 0 40 40" className="h-9 w-9"><path d="M20 7 L34 31 H6 Z" fill="none" stroke="currentColor" strokeWidth="3.5" strokeLinejoin="round" /><rect x="18.2" y="15" width="3.6" height="8" rx="1.8" fill="currentColor" /><circle cx="20" cy="26.5" r="2" fill="currentColor" /></svg>,
   },
-  {
-    // Uhr, deren Zeiger über die Acht hinaus zeigt, plus «+»: mehr Zeit als der normale Tag
-    typ: 'laenger', label: 'länger gearbeitet',
-    svg: <svg viewBox="0 0 40 40" className="h-9 w-9" fill="none" stroke="currentColor"><circle cx="18" cy="22" r="12" strokeWidth="3.5" /><path d="M18 14v8l5.5 3.5" strokeWidth="3.5" strokeLinecap="round" /><path d="M31 5v10M26 10h10" strokeWidth="3.5" strokeLinecap="round" /></svg>,
-  },
 ];
 
 /** Kurzform für die drei Kacheln im Tag-Schritt — zwei Wörter, die auch allein verständlich sind. */
@@ -91,20 +85,20 @@ function Helm({ farbe }: { farbe: string }) {
   );
 }
 
-function Stepper({ wert, setWert, schritt, min, format }: { wert: number; setWert: (v: number) => void; schritt: number; min: number; format: (v: number) => string }) {
+function Stepper({ wert, setWert, schritt, min, max, format }: { wert: number; setWert: (v: number) => void; schritt: number; min: number; max?: number; format: (v: number) => string }) {
   return (
     <div className="flex items-center justify-between rounded-[14px] border border-line bg-surface p-1.5 shadow-[0_1px_2px_rgb(17_17_19/0.04)]">
       <button type="button" onClick={() => setWert(Math.max(min, wert - schritt))} aria-label="weniger" className="grid h-12 w-14 place-items-center rounded-[10px] bg-surface-2 text-ink active:scale-95"><Minus size={22} strokeWidth={2.2} /></button>
       <span className="font-mono text-2xl font-semibold tabular-nums">{format(wert)}</span>
-      <button type="button" onClick={() => setWert(wert + schritt)} aria-label="mehr" className="grid h-12 w-14 place-items-center rounded-[10px] bg-surface-2 text-ink active:scale-95"><Plus size={22} strokeWidth={2.2} /></button>
+      <button type="button" onClick={() => setWert(max !== undefined ? Math.min(max, wert + schritt) : wert + schritt)} disabled={max !== undefined && wert >= max} aria-label="mehr" className="grid h-12 w-14 place-items-center rounded-[10px] bg-surface-2 text-ink active:scale-95 disabled:opacity-40"><Plus size={22} strokeWidth={2.2} /></button>
     </div>
   );
 }
 
 /** Kleiner −/+ Knopf in Zeilen: 40 px Tippfläche, damit man mit Handschuhen trifft. */
-function MiniKnopf({ art, onClick }: { art: 'minus' | 'plus'; onClick: () => void }) {
+function MiniKnopf({ art, onClick, klein = false }: { art: 'minus' | 'plus'; onClick: () => void; klein?: boolean }) {
   return (
-    <button type="button" onClick={onClick} aria-label={art === 'minus' ? 'weniger' : 'mehr'} className="grid h-10 w-10 place-items-center rounded-[10px] border border-line bg-surface text-ink2 active:scale-95 active:bg-surface-2">
+    <button type="button" onClick={onClick} aria-label={art === 'minus' ? 'weniger' : 'mehr'} className={'grid h-10 place-items-center rounded-[10px] border border-line bg-surface text-ink2 active:scale-95 active:bg-surface-2 ' + (klein ? 'w-9' : 'w-10')}>
       {art === 'minus' ? <Minus size={18} strokeWidth={2.2} /> : <Plus size={18} strokeWidth={2.2} />}
     </button>
   );
@@ -215,25 +209,6 @@ export function Erfassung() {
   const [heuteGemeldet, setHeuteGemeldet] = useState<Gemeldet[]>([]);
   // An diesem Tag schon eine Normalmeldung (egal welche Baustelle) → erst nachfragen, statt still eine zweite anzulegen
   const [doppelt, setDoppelt] = useState<{ baustellen: string[]; bisherMin: number; ersetzbarMin: number; ersetzbar: number; neuMin: number } | null>(null);
-  // Langer Tag ohne Grund: vor «Alles wie geplant» einmal nachfragen — die Stunden bleiben, wie sie sind
-  const [langerTag, setLangerTag] = useState<{ leute: { id: string; name: string; min: number }[] } | null>(null);
-  /** «Ja, länger gearbeitet»: normaler Tag auf 8 h, die Mehrzeit wird zur Abweichung «länger» — weiter mit «Wer wollte das?» */
-  function langerAlsAbweichung() {
-    if (!langerTag) return;
-    const extra: Record<string, number> = {};
-    setAnw((s) => {
-      const n = { ...s };
-      for (const p of langerTag.leute) { extra[p.id] = p.min - STANDARD_MIN; n[p.id] = { ...n[p.id], min: STANDARD_MIN }; }
-      return n;
-    });
-    for (const p of langerTag.leute) extra[p.id] = p.min - STANDARD_MIN;
-    setAbLeute(new Set(langerTag.leute.map((p) => p.id)));
-    setAbMin(Math.max(30, extra[langerTag.leute[0].id] ?? 60));
-    setAbMinPerson(extra);
-    setAbweichung('laenger');
-    setLangerTag(null);
-    setSchritt('wer');
-  }
   const [userId, setUserId] = useState<string | null>(null);
   const [wartend, setWartend] = useState(0);
   const recorder = useRef<MediaRecorder | null>(null);
@@ -324,7 +299,7 @@ export function Erfassung() {
         .sort((a, b) => a.name.localeCompare(b.name));
       setLeute(personen);
       const a: Record<string, Anwesenheit> = {};
-      for (const p of personen) a[p.id] = { dabei: true, min: STANDARD_MIN, oev: p.oev_standard, km: p.km_standard };
+      for (const p of personen) a[p.id] = { dabei: true, min: STANDARD_MIN, ueber: 0, oev: p.oev_standard, km: p.km_standard };
       setAnw(a);
 
       const [plan, zuletzt] = await Promise.all([
@@ -384,8 +359,14 @@ export function Erfassung() {
   const dabei = useMemo(() => leute.filter((p) => anw[p.id]?.dabei), [leute, anw]);
 
   function setzeTeamMin(v: number) {
-    setTeamMin(v);
-    setAnw((alt) => Object.fromEntries(Object.entries(alt).map(([k, a]) => [k, { ...a, min: v }])));
+    const w = Math.min(STANDARD_MIN, v);
+    setTeamMin(w);
+    setAnw((alt) => Object.fromEntries(Object.entries(alt).map(([k, a]) => [k, { ...a, min: w }])));
+  }
+  const [teamUeber, setTeamUeber] = useState(0);
+  function setzeTeamUeber(v: number) {
+    setTeamUeber(v);
+    setAnw((alt) => Object.fromEntries(Object.entries(alt).map(([k, a]) => [k, { ...a, ueber: v }])));
   }
 
   /** Frühere Normal-Meldungen des Teams an diesem Tag entfernen (alle Baustellen) — lokal und auf dem Server, nur solange nichts freigegeben ist. */
@@ -412,8 +393,10 @@ export function Erfassung() {
       transkript_sprache: !normal && notiz && vorschau?.status === 'fertig' && vorschau.text.trim() ? vorschau.sprache : null,
       eintraege: beteiligt.map((p) => {
         const a = anw[p.id];
-        const min = normal ? a.min : abMinVon(p.id);
-        return { id: crypto.randomUUID(), mitarbeiter_id: p.id, normal_min: Math.min(min, 480), ueber_min: Math.max(0, min - 480), oev: normal ? a.oev : false, km: normal ? a.km : 0, baustelle_id: b.id, konto_nr: b.konto_nr };
+        // Normaler Tag: Normal- und Überstunden so, wie sie eingetragen sind. Abweichung: die Regiestunden je Person.
+        const normalMin = normal ? Math.min(a.min, STANDARD_MIN) : Math.min(abMinVon(p.id), STANDARD_MIN);
+        const ueberMin = normal ? Math.max(0, a.min - STANDARD_MIN) + a.ueber : Math.max(0, abMinVon(p.id) - STANDARD_MIN);
+        return { id: crypto.randomUUID(), mitarbeiter_id: p.id, normal_min: normalMin, ueber_min: ueberMin, oev: normal ? a.oev : false, km: normal ? a.km : 0, baustelle_id: b.id, konto_nr: b.konto_nr };
       }),
     };
   }
@@ -423,7 +406,9 @@ export function Erfassung() {
     const mins = dabei.map((p) => anw[p.id]?.min ?? STANDARD_MIN);
     const lo = Math.min(...mins);
     const hi = Math.max(...mins);
-    return lo === hi ? `${stunden(lo)} h` : `${stunden(lo)}–${stunden(hi)} h`;
+    const ueber = dabei.reduce((s, p) => s + (anw[p.id]?.ueber ?? 0), 0);
+    const basis = lo === hi ? `${stunden(lo)} h` : `${stunden(lo)}–${stunden(hi)} h`;
+    return ueber > 0 ? `${basis} + ${stunden(ueber)} h Überstunden` : basis;
   }
 
   /** Speichern darf nie stumm scheitern: jeder Fehler landet als Satz auf dem Bildschirm. */
@@ -457,13 +442,7 @@ export function Erfassung() {
         setHinweis(`Für ${baustelle.bezeichnung ?? baustelle.konto_nr} ist an diesem Tag schon eine Meldung vom Bauführer freigegeben. Änderungen macht der Bauführer in der Wochenübersicht.`);
         return;
       }
-      // Mehr als 10 h und noch keine Abweichung für diese Baustelle: einmal fragen, ob etwas anders war (Grund statt Rätsel)
-      if (modus === 'normal') {
-        const lange = dabei.filter((p) => (anw[p.id]?.min ?? 0) > LANGER_TAG_MIN).map((p) => ({ id: p.id, name: p.name, min: anw[p.id].min }));
-        if (lange.length > 0 && !heuteGemeldet.some((m) => !m.normalfall && m.baustelle_id === baustelle.id)) { setLangerTag({ leute: lange }); return; }
-      }
-      setLangerTag(null);
-      if (bisher.length > 0 && (modus === 'normal' || modus === 'langerOk')) {
+      if (bisher.length > 0 && modus === 'normal') {
         const ersetzbar = bisher.filter((m) => !m.freigegeben);
         setDoppelt({
           baustellen: bisher.map((m) => m.bezeichnung).filter((x, i, a) => a.indexOf(x) === i),
@@ -528,7 +507,8 @@ export function Erfassung() {
     void offeneAnzahl().then(setWartend);
     setTimeout(() => setGespeichert(null), 3500);
     setTimeout(() => setBestaetigung(null), 8000);
-    setAbweichung(null); setWer(null); setAufnahme(null); setVorschau(null); setAbMin(60); setAbMinPerson({}); setAbLeute(new Set()); setLangerTag(null);
+    setAbweichung(null); setWer(null); setAufnahme(null); setVorschau(null); setAbMin(60); setAbMinPerson({}); setAbLeute(new Set());
+    setTeamUeber(0); setAnw((alt) => Object.fromEntries(Object.entries(alt).map(([k, a]) => [k, { ...a, ueber: 0 }])));
     for (const f of fotos) URL.revokeObjectURL(f.url);
     setFotos([]);
     setSchritt('fertig');
@@ -656,7 +636,7 @@ export function Erfassung() {
         <div className="space-y-4">
           <p className="lbl mb-0">Abweichung</p>
           <h1 className="font-display text-2xl font-semibold">Was war anders?</h1>
-          <div className="grid grid-cols-2 gap-2">
+          <div className="grid grid-cols-3 gap-2">
             {SYMBOLE.map((s) => (
               <button key={s.typ} type="button" onClick={() => { setAbweichung(s.typ); setAbLeute(new Set(dabei.map((p) => p.id))); setSchritt('wer'); }} className="chip flex flex-col items-center gap-2 py-5 text-ink2">
                 {s.svg}
@@ -698,8 +678,7 @@ export function Erfassung() {
       <Shell zurueck schmal>
         <div className="space-y-4">
           <p className="lbl mb-0">{SYMBOLE.find((s) => s.typ === abweichung)?.label} · {wer === 'kunde' ? 'Kunde' : wer === 'chef' ? 'unser Chef' : 'niemand'}</p>
-          <h1 className="font-display text-2xl font-semibold">{abweichung === 'laenger' ? 'Wie viel länger?' : 'Wie lange?'}</h1>
-          {abweichung === 'laenger' && <p className="-mt-2 text-sm text-ink3">Nur die Zeit über dem normalen Tag ({stunden(STANDARD_MIN)} h) — der normale Tag wird mitgespeichert.</p>}
+          <h1 className="font-display text-2xl font-semibold">Wie lange?</h1>
           <Stepper wert={abMin} setWert={(v) => { setAbMin(v); setAbMinPerson({}); }} schritt={30} min={30} format={(v) => (v / 60).toFixed(1) + ' h'} />
           <p className="-mt-2 text-center text-xs text-ink3">Gilt für alle — unten kann jede Person einzeln anders sein.</p>
 
@@ -902,6 +881,21 @@ export function Erfassung() {
         </section>
 
         <section>
+          <p className="lbl">Stunden — alle gleich</p>
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <p className="mb-1 text-[11px] text-ink3">Normal · bis {stunden(STANDARD_MIN)} h</p>
+              <Stepper wert={teamMin} setWert={setzeTeamMin} schritt={30} min={30} max={STANDARD_MIN} format={(v) => (v / 60).toFixed(1) + ' h'} />
+            </div>
+            <div>
+              <p className="mb-1 text-[11px] text-ink3">Überstunden</p>
+              <Stepper wert={teamUeber} setWert={setzeTeamUeber} schritt={30} min={0} format={(v) => (v / 60).toFixed(1) + ' h'} />
+            </div>
+          </div>
+          <p className="mt-1.5 text-[11px] text-ink3">Wie auf dem Wochenblatt: normale Stunden und Überstunden getrennt. Unten kann jede Person anders sein.</p>
+        </section>
+
+        <section>
           <p className="lbl">Wer war dabei</p>
           <div className="card divide-y divide-line p-0">
             {leute.map((p) => {
@@ -918,13 +912,28 @@ export function Erfassung() {
                     </span>
                     {a.dabei && (
                       <>
-                        <MiniKnopf art="minus" onClick={() => setAnw((s) => ({ ...s, [p.id]: { ...a, min: Math.max(30, a.min - 30) } }))} />
-                        <span className="w-11 text-center font-mono text-[15px] font-semibold tabular-nums">{(a.min / 60).toFixed(1)}</span>
-                        <MiniKnopf art="plus" onClick={() => setAnw((s) => ({ ...s, [p.id]: { ...a, min: a.min + 30 } }))} />
+                        <span className="font-mono text-sm tabular-nums text-ink2">{stunden(a.min + a.ueber)} h</span>
                         <button type="button" onClick={() => setAnreiseOffen(anreiseOffen === p.id ? null : p.id)} aria-label="Anreise" className={'grid h-10 min-w-10 place-items-center rounded-[10px] border px-1.5 text-[11px] ' + (a.oev || a.km > 0 ? 'border-steel/40 bg-steel-soft text-steel' : 'border-line bg-surface text-ink3')}>{a.oev ? 'öV' : a.km > 0 ? `${a.km} km` : <Car size={16} />}</button>
                       </>
                     )}
                   </div>
+                  {a.dabei && (
+                    /* Zwei Spalten wie auf dem Wochenblatt: Normal (bis 8 h) und Überstunden */
+                    <div className="mt-2 grid grid-cols-2 gap-2">
+                      <div className="flex items-center gap-1">
+                        <span className="w-10 text-[10px] leading-tight text-ink3">Normal</span>
+                        <MiniKnopf klein art="minus" onClick={() => setAnw((s) => ({ ...s, [p.id]: { ...a, min: Math.max(30, a.min - 30) } }))} />
+                        <span className="w-9 text-center font-mono text-[15px] font-semibold tabular-nums">{(a.min / 60).toFixed(1)}</span>
+                        <MiniKnopf klein art="plus" onClick={() => setAnw((s) => ({ ...s, [p.id]: { ...a, min: Math.min(STANDARD_MIN, a.min + 30) } }))} />
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <span className="w-10 text-[10px] leading-tight text-ink3">Über-<br />stunden</span>
+                        <MiniKnopf klein art="minus" onClick={() => setAnw((s) => ({ ...s, [p.id]: { ...a, ueber: Math.max(0, a.ueber - 30) } }))} />
+                        <span className={'w-9 text-center font-mono text-[15px] font-semibold tabular-nums ' + (a.ueber > 0 ? 'text-amber-deep' : 'text-ink3')}>{(a.ueber / 60).toFixed(1)}</span>
+                        <MiniKnopf klein art="plus" onClick={() => setAnw((s) => ({ ...s, [p.id]: { ...a, ueber: a.ueber + 30 } }))} />
+                      </div>
+                    </div>
+                  )}
                   {anreiseOffen === p.id && a.dabei && (
                     <div className="mt-2 flex items-center gap-2 pl-10">
                       <button type="button" onClick={() => setAnw((s) => ({ ...s, [p.id]: { ...a, oev: !a.oev, km: a.oev ? a.km : 0 } }))} className={'chip px-3 py-1.5 text-xs ' + (a.oev ? 'chip-on' : '')}>öV</button>
@@ -938,11 +947,6 @@ export function Erfassung() {
             })}
             {leute.length === 0 && <p className="p-3 text-sm text-ink3">{laedtTeam ? 'Lädt …' : 'Keine Mitglieder in diesem Team.'}</p>}
           </div>
-        </section>
-
-        <section>
-          <p className="lbl">Wie lange — alle</p>
-          <Stepper wert={teamMin} setWert={setzeTeamMin} schritt={30} min={30} format={(v) => (v / 60).toFixed(1) + ' h'} />
         </section>
 
         <FotoLeiste text="Foto vom Stand heute — freiwillig, hilft dem Bauführer." />
@@ -976,23 +980,6 @@ export function Erfassung() {
           </section>
         )}
 
-        {langerTag && (
-          <section className="card space-y-3 border-amber/40 bg-amber-soft">
-            <p className="text-sm">
-              <strong>{langerTag.leute.map((p) => `${p.name} ${stunden(p.min)} h`).join(', ')}</strong>
-              {' '}— das ist mehr als der normale Tag ({stunden(STANDARD_MIN)} h). War etwas anders?
-            </p>
-            <button type="button" className="cta py-4" onClick={langerAlsAbweichung}>
-              Ja, länger gearbeitet
-              <span className="mt-0.5 block text-xs font-normal opacity-90">Wer wollte das, und kurz erzählen warum — die Mehrzeit wird als «länger» gemeldet.</span>
-            </button>
-            <button type="button" disabled={speichert} className="btn-ghost w-full py-2.5 text-sm disabled:opacity-70" onClick={() => void speichern(true, 'langerOk')}>
-              Nein, so stimmt es — trotzdem speichern
-            </button>
-            <button type="button" className="btn-ghost w-full py-2.5 text-sm" onClick={() => setLangerTag(null)}>Abbrechen</button>
-          </section>
-        )}
-
         <button type="button" disabled={speichert} onClick={() => void speichern(true)} className="cta cta-good py-5 text-[17px] disabled:opacity-70">
           <span className="inline-flex items-center gap-2">{gespeichert ? gespeichert : <><CheckCircle2 size={22} strokeWidth={2.2} aria-hidden="true" /> Alles wie geplant</>}</span>
         </button>
@@ -1000,7 +987,7 @@ export function Erfassung() {
 
         <div>
           <p className="mb-2 text-center text-sm text-ink3">War etwas anders?</p>
-          <div className="grid grid-cols-4 gap-2">
+          <div className="grid grid-cols-3 gap-2">
             {SYMBOLE.map((s) => (
               <button key={s.typ} type="button" onClick={() => { if (!baustelle) { setHinweis('Zuerst die Baustelle antippen.'); return; } setAbweichung(s.typ); setAbLeute(new Set(dabei.map((p) => p.id))); setSchritt('wer'); }} className="chip flex flex-col items-center gap-1.5 py-3 text-ink2">
                 {s.svg}
