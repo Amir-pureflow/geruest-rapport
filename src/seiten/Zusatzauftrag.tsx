@@ -43,6 +43,7 @@ interface Auftrag {
   status: 'offen' | 'erledigt_ohne_regie';
   notiz: string | null;
   konto_nr: string;
+  baustelle_id?: string | null;
   baustelle_bezeichnung: string | null;
   stand: 'bestellt' | 'gemeldet' | 'im_regierapport' | 'beim_kunden' | 'bestaetigt' | 'erledigt_ohne_regie';
   gemeldet_am: string | null;
@@ -142,17 +143,37 @@ export function Zusatzauftrag() {
   const [erledigen, setErledigen] = useState<string | null>(null); // Auftrag, für den gerade der Grund gewählt wird
   const [userId, setUserId] = useState<string | null>(null);
 
+  // Für «gemeldet»: die Meldung des Teams in der Wochenübersicht öffnen (Sicht liefert nur Datum + Teamname)
+  const [meldungLinks, setMeldungLinks] = useState<Record<string, string>>({});
+  async function meldungLinksLaden(auftraege: Auftrag[]) {
+    if (!supabase) return;
+    const gemeldet = auftraege.filter((a) => a.stand === 'gemeldet' && a.gemeldet_am && a.baustelle_id);
+    if (gemeldet.length === 0) { setMeldungLinks({}); return; }
+    const { data } = await supabase
+      .from('tagesmeldung')
+      .select('id,team_id,datum,baustelle_id')
+      .in('baustelle_id', [...new Set(gemeldet.map((a) => a.baustelle_id as string))])
+      .eq('normalfall', false)
+      .in('datum', [...new Set(gemeldet.map((a) => a.gemeldet_am as string))]);
+    const links: Record<string, string> = {};
+    for (const a of gemeldet) {
+      const m = (data ?? []).find((x) => x.baustelle_id === a.baustelle_id && x.datum === a.gemeldet_am);
+      if (m) links[a.id] = `/cockpit?woche=${m.datum}&tag=${m.datum}&team=${m.team_id}&meldung=${m.id}`;
+    }
+    setMeldungLinks(links);
+  }
+
   async function ladeListe() {
     void offeneAuftraege().then(setLokal);
     if (!supabase) return;
     const { data } = await supabase
       .from('zusatzauftrag_stand')
       .select(
-        'id,besteller_name,kanal,taetigkeit,geplant_fuer,bestellt_am,status,notiz,konto_nr,baustelle_bezeichnung,stand,gemeldet_am,gemeldet_von_team,regierapport_id,regierapport_nummer,regierapport_status,ohne_meldung,erledigt_grund,erledigt_am,kunde_name,kunde_email,kunde_ansprechperson,anzeige_noetig,angezeigt_am,angezeigt_an',
+        'id,besteller_name,kanal,taetigkeit,geplant_fuer,bestellt_am,status,notiz,konto_nr,baustelle_id,baustelle_bezeichnung,stand,gemeldet_am,gemeldet_von_team,regierapport_id,regierapport_nummer,regierapport_status,ohne_meldung,erledigt_grund,erledigt_am,kunde_name,kunde_email,kunde_ansprechperson,anzeige_noetig,angezeigt_am,angezeigt_an',
       )
       .order('bestellt_am', { ascending: false })
       .limit(50);
-    if (data) setListe(data as unknown as Auftrag[]);
+    if (data) { setListe(data as unknown as Auftrag[]); void meldungLinksLaden(data as unknown as Auftrag[]); }
     else {
       // Sicht noch ohne 0011? Dann ohne die Kundenspalten laden, statt gar nicht.
       const alt = await supabase
@@ -492,7 +513,13 @@ export function Zusatzauftrag() {
               {/* Woher der Stand kommt — benannte Quelle statt Urteil */}
               <p className="mt-1.5 text-xs text-ink3">
                 {a.stand === 'gemeldet' && a.gemeldet_am && (
-                  <>gemeldet am {kurz(ausIso(a.gemeldet_am))}{a.gemeldet_von_team ? ` von ${a.gemeldet_von_team}` : ''} — Regierapport in der Wochenübersicht erstellen</>
+                  <>
+                    gemeldet am {kurz(ausIso(a.gemeldet_am))}{a.gemeldet_von_team ? ` von ${a.gemeldet_von_team}` : ''}
+                    {' · '}
+                    {meldungLinks[a.id]
+                      ? <Link to={meldungLinks[a.id]} className="font-semibold text-steel">Meldung ansehen und Regierapport vorrechnen ›</Link>
+                      : <Link to={`/cockpit?woche=${a.gemeldet_am}&tag=${a.gemeldet_am}`} className="font-semibold text-steel">in der Wochenübersicht ansehen ›</Link>}
+                  </>
                 )}
                 {(a.stand === 'im_regierapport' || a.stand === 'beim_kunden' || a.stand === 'bestaetigt') && a.regierapport_id && (
                   <Link to={`/regie/${a.regierapport_id}`} className="font-semibold text-steel">
