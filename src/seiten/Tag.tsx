@@ -205,20 +205,23 @@ export function Tag() {
         {!laedt && offen.length > 0 && (
           <section className="space-y-2">
             <p className="lbl mb-0">Noch nichts gemeldet · {offen.length}</p>
-            <div className="card divide-y divide-line p-0">
+            {/* Kacheln statt Zeilen: Team gross, darunter Chefmonteur und Baustelle laut Plan — auf einen Blick, nicht in einer Zeile */}
+            <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
               {offen.map((t) => {
                 const bs = planFuer(t.id);
                 return (
-                  <div key={t.id} className="flex items-center justify-between gap-3 px-4 py-2.5">
-                    <p className="min-w-0 truncate text-sm">
-                      <span className="font-semibold">{t.bezeichnung}</span>
-                      <span className="text-ink3"> · {t.chefmonteur?.name ?? 'kein Chefmonteur'}</span>
-                      {bs
-                        ? <span className="text-ink3"> · laut Plan <span className="knr">{bs.konto_nr}</span> {bs.bezeichnung ?? ''}</span>
-                        : <span className="text-ink3"> · nichts im Jahresplan</span>}
-                    </p>
-                    <Link to={wochenLink(t.id)} onClick={() => zurWoche(t.id)} className="shrink-0 text-xs font-semibold text-steel">Woche ›</Link>
-                  </div>
+                  <Link key={t.id} to={wochenLink(t.id)} onClick={() => zurWoche(t.id)} className="card group flex items-start justify-between gap-3 px-4 py-3">
+                    <span className="min-w-0">
+                      <span className="block text-[15px] font-semibold">{t.bezeichnung}</span>
+                      <span className="block truncate text-sm text-ink2">{t.chefmonteur?.name ?? 'kein Chefmonteur'}</span>
+                      <span className="mt-1.5 flex min-w-0 items-center gap-1.5 text-xs text-ink3">
+                        {bs
+                          ? <><span className="knr">{bs.konto_nr}</span><span className="truncate">{bs.bezeichnung ?? ''}</span></>
+                          : <span>nichts im Jahresplan</span>}
+                      </span>
+                    </span>
+                    <span className="shrink-0 text-xs font-semibold text-steel opacity-0 transition-opacity group-hover:opacity-100">Woche ›</span>
+                  </Link>
                 );
               })}
             </div>
