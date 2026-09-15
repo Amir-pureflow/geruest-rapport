@@ -46,7 +46,7 @@ interface Rapport {
   empfaenger_email: string | null;
   versendet_am: string | null;
   beschrieb: string | null;
-  baustelle: { bezeichnung: string | null; konto_nr: string; kunde: { email: string | null; ansprechperson: string | null; frist_tage: number | null } | null } | null;
+  baustelle: { bezeichnung: string | null; konto_nr: string; kunde: { email: string | null; ansprechperson: string | null; frist_tage: number | null; weitere_emails: string | null } | null } | null;
 }
 
 interface Absender {
@@ -98,7 +98,7 @@ Deno.serve(async (req) => {
 
     const { data: rRoh } = await supa
       .from('regierapport')
-      .select('id, status, nummer, link_token, betrag_rappen, frist_bis, anhang_pfad, tagesmeldung_id, empfaenger_email, versendet_am, beschrieb, baustelle:baustelle_id(bezeichnung, konto_nr, kunde:kunde_id(email, ansprechperson, frist_tage))')
+      .select('id, status, nummer, link_token, betrag_rappen, frist_bis, anhang_pfad, tagesmeldung_id, empfaenger_email, versendet_am, beschrieb, baustelle:baustelle_id(bezeichnung, konto_nr, kunde:kunde_id(email, ansprechperson, frist_tage, weitere_emails))')
       .eq('id', regierapport_id)
       .single();
     if (!rRoh) return antwort(404, { fehler: 'Regierapport nicht gefunden' });
@@ -167,7 +167,7 @@ Deno.serve(async (req) => {
       ].join('\n');
 
       const mail: Record<string, unknown> = { from: von, to: [r.empfaenger_email], subject: betreff, html, text };
-      if (absender.email) mail.reply_to = absender.email;
+      if (absender.email ?? k.MAIL_ANTWORT_AN) mail.reply_to = absender.email ?? k.MAIL_ANTWORT_AN;
       const erg = await resend(mail);
       if (!erg.ok) return antwort(502, { fehler: erg.fehler });
 
@@ -191,10 +191,20 @@ Deno.serve(async (req) => {
     if (!gewuenscht) {
       return antwort(400, { fehler: 'Beim Kunden dieser Baustelle ist keine E-Mail hinterlegt (Verwaltung → Kunden).' });
     }
-    const erlaubt = gewuenscht === kundenMail || testEmpfaenger.includes(gewuenscht);
+    // Erlaubt: die Kunden-Mail, weitere hinterlegte Adressen, dieselbe Firma (gleiche Domain) — und Testempfänger.
+    // Alles andere lehnt der Server ab: ein Regierapport mit Preisen darf nicht an eine vertippte Adresse gehen.
+    const weitere = String(r.baustelle?.kunde?.weitere_emails ?? '').split(/[,;\s]+/).map(mailNorm).filter((s) => s.includes('@'));
+    const kundenDomain = kundenMail?.split('@')[1] ?? null;
+    const erlaubt =
+      gewuenscht === kundenMail ||
+      weitere.includes(gewuenscht) ||
+      (!!kundenDomain && gewuenscht.endsWith('@' + kundenDomain)) ||
+      testEmpfaenger.includes(gewuenscht);
     if (!erlaubt) {
       return antwort(403, {
-        fehler: `Empfänger muss die hinterlegte Kunden-Mail sein${kundenMail ? ` (${kundenMail})` : ''}.`,
+        fehler: kundenMail
+          ? `Empfänger muss zur Bauleitung gehören: ${kundenMail}${kundenDomain ? ` oder eine Adresse @${kundenDomain}` : ''}. Weitere Adressen unter Verwaltung → Kunden eintragen.`
+          : 'Beim Kunden dieser Baustelle ist keine E-Mail hinterlegt (Verwaltung → Kunden).',
       });
     }
     const empfaenger_email = gewuenscht;
@@ -247,7 +257,7 @@ Deno.serve(async (req) => {
     ].join('\n');
 
     const mail: Record<string, unknown> = { from: von, to: [empfaenger_email], subject: betreff, html, text };
-    if (absender.email) mail.reply_to = absender.email;
+    if (absender.email ?? k.MAIL_ANTWORT_AN) mail.reply_to = absender.email ?? k.MAIL_ANTWORT_AN;
 
     // Anhang: das SORBA-Dokument, falls hochgeladen — sonst das automatisch erzeugte PDF (wie der SORBA-Ausdruck).
     const b64 = (buf: Uint8Array) => { let bin = ''; for (let i = 0; i < buf.length; i += 0x8000) bin += String.fromCharCode(...buf.subarray(i, i + 0x8000)); return btoa(bin); };

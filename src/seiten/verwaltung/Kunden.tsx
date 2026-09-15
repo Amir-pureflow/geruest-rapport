@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useState } from 'react';
 import { supabase } from '../../lib/supabase';
 
-interface Kunde { id?: string; name: string; ansprechperson: string | null; email: string | null; telefon: string | null; praeferenz: 'einzel' | 'sammel'; anzeige_noetig: boolean; frist_tage: number; adresse: string | null }
+interface Kunde { id?: string; name: string; ansprechperson: string | null; email: string | null; telefon: string | null; praeferenz: 'einzel' | 'sammel'; anzeige_noetig: boolean; frist_tage: number; adresse: string | null; weitere_emails: string | null }
 
-const LEER: Kunde = { name: '', ansprechperson: '', email: '', telefon: '', praeferenz: 'einzel', anzeige_noetig: true, frist_tage: 3, adresse: '' };
+const LEER: Kunde = { name: '', ansprechperson: '', email: '', telefon: '', praeferenz: 'einzel', anzeige_noetig: true, frist_tage: 3, adresse: '', weitere_emails: '' };
 
 export function Kunden() {
   const [liste, setListe] = useState<(Kunde & { id: string; baustellen: number })[]>([]);
@@ -14,7 +14,7 @@ export function Kunden() {
   const laden = useCallback(async () => {
     if (!supabase) return;
     const [k, b] = await Promise.all([
-      supabase.from('kunde').select('id,name,ansprechperson,email,telefon,praeferenz,anzeige_noetig,frist_tage,adresse').order('name'),
+      supabase.from('kunde').select('id,name,ansprechperson,email,telefon,praeferenz,anzeige_noetig,frist_tage,adresse,weitere_emails').order('name'),
       supabase.from('baustelle').select('kunde_id').not('kunde_id', 'is', null),
     ]);
     if (k.error) { setFehler(/anzeige_noetig|frist_tage/.test(k.error.message) ? 'Migration 0011 fehlt — bitte einspielen.' : k.error.message.includes('ansprechperson') ? 'Migration 0005 fehlt — bitte im SQL-Editor ausführen.' : k.error.message); return; }
@@ -28,7 +28,7 @@ export function Kunden() {
     if (!supabase || !bearbeitet) return;
     if (!bearbeitet.name.trim()) { setFehler('Name fehlt.'); return; }
     setFehler('');
-    const row = { ...bearbeitet, name: bearbeitet.name.trim(), email: bearbeitet.email?.trim() || null, ansprechperson: bearbeitet.ansprechperson?.trim() || null, telefon: bearbeitet.telefon?.trim() || null, adresse: bearbeitet.adresse?.trim() || null, frist_tage: Math.min(60, Math.max(1, Math.round(Number(bearbeitet.frist_tage) || 3))) };
+    const row = { ...bearbeitet, name: bearbeitet.name.trim(), email: bearbeitet.email?.trim() || null, ansprechperson: bearbeitet.ansprechperson?.trim() || null, telefon: bearbeitet.telefon?.trim() || null, adresse: bearbeitet.adresse?.trim() || null, weitere_emails: bearbeitet.weitere_emails?.trim() || null, frist_tage: Math.min(60, Math.max(1, Math.round(Number(bearbeitet.frist_tage) || 3))) };
     const { error } = row.id ? await supabase.from('kunde').update(row).eq('id', row.id) : await supabase.from('kunde').insert(row);
     if (error) { setFehler(error.message); return; }
     setBearbeitet(null);
@@ -54,6 +54,11 @@ export function Kunden() {
             <input value={bearbeitet.telefon ?? ''} onChange={(e) => f({ telefon: e.target.value })} placeholder="Telefon" className="field" />
           </div>
           <input type="email" value={bearbeitet.email ?? ''} onChange={(e) => f({ email: e.target.value })} placeholder="E-Mail der Bauleitung — dorthin gehen die Regierapporte" className="field" />
+          <div>
+            <label className="lbl">Weitere Empfänger (optional, mit Komma)</label>
+            <input type="text" value={bearbeitet.weitere_emails ?? ''} onChange={(e) => f({ weitere_emails: e.target.value })} placeholder="stellvertretung@firma.ch, buchhaltung@firma.ch" className="field" />
+            <p className="mt-1 text-[11px] text-ink3">Regierapporte dürfen an die Bauleitung, an diese Adressen und an jede Adresse derselben Firma (gleiche Domain) gehen.</p>
+          </div>
           <div>
             <label className="lbl">Rechnungsadresse (steht auf dem Regierapport-PDF)</label>
             <textarea value={bearbeitet.adresse ?? ''} onChange={(e) => f({ adresse: e.target.value })} rows={2} placeholder={'Weltpoststrasse 19/21\n3015 Bern'} className="field" />

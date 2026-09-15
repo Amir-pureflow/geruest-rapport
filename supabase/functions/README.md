@@ -57,7 +57,8 @@ Die Tabelle hat RLS ohne Policies — nur die Service-Role (in der Function) und
 | `UEBERSETZUNG_MODELL` | nein | Standard `mistral-small-latest` |
 | `MAIL_ABSENDER` | empfohlen | z. B. `Rapporto <regie@pureflow-ai.com>` (Domain muss bei Resend verifiziert sein) |
 | `MAIL_FIRMA` | nein | Firmenname in Fusszeile und Absender-Rückfall |
-| `MAIL_TESTEMPFAENGER` | nein | Kommagetrennte Adressen, an die ein Rapport **zusätzlich zur Kunden-Mail** gesendet werden darf (Pilot, eigene Tests). Alles andere lehnt die Function mit 403 ab: «Empfänger muss die hinterlegte Kunden-Mail sein». |
+| `MAIL_TESTEMPFAENGER` | nein | Kommagetrennte Adressen, an die ein Rapport **zusätzlich zur Kunden-Mail** gesendet werden darf (Pilot, eigene Tests). Alles andere lehnt die Function mit 403 ab. Erlaubt sind ausserdem `kunde.weitere_emails` (Migration 0014) und jede Adresse mit derselben Domain wie `kunde.email`. |
+| `MAIL_ANTWORT_AN` | empfohlen | Reply-To, wenn die Sitzung keine E-Mail hat (Ansicht ohne Login): Antworten der Bauleitung landen dort, z. B. `arbnor.arifi@geruestgmbh.ch`. |
 | `SUPABASE_URL`, `SUPABASE_ANON_KEY` | für pg_net | Damit `regie_erinnerungen_anstossen()` die Function aus der Datenbank aufrufen kann. Der anon key genügt (`verify_jwt` akzeptiert ihn); der Service-Role-Key gehört **nicht** in diese Tabelle. |
 | `APP_URL` | für Erinnerungen | Basis-URL der App für den Kundenlink, wenn kein `basis_url` im Aufruf steckt (Cron kennt keinen Browser). |
 
@@ -97,3 +98,11 @@ Folgen für den Code:
 
 - Uploads mit `upsert: true` scheitern (brauchen Update-Recht). `src/lib/db.ts` lädt ohne upsert und wertet «existiert schon» (409) als Erfolg.
 - `storage.remove(...)` scheitert leise; Stellen, die Dateien entfernen wollen (z. B. «Entwurf verwerfen» in `RegieDetail.tsx`), sollen das nicht mehr versuchen — die Datei bleibt, nur die Verknüpfung geht weg.
+
+## Zustellbarkeit (Spam)
+
+Solange `MAIL_ABSENDER` auf `onboarding@resend.dev` steht, landen die Mails bei vielen Empfängern im Spam: geteilter
+Test-Absender, keine eigene Domain-Reputation. Abhilfe in Resend → Domains: eigene Subdomain (z. B. `mail.pureflow-ai.com`,
+später `mail.rapporto.ch`) anlegen, die drei DNS-Einträge (MX, SPF-TXT, DKIM-TXT) beim DNS-Anbieter (pureflow-ai.com: Hostpoint)
+setzen, verifizieren, dann `MAIL_ABSENDER = Rapporto <regie@mail.pureflow-ai.com>`. Zusätzlich in Resend das Click- und
+Open-Tracking für die Domain abschalten — die umgeschriebenen Links sehen für Mailfilter wie Phishing aus.

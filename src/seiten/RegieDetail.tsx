@@ -689,6 +689,7 @@ export function RegieDetail() {
                 placeholder="bauleitung@firma.ch"
                 className="field"
               />
+              <p className="mt-1 text-[11px] text-ink3">Erlaubt: die hinterlegte Bauleitung, weitere Adressen des Kunden (Verwaltung → Kunden) und Adressen derselben Firma.</p>
             </div>
             <button type="button" onClick={() => void senden()} disabled={sendet} className="cta cta-accent">
               {sendet ? 'Sendet …' : 'Regierapport senden'}
