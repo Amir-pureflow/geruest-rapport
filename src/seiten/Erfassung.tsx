@@ -22,7 +22,9 @@ interface Baustelle { id: string; konto_nr: string; bezeichnung: string | null }
 interface Anwesenheit { dabei: boolean; min: number; oev: boolean; km: number }
 
 type Schritt = 'team' | 'tag' | 'symbol' | 'wer' | 'notiz' | 'fertig';
-type Abweichung = 'zusaetzlich' | 'warten' | 'kaputt';
+type Abweichung = 'zusaetzlich' | 'warten' | 'kaputt' | 'laenger';
+/** Ab hier fragt die App vor «Alles wie geplant» nach dem Grund — dieselbe Grenze wie der Hinweis «über 10 h» in der Wochenübersicht. */
+const LANGER_TAG_MIN = 600;
 type Wer = 'kunde' | 'chef' | 'niemand';
 
 const TEAM_KEY = 'teamgeraet-team-id';
@@ -54,8 +56,8 @@ interface Gemeldet {
   /** Anzahl Personen — «8.0 h je 4 Pers.» statt einer erschreckenden Teamsumme */
   personen: number;
 }
-type SpeicherModus = 'normal' | 'ersetzen' | 'zusaetzlich';
-const AB_KURZ: Record<Abweichung, string> = { zusaetzlich: 'zusätzlich', warten: 'gewartet', kaputt: 'repariert' };
+type SpeicherModus = 'normal' | 'ersetzen' | 'zusaetzlich' | 'langerOk';
+const AB_KURZ: Record<Abweichung, string> = { zusaetzlich: 'zusätzlich', warten: 'gewartet', kaputt: 'repariert', laenger: 'länger' };
 
 const SYMBOLE: { typ: Abweichung; label: string; svg: ReactElement }[] = [
   {
@@ -70,10 +72,15 @@ const SYMBOLE: { typ: Abweichung; label: string; svg: ReactElement }[] = [
     typ: 'kaputt', label: 'etwas kaputt / repariert',
     svg: <svg viewBox="0 0 40 40" className="h-9 w-9"><path d="M20 7 L34 31 H6 Z" fill="none" stroke="currentColor" strokeWidth="3.5" strokeLinejoin="round" /><rect x="18.2" y="15" width="3.6" height="8" rx="1.8" fill="currentColor" /><circle cx="20" cy="26.5" r="2" fill="currentColor" /></svg>,
   },
+  {
+    // Uhr, deren Zeiger über die Acht hinaus zeigt, plus «+»: mehr Zeit als der normale Tag
+    typ: 'laenger', label: 'länger gearbeitet',
+    svg: <svg viewBox="0 0 40 40" className="h-9 w-9" fill="none" stroke="currentColor"><circle cx="18" cy="22" r="12" strokeWidth="3.5" /><path d="M18 14v8l5.5 3.5" strokeWidth="3.5" strokeLinecap="round" /><path d="M31 5v10M26 10h10" strokeWidth="3.5" strokeLinecap="round" /></svg>,
+  },
 ];
 
 /** Kurzform für die drei Kacheln im Tag-Schritt — zwei Wörter, die auch allein verständlich sind. */
-const KURZ_LABEL: Record<Abweichung, string> = { zusaetzlich: 'zusätzlich gearbeitet', warten: 'warten müssen', kaputt: 'etwas kaputt' };
+const KURZ_LABEL: Record<Abweichung, string> = { zusaetzlich: 'zusätzlich gearbeitet', warten: 'warten müssen', kaputt: 'etwas kaputt', laenger: 'länger gearbeitet' };
 
 function Helm({ farbe }: { farbe: string }) {
   return (
@@ -208,6 +215,25 @@ export function Erfassung() {
   const [heuteGemeldet, setHeuteGemeldet] = useState<Gemeldet[]>([]);
   // An diesem Tag schon eine Normalmeldung (egal welche Baustelle) → erst nachfragen, statt still eine zweite anzulegen
   const [doppelt, setDoppelt] = useState<{ baustellen: string[]; bisherMin: number; ersetzbarMin: number; ersetzbar: number; neuMin: number } | null>(null);
+  // Langer Tag ohne Grund: vor «Alles wie geplant» einmal nachfragen — die Stunden bleiben, wie sie sind
+  const [langerTag, setLangerTag] = useState<{ leute: { id: string; name: string; min: number }[] } | null>(null);
+  /** «Ja, länger gearbeitet»: normaler Tag auf 8 h, die Mehrzeit wird zur Abweichung «länger» — weiter mit «Wer wollte das?» */
+  function langerAlsAbweichung() {
+    if (!langerTag) return;
+    const extra: Record<string, number> = {};
+    setAnw((s) => {
+      const n = { ...s };
+      for (const p of langerTag.leute) { extra[p.id] = p.min - STANDARD_MIN; n[p.id] = { ...n[p.id], min: STANDARD_MIN }; }
+      return n;
+    });
+    for (const p of langerTag.leute) extra[p.id] = p.min - STANDARD_MIN;
+    setAbLeute(new Set(langerTag.leute.map((p) => p.id)));
+    setAbMin(Math.max(30, extra[langerTag.leute[0].id] ?? 60));
+    setAbMinPerson(extra);
+    setAbweichung('laenger');
+    setLangerTag(null);
+    setSchritt('wer');
+  }
   const [userId, setUserId] = useState<string | null>(null);
   const [wartend, setWartend] = useState(0);
   const recorder = useRef<MediaRecorder | null>(null);
@@ -431,7 +457,13 @@ export function Erfassung() {
         setHinweis(`Für ${baustelle.bezeichnung ?? baustelle.konto_nr} ist an diesem Tag schon eine Meldung vom Bauführer freigegeben. Änderungen macht der Bauführer in der Wochenübersicht.`);
         return;
       }
-      if (bisher.length > 0 && modus === 'normal') {
+      // Mehr als 10 h und noch keine Abweichung für diese Baustelle: einmal fragen, ob etwas anders war (Grund statt Rätsel)
+      if (modus === 'normal') {
+        const lange = dabei.filter((p) => (anw[p.id]?.min ?? 0) > LANGER_TAG_MIN).map((p) => ({ id: p.id, name: p.name, min: anw[p.id].min }));
+        if (lange.length > 0 && !heuteGemeldet.some((m) => !m.normalfall && m.baustelle_id === baustelle.id)) { setLangerTag({ leute: lange }); return; }
+      }
+      setLangerTag(null);
+      if (bisher.length > 0 && (modus === 'normal' || modus === 'langerOk')) {
         const ersetzbar = bisher.filter((m) => !m.freigegeben);
         setDoppelt({
           baustellen: bisher.map((m) => m.bezeichnung).filter((x, i, a) => a.indexOf(x) === i),
@@ -496,7 +528,7 @@ export function Erfassung() {
     void offeneAnzahl().then(setWartend);
     setTimeout(() => setGespeichert(null), 3500);
     setTimeout(() => setBestaetigung(null), 8000);
-    setAbweichung(null); setWer(null); setAufnahme(null); setVorschau(null); setAbMin(60); setAbMinPerson({}); setAbLeute(new Set());
+    setAbweichung(null); setWer(null); setAufnahme(null); setVorschau(null); setAbMin(60); setAbMinPerson({}); setAbLeute(new Set()); setLangerTag(null);
     for (const f of fotos) URL.revokeObjectURL(f.url);
     setFotos([]);
     setSchritt('fertig');
@@ -624,7 +656,7 @@ export function Erfassung() {
         <div className="space-y-4">
           <p className="lbl mb-0">Abweichung</p>
           <h1 className="font-display text-2xl font-semibold">Was war anders?</h1>
-          <div className="grid grid-cols-3 gap-2">
+          <div className="grid grid-cols-2 gap-2">
             {SYMBOLE.map((s) => (
               <button key={s.typ} type="button" onClick={() => { setAbweichung(s.typ); setAbLeute(new Set(dabei.map((p) => p.id))); setSchritt('wer'); }} className="chip flex flex-col items-center gap-2 py-5 text-ink2">
                 {s.svg}
@@ -666,7 +698,8 @@ export function Erfassung() {
       <Shell zurueck schmal>
         <div className="space-y-4">
           <p className="lbl mb-0">{SYMBOLE.find((s) => s.typ === abweichung)?.label} · {wer === 'kunde' ? 'Kunde' : wer === 'chef' ? 'unser Chef' : 'niemand'}</p>
-          <h1 className="font-display text-2xl font-semibold">Wie lange?</h1>
+          <h1 className="font-display text-2xl font-semibold">{abweichung === 'laenger' ? 'Wie viel länger?' : 'Wie lange?'}</h1>
+          {abweichung === 'laenger' && <p className="-mt-2 text-sm text-ink3">Nur die Zeit über dem normalen Tag ({stunden(STANDARD_MIN)} h) — der normale Tag wird mitgespeichert.</p>}
           <Stepper wert={abMin} setWert={(v) => { setAbMin(v); setAbMinPerson({}); }} schritt={30} min={30} format={(v) => (v / 60).toFixed(1) + ' h'} />
           <p className="-mt-2 text-center text-xs text-ink3">Gilt für alle — unten kann jede Person einzeln anders sein.</p>
 
@@ -943,6 +976,23 @@ export function Erfassung() {
           </section>
         )}
 
+        {langerTag && (
+          <section className="card space-y-3 border-amber/40 bg-amber-soft">
+            <p className="text-sm">
+              <strong>{langerTag.leute.map((p) => `${p.name} ${stunden(p.min)} h`).join(', ')}</strong>
+              {' '}— das ist mehr als der normale Tag ({stunden(STANDARD_MIN)} h). War etwas anders?
+            </p>
+            <button type="button" className="cta py-4" onClick={langerAlsAbweichung}>
+              Ja, länger gearbeitet
+              <span className="mt-0.5 block text-xs font-normal opacity-90">Wer wollte das, und kurz erzählen warum — die Mehrzeit wird als «länger» gemeldet.</span>
+            </button>
+            <button type="button" disabled={speichert} className="btn-ghost w-full py-2.5 text-sm disabled:opacity-70" onClick={() => void speichern(true, 'langerOk')}>
+              Nein, so stimmt es — trotzdem speichern
+            </button>
+            <button type="button" className="btn-ghost w-full py-2.5 text-sm" onClick={() => setLangerTag(null)}>Abbrechen</button>
+          </section>
+        )}
+
         <button type="button" disabled={speichert} onClick={() => void speichern(true)} className="cta cta-good py-5 text-[17px] disabled:opacity-70">
           <span className="inline-flex items-center gap-2">{gespeichert ? gespeichert : <><CheckCircle2 size={22} strokeWidth={2.2} aria-hidden="true" /> Alles wie geplant</>}</span>
         </button>
@@ -950,7 +1000,7 @@ export function Erfassung() {
 
         <div>
           <p className="mb-2 text-center text-sm text-ink3">War etwas anders?</p>
-          <div className="grid grid-cols-3 gap-2">
+          <div className="grid grid-cols-4 gap-2">
             {SYMBOLE.map((s) => (
               <button key={s.typ} type="button" onClick={() => { if (!baustelle) { setHinweis('Zuerst die Baustelle antippen.'); return; } setAbweichung(s.typ); setAbLeute(new Set(dabei.map((p) => p.id))); setSchritt('wer'); }} className="chip flex flex-col items-center gap-1.5 py-3 text-ink2">
                 {s.svg}

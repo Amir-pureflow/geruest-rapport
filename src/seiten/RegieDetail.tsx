@@ -64,7 +64,7 @@ const STATUS_TEXT: Record<string, string> = {
   frist_abgelaufen: 'Frist abgelaufen',
 };
 
-const ABWEICHUNG_TEXT: Record<string, string> = { zusaetzlich: 'zusätzliche Arbeit', warten: 'Wartezeit', kaputt: 'etwas kaputt' };
+const ABWEICHUNG_TEXT: Record<string, string> = { zusaetzlich: 'zusätzliche Arbeit', warten: 'Wartezeit', kaputt: 'etwas kaputt', laenger: 'länger gearbeitet' };
 const WER_TEXT: Record<string, string> = { kunde: 'der Kunde wollte es', chef: 'der Chef wollte es', niemand: 'niemand hat es verlangt' };
 const KANAL_TEXT: Record<string, string> = { telefon: 'per Telefon', mail: 'per Mail', vor_ort: 'vor Ort' };
 

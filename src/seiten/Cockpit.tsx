@@ -79,7 +79,9 @@ const TAGE = ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'];
 /** Feste Gründe für Korrekturen — kein Freitext, aber immer ein «warum» (Regel #7). */
 const GRUENDE = ['Mit Chefmonteur abgeklärt', 'Pause abgezogen', 'Anreise ist keine Arbeitszeit', 'Tippfehler im Teamgerät'];
 const FELD: Record<string, string> = { normal_min: 'Normalzeit', ueber_min: 'Überzeit' };
-const ABWEICHUNG_KURZ: Record<string, string> = { zusaetzlich: 'zusätzlich gearbeitet', warten: 'warten müssen', kaputt: 'etwas kaputt' };
+const ABWEICHUNG_KURZ: Record<string, string> = { zusaetzlich: 'zusätzlich gearbeitet', warten: 'warten müssen', kaputt: 'etwas kaputt', laenger: 'länger gearbeitet' };
+/** «länger» ohne Kunden ist Lohn, keine Regie — erklärt den langen Tag, macht ihn aber nicht verdächtig. */
+const laengerOhneKunde = (tm: { abweichung_typ: string | null; wer_hats_gewollt: string | null }) => tm.abweichung_typ === 'laenger' && tm.wer_hats_gewollt !== 'kunde';
 const SPRACHE: Record<string, string> = { de: 'Deutsch', ar: 'Arabisch', pl: 'Polnisch', en: 'Englisch' };
 /** Normaler Tag + Abweichung sind zwei Meldungen und richtig so. Verdächtig ist nur: der normale Tag mehrfach. */
 function doppelteNormalmeldungen(liste: Eintrag[]): number {
@@ -311,13 +313,15 @@ export function Cockpit() {
     // auch bei Regieverdacht oder über 10 h. Sonst bliebe das Team ewig unter «Zum Anschauen».
     if (liste.every((e) => e.status === 'freigegeben')) return 'frei';
     const summe = liste.reduce((s, e) => s + e.normal_min + e.ueber_min, 0);
-    if (summe > ZEHN_STUNDEN_MIN) return 'rot';
+    // Über 10 h ist nur dann ein offener Hinweis, wenn das Team den langen Tag nicht selbst erklärt hat («länger gearbeitet»)
+    const erklaert = liste.some((e) => e.tagesmeldung.abweichung_typ === 'laenger');
+    if (summe > ZEHN_STUNDEN_MIN && !erklaert) return 'rot';
     // Gibt es zur Meldung schon einen Regierapport, ist der Verdacht beantwortet — die Zelle wird wieder normal.
     const verdacht = liste.some(
       (e) =>
         (e.tagesmeldung.regierapport?.length ?? 0) === 0 &&
         !e.tagesmeldung.regie_entscheid &&
-        (e.tagesmeldung.abweichung_typ !== null ||
+        ((e.tagesmeldung.abweichung_typ !== null && !laengerOhneKunde(e.tagesmeldung)) ||
           e.tagesmeldung.wer_hats_gewollt === 'kunde' ||
           passenderAuftrag(e.tagesmeldung.baustelle?.id, e.tagesmeldung.datum) !== undefined),
     );
@@ -328,7 +332,7 @@ export function Cockpit() {
   // Regieverdacht: eine Karte pro betroffener Tagesmeldung
   const verdachtsfaelle = useMemo(() => {
     const gesehen = new Set<string>();
-    const faelle: { meldung: Eintrag['tagesmeldung']; eintraege: Eintrag[]; ausloeser: string[]; geprueft: boolean; rapport: { id: string; status: string; nummer: string | null } | null; keineRegie: string | null }[] = [];
+    const faelle: { meldung: Eintrag['tagesmeldung']; eintraege: Eintrag[]; ausloeser: string[]; geprueft: boolean; rapport: { id: string; status: string; nummer: string | null } | null; keineRegie: string | null; info: boolean }[] = [];
     // Normaltag + Abweichung derselben Baustelle am selben Tag: die Abweichung IST die Antwort auf den
     // offenen Zusatzauftrag — der Normaltag bekommt dann keine eigene Verdachtskarte mehr.
     const mitAbweichung = new Set(
@@ -339,11 +343,14 @@ export function Cockpit() {
       if (gesehen.has(tm.id)) continue;
       if (tm.normalfall && mitAbweichung.has(`${tm.team?.id}|${tm.datum}|${tm.baustelle?.id}`)) continue;
       const ausloeser: string[] = [];
-      if (tm.abweichung_typ) ausloeser.push(`Team meldet «${tm.abweichung_typ}»`);
+      // «länger» ohne Kunden: keine Regie, aber die Erklärung für den langen Tag — als ruhige Infokarte
+      const info = laengerOhneKunde(tm);
+      if (tm.abweichung_typ && !info) ausloeser.push(`Team meldet «${ABWEICHUNG_KURZ[tm.abweichung_typ] ?? tm.abweichung_typ}»`);
       if (tm.wer_hats_gewollt === 'kunde') ausloeser.push('Team: der Kunde wollte es');
       const auftrag = passenderAuftrag(tm.baustelle?.id, tm.datum);
-      if (auftrag)
+      if (auftrag && !info)
         ausloeser.push(`offener Zusatzauftrag: ${auftrag.taetigkeit} (${auftrag.besteller_name})`);
+      if (info) ausloeser.push('Team meldet «länger gearbeitet»', tm.wer_hats_gewollt === 'chef' ? 'unser Chef wollte es — Lohnstunden, keine Regie' : 'niemand hat es verlangt — Lohnstunden, keine Regie');
       if (ausloeser.length === 0) continue;
       gesehen.add(tm.id);
       const liste = eintraege.filter((x) => x.tagesmeldung.id === tm.id);
@@ -355,6 +362,7 @@ export function Cockpit() {
         geprueft: liste.length > 0 && liste.every((x) => x.status === 'freigegeben'),
         rapport: tm.regierapport?.[0] ?? null,
         keineRegie: tm.regie_entscheid === 'keine_regie' ? (REGIE_GRUND[tm.regie_grund ?? ''] ?? 'ohne Grund') : null,
+        info,
       });
     }
     return faelle;
@@ -946,11 +954,11 @@ export function Cockpit() {
                             </div>
                           )}
 
-                          {faelle.map(({ meldung, eintraege: liste, ausloeser, geprueft, rapport, keineRegie: keineRegieGrund }) => (
-                            <div key={meldung.id} className={'rounded-[12px] border p-3 ' + (rapport || geprueft || keineRegieGrund ? 'border-line bg-ground' : 'border-amber/40 bg-amber-soft/60') + (markierteMeldung === meldung.id ? ' ring-2 ring-steel' : '')}>
+                          {faelle.map(({ meldung, eintraege: liste, ausloeser, geprueft, rapport, keineRegie: keineRegieGrund, info }) => (
+                            <div key={meldung.id} className={'rounded-[12px] border p-3 ' + (rapport || geprueft || keineRegieGrund || info ? 'border-line bg-ground' : 'border-amber/40 bg-amber-soft/60') + (markierteMeldung === meldung.id ? ' ring-2 ring-steel' : '')}>
                               <div className="flex items-baseline justify-between gap-2">
                                 <span className="font-display text-[14px] font-semibold">
-                                  {markierteMeldung === meldung.id ? 'Diese Meldung · ' : rapport ? 'Regierapport angelegt ✓ · ' : keineRegieGrund ? 'Keine Regie ✓ · ' : geprueft ? 'Regieverdacht geprüft ✓ · ' : 'Regieverdacht · '}{meldung.baustelle?.bezeichnung ?? '—'}
+                                  {markierteMeldung === meldung.id ? 'Diese Meldung · ' : rapport ? 'Regierapport angelegt ✓ · ' : keineRegieGrund ? 'Keine Regie ✓ · ' : info ? 'Länger gearbeitet · ' : geprueft ? 'Regieverdacht geprüft ✓ · ' : 'Regieverdacht · '}{meldung.baustelle?.bezeichnung ?? '—'}
                                 </span>
                                 <span className="font-mono text-xs text-ink3">{ch(new Date(meldung.datum + 'T12:00:00'))}</span>
                               </div>
@@ -1004,9 +1012,10 @@ export function Cockpit() {
                               ) : (
                                 <div className="mt-2 flex items-center justify-between gap-2">
                                   <span className="text-sm">
-                                    {stunden(liste.reduce((s, e) => s + e.normal_min + e.ueber_min, 0))} h Zusatzarbeit ·{' '}
-                                    <span className="font-mono font-semibold text-accent-deep">{formatChf(betragVorgerechnet(liste))}</span>
-                                    <span className="text-xs text-ink3"> vorgerechnet</span>
+                                    {stunden(liste.reduce((s, e) => s + e.normal_min + e.ueber_min, 0))} h {meldung.abweichung_typ === 'laenger' ? 'länger' : 'Zusatzarbeit'}
+                                    {info
+                                      ? <span className="text-xs text-ink3"> · geht in den Lohn, nicht an den Kunden</span>
+                                      : <> ·{' '}<span className="font-mono font-semibold text-accent-deep">{formatChf(betragVorgerechnet(liste))}</span><span className="text-xs text-ink3"> vorgerechnet</span></>}
                                   </span>
                                   {meldung.regierapport?.length > 0 ? (
                                     <Link to={`/regie/${meldung.regierapport[0].id}`} className="btn-ghost shrink-0 border-steel text-steel">

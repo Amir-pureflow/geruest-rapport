@@ -114,6 +114,14 @@ kunde.email, Vermerk `angezeigt_am/an/text`). Pro Kunde einstellbar: `kunde.anze
 **Vorerst ausgeblendet** (14.09., bis Arbnor klärt, ob er Mehrkosten vorher anmeldet): `MEHRKOSTENANZEIGE_AKTIV = false`
 in Zusatzauftrag.tsx, Feld «Anzeige nötig» in Kunden.tsx versteckt. Function und Spalten bleiben.
 
+## Vierte Abweichung «länger gearbeitet» (16.09.)
+
+`abweichung_typ = 'laenger'` (Migration 0014): Mehrzeit über dem normalen Tag, gleicher Ablauf wie «zusätzlich»
+(wer wollte es, Stunden nur für die Mehrzeit, Sprachnotiz). Tippt der Chefmonteur bei > 10 h trotzdem «Alles wie
+geplant», fragt die Erfassung einmal nach («Ja, länger gearbeitet» → Abweichung, normaler Tag auf 8 h; «Nein, so
+stimmt es» → speichert unverändert). Wochenübersicht: «länger» + Kunde = Regieverdacht; «länger» + Chef/niemand =
+graue Infokarte, Lohnstunden, kein Hinweis «über 10 h» mehr. Stunden werden nie verändert (Regel #1).
+
 ## Sprachnotiz: Text vor dem Speichern (15.09.)
 
 Nach der Aufnahme schickt die Erfassung das Audio direkt an `transkribieren` (Weg «Vorschau», `audio_base64` + `team_id`),

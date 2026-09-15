@@ -39,6 +39,10 @@ function fehlerDeuten(err: { code?: string; message: string }): { text: string; 
   if (err.code === '42703' || /column .* does not exist/.test(err.message)) {
     return { text: `Die Datenbank ist nicht auf dem neusten Stand (${err.message}). Migration ausführen.`, endgueltig: false };
   }
+  if (err.code === '23514' && /abweichung_typ/.test(err.message)) {
+    // Prüfregel der Datenbank kennt die Abweichungsart noch nicht (z. B. «laenger» vor Migration 0014) — Meldung bleibt, nicht verwerfen
+    return { text: 'Die Datenbank kennt diese Abweichungsart noch nicht — Migration 0014 ausführen. Die Meldung bleibt auf dem Gerät.', endgueltig: false };
+  }
   if (err.code === '42501' || /row-level security/.test(err.message)) {
     return { text: 'Keine Berechtigung — bitte neu anmelden.', endgueltig: false };
   }
@@ -84,7 +88,7 @@ export interface MeldungPayload {
   datum: string;
   baustelle_id: string;
   normalfall: boolean;
-  abweichung_typ: 'zusaetzlich' | 'warten' | 'kaputt' | null;
+  abweichung_typ: 'zusaetzlich' | 'warten' | 'kaputt' | 'laenger' | null;
   wer_hats_gewollt: 'kunde' | 'chef' | 'niemand' | null;
   audio_sekunden: number | null;
   erfasst_von: string | null;

@@ -21,7 +21,7 @@ interface Meldung {
 }
 interface Plan { team_id: string; baustelle: { konto_nr: string; bezeichnung: string | null } | null }
 
-const ABWEICHUNG: Record<string, string> = { zusaetzlich: 'zusätzlich gearbeitet', warten: 'warten müssen', kaputt: 'etwas kaputt' };
+const ABWEICHUNG: Record<string, string> = { zusaetzlich: 'zusätzlich gearbeitet', warten: 'warten müssen', kaputt: 'etwas kaputt', laenger: 'länger gearbeitet' };
 const WER: Record<string, string> = { kunde: 'der Kunde wollte es', chef: 'der Chef wollte es', niemand: 'niemand hat es verlangt' };
 
 /** Meldungen eines Teams nach Baustelle bündeln: normale Stunden + Abweichungen je Art, mit Notiz und Fotos. */

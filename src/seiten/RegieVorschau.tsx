@@ -25,7 +25,7 @@ interface Meldung {
   foto: { id: string; pfad: string }[];
 }
 
-const ABWEICHUNG_TEXT: Record<string, string> = { zusaetzlich: 'zusätzliche Arbeit', warten: 'Wartezeit', kaputt: 'etwas kaputt' };
+const ABWEICHUNG_TEXT: Record<string, string> = { zusaetzlich: 'zusätzliche Arbeit', warten: 'Wartezeit', kaputt: 'etwas kaputt', laenger: 'länger gearbeitet' };
 const WER_TEXT: Record<string, string> = { kunde: 'der Kunde wollte es', chef: 'der Chef wollte es', niemand: 'niemand hat es verlangt' };
 
 function tagKurz(isoDatum: string): string {
