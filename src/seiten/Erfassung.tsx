@@ -56,6 +56,7 @@ interface Gemeldet {
   personen: number;
 }
 type SpeicherModus = 'normal' | 'ersetzen' | 'zusaetzlich';
+const WER_KURZ: Record<Wer, string> = { kunde: 'der Kunde wollte es', chef: 'unser Chef wollte es', niemand: 'niemand hat es verlangt' };
 const AB_KURZ: Record<Abweichung, string> = { zusaetzlich: 'zusätzlich', warten: 'gewartet', kaputt: 'repariert', laenger: 'länger' };
 
 const SYMBOLE: { typ: Abweichung; label: string; svg: ReactElement }[] = [
@@ -132,11 +133,19 @@ export function Erfassung() {
   const abMinVon = (id: string) => abMinPerson[id] ?? abMin;
   const [abLeute, setAbLeute] = useState<Set<string>>(new Set());
   const [aufnahme, setAufnahme] = useState<{ blob: Blob; sekunden: number } | null>(null);
+  // Überstunden: «wer wollte das» (Pflicht) + Sprachnotiz (freiwillig) — hängt am normalen Tag, kein eigener Ablauf
+  const [ueberWer, setUeberWer] = useState<Wer | null>(null);
+  const [ueberAufnahme, setUeberAufnahme] = useState<{ blob: Blob; sekunden: number } | null>(null);
+  type Vorschau = { status: 'laeuft' | 'fertig' | 'fehler'; text: string; quelle: string | null; sprache: string; grund?: string };
+  const [ueberVorschau, setUeberVorschau] = useState<Vorschau | null>(null);
+  /** Wohin die laufende Aufnahme gehört: Abweichung (eigener Schritt) oder Überstunden (normaler Tag) */
+  const aufnahmeZiel = useRef<'ab' | 'ueber'>('ab');
   // Text der Sprachnotiz — entsteht sofort nach der Aufnahme, der Chefmonteur prüft ihn VOR dem Speichern
-  const [vorschau, setVorschau] = useState<{ status: 'laeuft' | 'fertig' | 'fehler'; text: string; quelle: string | null; sprache: string; grund?: string } | null>(null);
-  async function textVorschau(blob: Blob) {
-    if (!supabase || !navigator.onLine) { setVorschau({ status: 'fehler', text: '', quelle: null, sprache: 'de', grund: 'Kein Netz — der Text kommt, sobald die Meldung gesendet ist.' }); return; }
-    setVorschau({ status: 'laeuft', text: '', quelle: null, sprache: 'de' });
+  const [vorschau, setVorschau] = useState<Vorschau | null>(null);
+  async function textVorschau(blob: Blob, ziel: 'ab' | 'ueber' = 'ab') {
+    const setV = ziel === 'ueber' ? setUeberVorschau : setVorschau;
+    if (!supabase || !navigator.onLine) { setV({ status: 'fehler', text: '', quelle: null, sprache: 'de', grund: 'Kein Netz — der Text kommt, sobald die Meldung gesendet ist.' }); return; }
+    setV({ status: 'laeuft', text: '', quelle: null, sprache: 'de' });
     try {
       const b64 = await new Promise<string>((resolve, reject) => {
         const fr = new FileReader();
@@ -146,9 +155,9 @@ export function Erfassung() {
       });
       const { data, error } = await supabase.functions.invoke('transkribieren', { body: { audio_base64: b64, mime: blob.type || 'audio/webm', team_id: teamId } });
       if (error || !data?.transkript) throw new Error(data?.fehler ?? error?.message ?? 'kein Text');
-      setVorschau({ status: 'fertig', text: data.transkript, quelle: data.quelle ?? null, sprache: data.sprache ?? 'de' });
+      setV({ status: 'fertig', text: data.transkript, quelle: data.quelle ?? null, sprache: data.sprache ?? 'de' });
     } catch (e) {
-      setVorschau({ status: 'fehler', text: '', quelle: null, sprache: 'de', grund: 'Text konnte jetzt nicht erstellt werden — er kommt nach dem Senden. ' + (e instanceof Error ? e.message : '') });
+      setV({ status: 'fehler', text: '', quelle: null, sprache: 'de', grund: 'Text konnte jetzt nicht erstellt werden — er kommt nach dem Senden. ' + (e instanceof Error ? e.message : '') });
     }
   }
   // Fotos zur Meldung — der Bauführer verlangt Bilder bei Regie; hier ohne Umweg über die Galerie
@@ -383,14 +392,19 @@ export function Erfassung() {
   /** Meldung für die gewählte Baustelle bauen: normaler Tag (alle Anwesenden, Stunden wie eingestellt) oder Abweichung (nur die Beteiligten, Zusatzminuten). */
   function meldungBauen(normal: boolean, b: Baustelle, notiz: { blob: Blob; sekunden: number } | null = aufnahme): MeldungPayload {
     const beteiligt = normal ? dabei : dabei.filter((p) => abLeute.has(p.id));
+    // Normaler Tag mit Überstunden: «wer wollte das» + Notiz hängen an dieser Meldung (keine eigene Abweichung)
+    const hatUeber = normal && beteiligt.some((p) => (anw[p.id]?.ueber ?? 0) > 0);
+    const nz = normal ? (hatUeber ? notiz : null) : notiz;
+    const vs = normal ? ueberVorschau : vorschau;
+    const textOk = !!nz && vs?.status === 'fertig' && !!vs.text.trim();
     return {
       id: crypto.randomUUID(), team_id: teamId!, datum: tagIso, baustelle_id: b.id,
-      normalfall: normal, abweichung_typ: normal ? null : abweichung, wer_hats_gewollt: normal ? null : wer,
-      audio_sekunden: normal ? null : notiz?.sekunden ?? null, erfasst_von: userId,
+      normalfall: normal, abweichung_typ: normal ? null : abweichung, wer_hats_gewollt: normal ? (hatUeber ? ueberWer : null) : wer,
+      audio_sekunden: nz?.sekunden ?? null, erfasst_von: userId,
       // geprüfter Text (ggf. vom Chefmonteur korrigiert) geht mit — sonst erstellt der Server ihn nach dem Upload
-      transkript: !normal && notiz && vorschau?.status === 'fertig' && vorschau.text.trim() ? vorschau.text.trim() : null,
-      transkript_quelle: !normal && notiz && vorschau?.status === 'fertig' && vorschau.text.trim() ? vorschau.quelle : null,
-      transkript_sprache: !normal && notiz && vorschau?.status === 'fertig' && vorschau.text.trim() ? vorschau.sprache : null,
+      transkript: textOk ? vs!.text.trim() : null,
+      transkript_quelle: textOk ? vs!.quelle : null,
+      transkript_sprache: textOk ? vs!.sprache : null,
       eintraege: beteiligt.map((p) => {
         const a = anw[p.id];
         // Normaler Tag: Normal- und Überstunden so, wie sie eingetragen sind. Abweichung: die Regiestunden je Person.
@@ -429,6 +443,8 @@ export function Erfassung() {
   async function speichernInnen(normal: boolean, modus: SpeicherModus) {
     if (!baustelle) { setHinweis('Zuerst die Baustelle antippen.'); return; }
     if (dabei.length === 0) { setHinweis('Niemand angehakt.'); return; }
+    const hatUeber = dabei.some((p) => (anw[p.id]?.ueber ?? 0) > 0);
+    if (normal && hatUeber && !ueberWer) { setHinweis('Bei Überstunden bitte antippen, wer das wollte.'); return; }
     setHinweis('');
     const clientUuids: string[] = [];
     let normalMitgespeichert = false;
@@ -455,14 +471,17 @@ export function Erfassung() {
       }
       setDoppelt(null);
       if (modus === 'ersetzen') await fruehereEntfernen(bisher);
-      clientUuids.push(await enqueueMeldung(meldungBauen(true, baustelle), undefined, fotos.map((f) => f.blob)));
+      const ueberNotiz = hatUeber ? await aufnahmeAbschliessen() : null;
+      const uuidNormal = await enqueueMeldung(meldungBauen(true, baustelle, ueberNotiz), ueberNotiz?.blob, fotos.map((f) => f.blob));
+      clientUuids.push(uuidNormal);
+      if (ueberNotiz) notizUuid = uuidNormal;
     } else {
       // Abweichung: die normalen Stunden des Tags dürfen nicht verloren gehen — fehlt die Normalmeldung für diese Baustelle, geht sie zuerst mit in die Warteschlange.
       let aktuell = heuteGemeldet;
       try { aktuell = await heutigeLaden(); } catch { /* lokaler Stand reicht */ }
       const hatNormal = aktuell.some((m) => m.normalfall && m.baustelle_id === baustelle.id);
       if (!hatNormal) {
-        clientUuids.push(await enqueueMeldung(meldungBauen(true, baustelle)));
+        clientUuids.push(await enqueueMeldung(meldungBauen(true, baustelle, ueberAufnahme), ueberAufnahme?.blob));
         normalMitgespeichert = true;
       }
       const notiz = await aufnahmeAbschliessen();
@@ -478,7 +497,7 @@ export function Erfassung() {
       ? (abGleich ? `${stunden(abMinVon(abLeuteListe[0]?.id ?? ''))} h ${AB_KURZ[abweichung]} je ${abLeuteListe.length} Pers.` : `${stunden(abGesamt)} h ${AB_KURZ[abweichung]} (${abLeuteListe.length} Pers., unterschiedlich)`)
       : '';
     const zusammenfassung = normal
-      ? `Gespeichert: normaler Tag ${normalStundenText()}`
+      ? `Gespeichert: normaler Tag ${normalStundenText()}${hatUeber && ueberWer ? ` (${WER_KURZ[ueberWer]})` : ''}`
       : normalMitgespeichert ? `Gespeichert: normaler Tag ${normalStundenText()} + ${abText}` : `Gespeichert: ${abText} (normaler Tag war schon gemeldet)`;
 
     setGespeichert('Lokal gespeichert …');
@@ -509,13 +528,15 @@ export function Erfassung() {
     setTimeout(() => setBestaetigung(null), 8000);
     setAbweichung(null); setWer(null); setAufnahme(null); setVorschau(null); setAbMin(60); setAbMinPerson({}); setAbLeute(new Set());
     setTeamUeber(0); setAnw((alt) => Object.fromEntries(Object.entries(alt).map(([k, a]) => [k, { ...a, ueber: 0 }])));
+    setUeberWer(null); setUeberAufnahme(null); setUeberVorschau(null);
     for (const f of fotos) URL.revokeObjectURL(f.url);
     setFotos([]);
     setSchritt('fertig');
   }
 
   // Sprachnotiz — gedrückt halten / antippen
-  async function aufnahmeStart() {
+  async function aufnahmeStart(ziel: 'ab' | 'ueber' = 'ab') {
+    aufnahmeZiel.current = ziel;
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       setMikroStream(stream);
@@ -527,9 +548,9 @@ export function Erfassung() {
         stream.getTracks().forEach((t) => t.stop());
         setMikroStream(null);
         const fertig = { blob: new Blob(teile, { type: mime || 'audio/webm' }), sekunden: Math.max(1, Math.round((Date.now() - start) / 1000)) };
-        setAufnahme(fertig);
+        (aufnahmeZiel.current === 'ueber' ? setUeberAufnahme : setAufnahme)(fertig);
         setNimmtAuf(false);
-        void textVorschau(fertig.blob);
+        void textVorschau(fertig.blob, aufnahmeZiel.current);
         if (ticker.current) window.clearInterval(ticker.current);
         aufnahmeFertig.current?.(fertig);
         aufnahmeFertig.current = null;
@@ -546,11 +567,12 @@ export function Erfassung() {
   }
   /** Laufende Aufnahme beenden und auf die Datei warten — sonst geht sie beim Speichern verloren. */
   function aufnahmeAbschliessen(): Promise<{ blob: Blob; sekunden: number } | null> {
-    if (!nimmtAuf || !recorder.current || recorder.current.state === 'inactive') return Promise.resolve(aufnahme);
+    const bisher = aufnahmeZiel.current === 'ueber' ? ueberAufnahme : aufnahme;
+    if (!nimmtAuf || !recorder.current || recorder.current.state === 'inactive') return Promise.resolve(bisher);
     return new Promise((resolve) => {
       aufnahmeFertig.current = resolve;
       recorder.current?.stop();
-      window.setTimeout(() => { if (aufnahmeFertig.current === resolve) { aufnahmeFertig.current = null; resolve(aufnahme); } }, 3000);
+      window.setTimeout(() => { if (aufnahmeFertig.current === resolve) { aufnahmeFertig.current = null; resolve(bisher); } }, 3000);
     });
   }
   function aufnahmeStop() {
@@ -949,6 +971,63 @@ export function Erfassung() {
           </div>
         </section>
 
+        {dabei.some((p) => (anw[p.id]?.ueber ?? 0) > 0) && (
+          /* Überstunden brauchen einen Grund: ein Chip (Pflicht) und eine Sprachnotiz (freiwillig) — kein eigener Bildschirm */
+          <section className="card space-y-3 border-amber/30">
+            <p className="text-sm font-semibold">
+              Überstunden · {stunden(dabei.reduce((s, p) => s + (anw[p.id]?.ueber ?? 0), 0))} h — wer wollte das?
+            </p>
+            <div className="grid grid-cols-3 gap-2">
+              {([['kunde', 'Kunde', '#D82816'], ['chef', 'Unser Chef', '#29506B'], ['niemand', 'Niemand', '']] as const).map(([w, label, farbe]) => (
+                <button key={w} type="button" onClick={() => setUeberWer(w)} className={'chip flex flex-col items-center gap-1.5 py-3 ' + (ueberWer === w ? 'chip-on' : '')}>
+                  {farbe ? <Helm farbe={farbe} /> : (
+                    <svg viewBox="0 0 48 40" className="h-10 w-12" aria-hidden="true"><circle cx="24" cy="20" r="12" fill="none" stroke="#6C7B81" strokeWidth="3" /><line x1="15.5" y1="28.5" x2="32.5" y2="11.5" stroke="#6C7B81" strokeWidth="3" /></svg>
+                  )}
+                  <span className="text-sm font-semibold">{label}</span>
+                </button>
+              ))}
+            </div>
+            <p className="text-xs text-ink3">
+              Kunde = die Bauleitung hat es verlangt (der Bauführer prüft, ob das Regie ist). War es Zusatzarbeit für den Kunden, unten «zusätzlich» antippen.
+            </p>
+            <div className={'rounded-[12px] border-2 border-dashed p-4 text-center ' + (nimmtAuf && aufnahmeZiel.current === 'ueber' ? 'border-accent bg-accent-soft' : 'border-line-strong bg-surface')}>
+              {ueberAufnahme ? (
+                <div className="space-y-2">
+                  <p className="text-sm font-semibold">Sprachnotiz · {ueberAufnahme.sekunden} Sek. ✓</p>
+                  <audio controls src={URL.createObjectURL(ueberAufnahme.blob)} className="mx-auto h-9 w-full max-w-xs" />
+                  {ueberVorschau?.status === 'laeuft' && (
+                    <div className="space-y-1.5 rounded-[10px] bg-ground p-3 text-left" aria-live="polite">
+                      <p className="text-xs font-medium text-ink2">Die App schreibt mit …</p>
+                      <div className="ki-schimmer h-3 w-11/12 rounded" /><div className="ki-schimmer h-3 w-3/4 rounded" />
+                    </div>
+                  )}
+                  {ueberVorschau?.status === 'fertig' && (
+                    <div className="space-y-1.5 rounded-[10px] bg-ground p-3 text-left">
+                      <p className="text-xs font-medium text-ink2">Stimmt das so? Sonst hier korrigieren.</p>
+                      <textarea value={ueberVorschau.text} onChange={(e) => setUeberVorschau({ ...ueberVorschau, text: e.target.value })} rows={2} className="field text-sm" />
+                    </div>
+                  )}
+                  {ueberVorschau?.status === 'fehler' && <p className="text-xs text-ink3">{ueberVorschau.grund}</p>}
+                  <button type="button" onClick={() => { setUeberAufnahme(null); setUeberVorschau(null); }} className="btn-ghost">nochmal aufnehmen</button>
+                </div>
+              ) : (
+                <button type="button" onClick={() => (nimmtAuf ? aufnahmeStop() : void aufnahmeStart('ueber'))} className="w-full">
+                  <span className={'mx-auto grid h-12 w-12 place-items-center rounded-full ' + (nimmtAuf && aufnahmeZiel.current === 'ueber' ? 'aufnahme-ring bg-accent text-white' : 'bg-surface-2 text-steel')}>
+                    <svg viewBox="0 0 40 48" className="h-6 w-5" aria-hidden="true" fill="currentColor">
+                      <rect x="13" y="4" width="14" height="24" rx="7" />
+                      <path d="M8 22a12 12 0 0 0 24 0" fill="none" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round" />
+                      <rect x="18.2" y="34" width="3.6" height="8" rx="1.8" />
+                    </svg>
+                  </span>
+                  {nimmtAuf && aufnahmeZiel.current === 'ueber' && <span className="mt-2 block"><Pegel stream={mikroStream} /></span>}
+                  <span className="mt-1.5 block text-sm font-semibold">{nimmtAuf && aufnahmeZiel.current === 'ueber' ? `${sekunden} Sek. — antippen zum Stoppen` : 'Kurz sagen, warum — 10 Sekunden reichen'}</span>
+                  <span className="mt-0.5 block text-xs text-ink3">Freiwillig, in deiner Sprache. Hilft dem Bauführer am Montag.</span>
+                </button>
+              )}
+            </div>
+          </section>
+        )}
+
         <FotoLeiste text="Foto vom Stand heute — freiwillig, hilft dem Bauführer." />
 
         {doppelt && (
@@ -995,7 +1074,7 @@ export function Erfassung() {
               </button>
             ))}
           </div>
-          <p className="mt-2 text-center text-xs text-ink3">Abweichung melden speichert den normalen Tag mit.</p>
+          <p className="mt-2 text-center text-xs text-ink3">Abweichung melden speichert den normalen Tag mit. Die Stunden der Zusatzarbeit zählen als Mehrzeit — nicht nochmals bei Überstunden eintragen.</p>
         </div>
 
       </div>

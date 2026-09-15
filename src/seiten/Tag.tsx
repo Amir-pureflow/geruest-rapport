@@ -21,7 +21,7 @@ interface Meldung {
 }
 interface Plan { team_id: string; baustelle: { konto_nr: string; bezeichnung: string | null } | null }
 
-const ABWEICHUNG: Record<string, string> = { zusaetzlich: 'zusätzlich gearbeitet', warten: 'warten müssen', kaputt: 'etwas kaputt', laenger: 'länger gearbeitet' };
+const ABWEICHUNG: Record<string, string> = { zusaetzlich: 'zusätzlich gearbeitet', warten: 'warten müssen', kaputt: 'etwas kaputt', laenger: 'länger gearbeitet', ueberstunden: 'Überstunden' };
 const WER: Record<string, string> = { kunde: 'der Kunde wollte es', chef: 'der Chef wollte es', niemand: 'niemand hat es verlangt' };
 
 /** Meldungen eines Teams nach Baustelle bündeln: normale Stunden + Abweichungen je Art, mit Notiz und Fotos. */
@@ -35,8 +35,11 @@ function proBaustelle(ms: Meldung[]) {
     const schluessel = m.baustelle?.konto_nr ?? 'ohne';
     const b = map.get(schluessel) ?? { schluessel, konto_nr: m.baustelle?.konto_nr ?? null, bezeichnung: m.baustelle?.bezeichnung ?? '', zuletzt: m.erfasst_am, normalMin: 0, abweichungen: [], fotos: 0 };
     const min = m.zeiteintrag.reduce((s, z) => s + z.normal_min + z.ueber_min, 0);
-    if (m.normalfall) b.normalMin += min;
-    else b.abweichungen.push({ typ: m.abweichung_typ ?? 'abweichung', min, wer: m.wer_hats_gewollt, transkript: m.transkript, audio_sekunden: m.audio_sekunden, id: m.id });
+    if (m.normalfall) {
+      b.normalMin += min;
+      // Überstunden mit Grund am normalen Tag — wie eine Abweichung zeigen, mit wer/Notiz
+      if (m.wer_hats_gewollt) b.abweichungen.push({ typ: 'ueberstunden', min: m.zeiteintrag.reduce((s, z) => s + z.ueber_min, 0), wer: m.wer_hats_gewollt, transkript: m.transkript, audio_sekunden: m.audio_sekunden, id: m.id });
+    } else b.abweichungen.push({ typ: m.abweichung_typ ?? 'abweichung', min, wer: m.wer_hats_gewollt, transkript: m.transkript, audio_sekunden: m.audio_sekunden, id: m.id });
     b.fotos += m.foto?.length ?? 0;
     if (m.erfasst_am > b.zuletzt) b.zuletzt = m.erfasst_am;
     map.set(schluessel, b);
@@ -167,7 +170,7 @@ export function Tag() {
                         <span className="font-medium">{b.bezeichnung || 'ohne Baustelle'}</span>
                         {b.normalMin > 0 && <span className="rounded-md bg-good-soft px-2 py-0.5 text-xs font-medium text-good-deep">wie geplant · {stunden(b.normalMin)} h</span>}
                         {b.abweichungen.map((a) => (
-                          <span key={a.id} className="rounded-md bg-amber-soft px-2 py-0.5 text-xs font-medium text-amber-deep">{ABWEICHUNG[a.typ] ?? 'Abweichung'} · {stunden(a.min)} h</span>
+                          <span key={a.id} className={'rounded-md px-2 py-0.5 text-xs font-medium ' + (a.typ === 'ueberstunden' && a.wer !== 'kunde' ? 'bg-surface-2 text-ink2' : 'bg-amber-soft text-amber-deep')}>{ABWEICHUNG[a.typ] ?? 'Abweichung'} · {stunden(a.min)} h</span>
                         ))}
                         {b.fotos > 0 && <span className="text-xs text-ink3">{b.fotos} Foto{b.fotos === 1 ? '' : 's'}</span>}
                       </div>
@@ -177,7 +180,7 @@ export function Tag() {
                           {a.transkript
                             ? <p className="mt-1 rounded-[10px] bg-surface px-3 py-2 italic text-ink2">«{a.transkript}»</p>
                             : a.audio_sekunden ? <p className="mt-1 text-xs text-ink3">Sprachnotiz {a.audio_sekunden} Sek. — Text wird erstellt</p> : null}
-                          <Link to={wochenLink(t.id, a.id)} onClick={() => zurWoche(t.id)} className="mt-1 inline-block text-xs font-semibold text-amber-deep">Regieverdacht in der Woche ansehen ›</Link>
+                          <Link to={wochenLink(t.id, a.id)} onClick={() => zurWoche(t.id)} className={'mt-1 inline-block text-xs font-semibold ' + (a.typ === 'ueberstunden' && a.wer !== 'kunde' ? 'text-steel' : 'text-amber-deep')}>{a.typ === 'ueberstunden' && a.wer !== 'kunde' ? 'in der Woche ansehen ›' : 'Regieverdacht in der Woche ansehen ›'}</Link>
                         </div>
                       ))}
                     </div>

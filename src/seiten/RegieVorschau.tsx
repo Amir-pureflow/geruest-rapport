@@ -35,6 +35,8 @@ function tagKurz(isoDatum: string): string {
 export function RegieVorschau() {
   const navigiere = useNavigate();
   const meldungId = new URLSearchParams(window.location.search).get('meldung');
+  // Überstunden am normalen Tag: nur die Mehrzeit ist Regie, nicht der ganze Tag
+  const nurUeber = new URLSearchParams(window.location.search).get('nur') === 'ueber';
   const [meldung, setMeldung] = useState<Meldung | null>(null);
   const [auftragId, setAuftragId] = useState<string | null>(null);
   const [positionen, setPositionen] = useState<RegiePosition[]>([]);
@@ -56,7 +58,7 @@ export function RegieVorschau() {
       if (error || !data) { setZustand('fehler'); setFehler('Meldung nicht gefunden.'); return; }
       const m = data as unknown as Meldung;
       setMeldung(m);
-      setPositionen(positionenAusEintraegen(m.zeiteintrag.map((z) => ({ normal_min: z.normal_min, ueber_min: z.ueber_min, mitarbeiter: z.mitarbeiter ?? { name: '?', funktion: 'monteur' } }))));
+      setPositionen(positionenAusEintraegen(m.zeiteintrag.filter((z) => !nurUeber || z.ueber_min > 0).map((z) => ({ normal_min: nurUeber ? z.ueber_min : z.normal_min, ueber_min: nurUeber ? 0 : z.ueber_min, mitarbeiter: z.mitarbeiter ?? { name: '?', funktion: 'monteur' } }))));
       if (m.baustelle) {
         const { data: a } = await c.from('zusatzauftrag_stand').select('id').eq('baustelle_id', m.baustelle.id).in('stand', ['bestellt', 'gemeldet']).order('bestellt_am').limit(1);
         setAuftragId(a && a.length > 0 ? a[0].id : null);
@@ -95,7 +97,7 @@ export function RegieVorschau() {
                 {meldung.team && <> · {meldung.team.bezeichnung}{meldung.team.chefmonteur ? ` (${meldung.team.chefmonteur.name})` : ''}</>}
               </p>
               <p className="text-ink2">
-                Team meldet: <strong>{ABWEICHUNG_TEXT[meldung.abweichung_typ ?? ''] ?? '—'}</strong>
+                Team meldet: <strong>{nurUeber || (!meldung.abweichung_typ && meldung.wer_hats_gewollt) ? 'Überstunden (nur die Mehrzeit wird vorgerechnet)' : ABWEICHUNG_TEXT[meldung.abweichung_typ ?? ''] ?? '—'}</strong>
                 {meldung.wer_hats_gewollt && <> · {WER_TEXT[meldung.wer_hats_gewollt] ?? meldung.wer_hats_gewollt}</>}
               </p>
               {meldung.transkript && <p className="rounded-[10px] bg-ground px-3 py-2 italic text-ink2">«{meldung.transkript}»</p>}

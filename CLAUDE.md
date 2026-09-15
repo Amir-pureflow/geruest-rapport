@@ -116,9 +116,12 @@ in Zusatzauftrag.tsx, Feld «Anzeige nötig» in Kunden.tsx versteckt. Function 
 
 ## Erfassung wie das Wochenblatt (16.09.)
 
-Je Person zwei Werte: **Normal** (Standard 8 h, Obergrenze 8 h) und **Überstunden** (Standard 0). Beides sind
-Lohnstunden und brauchen keinen Grund — `zeiteintrag.normal_min` / `ueber_min`. Zwei Team-Regler oben setzen alle
-gleich, die Zeilen darunter je Person. Regie bleibt getrennt: «War etwas anders?» → zusätzlich / warten / kaputt,
+Je Person zwei Werte: **Normal** (Standard 8.4 h = `NORMALTAG_MIN`, Obergrenze) und **Überstunden** (Standard 0),
+`zeiteintrag.normal_min` / `ueber_min`. Zwei Team-Regler oben setzen alle gleich, die Zeilen darunter je Person.
+Überstunden brauchen einen Grund, aber keinen eigenen Ablauf: Chip «wer wollte das» (Pflicht) + Sprachnotiz
+(freiwillig) hängen an der **normalen** Tagesmeldung (`wer_hats_gewollt`, `audio_pfad`, `transkript` — bisher dort
+leer). Wochenübersicht: Kunde → Regieverdacht mit «Regierapport vorrechnen» (nur die Mehrzeit, `?nur=ueber`);
+Chef/niemand → graue Infokarte «Überstunden», kein roter Hinweis «über 10 h» mehr; ohne Grund → rot wie bisher. Regie bleibt getrennt: «War etwas anders?» → zusätzlich / warten / kaputt,
 wer wollte es, Stunden je Person, Sprachnotiz. Die Idee «länger gearbeitet» als vierte Abweichung mit Nachfrage
 wurde am 16.09. verworfen (zu kompliziert); der Typ `laenger` ist im Code nur noch für alte Daten toleriert,
 die Prüfregel der Datenbank kennt ihn nicht.
