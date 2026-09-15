@@ -81,12 +81,71 @@
 }
 
 @layer components {
-  /* Kopfzeile (Handy): weiss, haftet oben, feine Linie */
+  /* Kopfzeile (Handy): weiss, haftet oben, feine Linie — und ein roter Lichtstrich als Kante */
   .appbar {
-    background: rgb(255 255 255 / 0.9);
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
+    background: rgb(255 255 255 / 0.85);
+    backdrop-filter: blur(14px) saturate(1.4);
+    -webkit-backdrop-filter: blur(14px) saturate(1.4);
     border-bottom: 1px solid var(--color-line);
+  }
+  .appbar::before {
+    content: '';
+    position: absolute;
+    inset: 0 0 auto 0;
+    height: 2px;
+    background: linear-gradient(90deg, var(--color-accent) 0%, #ff8a6e 35%, rgb(255 138 110 / 0) 80%);
+    pointer-events: none;
+  }
+
+  /* Bildmarke: roter Verlauf mit Glanzkante und Schein; Lichtstreif läuft einmal beim Laden und beim Zeigen */
+  .marke {
+    position: relative;
+    display: grid;
+    place-items: center;
+    flex-shrink: 0;
+    overflow: hidden;
+    border-radius: 9px;
+    color: #fff;
+    background:
+      radial-gradient(120% 100% at 15% 0%, rgb(255 255 255 / 0.32), transparent 55%),
+      linear-gradient(140deg, #ff6d4c 0%, var(--color-accent) 50%, #8c1108 100%);
+    box-shadow:
+      0 10px 22px -10px rgb(224 48 30 / 0.65),
+      inset 0 1px 0 rgb(255 255 255 / 0.35),
+      inset 0 -1px 0 rgb(0 0 0 / 0.18);
+  }
+  .marke::after {
+    content: '';
+    position: absolute;
+    inset: -60%;
+    background: linear-gradient(115deg, transparent 42%, rgb(255 255 255 / 0.55) 50%, transparent 58%);
+    transform: translateX(-130%);
+    animation: marke-glanz 1.4s ease-out 0.5s 1;
+    pointer-events: none;
+  }
+  a:hover .marke::after,
+  .marke:hover::after {
+    animation: marke-glanz 0.9s ease-out 1;
+  }
+  @keyframes marke-glanz {
+    to { transform: translateX(130%); }
+  }
+  .marke-knoten {
+    transform-origin: 12px 12px;
+    animation: marke-puls 2.6s ease-in-out infinite;
+  }
+  @keyframes marke-puls {
+    0%, 100% { transform: scale(1); opacity: 0.85; }
+    50% { transform: scale(1.35); opacity: 1; }
+  }
+  .wortmarke-akzent {
+    background: linear-gradient(90deg, #ff5a3a 0%, var(--color-accent) 55%, #b3180a 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .marke::after, .marke-knoten { animation: none; }
   }
 
   /* Karte: kein Rahmen, weicher zweistufiger Schatten, 16 px Radius */

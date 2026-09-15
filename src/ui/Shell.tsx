@@ -3,24 +3,30 @@ import { Link, useLocation } from 'react-router-dom';
 import { ANSICHT_LABEL, useAnsicht, type Ansicht } from '../lib/ansicht';
 import { supabase } from '../lib/supabase';
 
-/** Kleine Bildmarke: drei Gerüstlagen. Steht allein für die App, ohne Text. */
+/**
+ * Bildmarke: Gerüst als Netz — zwei Stiele, zwei Lagen, eine Strebe, und an den Knoten leuchtende Punkte
+ * (die Daten, die die App verbindet). Roter Verlauf mit Lichtstreif (index.css `.marke`).
+ */
 export function Marke({ className = 'h-7 w-7' }: { className?: string }) {
   return (
-    <span className={'grid shrink-0 place-items-center rounded-[8px] bg-ink text-white ' + className} aria-hidden="true">
-      <svg viewBox="0 0 24 24" className="h-[60%] w-[60%]" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round">
-        <path d="M5 4v16M19 4v16" />
-        <path d="M5 8h14M5 13h14M5 18h14" />
-        <path d="M9 8l6 5M9 13l6 5" className="text-accent" stroke="#d82816" />
+    <span className={'marke ' + className} aria-hidden="true">
+      <svg viewBox="0 0 24 24" className="relative h-[64%] w-[64%]" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M6 3.5v17M18 3.5v17" strokeWidth="2" opacity="0.95" />
+        <path d="M6 9h12M6 15h12" strokeWidth="2" opacity="0.95" />
+        <path d="M6 15l12-6" strokeWidth="1.6" opacity="0.7" />
+        <circle cx="6" cy="9" r="1.9" fill="#fff" stroke="none" />
+        <circle cx="18" cy="15" r="1.9" fill="#fff" stroke="none" />
+        <circle cx="12" cy="12" r="1.4" fill="#ffd9d2" stroke="none" className="marke-knoten" />
       </svg>
     </span>
   );
 }
 
-/** Wortmarke — überall gleich, damit die App wiedererkennbar bleibt. */
+/** Wortmarke — überall gleich, damit die App wiedererkennbar bleibt. «Rapport» im roten Verlauf. */
 export function Wortmarke({ gross = false }: { gross?: boolean }) {
   return (
-    <span className={'font-semibold tracking-tight ' + (gross ? 'text-2xl' : 'text-[15px]')}>
-      Gerüst<span className="text-accent">Rapport</span>
+    <span className={'font-semibold tracking-[-0.02em] ' + (gross ? 'text-2xl' : 'text-[15px]')}>
+      Gerüst<span className="wortmarke-akzent">Rapport</span>
     </span>
   );
 }
