@@ -114,6 +114,14 @@ kunde.email, Vermerk `angezeigt_am/an/text`). Pro Kunde einstellbar: `kunde.anze
 **Vorerst ausgeblendet** (14.09., bis Arbnor klärt, ob er Mehrkosten vorher anmeldet): `MEHRKOSTENANZEIGE_AKTIV = false`
 in Zusatzauftrag.tsx, Feld «Anzeige nötig» in Kunden.tsx versteckt. Function und Spalten bleiben.
 
+## Regieverdacht beantworten (15.09.)
+
+Ein Regieverdacht in der Wochenübersicht gilt als beantwortet, sobald (a) ein Regierapport zur Meldung existiert,
+(b) der Bauführer «Keine Regie» mit Pflichtgrund wählt (`tagesmeldung.regie_entscheid/regie_grund`, Migration 0013:
+pauschale/kulanz/irrtum/doppelt, rückgängig über «doch Regie») oder (c) alle Stunden des Tages freigegeben sind.
+Dann wird die Zelle normal, das Team fällt aus «Zum Anschauen», die Karte bleibt grau sichtbar. Stunden werden
+dabei NIE verändert (Regel #1) — «keine Regie» heisst nur: nicht an den Kunden verrechnen.
+
 ## Regierapport als PDF (14.09.)
 
 Die Kundenmail hängt automatisch ein PDF an, im Aufbau des SORBA-Ausdrucks (Briefkopf aus `konfiguration.FIRMA_*`,

@@ -46,8 +46,19 @@ interface Eintrag {
     foto: { id: string; pfad: string }[];
     /** Schon ein Regierapport zu dieser Meldung? Dann dorthin, nie einen zweiten anlegen. */
     regierapport: { id: string; status: string; nummer: string | null }[];
+    /** Bauführer-Entscheid: gemeldete Zusatzarbeit wird nicht verrechnet (Migration 0013) */
+    regie_entscheid: 'keine_regie' | null;
+    regie_grund: string | null;
+    regie_entschieden_am: string | null;
   };
 }
+
+const REGIE_GRUND: Record<string, string> = {
+  pauschale: 'in der Offerte / Pauschale drin',
+  kulanz: 'Kulanz — wir verrechnen es nicht',
+  irrtum: 'Team hat sich vertan — war normale Arbeit',
+  doppelt: 'schon in einem anderen Rapport',
+};
 
 const RAPPORT_STAND: Record<string, string> = { entwurf: 'Entwurf', versendet: 'beim Kunden', rueckfrage: 'Rückfrage', frist_abgelaufen: 'Frist abgelaufen', bestaetigt: 'bestätigt' };
 
@@ -153,6 +164,22 @@ export function Cockpit() {
   }, [wochenwahlOffen]);
   // Transkription auf Knopfdruck (Aufnahmen von vor dem Einbau, oder nach einem Fehler)
   const [transkribiert, setTranskribiert] = useState<Set<string>>(new Set());
+  // «Keine Regie»: der Bauführer schliesst eine gemeldete Zusatzarbeit ohne Rapport ab — mit Grund. Stunden bleiben.
+  const [keineRegieFrage, setKeineRegieFrage] = useState<string | null>(null);
+  async function keineRegie(meldungId: string, grund: string) {
+    if (!supabase) return;
+    const { error } = await supabase.from('tagesmeldung').update({ regie_entscheid: 'keine_regie', regie_grund: grund, regie_entschieden_am: new Date().toISOString(), regie_entschieden_von: userId }).eq('id', meldungId);
+    if (error) { melden('Konnte nicht speichern: ' + error.message, 'fehler'); return; }
+    setKeineRegieFrage(null);
+    melden('Als «keine Regie» abgeschlossen ✓ — die Stunden bleiben');
+    void laden();
+  }
+  async function dochRegie(meldungId: string) {
+    if (!supabase) return;
+    const { error } = await supabase.from('tagesmeldung').update({ regie_entscheid: null, regie_grund: null, regie_entschieden_am: null, regie_entschieden_von: null }).eq('id', meldungId);
+    if (error) { melden('Konnte nicht speichern: ' + error.message, 'fehler'); return; }
+    void laden();
+  }
   async function transkribieren(meldungId: string) {
     if (!supabase) return;
     setTranskribiert((s) => new Set(s).add(meldungId));
@@ -209,7 +236,7 @@ export function Cockpit() {
     const auswahl = (mitTranskript: boolean) =>
       'id,normal_min,ueber_min,status,freigabe_log(feld,alt,neu,begruendung,wann),mitarbeiter:mitarbeiter_id(id,name,funktion,typ),tagesmeldung:tagesmeldung_id!inner(id,datum,normalfall,abweichung_typ,wer_hats_gewollt,transkript,' +
       (mitTranskript ? 'transkript_quelle,transkript_sprache,transkript_fehler,' : '') +
-      'audio_pfad,audio_sekunden,team:team_id(id,bezeichnung),baustelle:baustelle_id(id,konto_nr,bezeichnung),foto(id,pfad),regierapport(id,status,nummer))';
+      'audio_pfad,audio_sekunden,regie_entscheid,regie_grund,regie_entschieden_am,team:team_id(id,bezeichnung),baustelle:baustelle_id(id,konto_nr,bezeichnung),foto(id,pfad),regierapport(id,status,nummer))';
     const eintraegeLaden = async () => {
       const erst = await c.from('zeiteintrag').select(auswahl(true)).gte('tagesmeldung.datum', vonIso).lte('tagesmeldung.datum', bisIso);
       if (erst.error && /transkript_\w+ does not exist/.test(erst.error.message)) {
@@ -289,6 +316,7 @@ export function Cockpit() {
     const verdacht = liste.some(
       (e) =>
         (e.tagesmeldung.regierapport?.length ?? 0) === 0 &&
+        !e.tagesmeldung.regie_entscheid &&
         (e.tagesmeldung.abweichung_typ !== null ||
           e.tagesmeldung.wer_hats_gewollt === 'kunde' ||
           passenderAuftrag(e.tagesmeldung.baustelle?.id, e.tagesmeldung.datum) !== undefined),
@@ -300,7 +328,7 @@ export function Cockpit() {
   // Regieverdacht: eine Karte pro betroffener Tagesmeldung
   const verdachtsfaelle = useMemo(() => {
     const gesehen = new Set<string>();
-    const faelle: { meldung: Eintrag['tagesmeldung']; eintraege: Eintrag[]; ausloeser: string[]; geprueft: boolean; rapport: { id: string; status: string; nummer: string | null } | null }[] = [];
+    const faelle: { meldung: Eintrag['tagesmeldung']; eintraege: Eintrag[]; ausloeser: string[]; geprueft: boolean; rapport: { id: string; status: string; nummer: string | null } | null; keineRegie: string | null }[] = [];
     // Normaltag + Abweichung derselben Baustelle am selben Tag: die Abweichung IST die Antwort auf den
     // offenen Zusatzauftrag — der Normaltag bekommt dann keine eigene Verdachtskarte mehr.
     const mitAbweichung = new Set(
@@ -326,6 +354,7 @@ export function Cockpit() {
         // alle Stunden dieser Meldung freigegeben → der Bauführer hat den Verdacht geprüft
         geprueft: liste.length > 0 && liste.every((x) => x.status === 'freigegeben'),
         rapport: tm.regierapport?.[0] ?? null,
+        keineRegie: tm.regie_entscheid === 'keine_regie' ? (REGIE_GRUND[tm.regie_grund ?? ''] ?? 'ohne Grund') : null,
       });
     }
     return faelle;
@@ -734,7 +763,7 @@ export function Cockpit() {
                               <span className="font-mono tabular-nums">{z.tageMitEintrag} {z.tageMitEintrag === 1 ? 'Tag' : 'Tage'} · {stunden(z.totalMin)} h</span>
                               <span className={'ml-2 font-semibold ' + (z.rang === 2 ? 'text-good-deep' : 'text-ink2')}>
                                 {(() => {
-                                  const erledigt = faelle.some((f) => f.rapport) ? 'Regierapport angelegt' : faelle.some((f) => f.geprueft) ? 'Regieverdacht geprüft' : null;
+                                  const erledigt = faelle.some((f) => f.rapport) ? 'Regierapport angelegt' : faelle.some((f) => f.keineRegie) ? 'keine Regie' : faelle.some((f) => f.geprueft) ? 'Regieverdacht geprüft' : null;
                                   if (z.rang === 2) return erledigt ? `✓ freigegeben · ${erledigt}` : '✓ freigegeben';
                                   return erledigt ? `${erledigt} · ${z.wort}` : `✓ wie geplant · ${z.wort}`;
                                 })()}
@@ -917,11 +946,11 @@ export function Cockpit() {
                             </div>
                           )}
 
-                          {faelle.map(({ meldung, eintraege: liste, ausloeser, geprueft, rapport }) => (
-                            <div key={meldung.id} className={'rounded-[12px] border p-3 ' + (rapport || geprueft ? 'border-line bg-ground' : 'border-amber/40 bg-amber-soft/60') + (markierteMeldung === meldung.id ? ' ring-2 ring-steel' : '')}>
+                          {faelle.map(({ meldung, eintraege: liste, ausloeser, geprueft, rapport, keineRegie: keineRegieGrund }) => (
+                            <div key={meldung.id} className={'rounded-[12px] border p-3 ' + (rapport || geprueft || keineRegieGrund ? 'border-line bg-ground' : 'border-amber/40 bg-amber-soft/60') + (markierteMeldung === meldung.id ? ' ring-2 ring-steel' : '')}>
                               <div className="flex items-baseline justify-between gap-2">
                                 <span className="font-display text-[14px] font-semibold">
-                                  {markierteMeldung === meldung.id ? 'Diese Meldung · ' : rapport ? 'Regierapport angelegt ✓ · ' : geprueft ? 'Regieverdacht geprüft ✓ · ' : 'Regieverdacht · '}{meldung.baustelle?.bezeichnung ?? '—'}
+                                  {markierteMeldung === meldung.id ? 'Diese Meldung · ' : rapport ? 'Regierapport angelegt ✓ · ' : keineRegieGrund ? 'Keine Regie ✓ · ' : geprueft ? 'Regieverdacht geprüft ✓ · ' : 'Regieverdacht · '}{meldung.baustelle?.bezeichnung ?? '—'}
                                 </span>
                                 <span className="font-mono text-xs text-ink3">{ch(new Date(meldung.datum + 'T12:00:00'))}</span>
                               </div>
@@ -983,11 +1012,31 @@ export function Cockpit() {
                                     <Link to={`/regie/${meldung.regierapport[0].id}`} className="btn-ghost shrink-0 border-steel text-steel">
                                       {meldung.regierapport[0].nummer ?? 'Regierapport'} · {RAPPORT_STAND[meldung.regierapport[0].status] ?? meldung.regierapport[0].status} ›
                                     </Link>
+                                  ) : keineRegieGrund ? (
+                                    <span className="flex items-center gap-2 text-xs text-ink2">
+                                      <span>keine Regie · {keineRegieGrund}</span>
+                                      {darfFreigeben && <button type="button" className="font-semibold text-steel" onClick={() => void dochRegie(meldung.id)}>doch Regie</button>}
+                                    </span>
                                   ) : (
-                                    <Link to={`/regie/neu?meldung=${meldung.id}`} className="btn-ghost shrink-0 border-accent text-accent-deep">
-                                      Regierapport vorrechnen ›
-                                    </Link>
+                                    <span className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+                                      {darfFreigeben && (
+                                        <button type="button" className="btn-ghost" onClick={() => setKeineRegieFrage(keineRegieFrage === meldung.id ? null : meldung.id)}>Keine Regie …</button>
+                                      )}
+                                      <Link to={`/regie/neu?meldung=${meldung.id}`} className="btn-ghost border-accent text-accent-deep">
+                                        Regierapport vorrechnen ›
+                                      </Link>
+                                    </span>
                                   )}
+                                </div>
+                              )}
+                              {keineRegieFrage === meldung.id && !rapport && !keineRegieGrund && (
+                                <div className="mt-2 space-y-1.5 rounded-[10px] bg-surface p-3">
+                                  <p className="text-xs text-ink2">Warum keine Regie? Die Stunden bleiben im Lohn — nur die Verrechnung an den Kunden entfällt.</p>
+                                  <div className="flex flex-wrap gap-1.5">
+                                    {Object.entries(REGIE_GRUND).map(([k, text]) => (
+                                      <button key={k} type="button" className="chip px-3 py-1.5 text-xs" onClick={() => void keineRegie(meldung.id, k)}>{text}</button>
+                                    ))}
+                                  </div>
                                 </div>
                               )}
                             </div>
