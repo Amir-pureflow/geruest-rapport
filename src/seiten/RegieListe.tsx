@@ -3,9 +3,9 @@
  * Eine Karte pro Gruppe mit Zeilen (nicht eine Karte pro Rapport): weniger Weiss, mehr Überblick.
  * Oben Filter-Chips mit Anzahl, rechts je Zeile Betrag und Stand. Keine Urteile, nur Stände (CLAUDE.md #1).
  */
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { ChevronRight, FileText, Send, CheckCircle2, AlertCircle, MessageCircleQuestion, X } from 'lucide-react';
+import { ChevronRight, ChevronDown, FileText, Send, CheckCircle2, AlertCircle, MessageCircleQuestion, X, Check, Search } from 'lucide-react';
 import { Shell } from '../ui/Shell';
 import { supabase } from '../lib/supabase';
 import { formatChf } from '../lib/tarif';
@@ -66,6 +66,70 @@ function verlauf(z: Zeile, heuteIso: string): { text: string; warn: boolean } {
     return { text: teile.join(' · '), warn: tage <= 0 };
   }
   return { text: teile.join(' · '), warn: z.status === 'frist_abgelaufen' || z.status === 'rueckfrage' };
+}
+
+/** Baustellen-Filter als eigenes Auswahlfenster (kein Browser-Select): Suche, Anzahl je Baustelle, Haken bei der gewählten. */
+function BaustellenWahl({ baustellen, wert, setzen }: { baustellen: { konto_nr: string; bezeichnung: string; n: number }[]; wert: string; setzen: (knr: string) => void }) {
+  const [offen, setOffen] = useState(false);
+  const [suche, setSuche] = useState('');
+  const box = useRef<HTMLDivElement>(null);
+  const feld = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (!offen) return;
+    setSuche('');
+    setTimeout(() => feld.current?.focus(), 0);
+    const zu = (e: MouseEvent) => { if (box.current && !box.current.contains(e.target as Node)) setOffen(false); };
+    const esc = (e: KeyboardEvent) => { if (e.key === 'Escape') setOffen(false); };
+    document.addEventListener('mousedown', zu);
+    document.addEventListener('keydown', esc);
+    return () => { document.removeEventListener('mousedown', zu); document.removeEventListener('keydown', esc); };
+  }, [offen]);
+  const gewaehlt = baustellen.find((b) => b.konto_nr === wert);
+  const q = suche.trim().toLowerCase();
+  const treffer = q ? baustellen.filter((b) => b.konto_nr.includes(q) || b.bezeichnung.toLowerCase().includes(q)) : baustellen;
+  return (
+    <div ref={box} className="relative">
+      <span className="flex items-center gap-1">
+        <button type="button" onClick={() => setOffen((o) => !o)} aria-expanded={offen} className={'chip flex max-w-[280px] items-center gap-1.5 px-3 py-1.5 text-xs ' + (wert ? 'chip-on' : '')}>
+          <span className="truncate">{gewaehlt ? <><span className="font-mono">{gewaehlt.konto_nr}</span> {gewaehlt.bezeichnung}</> : 'Alle Baustellen'}</span>
+          <ChevronDown size={14} className={'shrink-0 transition-transform ' + (offen ? 'rotate-180' : '')} aria-hidden="true" />
+        </button>
+        {wert && (
+          <button type="button" onClick={() => setzen('')} aria-label="Baustellen-Filter aufheben" className="grid h-8 w-8 place-items-center rounded-full text-ink3 hover:bg-surface-2 hover:text-ink"><X size={15} /></button>
+        )}
+      </span>
+      {offen && (
+        <div className="absolute right-0 z-30 mt-2 w-[320px] max-w-[calc(100vw-2rem)] overflow-hidden rounded-[14px] border border-line bg-surface shadow-[0_1px_2px_rgb(17_17_19/0.05),0_16px_40px_-8px_rgb(17_17_19/0.18)]">
+          <div className="flex items-center gap-2 border-b border-line px-3 py-2">
+            <Search size={15} className="shrink-0 text-ink3" aria-hidden="true" />
+            <input ref={feld} value={suche} onChange={(e) => setSuche(e.target.value)} placeholder="Baustelle oder Nummer …" className="w-full bg-transparent text-sm outline-none placeholder:text-ink3" />
+          </div>
+          <div className="max-h-[320px] overflow-y-auto py-1">
+            <button type="button" onClick={() => { setzen(''); setOffen(false); }} className={'flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-sm hover:bg-ground ' + (!wert ? 'font-medium text-ink' : 'text-ink2')}>
+              <span>Alle Baustellen</span>
+              {!wert && <Check size={15} className="text-accent" aria-hidden="true" />}
+            </button>
+            {treffer.map((b) => {
+              const aktiv = b.konto_nr === wert;
+              return (
+                <button key={b.konto_nr} type="button" onClick={() => { setzen(b.konto_nr); setOffen(false); }} className={'flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-sm hover:bg-ground ' + (aktiv ? 'bg-accent-soft/60' : '')}>
+                  <span className="flex min-w-0 items-center gap-2">
+                    <span className="knr">{b.konto_nr}</span>
+                    <span className={'truncate ' + (aktiv ? 'font-medium text-ink' : 'text-ink2')}>{b.bezeichnung || 'Baustelle'}</span>
+                  </span>
+                  <span className="flex shrink-0 items-center gap-2 text-xs text-ink3">
+                    {b.n}
+                    {aktiv && <Check size={15} className="text-accent" aria-hidden="true" />}
+                  </span>
+                </button>
+              );
+            })}
+            {treffer.length === 0 && <p className="px-3 py-3 text-sm text-ink3">Nichts gefunden.</p>}
+          </div>
+        </div>
+      )}
+    </div>
+  );
 }
 
 export function RegieListe() {
@@ -149,22 +213,8 @@ export function RegieListe() {
             </button>
           ))}
           {baustellen.length > 1 && (
-            <span className="ml-auto flex items-center gap-1.5">
-              <select
-                value={baustelleFilter}
-                onChange={(e) => baustelleSetzen(e.target.value)}
-                aria-label="Nach Baustelle filtern"
-                className={'chip max-w-[260px] cursor-pointer appearance-none truncate px-3 py-1.5 pr-7 text-xs ' + (baustelleFilter ? 'chip-on' : '')}
-                style={{ backgroundImage: "url(\"data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%236c7b81' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'><path d='m6 9 6 6 6-6'/></svg>\")", backgroundRepeat: 'no-repeat', backgroundPosition: 'right 9px center' }}
-              >
-                <option value="">Alle Baustellen</option>
-                {baustellen.map((b) => (
-                  <option key={b.konto_nr} value={b.konto_nr}>{b.konto_nr} {b.bezeichnung} ({b.n})</option>
-                ))}
-              </select>
-              {baustelleFilter && (
-                <button type="button" onClick={() => baustelleSetzen('')} aria-label="Baustellen-Filter aufheben" className="grid h-8 w-8 place-items-center rounded-full text-ink3 hover:bg-surface-2 hover:text-ink"><X size={15} /></button>
-              )}
+            <span className="ml-auto">
+              <BaustellenWahl baustellen={baustellen} wert={baustelleFilter} setzen={baustelleSetzen} />
             </span>
           )}
         </div>
