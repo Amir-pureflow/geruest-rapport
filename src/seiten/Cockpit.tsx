@@ -131,7 +131,6 @@ export function Cockpit() {
   const istVorwoche = iso(wochenStart) < iso(montag(new Date()));
   // Freigabe im Wochenrhythmus: das Wochenblatt wird am Wochenende abgegeben, der Bauführer prüft Mo/Di.
   // Solange die Woche läuft, gibt es keine Sammelfreigabe — Einzelfälle bleiben im Detail möglich.
-  const wocheAbgeschlossen = iso(addTage(wochenStart, 6)) < iso(new Date());
   const [eintraege, setEintraege] = useState<Eintrag[]>([]);
   const [auftraege, setAuftraege] = useState<OffenerAuftrag[]>([]);
   const [gewaehlt, setGewaehlt] = useState<{ mit: string; datum: string } | null>(null);
@@ -669,7 +668,7 @@ export function Cockpit() {
         )}
 
         {/* Der eine Knopf — zuoberst, nicht unter 20 Teams versteckt */}
-        {!laedt && darfFreigeben && gruene.length > 0 && wocheAbgeschlossen && (
+        {!laedt && darfFreigeben && gruene.length > 0 && (
           (() => {
             // Was der Knopf freigibt, in Worten des Bauführers: Person-Tage, gruppiert nach Team und Tag.
             // Personen zählen, nicht Einträge: normaler Tag + Zusatzarbeit derselben Leute wären sonst doppelt.
@@ -702,11 +701,6 @@ export function Cockpit() {
               </div>
             );
           })()
-        )}
-        {!laedt && darfFreigeben && eintraege.length > 0 && !wocheAbgeschlossen && (
-          <p className="rounded-[12px] border border-line bg-surface px-4 py-2.5 text-sm text-ink2">
-            Diese Woche läuft noch — die Freigabe kommt, sobald sie vorbei ist (ab Montag). Bis dahin: anschauen, nachfragen, korrigieren.
-          </p>
         )}
 
         {!laedt && !darfFreigeben && eintraege.length > 0 && (
@@ -1067,7 +1061,7 @@ export function Cockpit() {
                             </div>
                           ))}
 
-                          {darfFreigeben && z.gruene.length > 0 && wocheAbgeschlossen && (
+                          {darfFreigeben && z.gruene.length > 0 && (
                             <button type="button" className="btn-ghost w-full border-good text-good-deep disabled:opacity-60" disabled={!userId || speichert} onClick={() => void freigeben(z.gruene)}>
                               {z.team.bezeichnung}: {z.gruene.length} {z.gruene.length === 1 ? 'Eintrag' : 'Einträge'} ohne Hinweis freigeben
                             </button>

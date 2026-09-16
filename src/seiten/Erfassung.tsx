@@ -874,11 +874,11 @@ export function Erfassung() {
                   </span>
                   {nimmtAuf && <span className="mt-2 block"><Pegel stream={mikroStream} /></span>}
                   <span className="mt-2 block text-sm font-semibold">{nimmtAuf ? `${sekunden} Sek. — antippen zum Stoppen` : 'Antippen und kurz erzählen, warum'}</span>
-                  <span className="mt-0.5 block text-xs text-ink3">{mikroFehlt ? 'Mikrofon nicht verfügbar — Speichern geht trotzdem.' : 'In deiner Sprache, 10 Sekunden reichen. Der Bauführer liest es am Montag.'}</span>
+                  <span className="mt-0.5 block text-xs text-ink3">{mikroFehlt ? 'Mikrofon nicht verfügbar — Speichern geht trotzdem.' : 'In deiner Sprache, 10 Sekunden reichen. Der Bauführer liest es.'}</span>
                 </button>
               )}
             </div>
-            <p className="text-xs text-ink3">Der Bauführer sieht die Überstunden am Montag mit deiner Notiz und entscheidet, ob es Regie ist.</p>
+            <p className="text-xs text-ink3">Der Bauführer sieht die Überstunden mit deiner Notiz und entscheidet, ob es Regie ist.</p>
           </section>
         )}
 
