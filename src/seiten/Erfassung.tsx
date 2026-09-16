@@ -111,7 +111,7 @@ function ZahlFeld({ wert, setWert, max = 16 * 60, klasse = '' }: { wert: number;
       onFocus={(e) => { setFokus(true); e.target.select(); }}
       onChange={(e) => { setText(e.target.value); uebernehmen(e.target.value); }}
       onBlur={() => { setFokus(false); setText((wert / 60).toFixed(1)); }}
-      className={'h-10 rounded-[10px] border border-line bg-surface text-center font-mono text-[15px] font-semibold tabular-nums focus:border-accent focus:outline-none ' + klasse}
+      className={'rounded-[10px] border border-line bg-surface text-center font-mono font-semibold tabular-nums focus:border-accent focus:outline-none ' + klasse}
       aria-label="Stunden"
     />
   );
@@ -948,10 +948,10 @@ export function Erfassung() {
               <Stepper wert={teamMin} setWert={setzeTeamMin} schritt={30} min={30} max={STANDARD_MIN} format={(v) => (v / 60).toFixed(1) + ' h'} />
             </div>
             <div>
-              <p className="mb-1 text-[11px] text-ink3">Überstunden · tippen oder ±</p>
+              <p className="mb-1 text-[11px] text-ink3">Überstunden · Zahl antippen zum Tippen</p>
               <div className="flex items-center justify-between rounded-[14px] border border-line bg-surface p-1.5 shadow-[0_1px_2px_rgb(17_17_19/0.04)]">
                 <button type="button" onClick={() => setzeTeamUeber(Math.max(0, teamUeber - 30))} aria-label="weniger" className="grid h-12 w-12 place-items-center rounded-[10px] bg-surface-2 text-ink active:scale-95"><Minus size={22} strokeWidth={2.2} /></button>
-                <ZahlFeld wert={teamUeber} setWert={setzeTeamUeber} klasse="w-16 h-12 text-xl" />
+                <ZahlFeld wert={teamUeber} setWert={setzeTeamUeber} klasse="h-12 w-20 text-2xl" />
                 <button type="button" onClick={() => setzeTeamUeber(teamUeber + 30)} aria-label="mehr" className="grid h-12 w-12 place-items-center rounded-[10px] bg-surface-2 text-ink active:scale-95"><Plus size={22} strokeWidth={2.2} /></button>
               </div>
             </div>
@@ -993,7 +993,7 @@ export function Erfassung() {
                       <div className="flex items-center gap-1">
                         <span className="w-10 text-[10px] leading-tight text-ink3">Über-<br />stunden</span>
                         <MiniKnopf klein art="minus" onClick={() => setAnw((s) => ({ ...s, [p.id]: { ...a, ueber: Math.max(0, a.ueber - 30) } }))} />
-                        <ZahlFeld wert={a.ueber} setWert={(v) => setAnw((s) => ({ ...s, [p.id]: { ...a, ueber: v } }))} klasse={'w-12 ' + (a.ueber > 0 ? 'text-amber-deep' : 'text-ink3')} />
+                        <ZahlFeld wert={a.ueber} setWert={(v) => setAnw((s) => ({ ...s, [p.id]: { ...a, ueber: v } }))} klasse={'h-10 w-12 text-[15px] ' + (a.ueber > 0 ? 'text-amber-deep' : 'text-ink3')} />
                         <MiniKnopf klein art="plus" onClick={() => setAnw((s) => ({ ...s, [p.id]: { ...a, ueber: a.ueber + 30 } }))} />
                       </div>
                     </div>
