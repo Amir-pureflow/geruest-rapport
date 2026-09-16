@@ -980,13 +980,13 @@ export function Erfassung() {
 
         <section>
           <p className="lbl">Stunden — alle gleich</p>
-          <div className="grid grid-cols-2 gap-2">
+          <div className="grid grid-cols-2 items-end gap-2">
             <div>
-              <p className="mb-1 text-[11px] text-ink3">Normal · bis {stunden(STANDARD_MIN)} h</p>
+              <p className="mb-1 truncate text-[11px] text-ink3">Normal · bis {stunden(STANDARD_MIN)} h</p>
               <Stepper wert={teamMin} setWert={setzeTeamMin} schritt={30} min={30} max={STANDARD_MIN} format={(v) => (v / 60).toFixed(1) + ' h'} />
             </div>
             <div>
-              <p className="mb-1 text-[11px] text-ink3">Überstunden · Zahl antippen zum Tippen</p>
+              <p className="mb-1 truncate text-[11px] text-ink3">Überstunden</p>
               <div className="flex items-center justify-between rounded-[14px] border border-line bg-surface p-1.5 shadow-[0_1px_2px_rgb(17_17_19/0.04)]">
                 <button type="button" onClick={() => setzeTeamUeber(Math.max(0, teamUeber - 30))} aria-label="weniger" className="grid h-12 w-12 place-items-center rounded-[10px] bg-surface-2 text-ink active:scale-95"><Minus size={22} strokeWidth={2.2} /></button>
                 <ZahlFeld wert={teamUeber} setWert={setzeTeamUeber} klasse="h-12 w-20 text-2xl" />
@@ -994,7 +994,7 @@ export function Erfassung() {
               </div>
             </div>
           </div>
-          <p className="mt-1.5 text-[11px] text-ink3">Wie auf dem Wochenblatt: normale Stunden und Überstunden getrennt. Unten kann jede Person anders sein.</p>
+          <p className="mt-1.5 text-[11px] text-ink3">Wie auf dem Wochenblatt. Zahl antippen zum Tippen. Unten kann jede Person anders sein.</p>
         </section>
 
         <section>
