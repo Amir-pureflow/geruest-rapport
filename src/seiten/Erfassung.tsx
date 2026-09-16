@@ -518,7 +518,11 @@ export function Erfassung() {
       try { aktuell = await heutigeLaden(); } catch { /* lokaler Stand reicht */ }
       const hatNormal = aktuell.some((m) => m.normalfall && m.baustelle_id === baustelle.id);
       if (!hatNormal) {
-        clientUuids.push(await enqueueMeldung(meldungBauen(true, baustelle, ueberAufnahme, abLeute), ueberAufnahme?.blob));
+        // Die Überstunden-Notiz gehört nur dann zum normalen Tag, wenn dort noch Überstunden bleiben (Leute ausserhalb der Abweichung)
+        // und die Notiz nicht schon in die Abweichung gewandert ist — sonst stünde derselbe Text zweimal.
+        const restUeber = dabei.some((p) => !abLeute.has(p.id) && (anw[p.id]?.ueber ?? 0) > 0);
+        const notizFuerNormal = restUeber && ueberAufnahme && ueberAufnahme !== aufnahme ? ueberAufnahme : null;
+        clientUuids.push(await enqueueMeldung(meldungBauen(true, baustelle, notizFuerNormal, abLeute), notizFuerNormal?.blob));
         normalMitgespeichert = true;
       }
       const notiz = await aufnahmeAbschliessen();

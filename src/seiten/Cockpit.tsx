@@ -316,7 +316,7 @@ export function Cockpit() {
     if (liste.every((e) => e.status === 'freigegeben')) return 'frei';
     const summe = liste.reduce((s, e) => s + e.normal_min + e.ueber_min, 0);
     // Über 10 h ist nur dann ein offener Hinweis, wenn das Team den langen Tag nicht selbst erklärt hat («länger gearbeitet»)
-    const erklaert = liste.some((e) => e.tagesmeldung.abweichung_typ === 'laenger' || ueberMitNotiz(e.tagesmeldung));
+    const erklaert = liste.some((e) => e.tagesmeldung.abweichung_typ === 'laenger' || (ueberMitNotiz(e.tagesmeldung) && e.ueber_min > 0));
     if (summe > ZEHN_STUNDEN_MIN && !erklaert) return 'rot';
     // Gibt es zur Meldung schon einen Regierapport, ist der Verdacht beantwortet — die Zelle wird wieder normal.
     const verdacht = liste.some(

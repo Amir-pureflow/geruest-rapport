@@ -38,7 +38,8 @@ function proBaustelle(ms: Meldung[]) {
     if (m.normalfall) {
       b.normalMin += min;
       // Überstunden mit Grund am normalen Tag — wie eine Abweichung zeigen, mit wer/Notiz
-      if (m.audio_sekunden || m.transkript) b.abweichungen.push({ typ: 'ueberstunden', min: m.zeiteintrag.reduce((s, z) => s + z.ueber_min, 0), wer: m.wer_hats_gewollt, transkript: m.transkript, audio_sekunden: m.audio_sekunden, id: m.id });
+      const ueberMin = m.zeiteintrag.reduce((s, z) => s + z.ueber_min, 0);
+      if (ueberMin > 0 && (m.audio_sekunden || m.transkript)) b.abweichungen.push({ typ: 'ueberstunden', min: ueberMin, wer: m.wer_hats_gewollt, transkript: m.transkript, audio_sekunden: m.audio_sekunden, id: m.id });
     } else b.abweichungen.push({ typ: m.abweichung_typ ?? 'abweichung', min, wer: m.wer_hats_gewollt, transkript: m.transkript, audio_sekunden: m.audio_sekunden, id: m.id });
     b.fotos += m.foto?.length ?? 0;
     if (m.erfasst_am > b.zuletzt) b.zuletzt = m.erfasst_am;
