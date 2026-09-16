@@ -205,7 +205,8 @@ export function RegieDetail() {
     if (!supabase || !id || rapport?.status !== 'rueckfrage') return;
     const { error } = await supabase.from('regierapport').update({ status: 'entwurf', frist_bis: null }).eq('id', id);
     if (error) { setFehler('Korrigieren: ' + error.message); return; }
-    await supabase.from('zustellung_log').insert({ regierapport_id: id, an: rapport.empfaenger_email ?? 'kunde', ereignis: 'korrektur' });
+    const { error: logFehler } = await supabase.from('zustellung_log').insert({ regierapport_id: id, an: rapport.empfaenger_email ?? 'kunde', ereignis: 'korrektur' });
+    if (logFehler) setFehler('Zurück auf Entwurf, aber der Verlauf konnte nicht ergänzt werden: ' + logFehler.message);
     void laden();
   }
 
@@ -467,18 +468,28 @@ export function RegieDetail() {
         </header>
 
         {/* Rückfrage der Bauleitung: der Text steht im zustellung_log — hier zuoberst, sonst sieht ihn niemand */}
-        {rapport.status === 'rueckfrage' && (() => {
+        {(() => {
+          // Offen ist eine Rückfrage, solange nach ihr nicht nochmals gesendet wurde — auch wenn der Rapport wieder Entwurf ist
           const rf = [...logs].reverse().find((l) => l.ereignis === 'rueckfrage');
+          const letzteSendung = [...logs].reverse().find((l) => l.ereignis === 'gesendet');
+          const offen = !!rf && rapport.status !== 'bestaetigt' && !(letzteSendung && letzteSendung.zeitpunkt > rf.zeitpunkt);
+          if (!offen) return null;
           return (
             <section className="rounded-[14px] border border-amber/40 bg-amber-soft/60 px-4 py-3 space-y-1.5">
-              <p className="text-sm font-semibold text-amber-deep">Rückfrage der Bauleitung{rf ? ` · ${zeitstempel(rf.zeitpunkt)}` : ''}</p>
-              {rf?.detail?.kommentar
-                ? <p className="rounded-[10px] bg-surface px-3 py-2 text-sm italic">«{rf.detail.kommentar}»</p>
+              <p className="text-sm font-semibold text-amber-deep">Rückfrage der Bauleitung · {zeitstempel(rf!.zeitpunkt)}</p>
+              {rf!.detail?.kommentar
+                ? <p className="rounded-[10px] bg-surface px-3 py-2 text-sm italic">«{rf!.detail.kommentar}»</p>
                 : <p className="text-sm text-ink2">Ohne Text.</p>}
-              <p className="text-xs text-ink2">
-                Antworten per Mail oder Telefon{rapport.empfaenger_email ? ` (${rapport.empfaenger_email})` : ''}. Stimmt alles, reicht die Antwort — der Kunde bestätigt über seinen Link. Stimmt etwas nicht: korrigieren und nochmals senden, Nummer und Link bleiben gleich.
-              </p>
-              <button type="button" className="btn-ghost" onClick={() => void korrigieren()}>Korrigieren — zurück auf Entwurf</button>
+              {rapport.status === 'entwurf' ? (
+                <p className="text-xs text-ink2">Der Rapport ist zurück auf Entwurf. Positionen anpassen und unten nochmals senden — damit ist die Rückfrage beantwortet. Nummer und Kundenlink bleiben gleich.</p>
+              ) : (
+                <>
+                  <p className="text-xs text-ink2">
+                    Antworten per Mail oder Telefon{rapport.empfaenger_email ? ` (${rapport.empfaenger_email})` : ''}. Stimmt alles, reicht die Antwort — der Kunde bestätigt über seinen Link. Stimmt etwas nicht: korrigieren und nochmals senden, Nummer und Link bleiben gleich.
+                  </p>
+                  <button type="button" className="btn-ghost" onClick={() => void korrigieren()}>Korrigieren — zurück auf Entwurf</button>
+                </>
+              )}
             </section>
           );
         })()}

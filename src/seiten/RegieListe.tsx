@@ -5,7 +5,7 @@
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { ChevronDown, FileText, Send, CheckCircle2, X, Check, Search } from 'lucide-react';
+import { ChevronDown, FileText, Send, CheckCircle2, X, Check, Search, MessageCircleQuestion } from 'lucide-react';
 import { Shell } from '../ui/Shell';
 import { supabase } from '../lib/supabase';
 import { formatChf } from '../lib/tarif';
@@ -23,6 +23,26 @@ interface Zeile {
 }
 
 type Gruppe = 'entwurf' | 'kunde' | 'bestaetigt';
+
+/** Rückfrage der Bauleitung, die noch nicht beantwortet ist: jüngster Eintrag «rueckfrage» nach dem letzten Versand. */
+interface OffeneRueckfrage { regierapport_id: string; zeitpunkt: string; kommentar: string | null }
+interface LogZeile { regierapport_id: string; ereignis: string; zeitpunkt: string; detail: { kommentar?: string } | null }
+export function offeneRueckfragen(logs: LogZeile[], statusVon: (id: string) => string | undefined): Map<string, OffeneRueckfrage> {
+  const letzteSendung = new Map<string, string>();
+  const rueckfrage = new Map<string, OffeneRueckfrage>();
+  for (const l of logs) {
+    if (l.ereignis === 'gesendet' && (letzteSendung.get(l.regierapport_id) ?? '') < l.zeitpunkt) letzteSendung.set(l.regierapport_id, l.zeitpunkt);
+  }
+  for (const l of logs) {
+    if (l.ereignis !== 'rueckfrage') continue;
+    // Eine Rückfrage vor dem letzten Versand ist erledigt: der Rapport wurde korrigiert und nochmals geschickt
+    if ((letzteSendung.get(l.regierapport_id) ?? '') > l.zeitpunkt) continue;
+    if (statusVon(l.regierapport_id) === 'bestaetigt') continue;
+    const bisher = rueckfrage.get(l.regierapport_id);
+    if (!bisher || bisher.zeitpunkt < l.zeitpunkt) rueckfrage.set(l.regierapport_id, { regierapport_id: l.regierapport_id, zeitpunkt: l.zeitpunkt, kommentar: l.detail?.kommentar ?? null });
+  }
+  return rueckfrage;
+}
 
 const GRUPPE_VON: Record<string, Gruppe> = {
   entwurf: 'entwurf',
@@ -120,6 +140,7 @@ function BaustellenWahl({ baustellen, wert, setzen }: { baustellen: { konto_nr: 
 
 export function RegieListe() {
   const [zeilen, setZeilen] = useState<Zeile[]>([]);
+  const [logs, setLogs] = useState<LogZeile[]>([]);
   const [laedt, setLaedt] = useState(true);
   // Baustellen-Filter in der URL (?baustelle=903091), damit man einen Link darauf setzen kann
   const [params, setParams] = useSearchParams();
@@ -133,13 +154,20 @@ export function RegieListe() {
       .select('id,nummer,status,betrag_rappen,frist_bis,erstellt_am,versendet_am,bestaetigt_am,baustelle:baustelle_id(bezeichnung,konto_nr)')
       .order('erstellt_am', { ascending: false })
       .limit(100)
-      .then(({ data }) => {
-        if (data) setZeilen(data as unknown as Zeile[]);
+      .then(async ({ data }) => {
+        if (data) {
+          setZeilen(data as unknown as Zeile[]);
+          // Rückfragen und Versände dieser Rapporte — daraus ergibt sich, welche Rückfrage noch offen ist
+          const ids = (data as { id: string }[]).map((r) => r.id);
+          const { data: l } = await supabase!.from('zustellung_log').select('regierapport_id,ereignis,zeitpunkt,detail').in('regierapport_id', ids).in('ereignis', ['rueckfrage', 'gesendet']);
+          setLogs((l ?? []) as LogZeile[]);
+        }
         setLaedt(false);
       });
   }, []);
 
   const heuteIso = new Date().toISOString().slice(0, 10);
+  const rueckfragenOffen = useMemo(() => offeneRueckfragen(logs, (id) => zeilen.find((z) => z.id === id)?.status), [logs, zeilen]);
   // Alle Baustellen mit Rapporten, für den Filter — nach Anzahl, dann Name
   const baustellen = useMemo(() => {
     const m = new Map<string, { konto_nr: string; bezeichnung: string; n: number }>();
@@ -166,7 +194,7 @@ export function RegieListe() {
   const dringend = proGruppe.kunde.filter((z) => z.status === 'frist_abgelaufen' || z.status === 'rueckfrage').length;
 
   const ueberfaellig = proGruppe.kunde.filter((z) => zeile2(z, 'kunde', heuteIso).warn === 'rot').length;
-  const rueckfragen = proGruppe.kunde.filter((z) => z.status === 'rueckfrage').length;
+  const rueckfragen = proGruppe.kunde.filter((z) => rueckfragenOffen.has(z.id)).length;
 
   return (
     <Shell zurueck>
@@ -208,6 +236,31 @@ export function RegieListe() {
           </div>
         )}
 
+        {/* Rückfragen der Bauleitung — die eine Sache, die eine Antwort braucht, darum zuoberst */}
+        {!laedt && rueckfragenOffen.size > 0 && (
+          <section className="rounded-[16px] border border-amber/40 bg-amber-soft/50 p-4">
+            <h2 className="flex items-center gap-2 text-sm font-semibold text-amber-deep">
+              <MessageCircleQuestion size={16} strokeWidth={2} aria-hidden="true" />
+              Rückfragen der Bauleitung · {rueckfragenOffen.size}
+            </h2>
+            <div className="mt-2 space-y-2">
+              {[...rueckfragenOffen.values()].sort((a, b) => b.zeitpunkt.localeCompare(a.zeitpunkt)).map((rf) => {
+                const z = zeilen.find((x) => x.id === rf.regierapport_id);
+                if (!z) return null;
+                return (
+                  <Link key={rf.regierapport_id} to={`/regie/${z.id}`} className="block rounded-[12px] bg-surface px-3.5 py-2.5 transition-colors hover:bg-ground">
+                    <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5">
+                      <span className="text-sm font-semibold">{z.baustelle?.bezeichnung ?? 'Baustelle'} <span className="font-mono text-xs font-normal text-ink3">{z.nummer ?? ''}</span></span>
+                      <span className="text-xs text-ink3">{kurz(rf.zeitpunkt)} · {z.status === 'entwurf' ? 'zurück auf Entwurf — nochmals senden' : 'wartet auf deine Antwort'}</span>
+                    </div>
+                    {rf.kommentar && <p className="mt-1 text-sm italic text-ink2">«{rf.kommentar}»</p>}
+                  </Link>
+                );
+              })}
+            </div>
+          </section>
+        )}
+
         {!laedt && gefiltert.length > 0 && (
           <div className="grid gap-4 lg:grid-cols-3">
             {GRUPPEN.map((g) => {
@@ -230,7 +283,8 @@ export function RegieListe() {
                   ) : (
                     <div className="divide-y divide-line">
                       {liste.map((z) => {
-                        const v = zeile2(z, g.key, heuteIso);
+                        const rf = rueckfragenOffen.get(z.id);
+                        const v = rf ? { text: `Rückfrage · ${kurz(rf.zeitpunkt)}`, warn: 'gelb' as const } : zeile2(z, g.key, heuteIso);
                         return (
                           <Link key={z.id} to={`/regie/${z.id}`} className={'block px-4 py-2.5 transition-colors hover:bg-ground ' + (v.warn === 'rot' ? 'bg-accent-soft/60 hover:bg-accent-soft' : v.warn === 'gelb' ? 'bg-amber-soft/50 hover:bg-amber-soft' : '')}>
                             <div className="flex items-start justify-between gap-3">
