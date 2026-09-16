@@ -761,12 +761,13 @@ export function Cockpit() {
               return (
                 <div key={z.team.id} ref={auf ? zielRef : undefined} className={'scroll-mt-20 border-b border-line last:border-b-0 ' + (auf ? 'bg-steel-soft/30' : '')}>
                   {z.rang !== 0 ? (
-                    /* Team ohne Hinweis: eine ruhige Zeile, keine Kästchen. Antippen = Stichprobe. */
+                    /* Team ohne Hinweis: eine ruhige Zeile, keine Kästchen — grün getönt, damit «wie geplant» sich von den Hinweisen abhebt. Antippen = Stichprobe. */
                     <button
                       type="button"
                       onClick={() => teamUmschalten(z.team.id)}
-                      className="flex w-full items-center justify-between gap-3 px-3 py-2.5 text-left"
+                      className={'relative flex w-full items-center justify-between gap-3 px-3 py-2.5 pl-4 text-left transition-colors ' + (auf ? '' : z.rang === 2 ? 'bg-good-soft/70 hover:bg-good-soft' : z.rang === 1 ? 'bg-good-soft/35 hover:bg-good-soft/60' : 'hover:bg-ground')}
                     >
+                      {z.rang <= 2 && <span className={'absolute inset-y-2 left-0 w-[3px] rounded-r ' + (z.rang === 2 ? 'bg-good' : 'bg-good/50')} aria-hidden="true" />}
                       <span className="min-w-0 truncate">
                         <span className="font-display text-[14px] font-semibold">{z.team.bezeichnung}</span>
                         {z.team.chefmonteur && <span className="ml-1.5 text-xs text-ink3">{kurzName(z.team.chefmonteur.name)}</span>}
@@ -776,7 +777,7 @@ export function Cockpit() {
                           ? <span className="font-semibold text-ink2">keine Meldung</span>
                           : <>
                               <span className="font-mono tabular-nums">{z.tageMitEintrag} {z.tageMitEintrag === 1 ? 'Tag' : 'Tage'} · {stunden(z.totalMin)} h</span>
-                              <span className={'ml-2 font-semibold ' + (z.rang === 2 ? 'text-good-deep' : 'text-ink2')}>
+                              <span className="ml-2 font-semibold text-good-deep">
                                 {(() => {
                                   const erledigt = faelle.some((f) => f.rapport) ? 'Regierapport angelegt' : faelle.some((f) => f.keineRegie) ? 'keine Regie' : faelle.some((f) => f.geprueft) ? 'Regieverdacht geprüft' : null;
                                   if (z.rang === 2) return erledigt ? `✓ freigegeben · ${erledigt}` : '✓ freigegeben';
@@ -1082,6 +1083,7 @@ export function Cockpit() {
           <p className="flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-ink3">
             <span><span className="mr-1 inline-block h-2 w-2 rounded-sm bg-amber-soft ring-1 ring-amber/40" />Regieverdacht</span>
             <span><span className="mr-1 inline-block h-2 w-2 rounded-sm bg-accent-soft ring-1 ring-accent/40" />über 10 h</span>
+            <span><span className="mr-1 inline-block h-2 w-2 rounded-sm bg-good-soft/50 ring-1 ring-good/30" />wie geplant, noch offen</span>
             <span><span className="mr-1 inline-block h-2 w-2 rounded-sm bg-good-soft ring-1 ring-good/40" />freigegeben</span>
             <span>· = Tag ohne Hinweis</span>
           </p>
