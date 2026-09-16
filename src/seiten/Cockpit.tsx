@@ -442,7 +442,8 @@ export function Cockpit() {
       const tageMitEintrag = tage.filter((t) => t.min > 0).length;
       return { team, tage, leute, baustellen: [...bsMap.values()], offen, gruene, totalMin, schlimmster, wort, rang, hinweisZelle, leuteMitHinweis, tageMitEintrag };
     });
-    return zeilen.sort((a, b) => a.rang - b.rang || a.team.bezeichnung.localeCompare(b.team.bezeichnung, 'de', { numeric: true }));
+    // Immer Team 1 … 20 der Reihe nach — die Farbe zeigt den Stand, der Filter «Zum Anschauen» blendet den Rest aus
+    return zeilen.sort((a, b) => a.team.bezeichnung.localeCompare(b.team.bezeichnung, 'de', { numeric: true }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [teams, personen, wochenTage, auftragProBaustelle]);
 
