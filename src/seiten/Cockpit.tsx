@@ -100,6 +100,9 @@ function kurzName(name: string): string {
   return teile.length > 1 ? `${teile[0][0]}. ${teile.slice(1).join(' ')}` : name;
 }
 
+/** Wort zum Stand, direkt in der Zelle. */
+const ZELL_WORT: Record<ZellStatus, string> = { leer: '', gruen: 'offen', frei: 'freigegeben ✓', gelb: 'Überstunden', rot: 'über 10 h' };
+
 /** Tageszelle im Raster: Farbe = Stand. Offen ist weiss mit Rand, damit man sieht, dass da etwas ist. */
 const ZELLE: Record<ZellStatus, string> = {
   leer: 'bg-ground text-ink3/60',
@@ -731,9 +734,16 @@ export function Cockpit() {
                             disabled={t.status === 'leer'}
                             onClick={() => tagUmschalten(z.team.id, t.datum)}
                             aria-label={`${tagName(t.datum)}: ${t.status === 'leer' ? 'keine Meldung' : stunden(t.min) + ' h'}`}
-                            className={'rounded-md py-1.5 text-center font-mono text-[11px] leading-tight tabular-nums transition ' + ZELLE[t.status] + (aktiv ? ' ring-2 ring-accent' : '')}
+                            className={'rounded-md py-1 text-center font-mono text-[11px] leading-tight tabular-nums transition ' + ZELLE[t.status] + (aktiv ? ' ring-2 ring-accent' : '')}
                           >
-                            {t.status === 'leer' ? '–' : t.status === 'frei' ? `✓ ${stunden(t.min)}` : stunden(t.min)}
+                            {t.status === 'leer' ? '–' : (
+                              <>
+                                <span className="block">{stunden(t.min)}</span>
+                                {/* Das Wort zum Stand steht in der Zelle; am Handy (schmale Zellen) nur ein Haken für «freigegeben» */}
+                                <span className="hidden font-sans text-[9px] font-medium opacity-80 sm:block">{ZELL_WORT[t.status]}</span>
+                                <span className="block font-sans text-[9px] font-medium opacity-80 sm:hidden">{t.status === 'frei' ? '✓' : t.status === 'gelb' ? 'Regie?' : t.status === 'rot' ? '>10 h' : 'offen'}</span>
+                              </>
+                            )}
                           </button>
                         );
                       })}
