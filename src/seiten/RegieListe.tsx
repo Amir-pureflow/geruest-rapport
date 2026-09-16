@@ -1,11 +1,11 @@
 /**
- * Regierapporte: eine Liste, nach Stand gruppiert — Entwürfe, beim Kunden, bestätigt.
- * Eine Karte pro Gruppe mit Zeilen (nicht eine Karte pro Rapport): weniger Weiss, mehr Überblick.
- * Oben Filter-Chips mit Anzahl, rechts je Zeile Betrag und Stand. Keine Urteile, nur Stände (CLAUDE.md #1).
+ * Regierapporte: drei Spalten nebeneinander — der Weg des Geldes von links nach rechts.
+ * Entwürfe (Bernstein) · Beim Kunden (Stahlblau) · Bestätigt (Grün). Jede Spalte: farbiger Kopf mit Summe,
+ * darunter eine ruhige Zeile pro Rapport. Überfällige Rapporte sind rot hinterlegt. Keine Urteile, nur Stände (#1).
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { ChevronRight, ChevronDown, FileText, Send, CheckCircle2, AlertCircle, MessageCircleQuestion, X, Check, Search } from 'lucide-react';
+import { ChevronDown, FileText, Send, CheckCircle2, X, Check, Search } from 'lucide-react';
 import { Shell } from '../ui/Shell';
 import { supabase } from '../lib/supabase';
 import { formatChf } from '../lib/tarif';
@@ -23,7 +23,6 @@ interface Zeile {
 }
 
 type Gruppe = 'entwurf' | 'kunde' | 'bestaetigt';
-type Filter = 'alle' | Gruppe;
 
 const GRUPPE_VON: Record<string, Gruppe> = {
   entwurf: 'entwurf',
@@ -33,39 +32,26 @@ const GRUPPE_VON: Record<string, Gruppe> = {
   bestaetigt: 'bestaetigt',
 };
 
-const GRUPPEN: { key: Gruppe; titel: string; text: string; icon: typeof FileText; farbe: string }[] = [
-  { key: 'entwurf', titel: 'Entwürfe', text: 'noch nicht verschickt — prüfen und senden', icon: FileText, farbe: 'text-amber-deep' },
-  { key: 'kunde', titel: 'Beim Kunden', text: 'warten auf die Unterschrift der Bauleitung', icon: Send, farbe: 'text-steel' },
-  { key: 'bestaetigt', titel: 'Bestätigt', text: 'vom Kunden gegengezeichnet — bereit für die Rechnung in SORBA', icon: CheckCircle2, farbe: 'text-good-deep' },
+const GRUPPEN: { key: Gruppe; titel: string; text: string; icon: typeof FileText; kopf: string; leer: string }[] = [
+  { key: 'entwurf', titel: 'Entwürfe', text: 'noch nicht verschickt', icon: FileText, kopf: 'bg-amber', leer: 'Keine Entwürfe — Regierapporte entstehen aus der Wochenübersicht.' },
+  { key: 'kunde', titel: 'Beim Kunden', text: 'warten auf die Unterschrift', icon: Send, kopf: 'bg-steel', leer: 'Nichts beim Kunden.' },
+  { key: 'bestaetigt', titel: 'Bestätigt', text: 'bereit für SORBA', icon: CheckCircle2, kopf: 'bg-good', leer: 'Noch nichts bestätigt.' },
 ];
 
-const STATUS: Record<string, { label: string; stil: string; streifen: string }> = {
-  entwurf: { label: 'Entwurf', stil: 'bg-amber-soft text-amber-deep', streifen: 'bg-amber' },
-  versendet: { label: 'beim Kunden', stil: 'bg-steel-soft text-steel', streifen: 'bg-steel' },
-  rueckfrage: { label: 'Rückfrage', stil: 'bg-amber-soft text-amber-deep', streifen: 'bg-amber' },
-  frist_abgelaufen: { label: 'Frist abgelaufen', stil: 'bg-accent-soft text-accent-deep', streifen: 'bg-accent' },
-  bestaetigt: { label: 'bestätigt', stil: 'bg-good-soft text-good-deep', streifen: 'bg-good' },
-};
-
 function kurz(ts: string): string {
-  const d = new Date(ts);
+  const d = new Date(ts.length === 10 ? ts + 'T12:00:00' : ts);
   return `${d.getDate()}.${d.getMonth() + 1}.`;
 }
 
-/** Zweite Zeile in Worten: was ist wann passiert, und wie viel Zeit bleibt. */
-function verlauf(z: Zeile, heuteIso: string): { text: string; warn: boolean } {
-  if (z.status === 'entwurf') return { text: `angelegt ${kurz(z.erstellt_am)}`, warn: false };
-  const teile: string[] = [];
-  if (z.versendet_am) teile.push(`verschickt ${kurz(z.versendet_am)}`);
-  if (z.status === 'bestaetigt' && z.bestaetigt_am) teile.push(`bestätigt ${kurz(z.bestaetigt_am)}`);
-  else if (z.status === 'rueckfrage') teile.push('Kunde hat eine Rückfrage');
-  else if (z.status === 'frist_abgelaufen') teile.push('Frist verstrichen — nachfassen');
-  else if (z.status === 'versendet' && z.frist_bis) {
-    const tage = Math.round((new Date(z.frist_bis + 'T12:00:00').getTime() - new Date(heuteIso + 'T12:00:00').getTime()) / 86400000);
-    teile.push(tage > 1 ? `noch ${tage} Tage` : tage === 1 ? 'noch 1 Tag' : tage === 0 ? 'Frist heute' : 'Frist verstrichen');
-    return { text: teile.join(' · '), warn: tage <= 0 };
-  }
-  return { text: teile.join(' · '), warn: z.status === 'frist_abgelaufen' || z.status === 'rueckfrage' };
+/** Zweite Zeile je Rapport: Datum des Standes — beim Kunden die Frist, in Worten und in Rot, wenn sie verstrichen ist. */
+function zeile2(z: Zeile, gruppe: Gruppe, heuteIso: string): { text: string; warn: 'rot' | 'gelb' | null } {
+  if (gruppe === 'entwurf') return { text: kurz(z.erstellt_am), warn: null };
+  if (gruppe === 'bestaetigt') return { text: kurz(z.bestaetigt_am ?? z.versendet_am ?? z.erstellt_am), warn: null };
+  if (z.status === 'rueckfrage') return { text: 'Rückfrage des Kunden', warn: 'gelb' };
+  const tage = z.frist_bis ? Math.round((new Date(z.frist_bis + 'T12:00:00').getTime() - new Date(heuteIso + 'T12:00:00').getTime()) / 86400000) : null;
+  if (z.status === 'frist_abgelaufen' || (tage !== null && tage < 0)) return { text: `Frist verstrichen · ${z.frist_bis ? kurz(z.frist_bis) : ''}`.trim(), warn: 'rot' };
+  if (tage === null) return { text: z.versendet_am ? `verschickt ${kurz(z.versendet_am)}` : 'verschickt', warn: null };
+  return { text: tage === 0 ? 'Frist heute' : tage === 1 ? 'noch 1 Tag' : `noch ${tage} Tage`, warn: tage === 0 ? 'gelb' : null };
 }
 
 /** Baustellen-Filter als eigenes Auswahlfenster (kein Browser-Select): Suche, Anzahl je Baustelle, Haken bei der gewählten. */
@@ -135,7 +121,6 @@ function BaustellenWahl({ baustellen, wert, setzen }: { baustellen: { konto_nr: 
 export function RegieListe() {
   const [zeilen, setZeilen] = useState<Zeile[]>([]);
   const [laedt, setLaedt] = useState(true);
-  const [filter, setFilter] = useState<Filter>('alle');
   // Baustellen-Filter in der URL (?baustelle=903091), damit man einen Link darauf setzen kann
   const [params, setParams] = useSearchParams();
   const baustelleFilter = params.get('baustelle') ?? '';
@@ -180,11 +165,8 @@ export function RegieListe() {
   const summe = (l: Zeile[]) => l.reduce((s, z) => s + (z.betrag_rappen ?? 0), 0);
   const dringend = proGruppe.kunde.filter((z) => z.status === 'frist_abgelaufen' || z.status === 'rueckfrage').length;
 
-  const chips: { key: Filter; label: string; n: number }[] = [
-    { key: 'alle', label: 'Alle', n: gefiltert.length },
-    ...GRUPPEN.map((g) => ({ key: g.key as Filter, label: g.titel, n: proGruppe[g.key].length })),
-  ];
-  const sichtbar = GRUPPEN.filter((g) => (filter === 'alle' || filter === g.key) && proGruppe[g.key].length > 0);
+  const ueberfaellig = proGruppe.kunde.filter((z) => zeile2(z, 'kunde', heuteIso).warn === 'rot').length;
+  const rueckfragen = proGruppe.kunde.filter((z) => z.status === 'rueckfrage').length;
 
   return (
     <Shell zurueck>
@@ -206,20 +188,13 @@ export function RegieListe() {
           <Link to="/cockpit" className="btn-ghost">Wochenübersicht ›</Link>
         </header>
 
-        <div className="flex flex-wrap items-center gap-1.5">
-          {chips.map((c) => (
-            <button key={c.key} type="button" onClick={() => setFilter(c.key)} className={'chip px-3 py-1.5 text-xs ' + (filter === c.key ? 'chip-on' : '')}>
-              {c.label} <span className={filter === c.key ? 'text-accent-deep/70' : 'text-ink3'}>{c.n}</span>
-            </button>
-          ))}
-          {baustellen.length > 1 && (
-            <span className="ml-auto">
-              <BaustellenWahl baustellen={baustellen} wert={baustelleFilter} setzen={baustelleSetzen} />
-            </span>
-          )}
-        </div>
+        {baustellen.length > 1 && (
+          <div className="flex justify-end">
+            <BaustellenWahl baustellen={baustellen} wert={baustelleFilter} setzen={baustelleSetzen} />
+          </div>
+        )}
         {baustelleFilter && (
-          <p className="-mt-2 text-xs text-ink3">
+          <p className="-mt-3 text-xs text-ink3">
             Nur <span className="knr">{baustelleFilter}</span> {baustellen.find((b) => b.konto_nr === baustelleFilter)?.bezeichnung} · {gefiltert.length} {gefiltert.length === 1 ? 'Rapport' : 'Rapporte'} · {formatChf(summe(gefiltert))}
           </p>
         )}
@@ -233,52 +208,50 @@ export function RegieListe() {
           </div>
         )}
 
-        {sichtbar.map((g) => {
-          const liste = proGruppe[g.key];
-          const I = g.icon;
-          return (
-            <section key={g.key} className="card p-0">
-              <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 px-4 pt-4 pb-3">
-                <div className="flex items-center gap-2">
-                  <I size={17} strokeWidth={1.9} className={g.farbe} aria-hidden="true" />
-                  <h2 className="text-[15px] font-semibold">{g.titel} <span className="font-normal text-ink3">· {liste.length}</span></h2>
-                  <span className="hidden text-xs text-ink3 sm:inline">— {g.text}</span>
-                </div>
-                <span className="font-mono text-sm font-semibold tabular-nums">{formatChf(summe(liste))}</span>
-              </div>
-              <div className="divide-y divide-line border-t border-line">
-                {liste.map((z) => {
-                  const st = STATUS[z.status] ?? { label: z.status, stil: 'bg-ground text-ink3', streifen: 'bg-line-strong' };
-                  const v = verlauf(z, heuteIso);
-                  return (
-                    <Link key={z.id} to={`/regie/${z.id}`} className="group relative flex items-center gap-3 py-3 pl-5 pr-3 transition-colors hover:bg-ground">
-                      <span className={'absolute inset-y-2 left-0 w-[3px] rounded-r ' + st.streifen} aria-hidden="true" />
-                      <div className="min-w-0 flex-1">
-                        <p className="flex flex-wrap items-baseline gap-x-2 text-[15px] font-semibold leading-tight">
-                          <span className="truncate">{z.baustelle?.bezeichnung ?? 'Baustelle'}</span>
-                          {z.nummer && <span className="font-mono text-xs font-medium text-ink3">{z.nummer}</span>}
-                        </p>
-                        <p className="mt-1 flex flex-wrap items-center gap-x-2 text-xs text-ink3">
-                          {z.baustelle && <span className="knr">{z.baustelle.konto_nr}</span>}
-                          <span className={v.warn ? 'font-medium text-accent-deep' : ''}>
-                            {z.status === 'rueckfrage' && <MessageCircleQuestion size={13} className="mr-1 inline -mt-0.5" aria-hidden="true" />}
-                            {z.status === 'frist_abgelaufen' && <AlertCircle size={13} className="mr-1 inline -mt-0.5" aria-hidden="true" />}
-                            {v.text}
-                          </span>
-                        </p>
-                      </div>
-                      <div className="flex shrink-0 items-center gap-3">
-                        <span className="font-mono text-[15px] font-semibold tabular-nums">{z.betrag_rappen != null ? formatChf(z.betrag_rappen) : '—'}</span>
-                        <span className={'hidden rounded-md px-2 py-0.5 text-[11px] font-semibold sm:inline ' + st.stil}>{st.label}</span>
-                        <ChevronRight size={16} className="text-ink3/60 transition-transform group-hover:translate-x-0.5" aria-hidden="true" />
-                      </div>
-                    </Link>
-                  );
-                })}
-              </div>
-            </section>
-          );
-        })}
+        {!laedt && gefiltert.length > 0 && (
+          <div className="grid gap-4 lg:grid-cols-3">
+            {GRUPPEN.map((g) => {
+              const liste = proGruppe[g.key];
+              const I = g.icon;
+              const unter =
+                g.key === 'kunde'
+                  ? [`${liste.length} ${liste.length === 1 ? 'Rapport' : 'Rapporte'}`, ueberfaellig > 0 ? `${ueberfaellig} überfällig` : '', rueckfragen > 0 ? `${rueckfragen} Rückfrage${rueckfragen === 1 ? '' : 'n'}` : ''].filter(Boolean).join(' · ')
+                  : `${liste.length} ${liste.length === 1 ? 'Rapport' : 'Rapporte'} · ${g.text}`;
+              return (
+                <section key={g.key} className="overflow-hidden rounded-[16px] bg-surface shadow-[0_1px_2px_rgb(17_17_19/0.04),0_8px_24px_rgb(17_17_19/0.04)]">
+                  {/* Farbiger Kopf: Stand, Summe, Anzahl — das ist die Zahl, die zählt */}
+                  <div className={'px-4 py-3 text-white ' + g.kopf}>
+                    <p className="flex items-center gap-1.5 text-xs font-medium opacity-90"><I size={14} strokeWidth={2} aria-hidden="true" />{g.titel}</p>
+                    <p className="mt-0.5 font-mono text-[22px] font-semibold tabular-nums leading-tight">{formatChf(summe(liste))}</p>
+                    <p className="mt-0.5 text-[11px] opacity-80">{unter}</p>
+                  </div>
+                  {liste.length === 0 ? (
+                    <p className="px-4 py-4 text-xs text-ink3">{g.leer}</p>
+                  ) : (
+                    <div className="divide-y divide-line">
+                      {liste.map((z) => {
+                        const v = zeile2(z, g.key, heuteIso);
+                        return (
+                          <Link key={z.id} to={`/regie/${z.id}`} className={'block px-4 py-2.5 transition-colors hover:bg-ground ' + (v.warn === 'rot' ? 'bg-accent-soft/60 hover:bg-accent-soft' : v.warn === 'gelb' ? 'bg-amber-soft/50 hover:bg-amber-soft' : '')}>
+                            <div className="flex items-start justify-between gap-3">
+                              <p className="min-w-0 truncate text-[14px] font-semibold leading-tight">{z.baustelle?.bezeichnung ?? 'Baustelle'}</p>
+                              <span className="shrink-0 font-mono text-[14px] font-semibold tabular-nums">{z.betrag_rappen != null ? formatChf(z.betrag_rappen) : '—'}</span>
+                            </div>
+                            <p className="mt-1 flex flex-wrap items-center gap-x-2 text-[11px] text-ink3">
+                              {z.baustelle && <span className="knr">{z.baustelle.konto_nr}</span>}
+                              <span className={v.warn === 'rot' ? 'font-semibold text-accent-deep' : v.warn === 'gelb' ? 'font-semibold text-amber-deep' : ''}>{v.text}</span>
+                              {z.nummer && <span className="font-mono">{z.nummer}</span>}
+                            </p>
+                          </Link>
+                        );
+                      })}
+                    </div>
+                  )}
+                </section>
+              );
+            })}
+          </div>
+        )}
       </div>
     </Shell>
   );
