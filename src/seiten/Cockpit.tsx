@@ -11,9 +11,10 @@ import { taetigkeitText } from '../lib/zusatzauftrag';
 /**
  * Phase 3 — Wochenübersicht des Bauführers.
  *
- * Aufbau (08.09.): «Zu tun» zuerst. Teams mit Hinweis zeigen Kästchen (nur Hinweis-Tage farbig),
- * Teams ohne Hinweis sind eine ruhige Zeile. Ein Knopf oben gibt alles ohne Hinweis frei.
- * Grün ist Hintergrund, nicht Inhalt — der Bauführer soll in 3 Sekunden sehen, was ihn braucht.
+ * Aufbau (17.09.): ein Raster — jedes Team eine Zeile, sieben Zellen Mo–So mit Teamstunden, Farbe = Stand
+ * (weiss offen, grün freigegeben, gelb Regieverdacht/Überstunden, rot über 10 h). Zelle antippen öffnet den Tag:
+ * Personen mit Stunden, Korrektur, Regieverdacht-Karte, «Tag freigeben». Dazu «N Tage freigeben» je Team und
+ * ein Knopf oben für alle Tage ohne Hinweis. Kein Montag-Zwang: freigeben geht jederzeit.
  *
  * Harte Regel #1: Das System sagt NIE «diese Stunden sind falsch».
  * Jede Markierung nennt ihre Quelle («weicht ab von X», «offener Zusatzauftrag»)
@@ -99,21 +100,13 @@ function kurzName(name: string): string {
   return teile.length > 1 ? `${teile[0][0]}. ${teile.slice(1).join(' ')}` : name;
 }
 
-const ZELL_STIL: Record<ZellStatus, string> = {
-  leer: 'text-ink3',
-  gruen: 'bg-surface',
-  frei: 'bg-good-soft text-good-deep',
-  gelb: 'bg-amber-soft text-amber-deep',
-  rot: 'bg-accent-soft text-accent-deep font-semibold',
-};
-
-/** Team-Kästchen: gleiche Farben, aber auf grauem Grund, damit «grün» als Fläche lesbar ist. */
-const TEAM_ZELL_STIL: Record<ZellStatus, string> = {
-  leer: 'bg-ground text-ink3',
-  gruen: 'bg-surface ring-1 ring-line',
-  frei: 'bg-good-soft text-good-deep',
-  gelb: 'bg-amber-soft text-amber-deep',
-  rot: 'bg-accent-soft text-accent-deep font-semibold',
+/** Tageszelle im Raster: Farbe = Stand. Offen ist weiss mit Rand, damit man sieht, dass da etwas ist. */
+const ZELLE: Record<ZellStatus, string> = {
+  leer: 'bg-ground text-ink3/60',
+  gruen: 'bg-surface text-ink ring-1 ring-line-strong hover:bg-ground',
+  frei: 'bg-good-soft text-good-deep hover:bg-good-soft/80',
+  gelb: 'bg-amber-soft text-amber-deep font-semibold hover:bg-amber-soft/80',
+  rot: 'bg-accent-soft text-accent-deep font-semibold hover:bg-accent-soft/80',
 };
 
 export function Cockpit() {
@@ -133,7 +126,6 @@ export function Cockpit() {
   // Solange die Woche läuft, gibt es keine Sammelfreigabe — Einzelfälle bleiben im Detail möglich.
   const [eintraege, setEintraege] = useState<Eintrag[]>([]);
   const [auftraege, setAuftraege] = useState<OffenerAuftrag[]>([]);
-  const [gewaehlt, setGewaehlt] = useState<{ mit: string; datum: string } | null>(null);
   const [userId, setUserId] = useState<string | null>(null);
   // Freigeben und korrigieren tut der Bauführer — das Sekretariat schaut nur.
   const darfFreigeben = useAnsicht() === 'bauf';
@@ -196,12 +188,11 @@ export function Cockpit() {
   const [teams, setTeams] = useState<Team[]>([]);
   // Standard «Zu tun»: nur Teams mit Hinweis. Kommt man gezielt zu einem Team (Tagesübersicht/Rapport), alle zeigen.
   const [filter, setFilter] = useState<Filter>(() => (params.get('team') ? 'alle' : 'zutun'));
-  // Aufgeklappte Teams mit Hinweis zeigen zuerst nur die Personen mit Hinweis — hier: wer «alle zeigen» gedrückt hat
-  const [alleLeute, setAlleLeute] = useState<Set<string>>(new Set());
-  // Aufgeklapptes Team — die Tagesübersicht («Woche prüfen ›») setzt denselben Schlüssel
-  const [offenesTeam, setOffenesTeam] = useState<string | null>(() => {
-    const t = params.get('team') ?? localStorage.getItem('cockpit-team');
-    return t && t !== 'alle' ? t : null;
+  // Aufgeklappter Tag eines Teams — Tagesübersicht, Regierapport und Zusatzauftrag springen mit ?team&tag direkt hinein
+  const [offen, setOffen] = useState<{ team: string; datum: string } | null>(() => {
+    const t = params.get('team');
+    const d = params.get('tag');
+    return t && d ? { team: t, datum: d } : null;
   });
   const [audio, setAudio] = useState<{ meldung: string; url: string } | null>(null);
   // Herkunft «vom Regierapport»: markierter Tag + Meldung, Rücksprung, und das Team ins Bild scrollen
@@ -224,10 +215,6 @@ export function Cockpit() {
       setTeams(s);
     });
   }, []);
-  useEffect(() => {
-    if (offenesTeam) localStorage.setItem('cockpit-team', offenesTeam);
-    else localStorage.removeItem('cockpit-team');
-  }, [offenesTeam]);
 
   const vonIso = iso(wochenStart);
   const bisIso = iso(addTage(wochenStart, 6));
@@ -379,68 +366,47 @@ export function Cockpit() {
   const wochenTage = useMemo(() => TAGE.map((_, i) => iso(addTage(wochenStart, i))), [wochenStart]);
 
   /**
-   * Eine Zeile pro Team: Tageskästchen (Summe + schlechtester Status), Baustellen der Woche,
-   * offene Einträge, Statuswort. Teams ohne Meldung stehen auch drin — die fehlen sonst.
+   * Eine Zeile pro Team, sieben Tageszellen (Teamsumme + Stand), dazu was noch offen ist.
+   * Teams ohne Meldung stehen auch drin — die fehlen sonst.
    */
   const teamZeilen = useMemo(() => {
+    type Tag = { datum: string; min: number; status: ZellStatus; eintraege: Eintrag[]; offen: Eintrag[] };
     type Zeile = {
       team: Team;
-      tage: { datum: string; min: number; status: ZellStatus }[];
-      leute: typeof personen;
-      baustellen: { konto_nr: string; bezeichnung: string | null }[];
-      offen: number;
+      tage: Tag[];
+      alle: Eintrag[];
+      /** offene Einträge in Tagen ohne Hinweis — das gibt «Woche freigeben» frei */
       gruene: Eintrag[];
+      gruenTage: number;
+      hinweisTage: number;
+      offenTage: number;
       totalMin: number;
-      schlimmster: ZellStatus;
-      wort: string;
       rang: number;
-      /** Erste Zelle mit Hinweis — Ziel beim Klick aufs Statuswort */
-      hinweisZelle: { mit: string; datum: string } | null;
-      /** Personen, die mindestens einen Hinweis-Tag haben */
-      leuteMitHinweis: Set<string>;
-      tageMitEintrag: number;
     };
     const zeilen: Zeile[] = teams.map((team) => {
       const leute = personen.filter(([, p]) => p.teamId === team.id);
-      const tage = wochenTage.map((datum) => {
+      const tage: Tag[] = wochenTage.map((datum) => {
         let min = 0;
         let status: ZellStatus = 'leer';
+        const eintraegeTag: Eintrag[] = [];
         for (const [, p] of leute) {
           const liste = p.tage.get(datum);
           if (!liste) continue;
+          eintraegeTag.push(...liste);
           min += liste.reduce((s, e) => s + e.normal_min + e.ueber_min, 0);
           const st = zellStatus(liste);
           if (RANG[st] > RANG[status]) status = st;
         }
-        return { datum, min, status };
+        return { datum, min, status, eintraege: eintraegeTag, offen: eintraegeTag.filter((e) => e.status === 'offen') };
       });
-      const alle = leute.flatMap(([, p]) => [...p.tage.values()].flat());
-      const bsMap = new Map<string, { konto_nr: string; bezeichnung: string | null }>();
-      for (const e of alle) if (e.tagesmeldung.baustelle) bsMap.set(e.tagesmeldung.baustelle.konto_nr, e.tagesmeldung.baustelle);
-      const offen = alle.filter((e) => e.status === 'offen').length;
-      const gruene = leute.flatMap(([, p]) => [...p.tage.values()].flatMap((liste) => (zellStatus(liste) === 'gruen' ? liste.filter((e) => e.status === 'offen') : [])));
+      const alle = tage.flatMap((t) => t.eintraege);
+      const gruene = tage.filter((t) => t.status === 'gruen').flatMap((t) => t.offen);
+      const gruenTage = tage.filter((t) => t.status === 'gruen').length;
+      const hinweisTage = tage.filter((t) => t.status === 'gelb' || t.status === 'rot').length;
+      const offenTage = tage.filter((t) => t.offen.length > 0).length;
       const totalMin = alle.reduce((s, e) => s + e.normal_min + e.ueber_min, 0);
-      const schlimmster = tage.reduce<ZellStatus>((s, t) => (RANG[t.status] > RANG[s] ? t.status : s), 'leer');
-      let wort: string;
-      let rang: number;
-      if (schlimmster === 'rot') { wort = 'über 10 h'; rang = 0; }
-      else if (schlimmster === 'gelb') { wort = 'Regieverdacht'; rang = 0; }
-      else if (alle.length === 0) { wort = 'keine Meldung'; rang = 3; }
-      else if (offen > 0) { wort = `${offen} offen`; rang = 1; }
-      else { wort = 'fertig'; rang = 2; }
-      let hinweisZelle: { mit: string; datum: string } | null = null;
-      const leuteMitHinweis = new Set<string>();
-      for (const [mitId, p] of leute) {
-        for (const datum of wochenTage) {
-          const st = zellStatus(p.tage.get(datum));
-          if (st === 'rot' || st === 'gelb') {
-            leuteMitHinweis.add(mitId);
-            if (!hinweisZelle || RANG[st] > RANG[zellStatus(leute.find(([id]) => id === hinweisZelle!.mit)?.[1].tage.get(hinweisZelle!.datum))]) hinweisZelle = { mit: mitId, datum };
-          }
-        }
-      }
-      const tageMitEintrag = tage.filter((t) => t.min > 0).length;
-      return { team, tage, leute, baustellen: [...bsMap.values()], offen, gruene, totalMin, schlimmster, wort, rang, hinweisZelle, leuteMitHinweis, tageMitEintrag };
+      const rang = hinweisTage > 0 ? 0 : alle.length === 0 ? 3 : offenTage > 0 ? 1 : 2;
+      return { team, tage, alle, gruene, gruenTage, hinweisTage, offenTage, totalMin, rang };
     });
     // Immer Team 1 … 20 der Reihe nach — die Farbe zeigt den Stand, der Filter «Zum Anschauen» blendet den Rest aus
     return zeilen.sort((a, b) => a.team.bezeichnung.localeCompare(b.team.bezeichnung, 'de', { numeric: true }));
@@ -448,13 +414,14 @@ export function Cockpit() {
   }, [teams, personen, wochenTage, auftragProBaustelle]);
 
   const zaehler = useMemo(() => ({
-    gemeldet: teamZeilen.filter((z) => z.leute.length > 0).length,
+    gemeldet: teamZeilen.filter((z) => z.alle.length > 0).length,
     anschauen: teamZeilen.filter((z) => z.rang === 0).length,
-    offen: teamZeilen.filter((z) => z.rang <= 1 && z.offen > 0).length,
-    fertig: teamZeilen.filter((z) => z.rang === 2).length,
+    gruenTage: teamZeilen.reduce((s, z) => s + z.gruenTage, 0),
+    hinweisTage: teamZeilen.reduce((s, z) => s + z.hinweisTage, 0),
+    offenTage: teamZeilen.reduce((s, z) => s + z.offenTage, 0),
   }), [teamZeilen]);
 
-  // «Zu tun» leer → alles zeigen, sonst steht der Bauführer vor einer leeren Seite
+  // «Zum Anschauen» leer → alles zeigen, sonst steht der Bauführer vor einer leeren Seite
   const sichtbar = useMemo(
     () => (filter === 'zutun' && zaehler.anschauen > 0 ? teamZeilen.filter((z) => z.rang === 0) : teamZeilen),
     [teamZeilen, filter, zaehler.anschauen],
@@ -484,7 +451,7 @@ export function Cockpit() {
     return !!err && (err.code === '42883' || err.code === 'PGRST202' || /function .* does not exist|Could not find the function/i.test(err.message));
   }
 
-  async function freigeben(liste: Eintrag[]) {
+  async function freigeben(liste: Eintrag[], was = 'Einträge') {
     if (!supabase || !userId || liste.length === 0 || speichert) return;
     setSpeichert(true);
     const ids = liste.filter((e) => e.status === 'offen').map((e) => e.id);
@@ -495,11 +462,11 @@ export function Cockpit() {
         liste.map((e) => ({ zeiteintrag_id: e.id, wer: userId, feld: 'status', alt: e.status, neu: 'freigegeben' })),
       );
       if (u.error || l.error) melden('Freigabe fehlgeschlagen: ' + (u.error ?? l.error)!.message, 'fehler');
-      else melden(`${ids.length} ${ids.length === 1 ? 'Eintrag' : 'Einträge'} freigegeben ✓`);
+      else melden(`${was} freigegeben ✓`);
     } else if (error) {
       melden('Freigabe fehlgeschlagen: ' + error.message, 'fehler');
     } else {
-      melden(`${ids.length} ${ids.length === 1 ? 'Eintrag' : 'Einträge'} freigegeben ✓`);
+      melden(`${was} freigegeben ✓`);
     }
     setSpeichert(false);
     void laden();
@@ -564,17 +531,18 @@ export function Cockpit() {
     void laden();
   }
 
-  const detail = (gewaehlt
-    ? personen.find(([id]) => id === gewaehlt.mit)?.[1].tage.get(gewaehlt.datum) ?? []
-    : []).slice().sort((a, b) => Number(b.tagesmeldung.normalfall) - Number(a.tagesmeldung.normalfall));
-  /** Alle Einträge des Teams am gewählten Tag — für «alle auf X h». */
-  const gewaehltesTeamAmTag: Eintrag[] = gewaehlt
-    ? eintraege.filter((e) => e.tagesmeldung.datum === gewaehlt.datum && e.tagesmeldung.team?.id === personen.find(([id]) => id === gewaehlt.mit)?.[1].teamId)
-    : [];
+  /** Der aufgeklappte Tag: alle Einträge des Teams an diesem Datum, nach Name. */
+  const detail = useMemo(
+    () => (offen
+      ? eintraege.filter((e) => e.tagesmeldung.team?.id === offen.team && e.tagesmeldung.datum === offen.datum)
+      : []
+    ).slice().sort((a, b) => a.mitarbeiter.name.localeCompare(b.mitarbeiter.name) || Number(b.tagesmeldung.normalfall) - Number(a.tagesmeldung.normalfall)),
+    [eintraege, offen],
+  );
 
-  function teamUmschalten(id: string) {
-    setGewaehlt(null);
-    setOffenesTeam((t) => (t === id ? null : id));
+  function tagUmschalten(team: string, datum: string) {
+    setKorrektur(null);
+    setOffen((o) => (o && o.team === team && o.datum === datum ? null : { team, datum }));
   }
 
   const chips: { key: Filter; label: string; n: number }[] = [
@@ -582,11 +550,7 @@ export function Cockpit() {
     { key: 'alle', label: 'Alle Teams', n: teamZeilen.length },
   ];
 
-  /** Klick aufs Statuswort: Team auf, direkt in die betroffene Zelle. */
-  function zumHinweis(z: (typeof teamZeilen)[number]) {
-    setOffenesTeam(z.team.id);
-    setGewaehlt(z.hinweisZelle);
-  }
+  const tagName = (d: string) => `${TAGE[(new Date(d + 'T12:00:00').getDay() + 6) % 7]} ${ch(new Date(d + 'T12:00:00'))}`;
 
   return (
     <Shell zurueck>
@@ -667,46 +631,29 @@ export function Cockpit() {
           </div>
         )}
 
-        {/* Der eine Knopf — zuoberst, nicht unter 20 Teams versteckt */}
-        {!laedt && darfFreigeben && gruene.length > 0 && (
-          (() => {
-            // Was der Knopf freigibt, in Worten des Bauführers: Person-Tage, gruppiert nach Team und Tag.
-            // Personen zählen, nicht Einträge: normaler Tag + Zusatzarbeit derselben Leute wären sonst doppelt.
-            const m = new Map<string, { team: string; datum: string; leute: Set<string>; meldungen: Set<string> }>();
-            for (const e of gruene) {
-              const k = `${e.tagesmeldung.team?.id}|${e.tagesmeldung.datum}`;
-              const x = m.get(k) ?? { team: e.tagesmeldung.team?.bezeichnung ?? '?', datum: e.tagesmeldung.datum, leute: new Set<string>(), meldungen: new Set<string>() };
-              x.leute.add(e.mitarbeiter.id);
-              x.meldungen.add(e.tagesmeldung.id);
-              m.set(k, x);
-            }
-            const gruppen = [...m.values()].sort((a, b) => a.team.localeCompare(b.team, 'de', { numeric: true }) || a.datum.localeCompare(b.datum));
-            const teamsN = new Set(gruppen.map((g) => g.team)).size;
-            const tag = (d: string) => `${TAGE[(new Date(d + 'T12:00:00').getDay() + 6) % 7]} ${ch(new Date(d + 'T12:00:00'))}`;
-            return (
-              <div className="rounded-[14px] border border-good/30 bg-good-soft/50 p-3 space-y-2">
-                <button type="button" className="cta cta-good disabled:opacity-60" disabled={!userId || speichert} onClick={() => void freigeben(gruene)}>
-                  {speichert ? 'Speichert …' : `Alle normalen Tage freigeben · ${teamsN} ${teamsN === 1 ? 'Team' : 'Teams'}`}
-                </button>
-                <p className="text-xs text-ink2">Das sind die Tage ohne Regieverdacht und ohne «über 10 h»:</p>
-                <p className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-ink2">
-                  {gruppen.map((g) => (
-                    <span key={g.team + g.datum} className="whitespace-nowrap">
-                      <span className="font-semibold text-ink">{g.team}</span> {tag(g.datum)} · {g.leute.size} Pers.
-                      {g.meldungen.size > 1 && <span className="text-ink3"> · normaler Tag + Zusatzarbeit</span>}
-                    </span>
-                  ))}
-                </p>
-                <p className="text-[11px] text-ink3">Gelbe und rote Tage bleiben offen — die gibst du einzeln frei, nachdem du sie angeschaut hast.</p>
-              </div>
-            );
-          })()
-        )}
-
-        {!laedt && !darfFreigeben && eintraege.length > 0 && (
-          <p className="rounded-[12px] border border-line bg-surface px-4 py-2.5 text-sm text-ink2">
-            Nur ansehen — freigeben und korrigieren tut der Bauführer.
-          </p>
+        {/* Stand der Woche in einer Zeile — und der eine Knopf für alles, was keinen Hinweis hat */}
+        {!laedt && eintraege.length > 0 && (
+          <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 rounded-[14px] border border-line bg-surface px-4 py-3">
+            <p className="text-sm">
+              {zaehler.offenTage === 0 ? (
+                <span className="font-semibold text-good-deep">✓ Alles freigegeben</span>
+              ) : (
+                <>
+                  <span className="font-semibold">{zaehler.gruenTage} {zaehler.gruenTage === 1 ? 'Tag' : 'Tage'}</span>
+                  <span className="text-ink3"> ohne Hinweis offen</span>
+                  {zaehler.hinweisTage > 0 && (
+                    <> <span className="text-ink3">·</span> <span className="font-semibold text-amber-deep">{zaehler.hinweisTage} mit Hinweis</span> <span className="text-ink3">— gelbe oder rote Zelle antippen</span></>
+                  )}
+                </>
+              )}
+            </p>
+            {darfFreigeben && gruene.length > 0 && (
+              <button type="button" className="cta cta-good w-auto px-5 py-2.5 text-sm disabled:opacity-60" disabled={!userId || speichert} onClick={() => void freigeben(gruene, `${zaehler.gruenTage} Tage`)}>
+                {speichert ? 'Speichert …' : `Alle ${zaehler.gruenTage} Tage ohne Hinweis freigeben`}
+              </button>
+            )}
+            {!darfFreigeben && <span className="text-xs text-ink3">Nur ansehen — freigeben tut der Bauführer.</span>}
+          </div>
         )}
 
         {!laedt && zaehler.anschauen > 0 && (
@@ -736,340 +683,267 @@ export function Cockpit() {
           <div className="card text-sm text-ink3">Nichts in dieser Auswahl.</div>
         ) : (
           <section className="card overflow-hidden p-0">
-            {/* Kopfzeile: Mo–So mit Datum und Total — einmal, ausgerichtet auf die Tageskästchen jeder Zeile */}
-            <div className="border-b border-line bg-surface-2 px-3 py-2">
-              <span className="block text-[11px] font-medium text-ink3">Team · Baustelle</span>
-              <span className="mt-1 grid grid-cols-[repeat(7,minmax(0,1fr))_3.2rem] gap-x-1">
-                {wochenTage.map((datum, i) => {
-                  const d = addTage(wochenStart, i);
-                  const heute = datum === iso(new Date());
-                  return (
-                    <span key={datum} className={'text-center text-[11px] leading-tight ' + (heute ? 'font-semibold text-accent-deep' : 'text-ink3')}>
-                      <span className="block font-medium">{TAGE[i]}</span><span className="block tabular-nums">{ch(d)}</span>
-                    </span>
-                  );
-                })}
-                <span className="text-right text-[11px] font-medium text-ink3">Total</span>
-              </span>
+            {/* Kopfzeile Mo–So, ausgerichtet auf die Zellen jeder Zeile */}
+            <div className="grid grid-cols-7 gap-1 border-b border-line bg-surface-2 px-3 py-2">
+              {wochenTage.map((datum, i) => {
+                const heute = datum === iso(new Date());
+                return (
+                  <span key={datum} className={'text-center text-[11px] leading-tight ' + (heute ? 'font-semibold text-accent-deep' : 'text-ink3')}>
+                    <span className="block font-medium">{TAGE[i]}</span><span className="block tabular-nums">{ch(addTage(wochenStart, i))}</span>
+                  </span>
+                );
+              })}
             </div>
+
             {sichtbar.map((z) => {
-              const auf = offenesTeam === z.team.id;
-              const faelle = verdachtsfaelle.filter((f) => f.meldung.team?.id === z.team.id);
+              const auf = offen?.team === z.team.id;
               return (
-                <div key={z.team.id} ref={auf ? zielRef : undefined} className={'scroll-mt-20 border-b border-line last:border-b-0 ' + (auf ? 'bg-steel-soft/30' : '')}>
-                  {z.rang !== 0 ? (
-                    /* Team ohne Hinweis: eine ruhige Zeile, keine Kästchen — grün getönt, damit «wie geplant» sich von den Hinweisen abhebt. Antippen = Stichprobe. */
-                    <button
-                      type="button"
-                      onClick={() => teamUmschalten(z.team.id)}
-                      className={'relative flex w-full items-center justify-between gap-3 px-3 py-2.5 pl-4 text-left transition-colors ' + (auf ? '' : z.rang === 2 ? 'bg-good-soft/70 hover:bg-good-soft' : z.rang === 1 ? 'bg-good-soft/35 hover:bg-good-soft/60' : 'hover:bg-ground')}
-                    >
-                      {z.rang <= 2 && <span className={'absolute inset-y-2 left-0 w-[3px] rounded-r ' + (z.rang === 2 ? 'bg-good' : 'bg-good/50')} aria-hidden="true" />}
+                <div key={z.team.id} ref={auf ? zielRef : undefined} className={'scroll-mt-20 border-b border-line last:border-b-0 ' + (auf ? 'bg-steel-soft/20' : '')}>
+                  <div className="px-3 py-2">
+                    <div className="flex items-center justify-between gap-3">
                       <span className="min-w-0 truncate">
                         <span className="font-display text-[14px] font-semibold">{z.team.bezeichnung}</span>
                         {z.team.chefmonteur && <span className="ml-1.5 text-xs text-ink3">{kurzName(z.team.chefmonteur.name)}</span>}
                       </span>
-                      <span className="shrink-0 text-right text-xs text-ink3">
-                        {z.rang === 3
-                          ? <span className="font-semibold text-ink2">keine Meldung</span>
-                          : <>
-                              <span className="font-mono tabular-nums">{z.tageMitEintrag} {z.tageMitEintrag === 1 ? 'Tag' : 'Tage'} · {stunden(z.totalMin)} h</span>
-                              <span className="ml-2 font-semibold text-good-deep">
-                                {(() => {
-                                  const erledigt = faelle.some((f) => f.rapport) ? 'Regierapport angelegt' : faelle.some((f) => f.keineRegie) ? 'keine Regie' : faelle.some((f) => f.geprueft) ? 'Regieverdacht geprüft' : null;
-                                  if (z.rang === 2) return erledigt ? `✓ freigegeben · ${erledigt}` : '✓ freigegeben';
-                                  return erledigt ? `${erledigt} · ${z.wort}` : `✓ wie geplant · ${z.wort}`;
-                                })()}
-                              </span>
-                            </>}
+                      <span className="flex shrink-0 items-center gap-3 text-xs">
+                        {z.totalMin > 0 && <span className="font-mono tabular-nums text-ink2">{stunden(z.totalMin)} h</span>}
+                        {z.alle.length === 0 ? (
+                          <span className="text-ink3">keine Meldung</span>
+                        ) : darfFreigeben && z.gruene.length > 0 ? (
+                          <button type="button" className="btn-ghost border-good/50 px-2.5 py-1 text-xs text-good-deep disabled:opacity-60" disabled={!userId || speichert} onClick={() => void freigeben(z.gruene, `${z.team.bezeichnung}: ${z.gruenTage} Tage`)}>
+                            {z.gruenTage} {z.gruenTage === 1 ? 'Tag' : 'Tage'} freigeben
+                          </button>
+                        ) : z.offenTage === 0 ? (
+                          <span className="font-semibold text-good-deep">✓ freigegeben</span>
+                        ) : (
+                          <span className="font-semibold text-amber-deep">{z.hinweisTage} {z.hinweisTage === 1 ? 'Tag' : 'Tage'} anschauen</span>
+                        )}
                       </span>
-                    </button>
-                  ) : (
-                    /* Team mit Hinweis: Kästchen, aber nur die Hinweis-Tage sind farbig — der Rest ist ein blasser Punkt. */
-                    <button
-                      type="button"
-                      onClick={() => teamUmschalten(z.team.id)}
-                      className="block w-full px-3 py-2 text-left"
-                    >
-                      <span className="flex min-w-0 items-baseline justify-between gap-2">
-                        <span className="min-w-0 truncate">
-                          <span className="font-display text-[14px] font-semibold">{z.team.bezeichnung}</span>
-                          {z.team.chefmonteur && <span className="ml-1.5 font-body text-xs font-normal text-ink3">{kurzName(z.team.chefmonteur.name)}</span>}
-                        </span>
-                        <span
-                          role="link"
-                          tabIndex={0}
-                          onClick={(e) => { e.stopPropagation(); zumHinweis(z); }}
-                          onKeyDown={(e) => { if (e.key === 'Enter') { e.stopPropagation(); zumHinweis(z); } }}
-                          className="shrink-0 text-[11px] font-semibold text-accent-deep underline decoration-accent/40 underline-offset-2"
-                        >
-                          {z.wort} ›
-                        </span>
-                      </span>
-                      {/* Sieben Kästchen Mo–So in voller Breite; nur Hinweis-Tage tragen Wochentag + Stunden */}
-                      <span className="mt-1.5 grid grid-cols-[repeat(7,minmax(0,1fr))_3.2rem] items-center gap-x-1">
-                        {z.tage.map((t, i) => {
-                          const hinweis = t.status === 'rot' || t.status === 'gelb';
-                          return (
-                            <span
-                              key={t.datum}
-                              className={'block rounded-md py-1 text-center font-mono text-[11px] leading-tight tabular-nums ' + (hinweis ? TEAM_ZELL_STIL[t.status] : 'text-ink3/50') + (markierterTag === t.datum && auf ? ' ring-2 ring-steel' : '')}
-                            >
-                              {hinweis
-                                ? <><span className="block text-[9px] font-semibold uppercase opacity-80">{TAGE[i]}</span>{Math.round(t.min / 60)} h</>
-                                : t.status === 'leer' ? '–' : '·'}
-                            </span>
-                          );
-                        })}
-                        <span className="text-right font-mono text-xs tabular-nums text-ink2">{z.totalMin > 0 ? stunden(z.totalMin) : '–'}</span>
-                      </span>
-                    </button>
-                  )}
+                    </div>
+                    {/* Sieben Zellen: Teamsumme des Tages, Farbe = Stand. Antippen öffnet den Tag. */}
+                    <div className="mt-1.5 grid grid-cols-7 gap-1">
+                      {z.tage.map((t) => {
+                        const aktiv = auf && offen?.datum === t.datum;
+                        return (
+                          <button
+                            key={t.datum}
+                            type="button"
+                            disabled={t.status === 'leer'}
+                            onClick={() => tagUmschalten(z.team.id, t.datum)}
+                            aria-label={`${tagName(t.datum)}: ${t.status === 'leer' ? 'keine Meldung' : stunden(t.min) + ' h'}`}
+                            className={'rounded-md py-1.5 text-center font-mono text-[11px] leading-tight tabular-nums transition ' + ZELLE[t.status] + (aktiv ? ' ring-2 ring-accent' : '')}
+                          >
+                            {t.status === 'leer' ? '–' : t.status === 'frei' ? `✓ ${stunden(t.min)}` : stunden(t.min)}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
 
-                  {auf && (
-                    <div className="space-y-3 border-t border-line bg-surface px-3 py-3">
-                      {z.leute.length === 0 ? (
-                        <p className="text-sm text-ink3">Dieses Team hat in dieser Woche nichts gemeldet.</p>
-                      ) : (
-                        <>
-                          <p className="text-[11px] text-ink3">
-                            {z.baustellen.map((b) => `${b.konto_nr} ${b.bezeichnung ?? ''}`.trim()).join(' · ') || 'keine Baustelle'}
+                  {auf && detail.length > 0 && (() => {
+                    const tag = z.tage.find((t) => t.datum === offen!.datum)!;
+                    const faelle = verdachtsfaelle.filter((f) => f.meldung.team?.id === z.team.id && f.meldung.datum === offen!.datum);
+                    const baustellen = [...new Map(detail.filter((e) => e.tagesmeldung.baustelle).map((e) => [e.tagesmeldung.baustelle!.konto_nr, e.tagesmeldung.baustelle!])).values()];
+                    const mehrereBaustellen = baustellen.length > 1;
+                    const personenN = new Set(detail.map((e) => e.mitarbeiter.id)).size;
+                    return (
+                      <div className="space-y-3 border-t border-line bg-surface px-3 py-3">
+                        <div className="flex flex-wrap items-baseline justify-between gap-2">
+                          <p className="text-sm">
+                            <span className="font-semibold">{tagName(tag.datum)}</span>
+                            {baustellen.map((b) => <span key={b.konto_nr} className="ml-2 text-ink2"><span className="knr">{b.konto_nr}</span> {b.bezeichnung ?? ''}</span>)}
                           </p>
-                          <div className="overflow-x-auto">
-                            <table className="w-full min-w-[430px] text-sm">
-                              <thead>
-                                <tr className="text-[10px] font-semibold uppercase text-ink3">
-                                  <td className="pr-2" />
-                                  {wochenTage.map((datum, i) => (
-                                    <td key={datum} className={'pb-1 text-center font-mono leading-tight ' + (markierterTag === datum ? 'text-steel' : '')}>
-                                      {TAGE[i]}<span className="block text-[9px] font-normal normal-case">{ch(addTage(wochenStart, i))}</span>
-                                    </td>
-                                  ))}
-                                </tr>
-                              </thead>
-                              <tbody>
-                                {z.leute.filter(([mitId]) => z.rang !== 0 || alleLeute.has(z.team.id) || z.leuteMitHinweis.size === 0 || z.leuteMitHinweis.has(mitId)).map(([mitId, p]) => (
-                                  <tr key={mitId} className="border-b border-line last:border-b-0">
-                                    <td className="py-1.5 pr-2 font-medium whitespace-nowrap">
-                                      {p.name}
-                                      {p.typ === 'temporaer' && <span className="ml-1 text-[10px] text-ink3">temp</span>}
-                                    </td>
-                                    {wochenTage.map((datum) => {
-                                      const liste = p.tage.get(datum);
-                                      const st = zellStatus(liste);
-                                      const summe = liste?.reduce((s, e) => s + e.normal_min + e.ueber_min, 0) ?? 0;
-                                      const aktiv = gewaehlt?.mit === mitId && gewaehlt.datum === datum;
-                                      return (
-                                        <td key={datum} className="p-0.5 text-center">
-                                          <button
-                                            type="button"
-                                            onClick={() => setGewaehlt(aktiv ? null : { mit: mitId, datum })}
-                                            className={'w-full rounded-md px-1 py-1.5 font-mono text-xs tabular-nums transition ' + ZELL_STIL[st] + (aktiv ? ' ring-2 ring-accent' : markierterTag === datum ? ' ring-2 ring-steel' : '')}
-                                          >
-                                            {st === 'leer' ? '–' : stunden(summe)}
-                                            {liste && doppelteNormalmeldungen(liste) > 1 && (
-                                              <sup className="ml-0.5 text-[9px] font-semibold text-amber-deep" title="der normale Tag wurde mehrfach gemeldet">{doppelteNormalmeldungen(liste)}×</sup>
-                                            )}
-                                          </button>
-                                        </td>
-                                      );
-                                    })}
-                                  </tr>
-                                ))}
-                              </tbody>
-                            </table>
-                          </div>
-                          {z.rang === 0 && z.leuteMitHinweis.size > 0 && z.leuteMitHinweis.size < z.leute.length && !alleLeute.has(z.team.id) && (
-                            <button type="button" className="text-xs font-semibold text-steel" onClick={() => setAlleLeute((s) => new Set(s).add(z.team.id))}>
-                              alle {z.leute.length} Personen zeigen
-                            </button>
-                          )}
+                          <p className="font-mono text-xs tabular-nums text-ink3">{stunden(tag.min)} h · {personenN} Pers.</p>
+                        </div>
 
-                          {gewaehlt && detail.length > 0 && z.leute.some(([id]) => id === gewaehlt.mit) && (
-                            <div className="rounded-[12px] bg-ground p-3 space-y-2.5">
-                              <p className="lbl mb-0">
-                                {personen.find(([id]) => id === gewaehlt.mit)?.[1].name} · {ch(new Date(gewaehlt.datum + 'T12:00:00'))}
-                              </p>
-                              {detail.map((e) => (
-                                <div key={e.id} className="flex items-center justify-between gap-2 border-b border-line pb-2 last:border-b-0 last:pb-0">
-                                  <span className="min-w-0 text-sm">
-                                    <span className="block truncate font-medium">{e.tagesmeldung.baustelle?.bezeichnung ?? 'ohne Baustelle'}</span>
-                                    <span className="flex flex-wrap items-center gap-1.5">
-                                      {e.tagesmeldung.baustelle && <span className="knr">{e.tagesmeldung.baustelle.konto_nr}</span>}
-                                      {e.tagesmeldung.normalfall
-                                        ? <span className="text-[11px] text-ink3">normaler Tag</span>
-                                        : <span className="rounded-md bg-amber-soft px-1.5 py-0.5 text-[11px] font-semibold text-amber-deep">Zusatzarbeit · {ABWEICHUNG_KURZ[e.tagesmeldung.abweichung_typ ?? ''] ?? 'Abweichung'}</span>}
-                                    </span>
-                                  </span>
-                                  <span className="flex items-center gap-1.5">
-                                    {darfFreigeben && e.status === 'offen' && <button type="button" className="btn-ghost px-2.5" onClick={() => korrekturStarten(e, -30)}>−</button>}
-                                    <span className={'w-12 text-center font-mono text-sm tabular-nums ' + (korrektur?.id === e.id && korrektur.total !== korrektur.alt ? 'font-semibold text-steel' : '')}>
-                                      {stunden(korrektur?.id === e.id ? korrektur.total : e.normal_min + e.ueber_min)} h
-                                    </span>
-                                    {darfFreigeben && e.status === 'offen' && <button type="button" className="btn-ghost px-2.5" onClick={() => korrekturStarten(e, 30)}>+</button>}
-                                    {e.status === 'offen' && !darfFreigeben ? (
-                                      <span className="px-1 text-xs text-ink3">offen</span>
-                                    ) : e.status === 'offen' ? (
-                                      <button type="button" className="btn-ghost text-good-deep" onClick={() => void freigeben([e])}>✓</button>
-                                    ) : (
-                                      <span className="px-1 text-good" title="freigegeben">✓</span>
-                                    )}
-                                  </span>
-                                </div>
-                              ))}
-                              {korrektur && detail.some((e) => e.id === korrektur.id) && korrektur.total !== korrektur.alt && (
-                                <div className="rounded-[10px] border border-steel/40 bg-steel-soft px-3 py-2">
-                                  <p className="text-xs font-semibold text-steel">
-                                    {stunden(korrektur.alt)} → {stunden(korrektur.total)} h · Warum?
-                                  </p>
-                                  <div className="mt-1.5 flex flex-wrap gap-1.5">
-                                    {GRUENDE.map((g) => (
-                                      <button key={g} type="button" disabled={speichert} className="chip px-2.5 py-1 text-xs" onClick={() => void korrekturSpeichern(detail.find((e) => e.id === korrektur.id)!, g)}>{g}</button>
-                                    ))}
-                                    <button type="button" className="btn-ghost px-2.5 py-1 text-xs" onClick={() => setKorrektur(null)}>Abbrechen</button>
-                                  </div>
-                                  {detail.filter((e) => e.status === 'offen').length > 0 && (
-                                    <p className="mt-2 text-[11px] text-ink3">
-                                      Gilt der Wert für alle im Team an diesem Tag?{' '}
-                                      {GRUENDE.slice(0, 2).map((g) => (
-                                        <button key={g} type="button" disabled={speichert} className="mr-1 font-semibold text-steel underline underline-offset-2" onClick={() => void teamSetzen(gewaehltesTeamAmTag, korrektur.total, g)}>
-                                          alle auf {stunden(korrektur.total)} h ({g})
-                                        </button>
-                                      ))}
-                                    </p>
-                                  )}
-                                </div>
-                              )}
-                              {detail.some((e) => (e.freigabe_log?.length ?? 0) > 0) && (
-                                <div className="text-[11px] text-ink3">
-                                  <p className="font-semibold uppercase tracking-wide">Verlauf</p>
-                                  {detail.flatMap((e) => (e.freigabe_log ?? []).map((l) => ({ ...l, wer_name: e.mitarbeiter.name }))).sort((a, b) => a.wann.localeCompare(b.wann)).map((l, i) => (
-                                    <p key={i}>
-                                      {ch(new Date(l.wann))} {new Date(l.wann).toLocaleTimeString('de-CH', { hour: '2-digit', minute: '2-digit' })} · {l.wer_name}: {l.feld === 'status' ? 'freigegeben' : `${FELD[l.feld] ?? l.feld} ${stunden(Number(l.alt))} → ${stunden(Number(l.neu))} h`}{l.begruendung ? ` · ${l.begruendung}` : ''}
-                                    </p>
-                                  ))}
-                                </div>
-                              )}
-                              {doppelteNormalmeldungen(detail) > 1 && (
-                                <p className="rounded-[10px] bg-amber-soft px-3 py-2 text-xs text-amber-deep">
-                                  Der normale Tag wurde {doppelteNormalmeldungen(detail)}-mal gemeldet — die Stunden addieren sich. Falls doppelt: im Teamgerät «Frühere ersetzen» wählen.
-                                </p>
-                              )}
-                              <p className="text-[11px] text-ink3">Jede Korrektur wird protokolliert: wer, wann, von, auf, warum.</p>
-                            </div>
-                          )}
-
-                          {faelle.map(({ meldung, eintraege: liste, ausloeser, geprueft, rapport, keineRegie: keineRegieGrund, info }) => (
-                            <div key={meldung.id} className={'rounded-[12px] border p-3 ' + (rapport || geprueft || keineRegieGrund || info ? 'border-line bg-ground' : 'border-amber/40 bg-amber-soft/60') + (markierteMeldung === meldung.id ? ' ring-2 ring-steel' : '')}>
-                              <div className="flex items-baseline justify-between gap-2">
-                                <span className="font-display text-[14px] font-semibold">
-                                  {markierteMeldung === meldung.id ? 'Diese Meldung · ' : rapport ? 'Regierapport angelegt ✓ · ' : keineRegieGrund ? 'Keine Regie ✓ · ' : info ? 'Länger gearbeitet · ' : geprueft ? 'Regieverdacht geprüft ✓ · ' : 'Regieverdacht · '}{meldung.baustelle?.bezeichnung ?? '—'}
+                        {/* Eine Zeile pro Person: Normal + Überstunden, rechts Korrektur und Freigabe */}
+                        <div className="divide-y divide-line rounded-[12px] border border-line">
+                          {detail.map((e) => (
+                            <div key={e.id} className="flex items-center justify-between gap-2 px-3 py-2">
+                              <span className="min-w-0 text-sm">
+                                <span className="block truncate font-medium">
+                                  {e.mitarbeiter.name}
+                                  {e.mitarbeiter.typ === 'temporaer' && <span className="ml-1 text-[10px] text-ink3">temp</span>}
                                 </span>
-                                <span className="font-mono text-xs text-ink3">{ch(new Date(meldung.datum + 'T12:00:00'))}</span>
-                              </div>
-                              <ul className="mt-1 space-y-0.5 text-xs text-ink2">
-                                {ausloeser.map((a) => <li key={a}>• {a}</li>)}
-                              </ul>
-                              {meldung.foto?.length > 0 && (
-                                <div className="mt-2">
-                                  <FotoGalerie pfade={meldung.foto.map((f) => f.pfad)} klein />
-                                </div>
-                              )}
-                              {meldung.transkript && (
-                                <div className="mt-2 rounded-[10px] bg-surface px-3 py-2 text-sm text-ink2">
-                                  <p className="italic">«{meldung.transkript}»</p>
-                                  {meldung.transkript_quelle && (
-                                    <details className="mt-1 text-xs text-ink3">
-                                      <summary className="cursor-pointer">{(meldung.transkript_sprache ?? 'de') === 'de' ? 'So wurde es gesprochen · Text ist bereinigt' : `Original auf ${SPRACHE[meldung.transkript_sprache ?? ''] ?? 'anderer Sprache'} · automatisch übersetzt`}</summary>
-                                      <p className="mt-1 italic" dir="auto">{meldung.transkript_quelle}</p>
-                                    </details>
-                                  )}
-                                </div>
-                              )}
-                              {!meldung.transkript && meldung.audio_pfad && (
-                                <p className="mt-2 flex flex-wrap items-center gap-2 text-xs text-ink3">
-                                  {transkribiert.has(meldung.id)
-                                    ? 'Text wird erstellt …'
-                                    : meldung.transkript_fehler
-                                      ? <span className="text-amber-deep">Text konnte nicht erstellt werden.</span>
-                                      : 'Noch kein Text zur Sprachnotiz.'}
-                                  {!transkribiert.has(meldung.id) && (
-                                    <button type="button" className="btn-ghost px-2 py-0.5 text-xs" onClick={() => void transkribieren(meldung.id)}>Text erstellen</button>
-                                  )}
-                                </p>
-                              )}
-                              {(meldung.audio_pfad || meldung.audio_sekunden) && (
-                                <div className="mt-2 flex items-center gap-2">
-                                  {meldung.audio_pfad ? (
-                                    <button type="button" onClick={() => void anhoeren(meldung.id, meldung.audio_pfad!)} className="btn-ghost">▶ Sprachnotiz{meldung.audio_sekunden ? ` · ${meldung.audio_sekunden} Sek.` : ''}</button>
-                                  ) : (
-                                    <span className="font-mono text-[11px] text-ink3">Sprachnotiz {meldung.audio_sekunden} Sek. (Demo — keine Aufnahme hinterlegt)</span>
-                                  )}
-                                  {audio?.meldung === meldung.id && <audio controls autoPlay src={audio.url} className="h-8 flex-1" />}
-                                </div>
-                              )}
-                              {meldung.normalfall && liste.every((e) => e.ueber_min === 0) ? (
-                                /* Normaler Tag mit offenem Auftrag: die 8 h sind Aufbau (Offerte), nicht Regie.
-                                   Regie entsteht nur aus dem gemeldeten Extra — sonst beim Team nachfragen. */
-                                <p className="mt-2 rounded-[10px] border border-dashed border-amber/60 px-3 py-2 text-xs text-ink2">
-                                  Das Team hat <b>«wie geplant»</b> gemeldet ({stunden(liste.reduce((s, e) => s + e.normal_min + e.ueber_min, 0))} h). Der Zusatzauftrag für diesen Tag ist noch offen — beim Chefmonteur nachfragen, ob die Zusatzarbeit ausgeführt wurde.
-                                </p>
-                              ) : (
-                                <div className="mt-2 flex items-center justify-between gap-2">
-                                  <span className="text-sm">
-                                    {meldung.normalfall
-                                      ? <>{stunden(liste.reduce((s, e) => s + e.ueber_min, 0))} h Überstunden</>
-                                      : <>{stunden(liste.reduce((s, e) => s + e.normal_min + e.ueber_min, 0))} h {meldung.abweichung_typ === 'laenger' ? 'länger' : 'Zusatzarbeit'}</>}
-                                    {info
-                                      ? <span className="text-xs text-ink3"> · geht in den Lohn, nicht an den Kunden</span>
-                                      : <> ·{' '}<span className="font-mono font-semibold text-accent-deep">{formatChf(betragVorgerechnet(meldung.normalfall ? liste.map((e) => ({ ...e, normal_min: e.ueber_min, ueber_min: 0 })) : liste))}</span><span className="text-xs text-ink3"> vorgerechnet</span></>}
-                                  </span>
-                                  {meldung.regierapport?.length > 0 ? (
-                                    <Link to={`/regie/${meldung.regierapport[0].id}`} className="btn-ghost shrink-0 border-steel text-steel">
-                                      {meldung.regierapport[0].nummer ?? 'Regierapport'} · {RAPPORT_STAND[meldung.regierapport[0].status] ?? meldung.regierapport[0].status} ›
-                                    </Link>
-                                  ) : keineRegieGrund ? (
-                                    <span className="flex items-center gap-2 text-xs text-ink2">
-                                      <span>keine Regie · {keineRegieGrund}</span>
-                                      {darfFreigeben && <button type="button" className="font-semibold text-steel" onClick={() => void dochRegie(meldung.id)}>doch Regie</button>}
-                                    </span>
-                                  ) : info ? (
-                                    /* Infokarte: Lohn — nur falls die Notiz doch nach Regie klingt, gibt es den leisen Weg zum Rapport */
-                                    <Link to={`/regie/neu?meldung=${meldung.id}${meldung.normalfall ? '&nur=ueber' : ''}`} className="shrink-0 text-xs font-semibold text-steel">Doch Regie? Vorrechnen ›</Link>
-                                  ) : (
-                                    <span className="flex shrink-0 flex-wrap items-center justify-end gap-2">
-                                      {darfFreigeben && (
-                                        <button type="button" className="btn-ghost" onClick={() => setKeineRegieFrage(keineRegieFrage === meldung.id ? null : meldung.id)}>Keine Regie …</button>
-                                      )}
-                                      <Link to={`/regie/neu?meldung=${meldung.id}${meldung.normalfall ? '&nur=ueber' : ''}`} className="btn-ghost border-accent text-accent-deep">
-                                        Regierapport vorrechnen ›
-                                      </Link>
-                                    </span>
-                                  )}
-                                </div>
-                              )}
-                              {keineRegieFrage === meldung.id && !rapport && !keineRegieGrund && (
-                                <div className="mt-2 space-y-1.5 rounded-[10px] bg-surface p-3">
-                                  <p className="text-xs text-ink2">Warum keine Regie? Die Stunden bleiben im Lohn — nur die Verrechnung an den Kunden entfällt.</p>
-                                  <div className="flex flex-wrap gap-1.5">
-                                    {Object.entries(REGIE_GRUND).map(([k, text]) => (
-                                      <button key={k} type="button" className="chip px-3 py-1.5 text-xs" onClick={() => void keineRegie(meldung.id, k)}>{text}</button>
-                                    ))}
-                                  </div>
-                                </div>
-                              )}
+                                <span className="flex flex-wrap items-center gap-x-1.5 text-[11px] text-ink3">
+                                  {mehrereBaustellen && e.tagesmeldung.baustelle && <span className="knr">{e.tagesmeldung.baustelle.konto_nr}</span>}
+                                  {e.tagesmeldung.normalfall
+                                    ? <>{stunden(e.normal_min)} normal{e.ueber_min > 0 && <span className="font-semibold text-amber-deep"> + {stunden(e.ueber_min)} Überstunden</span>}</>
+                                    : <span className="rounded-md bg-amber-soft px-1.5 py-0.5 font-semibold text-amber-deep">Zusatzarbeit · {ABWEICHUNG_KURZ[e.tagesmeldung.abweichung_typ ?? ''] ?? 'Abweichung'}</span>}
+                                </span>
+                              </span>
+                              <span className="flex shrink-0 items-center gap-1.5">
+                                {darfFreigeben && e.status === 'offen' && <button type="button" className="btn-ghost px-2.5" onClick={() => korrekturStarten(e, -30)} aria-label="weniger">−</button>}
+                                <span className={'w-12 text-center font-mono text-sm tabular-nums ' + (korrektur?.id === e.id && korrektur.total !== korrektur.alt ? 'font-semibold text-steel' : '')}>
+                                  {stunden(korrektur?.id === e.id ? korrektur.total : e.normal_min + e.ueber_min)} h
+                                </span>
+                                {darfFreigeben && e.status === 'offen' && <button type="button" className="btn-ghost px-2.5" onClick={() => korrekturStarten(e, 30)} aria-label="mehr">+</button>}
+                                {e.status === 'offen'
+                                  ? <span className="w-7 text-center text-xs text-ink3">offen</span>
+                                  : <span className="w-7 text-center text-good" title="freigegeben">✓</span>}
+                              </span>
                             </div>
                           ))}
+                        </div>
 
-                          {darfFreigeben && z.gruene.length > 0 && (
-                            <button type="button" className="btn-ghost w-full border-good text-good-deep disabled:opacity-60" disabled={!userId || speichert} onClick={() => void freigeben(z.gruene)}>
-                              {z.team.bezeichnung}: {z.gruene.length} {z.gruene.length === 1 ? 'Eintrag' : 'Einträge'} ohne Hinweis freigeben
+                        {korrektur && detail.some((e) => e.id === korrektur.id) && korrektur.total !== korrektur.alt && (
+                          <div className="rounded-[10px] border border-steel/40 bg-steel-soft px-3 py-2">
+                            <p className="text-xs font-semibold text-steel">
+                              {detail.find((e) => e.id === korrektur.id)?.mitarbeiter.name}: {stunden(korrektur.alt)} → {stunden(korrektur.total)} h · Warum?
+                            </p>
+                            <div className="mt-1.5 flex flex-wrap gap-1.5">
+                              {GRUENDE.map((g) => (
+                                <button key={g} type="button" disabled={speichert} className="chip px-2.5 py-1 text-xs" onClick={() => void korrekturSpeichern(detail.find((e) => e.id === korrektur.id)!, g)}>{g}</button>
+                              ))}
+                              <button type="button" className="btn-ghost px-2.5 py-1 text-xs" onClick={() => setKorrektur(null)}>Abbrechen</button>
+                            </div>
+                            {tag.offen.length > 1 && (
+                              <p className="mt-2 text-[11px] text-ink3">
+                                Gilt der Wert für alle im Team an diesem Tag?{' '}
+                                {GRUENDE.slice(0, 2).map((g) => (
+                                  <button key={g} type="button" disabled={speichert} className="mr-1 font-semibold text-steel underline underline-offset-2" onClick={() => void teamSetzen(tag.eintraege, korrektur.total, g)}>
+                                    alle auf {stunden(korrektur.total)} h ({g})
+                                  </button>
+                                ))}
+                              </p>
+                            )}
+                          </div>
+                        )}
+
+                        {doppelteNormalmeldungen(detail) > new Set(detail.map((e) => e.mitarbeiter.id)).size && (
+                          <p className="rounded-[10px] bg-amber-soft px-3 py-2 text-xs text-amber-deep">
+                            Der normale Tag wurde mehrfach gemeldet — die Stunden addieren sich. Falls doppelt: im Teamgerät «Frühere ersetzen» wählen.
+                          </p>
+                        )}
+
+                        {faelle.map(({ meldung, eintraege: liste, ausloeser, geprueft, rapport, keineRegie: keineRegieGrund, info }) => (
+                          <div key={meldung.id} className={'rounded-[12px] border p-3 ' + (rapport || geprueft || keineRegieGrund || info ? 'border-line bg-ground' : 'border-amber/40 bg-amber-soft/60') + (markierteMeldung === meldung.id ? ' ring-2 ring-steel' : '')}>
+                            <div className="flex items-baseline justify-between gap-2">
+                              <span className="font-display text-[14px] font-semibold">
+                                {rapport ? 'Regierapport angelegt ✓' : keineRegieGrund ? 'Keine Regie ✓' : info ? 'Länger gearbeitet' : geprueft ? 'Regieverdacht geprüft ✓' : 'Regieverdacht'}
+                                {mehrereBaustellen && <span className="font-body text-xs font-normal text-ink3"> · {meldung.baustelle?.bezeichnung ?? '—'}</span>}
+                              </span>
+                            </div>
+                            <ul className="mt-1 space-y-0.5 text-xs text-ink2">
+                              {ausloeser.map((a) => <li key={a}>• {a}</li>)}
+                            </ul>
+                            {meldung.foto?.length > 0 && (
+                              <div className="mt-2">
+                                <FotoGalerie pfade={meldung.foto.map((f) => f.pfad)} klein />
+                              </div>
+                            )}
+                            {meldung.transkript && (
+                              <div className="mt-2 rounded-[10px] bg-surface px-3 py-2 text-sm text-ink2">
+                                <p className="italic">«{meldung.transkript}»</p>
+                                {meldung.transkript_quelle && (
+                                  <details className="mt-1 text-xs text-ink3">
+                                    <summary className="cursor-pointer">{(meldung.transkript_sprache ?? 'de') === 'de' ? 'So wurde es gesprochen · Text ist bereinigt' : `Original auf ${SPRACHE[meldung.transkript_sprache ?? ''] ?? 'anderer Sprache'} · automatisch übersetzt`}</summary>
+                                    <p className="mt-1 italic" dir="auto">{meldung.transkript_quelle}</p>
+                                  </details>
+                                )}
+                              </div>
+                            )}
+                            {!meldung.transkript && meldung.audio_pfad && (
+                              <p className="mt-2 flex flex-wrap items-center gap-2 text-xs text-ink3">
+                                {transkribiert.has(meldung.id)
+                                  ? 'Text wird erstellt …'
+                                  : meldung.transkript_fehler
+                                    ? <span className="text-amber-deep">Text konnte nicht erstellt werden.</span>
+                                    : 'Noch kein Text zur Sprachnotiz.'}
+                                {!transkribiert.has(meldung.id) && (
+                                  <button type="button" className="btn-ghost px-2 py-0.5 text-xs" onClick={() => void transkribieren(meldung.id)}>Text erstellen</button>
+                                )}
+                              </p>
+                            )}
+                            {(meldung.audio_pfad || meldung.audio_sekunden) && (
+                              <div className="mt-2 flex items-center gap-2">
+                                {meldung.audio_pfad ? (
+                                  <button type="button" onClick={() => void anhoeren(meldung.id, meldung.audio_pfad!)} className="btn-ghost">▶ Sprachnotiz{meldung.audio_sekunden ? ` · ${meldung.audio_sekunden} Sek.` : ''}</button>
+                                ) : (
+                                  <span className="font-mono text-[11px] text-ink3">Sprachnotiz {meldung.audio_sekunden} Sek. (Demo — keine Aufnahme hinterlegt)</span>
+                                )}
+                                {audio?.meldung === meldung.id && <audio controls autoPlay src={audio.url} className="h-8 flex-1" />}
+                              </div>
+                            )}
+                            {meldung.normalfall && liste.every((e) => e.ueber_min === 0) ? (
+                              /* Normaler Tag mit offenem Auftrag: die Stunden sind Aufbau (Offerte), nicht Regie.
+                                 Regie entsteht nur aus gemeldeten Überstunden — sonst beim Team nachfragen. */
+                              <p className="mt-2 rounded-[10px] border border-dashed border-amber/60 px-3 py-2 text-xs text-ink2">
+                                Das Team hat den Tag ohne Überstunden gemeldet ({stunden(liste.reduce((s, e) => s + e.normal_min + e.ueber_min, 0))} h). Der Zusatzauftrag ist noch offen — beim Chefmonteur nachfragen, ob die Zusatzarbeit ausgeführt wurde.
+                              </p>
+                            ) : (
+                              <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+                                <span className="text-sm">
+                                  {meldung.normalfall
+                                    ? <>{stunden(liste.reduce((s, e) => s + e.ueber_min, 0))} h Überstunden</>
+                                    : <>{stunden(liste.reduce((s, e) => s + e.normal_min + e.ueber_min, 0))} h {meldung.abweichung_typ === 'laenger' ? 'länger' : 'Zusatzarbeit'}</>}
+                                  {info
+                                    ? <span className="text-xs text-ink3"> · geht in den Lohn, nicht an den Kunden</span>
+                                    : <> ·{' '}<span className="font-mono font-semibold text-accent-deep">{formatChf(betragVorgerechnet(meldung.normalfall ? liste.map((e) => ({ ...e, normal_min: e.ueber_min, ueber_min: 0 })) : liste))}</span><span className="text-xs text-ink3"> vorgerechnet</span></>}
+                                </span>
+                                {meldung.regierapport?.length > 0 ? (
+                                  <Link to={`/regie/${meldung.regierapport[0].id}`} className="btn-ghost shrink-0 border-steel text-steel">
+                                    {meldung.regierapport[0].nummer ?? 'Regierapport'} · {RAPPORT_STAND[meldung.regierapport[0].status] ?? meldung.regierapport[0].status} ›
+                                  </Link>
+                                ) : keineRegieGrund ? (
+                                  <span className="flex items-center gap-2 text-xs text-ink2">
+                                    <span>keine Regie · {keineRegieGrund}</span>
+                                    {darfFreigeben && <button type="button" className="font-semibold text-steel" onClick={() => void dochRegie(meldung.id)}>doch Regie</button>}
+                                  </span>
+                                ) : info ? (
+                                  <Link to={`/regie/neu?meldung=${meldung.id}${meldung.normalfall ? '&nur=ueber' : ''}`} className="shrink-0 text-xs font-semibold text-steel">Doch Regie? Vorrechnen ›</Link>
+                                ) : (
+                                  <span className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+                                    {darfFreigeben && (
+                                      <button type="button" className="btn-ghost" onClick={() => setKeineRegieFrage(keineRegieFrage === meldung.id ? null : meldung.id)}>Keine Regie …</button>
+                                    )}
+                                    <Link to={`/regie/neu?meldung=${meldung.id}${meldung.normalfall ? '&nur=ueber' : ''}`} className="btn-ghost border-accent text-accent-deep">
+                                      Regierapport vorrechnen ›
+                                    </Link>
+                                  </span>
+                                )}
+                              </div>
+                            )}
+                            {keineRegieFrage === meldung.id && !rapport && !keineRegieGrund && (
+                              <div className="mt-2 space-y-1.5 rounded-[10px] bg-surface p-3">
+                                <p className="text-xs text-ink2">Warum keine Regie? Die Stunden bleiben im Lohn — nur die Verrechnung an den Kunden entfällt.</p>
+                                <div className="flex flex-wrap gap-1.5">
+                                  {Object.entries(REGIE_GRUND).map(([k, text]) => (
+                                    <button key={k} type="button" className="chip px-3 py-1.5 text-xs" onClick={() => void keineRegie(meldung.id, k)}>{text}</button>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        ))}
+
+                        {detail.some((e) => (e.freigabe_log?.length ?? 0) > 0) && (
+                          <details className="text-[11px] text-ink3">
+                            <summary className="cursor-pointer font-semibold uppercase tracking-wide">Verlauf</summary>
+                            {detail.flatMap((e) => (e.freigabe_log ?? []).map((l) => ({ ...l, wer_name: e.mitarbeiter.name }))).sort((a, b) => a.wann.localeCompare(b.wann)).map((l, i) => (
+                              <p key={i} className="mt-0.5">
+                                {ch(new Date(l.wann))} {new Date(l.wann).toLocaleTimeString('de-CH', { hour: '2-digit', minute: '2-digit' })} · {l.wer_name}: {l.feld === 'status' ? 'freigegeben' : `${FELD[l.feld] ?? l.feld} ${stunden(Number(l.alt))} → ${stunden(Number(l.neu))} h`}{l.begruendung ? ` · ${l.begruendung}` : ''}
+                              </p>
+                            ))}
+                          </details>
+                        )}
+
+                        {/* Der Knopf für diesen Tag — so gibt der Bauführer einzelne Teams an einzelnen Tagen frei */}
+                        {darfFreigeben && tag.offen.length > 0 ? (
+                          <div className="space-y-1">
+                            <button type="button" className="cta cta-good disabled:opacity-60" disabled={!userId || speichert} onClick={() => void freigeben(tag.offen, `${z.team.bezeichnung}, ${tagName(tag.datum)}`)}>
+                              {speichert ? 'Speichert …' : `${tagName(tag.datum)} freigeben · ${personenN} Pers.`}
                             </button>
-                          )}
-                        </>
-                      )}
-                    </div>
-                  )}
+                            {(tag.status === 'gelb' || tag.status === 'rot') && (
+                              <p className="text-center text-[11px] text-ink3">Freigeben heisst: angeschaut. Regie läuft über die Karte oben — Rapport vorrechnen oder «Keine Regie».</p>
+                            )}
+                          </div>
+                        ) : tag.offen.length === 0 ? (
+                          <p className="text-center text-sm font-semibold text-good-deep">✓ Tag freigegeben</p>
+                        ) : null}
+                      </div>
+                    );
+                  })()}
                 </div>
               );
             })}
@@ -1078,11 +952,11 @@ export function Cockpit() {
 
         {!laedt && sichtbar.length > 0 && (
           <p className="flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-ink3">
-            <span><span className="mr-1 inline-block h-2 w-2 rounded-sm bg-amber-soft ring-1 ring-amber/40" />Regieverdacht</span>
-            <span><span className="mr-1 inline-block h-2 w-2 rounded-sm bg-accent-soft ring-1 ring-accent/40" />über 10 h</span>
-            <span><span className="mr-1 inline-block h-2 w-2 rounded-sm bg-good-soft/50 ring-1 ring-good/30" />wie geplant, noch offen</span>
+            <span><span className="mr-1 inline-block h-2 w-2 rounded-sm bg-surface ring-1 ring-line-strong" />offen</span>
             <span><span className="mr-1 inline-block h-2 w-2 rounded-sm bg-good-soft ring-1 ring-good/40" />freigegeben</span>
-            <span>· = Tag ohne Hinweis</span>
+            <span><span className="mr-1 inline-block h-2 w-2 rounded-sm bg-amber-soft ring-1 ring-amber/40" />Regieverdacht (Überstunden)</span>
+            <span><span className="mr-1 inline-block h-2 w-2 rounded-sm bg-accent-soft ring-1 ring-accent/40" />über 10 h</span>
+            <span>Zelle antippen = Tag öffnen</span>
           </p>
         )}
       </div>

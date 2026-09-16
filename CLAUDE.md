@@ -189,7 +189,7 @@ src/ui/Karten.tsx                 NavKarte, Kachel, MONATE — gemeinsam für al
 src/seiten/Zusatzauftrag.tsx      Stufe 1: Kundenbestellung in 20 Sek. (offline)
 src/seiten/Tag.tsx                Tagesübersicht: welche Teams haben gemeldet, welche nicht (Ziel der Start-Kachel)
 src/seiten/Erfassung.tsx          Teamgerät: Kacheln, Anwesenheit, Pfeile, Symbole, Sprachnotiz
-src/seiten/Cockpit.tsx            Wochenübersicht: Teamzeilen mit Wochenampel → Personen, Freigabe, Korrektur, Regieverdacht (Sekretariat: nur ansehen)
+src/seiten/Cockpit.tsx            Wochenübersicht: Raster Team × Tag (Farbe = Stand), Zelle antippen = Tag mit Personen, Korrektur, Regieverdacht, «Tag freigeben»; Freigabe je Tag / je Team / alles ohne Hinweis (Sekretariat: nur ansehen)
 src/seiten/RegieVorschau.tsx      Vorschau aus der Meldung — gespeichert wird erst auf «Als Entwurf speichern»
 src/seiten/RegieListe/Detail.tsx  Regierapporte: Positionen, Anhang, Versand, Chronik, Entwurf verwerfen
 src/seiten/Auswertung.tsx         Regie pro Baustelle/Kunde/Monat aus Sicht regie_auswertung (0009), CSV
