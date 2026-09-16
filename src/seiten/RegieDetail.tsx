@@ -6,6 +6,7 @@ import { fotoVerkleinern } from '../lib/foto';
 import { supabase } from '../lib/supabase';
 import { formatChf, materialmiete, tarifNachCode, positionBetrag, ETAPPE_MIN_RAPPEN } from '../lib/tarif';
 import { ausIso, lang } from '../lib/datum';
+import { taetigkeitText } from '../lib/zusatzauftrag';
 
 /**
  * Phase 4 — der einzelne Regierapport:
@@ -553,7 +554,7 @@ export function RegieDetail() {
                   {' '}am {tagKurz(rapport.zusatzauftrag.bestellt_am)}
                 </p>
                 <p className="text-ink2">
-                  {rapport.zusatzauftrag.taetigkeit}
+                  {taetigkeitText(rapport.zusatzauftrag.taetigkeit)}
                   {rapport.zusatzauftrag.geplant_fuer && <> · geplant für {tagKurz(rapport.zusatzauftrag.geplant_fuer)}</>}
                   {rapport.zusatzauftrag.notiz && <> · {rapport.zusatzauftrag.notiz}</>}
                 </p>

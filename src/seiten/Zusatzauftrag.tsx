@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { Shell } from '../ui/Shell';
 import { supabase } from '../lib/supabase';
 import { ausIso, kurz } from '../lib/datum';
+import { TAETIGKEITEN, TAETIGKEIT_LABEL } from '../lib/zusatzauftrag';
 import {
   enqueueZusatzauftrag,
   flushNachSupabase,
@@ -63,14 +64,6 @@ interface Auftrag {
   angezeigt_an: string | null;
 }
 
-const TAETIGKEITEN = [
-  ['versetzen', 'versetzen'],
-  ['ergaenzen', 'ergänzen'],
-  ['reparieren', 'reparieren'],
-  ['teilabbau', 'Teilabbau'],
-  ['reinigen', 'reinigen'],
-  ['anderes', 'anderes'],
-] as const;
 
 const KANAELE = [
   ['telefon', 'Telefon'],
@@ -106,7 +99,6 @@ const GRUENDE = [
 ] as const;
 
 const GRUND_LABEL: Record<string, string> = Object.fromEntries(GRUENDE);
-const TAETIGKEIT_LABEL: Record<string, string> = Object.fromEntries(TAETIGKEITEN);
 
 // Baustellenliste lokal vorhalten, damit das Formular auch ohne Netz aufgeht.
 // Kommt Netz zurück, wird der Cache beim nächsten Laden erneuert. v2: mit Kunde.

@@ -9,6 +9,7 @@ import { Link } from 'react-router-dom';
 import { Shell } from '../ui/Shell';
 import { supabase } from '../lib/supabase';
 import { addTage, iso, kurz, lang, montag, stunden, WOCHENTAGE } from '../lib/datum';
+import { taetigkeitText } from '../lib/zusatzauftrag';
 import { flushNachSupabase, offeneAnzahl, offeneMeldungen, type MeldungPayload } from '../lib/db';
 
 export const TEAM_KEY = 'teamgeraet-team-id';
@@ -334,7 +335,7 @@ export function StartChef() {
               const b = baustelleName(a.baustelle_id);
               return (
                 <div key={a.id} className="card space-y-0.5 py-3">
-                  <p className="text-sm font-semibold">{a.taetigkeit}</p>
+                  <p className="text-sm font-semibold">{taetigkeitText(a.taetigkeit)}</p>
                   <p className="text-xs text-ink3">
                     {b ? <><span className="knr">{b.konto_nr}</span> {b.bezeichnung ?? ''} · </> : null}
                     bestellt von {a.besteller_name}{a.geplant_fuer ? ` · geplant ${kurz(new Date(a.geplant_fuer + 'T12:00:00'))}` : ''}

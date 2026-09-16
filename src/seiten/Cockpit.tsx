@@ -6,6 +6,7 @@ import { supabase } from '../lib/supabase';
 import { minutenBetrag, formatChf, tarifNachCode, RUECKFALL_ANSATZ_RAPPEN } from '../lib/tarif';
 import { addTage, iso, kurz as ch, kw, montag, stunden, NORMALTAG_MIN } from '../lib/datum';
 import { useAnsicht } from '../lib/ansicht';
+import { taetigkeitText } from '../lib/zusatzauftrag';
 
 /**
  * Phase 3 — Wochenübersicht des Bauführers.
@@ -356,7 +357,7 @@ export function Cockpit() {
       if (ueberErklaert) ausloeser.push(`Team meldet ${stunden(ueberMin)} h Überstunden — Sprachnotiz unten`);
       const auftrag = passenderAuftrag(tm.baustelle?.id, tm.datum);
       if (auftrag && !info)
-        ausloeser.push(`offener Zusatzauftrag: ${auftrag.taetigkeit} (${auftrag.besteller_name})`);
+        ausloeser.push(`offener Zusatzauftrag: ${taetigkeitText(auftrag.taetigkeit)} (${auftrag.besteller_name})`);
       if (laengerOhneKunde(tm)) ausloeser.push('Team meldet «länger gearbeitet»', tm.wer_hats_gewollt === 'chef' ? 'unser Chef wollte es — Lohnstunden, keine Regie' : 'niemand hat es verlangt — Lohnstunden, keine Regie');
       if (ausloeser.length === 0) continue;
       gesehen.add(tm.id);
