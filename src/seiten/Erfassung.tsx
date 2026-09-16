@@ -908,13 +908,19 @@ export function Erfassung() {
               {/* Ziffernblock statt Tastatur (Regel 2): Konto-Nr. tippen, ab 3 Ziffern kommen bis zu 5 Treffer */}
               <div className="border-t border-line pt-3">
                 <p className="lbl">Konto-Nr. eintippen (nur Chefmonteur)</p>
-                <div className="mb-2 flex justify-center gap-1.5" aria-label={`Konto-Nr. ${ziffern || 'leer'}`}>
-                  {Array.from({ length: 6 }, (_, i) => (
-                    <span key={i} className={'flex h-11 w-9 items-center justify-center rounded-[8px] border font-mono text-lg font-semibold tabular-nums ' + (ziffern[i] ? 'border-steel bg-steel-soft text-steel' : 'border-line-strong bg-surface text-ink3')}>
-                      {ziffern[i] ?? ''}
-                    </span>
-                  ))}
-                </div>
+                {/* Echtes Feld: tippen, einfügen, Tastatur — der Ziffernblock darunter bleibt für Handschuhe */}
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  autoComplete="off"
+                  autoFocus
+                  value={ziffern}
+                  onChange={(e) => setZiffern(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                  onPaste={(e) => { e.preventDefault(); setZiffern(e.clipboardData.getData('text').replace(/\D/g, '').slice(0, 6)); }}
+                  placeholder="z. B. 903221"
+                  aria-label="Konto-Nr."
+                  className="field mb-2 text-center font-mono text-xl font-semibold tabular-nums tracking-[0.2em] placeholder:tracking-normal placeholder:font-sans placeholder:text-base placeholder:font-normal"
+                />
                 <div className="grid grid-cols-3 gap-2">
                   {['1', '2', '3', '4', '5', '6', '7', '8', '9'].map((z) => (
                     <button key={z} type="button" onClick={() => setZiffern((s) => (s.length < 6 ? s + z : s))} className="chip py-3 font-mono text-xl">{z}</button>
