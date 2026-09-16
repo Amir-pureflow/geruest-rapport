@@ -10,6 +10,7 @@ import { Shell } from '../ui/Shell';
 import { supabase } from '../lib/supabase';
 import { addTage, iso, kurz, lang, montag, stunden, WOCHENTAGE } from '../lib/datum';
 import { taetigkeitText } from '../lib/zusatzauftrag';
+import { kennzeichen } from '../lib/fahrzeug';
 import { flushNachSupabase, offeneAnzahl, offeneMeldungen, type MeldungPayload } from '../lib/db';
 
 export const TEAM_KEY = 'teamgeraet-team-id';
@@ -232,7 +233,7 @@ export function StartChef() {
             <p className="lbl mb-0.5">Chefmonteur</p>
             <h1 className="font-display text-2xl font-semibold">{team?.bezeichnung ?? 'Team'}</h1>
             <p className="text-sm text-ink3">
-              {team?.chefmonteur?.name ?? 'kein Chefmonteur hinterlegt'}{leute.length > 0 ? ` · ${leute.length} Personen` : ''}{team?.fahrzeug ? ` · ${team.fahrzeug}` : ''}
+              {team?.chefmonteur?.name ?? 'kein Chefmonteur hinterlegt'}{leute.length > 0 ? ` · ${leute.length} Personen` : ''}{kennzeichen(team?.fahrzeug) ? ` · ${kennzeichen(team?.fahrzeug)}` : ''}
             </p>
           </div>
           <button type="button" className="btn-ghost shrink-0 text-xs" onClick={() => { localStorage.removeItem(TEAM_KEY); setTeamId(null); }}>Team wechseln</button>

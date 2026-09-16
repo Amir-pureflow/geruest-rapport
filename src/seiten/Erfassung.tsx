@@ -7,6 +7,7 @@ import { supabase } from '../lib/supabase';
 import { enqueueMeldung, flushNachSupabase, offeneMeldungen, offeneAnzahl, lokaleMeldungEntfernen, type MeldungPayload } from '../lib/db';
 import { addTage, iso, lang, stunden, NORMALTAG_MIN } from '../lib/datum';
 import { fotoVerkleinern } from '../lib/foto';
+import { kennzeichen } from '../lib/fahrzeug';
 
 /**
  * Phase 2 — das Teamgerät. Ein Chefmonteur meldet für sein Team.
@@ -649,7 +650,7 @@ export function Erfassung() {
               {istHeute ? lang(datum) : <span className="font-semibold text-accent-deep">Nachtrag — nicht heute</span>}
               {' · '}
               <button type="button" onClick={() => setSchritt('team')} className="font-semibold text-steel">
-                {team?.bezeichnung ?? 'Team'}{team?.fahrzeug ? ` · ${team.fahrzeug}` : ''} · ändern
+                {team?.bezeichnung ?? 'Team'}{kennzeichen(team?.fahrzeug) ? ` · ${kennzeichen(team?.fahrzeug)}` : ''} · ändern
               </button>
             </p>
           </div>
