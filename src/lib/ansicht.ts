@@ -22,7 +22,7 @@ export const GRUPPEN: { key: Gruppe; titel: string; text: string }[] = [
 
 export const ANSICHTEN: { key: Ansicht; titel: string; text: string; gruppe: Gruppe }[] = [
   { key: 'bauf', titel: 'Bauführer', text: 'Prüfen, freigeben, Regie verschicken', gruppe: 'buero' },
-  { key: 'sekretariat', titel: 'Sekretariat', text: 'Anrufe festhalten, Regierapporte, Export', gruppe: 'buero' },
+  { key: 'sekretariat', titel: 'Sekretariat', text: 'Stunden, Lohn-Export, Mitarbeitende', gruppe: 'buero' },
   { key: 'chef', titel: 'Chefmonteur', text: 'Tagesmeldung fürs Team, ein Knopf am Abend', gruppe: 'baustelle' },
   { key: 'monteur', titel: 'Monteur', text: 'Meine Stunden, wie auf dem Wochenblatt', gruppe: 'baustelle' },
   { key: 'kunde', titel: 'Kunde', text: 'Bauleitung bestätigt den Regierapport per Link', gruppe: 'extern' },
@@ -33,7 +33,8 @@ export const ANSICHT_LABEL: Record<Ansicht, string> = Object.fromEntries(ANSICHT
 /** Welche Seiten jede Ansicht überhaupt hat. «/» und «/b/:token» gibt es immer. */
 export const SEITEN: Record<Ansicht, string[]> = {
   bauf: ['zusatzauftrag', 'erfassung', 'heute', 'cockpit', 'regie', 'auswertung', 'export', 'board', 'verwaltung'],
-  sekretariat: ['zusatzauftrag', 'heute', 'cockpit', 'regie', 'auswertung', 'export', 'board', 'verwaltung'],
+  // Sekretariat (Entscheid 17.09.): nur Stunden, Export, Plan, Stammdaten — keine Regie, keine Zusatzaufträge
+  sekretariat: ['export', 'board', 'verwaltung'],
   chef: ['erfassung'],
   monteur: [],
   kunde: [],

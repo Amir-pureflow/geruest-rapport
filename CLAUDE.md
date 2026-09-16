@@ -96,6 +96,8 @@ kann alles sehen. Für echte Kundendaten muss ein Login zurück (Magic Link stan
 ## Ansichten statt Login (09.09.) und Rechte
 
 Beim Start wählt man die Ansicht (Bauführer, Chefmonteur, Monteur, Sekretariat, Kunde), kein Login.
+Sekretariat (17.09.): nur Übersicht (Stunden je Mitarbeiter, freigegeben/offen, Temporärbüros), Export, Board,
+Verwaltung — keine Regie, keine Zusatzaufträge, keine Wochenübersicht (`SEITEN.sekretariat`, `navFuer`).
 Die Datenverbindung läuft über eine anonyme Supabase-Sitzung (main.tsx). Ohne Sitzung zeigt die App
 den Grund (Ansicht.tsx), nie leere Listen. Rechte sind damit nur in der Oberfläche — vor echten
 Kundendaten kommt ein Login pro Rolle zurück (Prüfbericht 09.09., Paket 4). Anonyme Anmeldungen

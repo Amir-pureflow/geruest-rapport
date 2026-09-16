@@ -44,6 +44,20 @@ interface NavGruppe { titel?: string; eintraege: NavEintrag[] }
 
 /** Gleiche Ordnung für beide Büro-Ansichten: erst das Tägliche, dann Geld, dann Planung. */
 export function navFuer(a: 'bauf' | 'sekretariat', kundenToken: string | null = null): NavGruppe[] {
+  // Sekretariat: vier Bereiche, alles rund um Stunden und Stammdaten (Entscheid 17.09.)
+  if (a === 'sekretariat') {
+    return [
+      { eintraege: [{ zu: '/', label: 'Übersicht', icon: LayoutDashboard }] },
+      {
+        titel: 'Stunden & Daten',
+        eintraege: [
+          { zu: '/export', label: 'Export', icon: Download },
+          { zu: '/board', label: 'Board', icon: LayoutGrid },
+          { zu: '/verwaltung', label: 'Verwaltung', icon: Settings },
+        ],
+      },
+    ];
+  }
   return [
     { eintraege: [{ zu: '/', label: 'Übersicht', icon: LayoutDashboard }] },
     {
