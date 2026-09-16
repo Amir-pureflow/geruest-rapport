@@ -160,90 +160,125 @@ export function StartMonteur() {
 
   const tage = Array.from({ length: 7 }, (_, i) => addTage(wochenStart, i));
   const total = eintraege.reduce((s, e) => s + e.normal_min + e.ueber_min, 0);
+  const normal = eintraege.reduce((s, e) => s + e.normal_min, 0);
   const ueber = eintraege.reduce((s, e) => s + e.ueber_min, 0);
   const km = eintraege.reduce((s, e) => s + e.km, 0);
   const oevTage = new Set(eintraege.filter((e) => e.oev).map((e) => e.tagesmeldung.datum)).size;
   const alleFrei = eintraege.length > 0 && eintraege.every((e) => e.status === 'freigegeben');
+  const offen = eintraege.filter((e) => e.status !== 'freigegeben').length;
+  const dieseWoche = vonIso === iso(montag(new Date()));
+  const tageMitEintrag = new Set(eintraege.map((e) => e.tagesmeldung.datum)).size;
 
   return (
     <Shell>
-      <div className="space-y-5">
+      <div className="space-y-4">
         <header className="flex items-start justify-between gap-3">
-          <div>
-            <p className="lbl mb-0.5">Monteur</p>
-            <h1 className="font-display text-2xl font-semibold">{person?.name ?? '…'}</h1>
-            <p className="text-sm text-ink3">Meine Woche · KW {kw(wochenStart)}</p>
+          <div className="min-w-0">
+            <p className="lbl mb-0.5">Meine Woche</p>
+            <h1 className="truncate font-display text-2xl font-semibold">{person?.name ?? '…'}</h1>
           </div>
           <button type="button" className="btn-ghost shrink-0 text-xs" onClick={() => { localStorage.removeItem(MONTEUR_KEY); setPerson(null); setPersonId(null); setTeamId(null); }}>Nicht ich</button>
         </header>
 
-        <div className="flex items-center justify-between">
-          <button type="button" className="btn-ghost" onClick={() => setWochenStart(addTage(wochenStart, -7))} aria-label="Vorwoche">‹</button>
-          <span className="font-mono text-xs text-ink2">{kurz(wochenStart)} – {kurz(addTage(wochenStart, 6))}{vonIso === iso(montag(new Date())) ? ' · diese Woche' : ''}</span>
-          <button type="button" className="btn-ghost" disabled={bisIso >= heuteIso && vonIso >= iso(montag(new Date()))} onClick={() => setWochenStart(addTage(wochenStart, 7))} aria-label="nächste Woche">›</button>
+        {/* Wochenwahl: ein Element, wie in der Wochenübersicht */}
+        <div className="inline-flex w-full items-stretch overflow-hidden rounded-xl border border-line-strong bg-surface">
+          <button type="button" className="px-4 text-ink2 transition-colors hover:bg-surface-2" onClick={() => setWochenStart(addTage(wochenStart, -7))} aria-label="Vorwoche">‹</button>
+          <span className="flex-1 border-x border-line px-3 py-2 text-center text-sm">
+            <span className="font-semibold">KW {kw(wochenStart)}</span>
+            <span className="text-ink3"> · {kurz(wochenStart)} – {kurz(addTage(wochenStart, 6))}{dieseWoche ? ' · jetzt' : ''}</span>
+          </span>
+          <button type="button" className="px-4 text-ink2 transition-colors hover:bg-surface-2 disabled:opacity-30" disabled={dieseWoche || bisIso >= heuteIso} onClick={() => setWochenStart(addTage(wochenStart, 7))} aria-label="nächste Woche">›</button>
         </div>
 
-        <div className="card divide-y divide-line p-0">
+        {/* Die Summe zuoberst — das ist die Zahl, die der Monteur wissen will */}
+        {!laedt && (
+          <section className="card">
+            <div className="space-y-2.5">
+              <div>
+                <p className="font-mono text-[34px] font-semibold leading-none tabular-nums">{stunden(total)} <span className="text-lg font-medium text-ink3">h</span></p>
+                <p className="mt-1.5 text-sm text-ink2">
+                  {stunden(normal)} h normal
+                  {ueber > 0 && <> + <span className="font-semibold text-amber-deep">{stunden(ueber)} h Überstunden</span></>}
+                  {tageMitEintrag > 0 && <span className="text-ink3"> · {tageMitEintrag} {tageMitEintrag === 1 ? 'Tag' : 'Tage'}</span>}
+                </p>
+                {(km > 0 || oevTage > 0) && (
+                  <p className="mt-0.5 text-xs text-ink3">{km > 0 ? `${km} km Anreise` : ''}{km > 0 && oevTage > 0 ? ' · ' : ''}{oevTage > 0 ? `öV an ${oevTage} ${oevTage === 1 ? 'Tag' : 'Tagen'}` : ''}</p>
+                )}
+              </div>
+              {eintraege.length > 0 && (
+                alleFrei
+                  ? <span className="inline-block rounded-full bg-good-soft px-3 py-1 text-xs font-semibold text-good-deep">✓ vom Bauführer angeschaut</span>
+                  : <span className="inline-block rounded-full bg-surface-2 px-3 py-1 text-xs font-medium text-ink2">{offen === eintraege.length ? 'noch nicht vom Bauführer angeschaut' : `${offen} Einträge noch nicht angeschaut`}</span>
+              )}
+            </div>
+          </section>
+        )}
+
+        {/* Ein Tag = eine Karte. Zukunft und leere Wochenenden bleiben weg — weniger Zeilen, mehr Ruhe. */}
+        <div className="space-y-2">
           {tage.map((d, i) => {
             const dIso = iso(d);
             const es = eintraege.filter((e) => e.tagesmeldung.datum === dIso);
             const zukunft = dIso > heuteIso;
+            if (zukunft) return null;
+            if (es.length === 0 && i >= 5) return null;
+            const tagMin = es.reduce((s, e) => s + e.normal_min + e.ueber_min, 0);
+            const tagUeber = es.reduce((s, e) => s + e.ueber_min, 0);
+            const tagFrei = es.length > 0 && es.every((e) => e.status === 'freigegeben');
             return (
-              <div key={dIso} className={'px-4 py-2 text-sm ' + (zukunft ? 'text-ink3' : '')}>
-                <div className="flex items-start gap-3">
-                  <span className="w-16 shrink-0 whitespace-nowrap font-mono text-xs leading-6">{WOCHENTAGE[i]} {kurz(d)}</span>
-                  <span className="min-w-0 flex-1">
-                    {es.length === 0 && <span className="leading-6 text-ink3">{zukunft || i >= 5 ? '—' : 'nichts gemeldet'}</span>}
-                    {es.map((e) => {
-                      const korr = korrekturJeZeit.get(e.id) ?? [];
-                      return (
-                        <span key={e.id} className="block">
-                          <span className="flex items-center justify-between gap-2 leading-6">
-                            <span className="min-w-0 truncate">
-                              {e.tagesmeldung.baustelle ? <><span className="knr">{e.tagesmeldung.baustelle.konto_nr}</span> {e.tagesmeldung.baustelle.bezeichnung ?? ''}</> : 'Baustelle'}
-                            </span>
-                            <span className="w-14 shrink-0 text-right font-mono text-xs tabular-nums text-ink3">
-                              {e.oev ? 'öV' : e.km > 0 ? `${e.km} km` : ''}
-                            </span>
-                            <span className="w-20 shrink-0 text-right font-mono text-xs tabular-nums">
-                              {stunden(e.normal_min + e.ueber_min)} h
-                              {e.status === 'freigegeben' ? <span className="ml-1 text-good" title="vom Bauführer angeschaut">✓</span> : <span className="ml-1 opacity-0">✓</span>}
-                            </span>
-                          </span>
-                          {e.ueber_min > 0 && <span className="block text-right text-[11px] text-ink3">davon {stunden(e.ueber_min)} h Überstunden</span>}
-                          {korr.map((k, j) => (
-                            <span key={j} className="block text-xs text-amber-deep">
-                              vom Bauführer angepasst: {k.feld === 'ueber_min' ? 'Überstunden ' : ''}{stunden(k.alt)} → {stunden(k.neu)} h
-                              {k.grund ? <span className="text-ink2"> · Grund: {k.grund}</span> : null}
-                            </span>
-                          ))}
-                        </span>
-                      );
-                    })}
-                  </span>
+              <div key={dIso} className={'card flex gap-3 px-4 py-3 ' + (es.length === 0 ? 'bg-surface/60' : '')}>
+                <div className="w-11 shrink-0 text-center">
+                  <span className={'block text-[15px] font-semibold ' + (dIso === heuteIso ? 'text-accent-deep' : '')}>{WOCHENTAGE[i]}</span>
+                  <span className="block text-[11px] tabular-nums text-ink3">{kurz(d)}</span>
                 </div>
+                <div className="min-w-0 flex-1">
+                  {es.length === 0 ? (
+                    <p className="py-1 text-sm text-ink3">nichts gemeldet</p>
+                  ) : (
+                    <>
+                      {es.map((e) => {
+                        const korr = korrekturJeZeit.get(e.id) ?? [];
+                        return (
+                          <div key={e.id} className="space-y-1">
+                            <p className="text-sm font-medium leading-snug">
+                              {e.tagesmeldung.baustelle?.bezeichnung ?? 'Baustelle'}
+                              {e.tagesmeldung.baustelle && <span className="knr ml-1.5 align-middle">{e.tagesmeldung.baustelle.konto_nr}</span>}
+                            </p>
+                            <p className="text-xs text-ink3">
+                              {stunden(e.normal_min)} h normal
+                              {e.ueber_min > 0 && <> + <span className="font-semibold text-amber-deep">{stunden(e.ueber_min)} h Überstunden</span></>}
+                              {e.oev ? ' · öV' : e.km > 0 ? ` · ${e.km} km` : ''}
+                            </p>
+                            {korr.length > 0 && (
+                              <div className="rounded-[8px] bg-amber-soft px-2.5 py-1.5 text-xs text-amber-deep">
+                                <p className="font-semibold">Bauführer hat angepasst{korr[0].grund ? ` · ${korr[0].grund}` : ''}</p>
+                                {korr.map((k, j) => (
+                                  <p key={j}>{k.feld === 'ueber_min' ? 'Überstunden' : 'Normal'}: {stunden(k.alt)} → {stunden(k.neu)} h</p>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </>
+                  )}
+                </div>
+                {es.length > 0 && (
+                  <div className="shrink-0 text-right">
+                    <p className="font-mono text-[17px] font-semibold tabular-nums">{stunden(tagMin)} h</p>
+                    {tagUeber > 0 && <p className="text-[10px] text-amber-deep">inkl. Überstunden</p>}
+                    <p className={'mt-0.5 text-[11px] font-medium ' + (tagFrei ? 'text-good-deep' : 'text-ink3')}>{tagFrei ? '✓ angeschaut' : 'offen'}</p>
+                  </div>
+                )}
               </div>
             );
           })}
-          <div className="flex items-center justify-between gap-2 px-4 py-2.5 text-sm">
-            <span className="font-display font-semibold">Total</span>
-            <span className="flex items-center gap-2 font-mono tabular-nums">
-              <span className="w-24 text-right text-xs text-ink3">
-                {oevTage > 0 ? `öV ${oevTage}×` : ''}{oevTage > 0 && km > 0 ? ' · ' : ''}{km > 0 ? `${km} km` : ''}
-              </span>
-              <span className="w-20 text-right"><strong>{stunden(total)} h</strong></span>
-            </span>
-          </div>
-          {ueber > 0 && <p className="px-4 pb-2 text-right text-[11px] text-ink3">davon {stunden(ueber)} h Überstunden</p>}
         </div>
 
         {laedt ? (
           <p className="text-sm text-ink3">lädt …</p>
         ) : (
-          <p className="text-sm text-ink2">
-            {alleFrei ? 'Alles vom Bauführer angeschaut (✓). ' : '✓ heisst: der Bauführer hat die Stunden angeschaut. '}
-            Stimmt etwas nicht, sag es deinem Chefmonteur.
-          </p>
+          <p className="text-xs text-ink3">«✓ angeschaut» heisst: der Bauführer hat die Stunden geprüft. Stimmt etwas nicht, sag es deinem Chefmonteur.</p>
         )}
       </div>
     </Shell>
