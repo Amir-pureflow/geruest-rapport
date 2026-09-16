@@ -357,15 +357,30 @@ export function Erfassung() {
 
   useEffect(() => { void heutigeLaden(); }, [heutigeLaden]);
 
-  // Ausnahme für den Chefmonteur: Konto-Nr. über den Ziffernblock, falls die Kacheln nicht reichen (ab 3 Ziffern, max. 5 Treffer)
+  /** Baustelle aus «andere Baustelle …» übernehmen: wird die erste Kachel oben (markiert), das Suchfeld geht zu. */
+  function andereWaehlen(b: Baustelle) {
+    setBaustelle(b);
+    setKacheln((k) => [b, ...k.filter((x) => x.id !== b.id)].slice(0, 5));
+    setZeigeAndere(false);
+    setZiffern('');
+    setSuchTreffer([]);
+  }
+
+  // Ausnahme für den Chefmonteur: Konto-Nr. über den Ziffernblock, falls die Kacheln nicht reichen (ab 3 Ziffern, max. 5 Treffer).
+  // Volle Nummer mit genau einem Treffer → direkt übernehmen, ohne zweiten Tipp.
   useEffect(() => {
     if (!supabase || ziffern.length < 3) { setSuchTreffer([]); return; }
     const client = supabase;
     const q = ziffern;
     const t = setTimeout(() => {
-      void client.from('baustelle').select('id,konto_nr,bezeichnung').like('konto_nr', `${q}%`).order('konto_nr').limit(5).then(({ data }) => data && setSuchTreffer(data));
+      void client.from('baustelle').select('id,konto_nr,bezeichnung').like('konto_nr', `${q}%`).order('konto_nr').limit(5).then(({ data }) => {
+        if (!data) return;
+        if (q.length >= 6 && data.length === 1 && data[0].konto_nr === q) { andereWaehlen(data[0]); return; }
+        setSuchTreffer(data);
+      });
     }, 150);
     return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ziffern]);
 
   function teamWaehlen(id: string) {
@@ -905,7 +920,7 @@ export function Erfassung() {
           {zeigeAndere && (
             <div className="card mt-2 space-y-2 p-3">
               {alleGeplanten.filter((b) => !kacheln.some((k) => k.id === b.id)).slice(0, 5).map((b) => (
-                <button key={b.id} type="button" onClick={() => { setBaustelle(b); setZeigeAndere(false); }} className="flex w-full items-center justify-between rounded-lg px-2 py-2 text-left text-sm hover:bg-ground">
+                <button key={b.id} type="button" onClick={() => andereWaehlen(b)} className="flex w-full items-center justify-between rounded-lg px-2 py-2 text-left text-sm hover:bg-ground">
                   <span>{b.bezeichnung}</span><span className="knr">{b.konto_nr}</span>
                 </button>
               ))}
@@ -939,7 +954,7 @@ export function Erfassung() {
                 {suchTreffer.length > 0 && (
                   <div className="mt-2 grid gap-2">
                     {suchTreffer.map((b) => (
-                      <button key={b.id} type="button" onClick={() => { setBaustelle(b); setZeigeAndere(false); setZiffern(''); }} className={'chip flex items-center justify-between py-2.5 text-left ' + (baustelle?.id === b.id ? 'chip-on' : '')}>
+                      <button key={b.id} type="button" onClick={() => andereWaehlen(b)} className={'chip flex items-center justify-between py-2.5 text-left ' + (baustelle?.id === b.id ? 'chip-on' : '')}>
                         <span className="text-sm font-semibold">{b.bezeichnung ?? 'Baustelle'}</span><span className="knr">{b.konto_nr}</span>
                       </button>
                     ))}
