@@ -1,5 +1,5 @@
 import { Check, CheckCircle2, ChevronLeft, ChevronRight, Flag, Minus, Plus, Car } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Shell } from '../ui/Shell';
 import { Pegel, TranskriptLive } from '../ui/Sprachnotiz';
@@ -11,9 +11,9 @@ import { fotoVerkleinern } from '../lib/foto';
 /**
  * Phase 2 — das Teamgerät. Ein Chefmonteur meldet für sein Team.
  *
- * Harte Regeln: keine Tastatur, keine Liste über 5 Einträgen, alles offline.
- * Normalfall = ein Knopf. Abweichung = Symbol → «Wer wollte das?» → kurz erzählen.
- * Es wird nie gefragt, OB etwas Regie ist — das kann der Monteur nicht wissen.
+ * Wie das Wochenblatt, nicht mehr: Baustelle, wer war dabei, Normalstunden, Überstunden — ein Knopf.
+ * Überstunden brauchen eine Sprachnotiz (warum); der Bauführer sieht sie als Regieverdacht und entscheidet.
+ * Es wird nie gefragt, OB etwas Regie ist — das kann der Monteur nicht wissen (Entscheid 17.09.: kein Abweichungs-Ablauf mehr).
  */
 
 interface Team { id: string; bezeichnung: string; fahrzeug: string | null }
@@ -22,9 +22,9 @@ interface Baustelle { id: string; konto_nr: string; bezeichnung: string | null }
 /** Wie auf dem Wochenblatt: Normalstunden (Standard 8 h) und Überstunden getrennt — beides Lohn, keine Fragen. */
 interface Anwesenheit { dabei: boolean; min: number; ueber: number; oev: boolean; km: number }
 
-type Schritt = 'team' | 'tag' | 'symbol' | 'wer' | 'notiz' | 'fertig';
+type Schritt = 'team' | 'tag' | 'fertig';
+/** Nur noch für alte Meldungen (vor 17.09.) — neue Meldungen sind immer normalfall. */
 type Abweichung = 'zusaetzlich' | 'warten' | 'kaputt' | 'laenger';
-type Wer = 'kunde' | 'chef' | 'niemand';
 
 const TEAM_KEY = 'teamgeraet-team-id';
 /** Zuletzt gewählte Teams auf diesem Gerät (max. 5, neuestes vorne) — damit die Teamwahl nie mehr als 5 Kacheln braucht (Regel 3). */
@@ -58,39 +58,12 @@ interface Gemeldet {
 type SpeicherModus = 'normal' | 'ersetzen' | 'zusaetzlich';
 const AB_KURZ: Record<Abweichung, string> = { zusaetzlich: 'zusätzlich', warten: 'gewartet', kaputt: 'repariert', laenger: 'länger' };
 
-const SYMBOLE: { typ: Abweichung; label: string; svg: ReactElement }[] = [
-  {
-    typ: 'zusaetzlich', label: 'zusätzlich gearbeitet',
-    svg: <svg viewBox="0 0 40 40" className="h-9 w-9" fill="currentColor"><rect x="17" y="8" width="6" height="24" rx="2" /><rect x="8" y="17" width="24" height="6" rx="2" /></svg>,
-  },
-  {
-    typ: 'warten', label: 'warten müssen',
-    svg: <svg viewBox="0 0 40 40" className="h-9 w-9" fill="none" stroke="currentColor"><circle cx="20" cy="20" r="13" strokeWidth="3.5" /><path d="M20 12v8.5l6 3.5" strokeWidth="3.5" strokeLinecap="round" /></svg>,
-  },
-  {
-    typ: 'kaputt', label: 'etwas kaputt / repariert',
-    svg: <svg viewBox="0 0 40 40" className="h-9 w-9"><path d="M20 7 L34 31 H6 Z" fill="none" stroke="currentColor" strokeWidth="3.5" strokeLinejoin="round" /><rect x="18.2" y="15" width="3.6" height="8" rx="1.8" fill="currentColor" /><circle cx="20" cy="26.5" r="2" fill="currentColor" /></svg>,
-  },
-];
-
-/** Kurzform für die drei Kacheln im Tag-Schritt — zwei Wörter, die auch allein verständlich sind. */
-const KURZ_LABEL: Record<Abweichung, string> = { zusaetzlich: 'zusätzlich gearbeitet', warten: 'warten müssen', kaputt: 'etwas kaputt', laenger: 'länger gearbeitet' };
-
-function Helm({ farbe }: { farbe: string }) {
-  return (
-    <svg viewBox="0 0 48 40" className="h-10 w-12" aria-hidden="true">
-      <path d="M11 28a13 13 0 0 1 26 0z" fill={farbe} />
-      <rect x="5" y="28" width="38" height="5" rx="2.5" fill={farbe} />
-    </svg>
-  );
-}
-
 function Stepper({ wert, setWert, schritt, min, max, format }: { wert: number; setWert: (v: number) => void; schritt: number; min: number; max?: number; format: (v: number) => string }) {
   return (
     <div className="flex items-center justify-between rounded-[14px] border border-line bg-surface p-1.5 shadow-[0_1px_2px_rgb(17_17_19/0.04)]">
-      <button type="button" onClick={() => setWert(Math.max(min, wert - schritt))} aria-label="weniger" className="grid h-12 w-14 place-items-center rounded-[10px] bg-surface-2 text-ink active:scale-95"><Minus size={22} strokeWidth={2.2} /></button>
-      <span className="font-mono text-2xl font-semibold tabular-nums">{format(wert)}</span>
-      <button type="button" onClick={() => setWert(max !== undefined ? Math.min(max, wert + schritt) : wert + schritt)} disabled={max !== undefined && wert >= max} aria-label="mehr" className="grid h-12 w-14 place-items-center rounded-[10px] bg-surface-2 text-ink active:scale-95 disabled:opacity-40"><Plus size={22} strokeWidth={2.2} /></button>
+      <button type="button" onClick={() => setWert(Math.max(min, wert - schritt))} aria-label="weniger" className="grid h-12 w-11 shrink-0 place-items-center rounded-[10px] bg-surface-2 text-ink active:scale-95"><Minus size={22} strokeWidth={2.2} /></button>
+      <span className="whitespace-nowrap font-mono text-xl font-semibold tabular-nums">{format(wert)}</span>
+      <button type="button" onClick={() => setWert(max !== undefined ? Math.min(max, wert + schritt) : wert + schritt)} disabled={max !== undefined && wert >= max} aria-label="mehr" className="grid h-12 w-11 shrink-0 place-items-center rounded-[10px] bg-surface-2 text-ink active:scale-95 disabled:opacity-40"><Plus size={22} strokeWidth={2.2} /></button>
     </div>
   );
 }
@@ -147,25 +120,14 @@ export function Erfassung() {
   // Über die Startseite (/erfassung?wahl) immer zuerst das Team zeigen — zum Testen mehrerer Teams im selben Browser.
   // Das Teamgerät selbst öffnet /erfassung ohne Parameter und landet direkt beim Tag.
   const [schritt, setSchritt] = useState<Schritt>(teamId && !new URLSearchParams(window.location.search).has('wahl') ? 'tag' : 'team');
-  const [abweichung, setAbweichung] = useState<Abweichung | null>(null);
-  const [wer, setWer] = useState<Wer | null>(null);
-  const [abMin, setAbMin] = useState(60);
-  // Zusatzstunden je Person — wer länger dran war, bekommt mehr; leer heisst: Wert vom grossen Regler
-  const [abMinPerson, setAbMinPerson] = useState<Record<string, number>>({});
-  const abMinVon = (id: string) => abMinPerson[id] ?? abMin;
-  const [abLeute, setAbLeute] = useState<Set<string>>(new Set());
-  const [aufnahme, setAufnahme] = useState<{ blob: Blob; sekunden: number } | null>(null);
-  // Überstunden: Sprachnotiz als Warum (Pflicht, ausser das Mikrofon fehlt) — hängt am normalen Tag, kein eigener Ablauf
+  // Überstunden: Sprachnotiz als Warum (Pflicht, ausser das Mikrofon fehlt) — hängt an der Tagesmeldung
   const [mikroFehlt, setMikroFehlt] = useState(false);
   const [ueberAufnahme, setUeberAufnahme] = useState<{ blob: Blob; sekunden: number } | null>(null);
   type Vorschau = { status: 'laeuft' | 'fertig' | 'fehler'; text: string; quelle: string | null; sprache: string; grund?: string };
-  const [ueberVorschau, setUeberVorschau] = useState<Vorschau | null>(null);
-  /** Wohin die laufende Aufnahme gehört: Abweichung (eigener Schritt) oder Überstunden (normaler Tag) */
-  const aufnahmeZiel = useRef<'ab' | 'ueber'>('ab');
   // Text der Sprachnotiz — entsteht sofort nach der Aufnahme, der Chefmonteur prüft ihn VOR dem Speichern
-  const [vorschau, setVorschau] = useState<Vorschau | null>(null);
-  async function textVorschau(blob: Blob, ziel: 'ab' | 'ueber' = 'ab') {
-    const setV = ziel === 'ueber' ? setUeberVorschau : setVorschau;
+  const [ueberVorschau, setUeberVorschau] = useState<Vorschau | null>(null);
+  async function textVorschau(blob: Blob) {
+    const setV = setUeberVorschau;
     if (!supabase || !navigator.onLine) { setV({ status: 'fehler', text: '', quelle: null, sprache: 'de', grund: 'Kein Netz — der Text kommt, sobald die Meldung gesendet ist.' }); return; }
     setV({ status: 'laeuft', text: '', quelle: null, sprache: 'de' });
     try {
@@ -427,21 +389,6 @@ export function Erfassung() {
     setAnw((alt) => Object.fromEntries(Object.entries(alt).map(([k, a]) => [k, { ...a, ueber: v }])));
   }
 
-  /** Abweichung beginnen: Leute mit Überstunden sind vorbelegt, ihre Überstunden werden die Abweichungs-Stunden (nicht doppelt).
-   *  Eine schon aufgenommene Überstunden-Notiz wandert mit, falls noch keine Abweichungs-Notiz da ist. */
-  function abweichungStarten(typ: Abweichung) {
-    if (!baustelle) { setHinweis('Zuerst die Baustelle antippen.'); return; }
-    const mitUeber = dabei.filter((p) => (anw[p.id]?.ueber ?? 0) > 0);
-    setAbweichung(typ);
-    setAbLeute(new Set((mitUeber.length > 0 ? mitUeber : dabei).map((p) => p.id)));
-    if (mitUeber.length > 0) {
-      setAbMin(anw[mitUeber[0].id].ueber);
-      setAbMinPerson(Object.fromEntries(mitUeber.map((p) => [p.id, anw[p.id].ueber])));
-    }
-    if (!aufnahme && ueberAufnahme) { setAufnahme(ueberAufnahme); setVorschau(ueberVorschau); }
-    setSchritt('wer');
-  }
-
   /** Frühere Normal-Meldungen des Teams an diesem Tag entfernen (alle Baustellen) — lokal und auf dem Server, nur solange nichts freigegeben ist. */
   async function fruehereEntfernen(liste: Gemeldet[]) {
     const alte = liste.filter((m) => m.normalfall && !m.freigegeben);
@@ -453,29 +400,23 @@ export function Erfassung() {
     }
   }
 
-  /** Meldung für die gewählte Baustelle bauen: normaler Tag (alle Anwesenden, Stunden wie eingestellt) oder Abweichung (nur die Beteiligten, Zusatzminuten). */
-  function meldungBauen(normal: boolean, b: Baustelle, notiz: { blob: Blob; sekunden: number } | null = aufnahme, ohneUeberFuer: Set<string> = new Set()): MeldungPayload {
-    const beteiligt = normal ? dabei : dabei.filter((p) => abLeute.has(p.id));
-    // Normaler Tag mit Überstunden: «wer wollte das» + Notiz hängen an dieser Meldung (keine eigene Abweichung)
-    const ueberVon = (p: Person) => (ohneUeberFuer.has(p.id) ? 0 : anw[p.id]?.ueber ?? 0);
-    const hatUeber = normal && beteiligt.some((p) => ueberVon(p) > 0);
-    const nz = normal ? (hatUeber ? notiz : null) : notiz;
-    const vs = normal ? ueberVorschau : vorschau;
+  /** Meldung für die gewählte Baustelle bauen: alle Anwesenden, Normal- und Überstunden wie eingestellt; bei Überstunden die Sprachnotiz. */
+  function meldungBauen(b: Baustelle, notiz: { blob: Blob; sekunden: number } | null): MeldungPayload {
+    const hatUeber = dabei.some((p) => (anw[p.id]?.ueber ?? 0) > 0);
+    const nz = hatUeber ? notiz : null;
+    const vs = ueberVorschau;
     const textOk = !!nz && vs?.status === 'fertig' && !!vs.text.trim();
     return {
       id: crypto.randomUUID(), team_id: teamId!, datum: tagIso, baustelle_id: b.id,
-      normalfall: normal, abweichung_typ: normal ? null : abweichung, wer_hats_gewollt: normal ? null : wer,
+      normalfall: true, abweichung_typ: null, wer_hats_gewollt: null,
       audio_sekunden: nz?.sekunden ?? null, erfasst_von: userId,
       // geprüfter Text (ggf. vom Chefmonteur korrigiert) geht mit — sonst erstellt der Server ihn nach dem Upload
       transkript: textOk ? vs!.text.trim() : null,
       transkript_quelle: textOk ? vs!.quelle : null,
       transkript_sprache: textOk ? vs!.sprache : null,
-      eintraege: beteiligt.map((p) => {
+      eintraege: dabei.map((p) => {
         const a = anw[p.id];
-        // Normaler Tag: Normal- und Überstunden so, wie sie eingetragen sind. Abweichung: die Regiestunden je Person.
-        const normalMin = normal ? Math.min(a.min, STANDARD_MIN) : Math.min(abMinVon(p.id), STANDARD_MIN);
-        const ueberMin = normal ? Math.max(0, a.min - STANDARD_MIN) + ueberVon(p) : Math.max(0, abMinVon(p.id) - STANDARD_MIN);
-        return { id: crypto.randomUUID(), mitarbeiter_id: p.id, normal_min: normalMin, ueber_min: ueberMin, oev: normal ? a.oev : false, km: normal ? a.km : 0, baustelle_id: b.id, konto_nr: b.konto_nr };
+        return { id: crypto.randomUUID(), mitarbeiter_id: p.id, normal_min: Math.min(a.min, STANDARD_MIN), ueber_min: Math.max(0, a.min - STANDARD_MIN) + a.ueber, oev: a.oev, km: a.km, baustelle_id: b.id, konto_nr: b.konto_nr };
       }),
     };
   }
@@ -491,12 +432,12 @@ export function Erfassung() {
   }
 
   /** Speichern darf nie stumm scheitern: jeder Fehler landet als Satz auf dem Bildschirm. */
-  async function speichern(normal: boolean, modus: SpeicherModus = 'normal') {
+  async function speichern(modus: SpeicherModus = 'normal') {
     if (speichertRef.current) return;
     speichertRef.current = true;
     setSpeichert(true);
     try {
-      await speichernInnen(normal, modus);
+      await speichernInnen(modus);
     } catch (e) {
       setGespeichert(null);
       setHinweis('Speichern fehlgeschlagen: ' + (e instanceof Error ? e.message : String(e)) + ' — nochmals versuchen; die Aufnahme ist noch da.');
@@ -505,18 +446,17 @@ export function Erfassung() {
       setSpeichert(false);
     }
   }
-  async function speichernInnen(normal: boolean, modus: SpeicherModus) {
+  async function speichernInnen(modus: SpeicherModus) {
     if (!baustelle) { setHinweis('Zuerst die Baustelle antippen.'); return; }
     if (dabei.length === 0) { setHinweis('Niemand angehakt.'); return; }
     const hatUeber = dabei.some((p) => (anw[p.id]?.ueber ?? 0) > 0);
-    if (normal && hatUeber && !ueberAufnahme && !(nimmtAuf && aufnahmeZiel.current === 'ueber') && !mikroFehlt) { setHinweis('Bei Überstunden bitte kurz sagen, warum — Mikrofon antippen.'); return; }
+    if (hatUeber && !ueberAufnahme && !nimmtAuf && !mikroFehlt) { setHinweis('Bei Überstunden bitte kurz sagen, warum — Mikrofon antippen.'); return; }
     setHinweis('');
     const clientUuids: string[] = [];
-    let normalMitgespeichert = false;
     // Meldung mit Sprachnotiz — die Abschluss-Seite zeigt dann den Text, sobald er da ist
     let notizUuid: string | undefined;
 
-    if (normal) {
+    {
       const bisher = heuteGemeldet.filter((m) => m.normalfall);
       const gleiche = bisher.filter((m) => m.baustelle_id === baustelle.id);
       if (gleiche.some((m) => m.freigegeben)) {
@@ -537,37 +477,11 @@ export function Erfassung() {
       setDoppelt(null);
       if (modus === 'ersetzen') await fruehereEntfernen(bisher);
       const ueberNotiz = hatUeber ? await aufnahmeAbschliessen() : null;
-      const uuidNormal = await enqueueMeldung(meldungBauen(true, baustelle, ueberNotiz), ueberNotiz?.blob, fotos.map((f) => f.blob));
+      const uuidNormal = await enqueueMeldung(meldungBauen(baustelle, ueberNotiz), ueberNotiz?.blob, fotos.map((f) => f.blob));
       clientUuids.push(uuidNormal);
       if (ueberNotiz) notizUuid = uuidNormal;
-    } else {
-      // Abweichung: die normalen Stunden des Tags dürfen nicht verloren gehen — fehlt die Normalmeldung für diese Baustelle, geht sie zuerst mit in die Warteschlange.
-      let aktuell = heuteGemeldet;
-      try { aktuell = await heutigeLaden(); } catch { /* lokaler Stand reicht */ }
-      const hatNormal = aktuell.some((m) => m.normalfall && m.baustelle_id === baustelle.id);
-      if (!hatNormal) {
-        // Die Überstunden-Notiz gehört nur dann zum normalen Tag, wenn dort noch Überstunden bleiben (Leute ausserhalb der Abweichung)
-        // und die Notiz nicht schon in die Abweichung gewandert ist — sonst stünde derselbe Text zweimal.
-        const restUeber = dabei.some((p) => !abLeute.has(p.id) && (anw[p.id]?.ueber ?? 0) > 0);
-        const notizFuerNormal = restUeber && ueberAufnahme && ueberAufnahme !== aufnahme ? ueberAufnahme : null;
-        clientUuids.push(await enqueueMeldung(meldungBauen(true, baustelle, notizFuerNormal, abLeute), notizFuerNormal?.blob));
-        normalMitgespeichert = true;
-      }
-      const notiz = await aufnahmeAbschliessen();
-      const uuid = await enqueueMeldung(meldungBauen(false, baustelle, notiz), notiz?.blob, fotos.map((f) => f.blob));
-      clientUuids.push(uuid);
-      if (notiz) notizUuid = uuid;
     }
-
-    const abLeuteListe = dabei.filter((p) => abLeute.has(p.id));
-    const abGesamt = abLeuteListe.reduce((s, p) => s + abMinVon(p.id), 0);
-    const abGleich = abLeuteListe.every((p) => abMinVon(p.id) === abMinVon(abLeuteListe[0]?.id ?? ''));
-    const abText = abweichung
-      ? (abGleich ? `${stunden(abMinVon(abLeuteListe[0]?.id ?? ''))} h ${AB_KURZ[abweichung]} je ${abLeuteListe.length} Pers.` : `${stunden(abGesamt)} h ${AB_KURZ[abweichung]} (${abLeuteListe.length} Pers., unterschiedlich)`)
-      : '';
-    const zusammenfassung = normal
-      ? `Gespeichert: normaler Tag ${normalStundenText()}`
-      : normalMitgespeichert ? `Gespeichert: normaler Tag ${normalStundenText()} + ${abText}` : `Gespeichert: ${abText} (normaler Tag war schon gemeldet)`;
+    const zusammenfassung = `Gespeichert: ${normalStundenText()}`;
 
     setGespeichert('Lokal gespeichert …');
     if (supabase && navigator.onLine) {
@@ -575,7 +489,7 @@ export function Erfassung() {
       const offen = await offeneMeldungen();
       const alleDurch = clientUuids.every((u) => offen.every((m) => m.client_uuid !== u));
       if (alleDurch) {
-        setGespeichert(normal ? 'Gespeichert ✓' : 'Abweichung gespeichert ✓');
+        setGespeichert('Gespeichert ✓');
         setBestaetigung(zusammenfassung + ' ✓');
         setFertig({ text: zusammenfassung, stand: 'gesendet', notizUuid });
         if (erg.verworfen > 0) setHinweis(`${erg.verworfen} alte Meldung${erg.verworfen === 1 ? '' : 'en'} aussortiert: ${erg.fehlerText ?? ''}`);
@@ -595,7 +509,6 @@ export function Erfassung() {
     void offeneAnzahl().then(setWartend);
     setTimeout(() => setGespeichert(null), 3500);
     setTimeout(() => setBestaetigung(null), 8000);
-    setAbweichung(null); setWer(null); setAufnahme(null); setVorschau(null); setAbMin(60); setAbMinPerson({}); setAbLeute(new Set());
     setTeamUeber(0); setAnw((alt) => Object.fromEntries(Object.entries(alt).map(([k, a]) => [k, { ...a, ueber: 0 }])));
     setUeberAufnahme(null); setUeberVorschau(null);
     for (const f of fotos) URL.revokeObjectURL(f.url);
@@ -604,8 +517,7 @@ export function Erfassung() {
   }
 
   // Sprachnotiz — gedrückt halten / antippen
-  async function aufnahmeStart(ziel: 'ab' | 'ueber' = 'ab') {
-    aufnahmeZiel.current = ziel;
+  async function aufnahmeStart() {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       setMikroStream(stream);
@@ -617,9 +529,9 @@ export function Erfassung() {
         stream.getTracks().forEach((t) => t.stop());
         setMikroStream(null);
         const fertig = { blob: new Blob(teile, { type: mime || 'audio/webm' }), sekunden: Math.max(1, Math.round((Date.now() - start) / 1000)) };
-        (aufnahmeZiel.current === 'ueber' ? setUeberAufnahme : setAufnahme)(fertig);
+        setUeberAufnahme(fertig);
         setNimmtAuf(false);
-        void textVorschau(fertig.blob, aufnahmeZiel.current);
+        void textVorschau(fertig.blob);
         if (ticker.current) window.clearInterval(ticker.current);
         aufnahmeFertig.current?.(fertig);
         aufnahmeFertig.current = null;
@@ -637,7 +549,7 @@ export function Erfassung() {
   }
   /** Laufende Aufnahme beenden und auf die Datei warten — sonst geht sie beim Speichern verloren. */
   function aufnahmeAbschliessen(): Promise<{ blob: Blob; sekunden: number } | null> {
-    const bisher = aufnahmeZiel.current === 'ueber' ? ueberAufnahme : aufnahme;
+    const bisher = ueberAufnahme;
     if (!nimmtAuf || !recorder.current || recorder.current.state === 'inactive') return Promise.resolve(bisher);
     return new Promise((resolve) => {
       aufnahmeFertig.current = resolve;
@@ -715,135 +627,8 @@ export function Erfassung() {
           </section>
 
           <Link to="/" className="cta cta-good block text-center">Fertig für {istHeute ? 'heute' : 'diesen Tag'}</Link>
-          <button type="button" className="btn-ghost w-full py-2.5" onClick={() => setSchritt('tag')}>Noch etwas melden — zweite Baustelle oder Abweichung</button>
+          <button type="button" className="btn-ghost w-full py-2.5" onClick={() => setSchritt('tag')}>Noch etwas melden — zweite Baustelle</button>
           <button type="button" className="btn-ghost w-full py-2.5" onClick={() => { setDatum(addTage(datum, -1)); setSchritt('tag'); }}>Anderen Tag nachtragen</button>
-        </div>
-      </Shell>
-    );
-  }
-
-  if (schritt === 'symbol') {
-    return (
-      <Shell zurueck schmal>
-        <div className="space-y-4">
-          <p className="lbl mb-0">Abweichung</p>
-          <h1 className="font-display text-2xl font-semibold">Was war anders?</h1>
-          <div className="grid grid-cols-3 gap-2">
-            {SYMBOLE.map((s) => (
-              <button key={s.typ} type="button" onClick={() => abweichungStarten(s.typ)} className="chip flex flex-col items-center gap-2 py-5 text-ink2">
-                {s.svg}
-                <span className="text-xs leading-tight">{s.label}</span>
-              </button>
-            ))}
-          </div>
-          <button type="button" onClick={() => setSchritt('tag')} className="btn-ghost w-full">Zurück</button>
-        </div>
-      </Shell>
-    );
-  }
-
-  if (schritt === 'wer') {
-    return (
-      <Shell zurueck schmal>
-        <div className="space-y-4">
-          <p className="lbl mb-0">{SYMBOLE.find((s) => s.typ === abweichung)?.label}</p>
-          <h1 className="font-display text-2xl font-semibold">Wer wollte das?</h1>
-          <div className="grid grid-cols-3 gap-2">
-            {([['kunde', 'Kunde', '#D82816'], ['chef', 'Unser Chef', '#29506B'], ['niemand', 'Niemand', '']] as const).map(([w, label, farbe]) => (
-              <button key={w} type="button" onClick={() => { setWer(w); setSchritt('notiz'); }} className="chip flex flex-col items-center gap-2 py-5">
-                {farbe ? <Helm farbe={farbe} /> : (
-                  <svg viewBox="0 0 48 40" className="h-10 w-12" aria-hidden="true"><circle cx="24" cy="20" r="12" fill="none" stroke="#6C7B81" strokeWidth="3" /><line x1="15.5" y1="28.5" x2="32.5" y2="11.5" stroke="#6C7B81" strokeWidth="3" /></svg>
-                )}
-                <span className="text-sm font-semibold">{label}</span>
-              </button>
-            ))}
-          </div>
-          <p className="text-xs text-ink3">Kunde = der Bauleiter hat es angeordnet · Unser Chef = kam von uns · Niemand = selbst gemacht, meist weil etwas kaputt war</p>
-          <button type="button" onClick={() => setSchritt('symbol')} className="btn-ghost w-full">Zurück</button>
-        </div>
-      </Shell>
-    );
-  }
-
-  if (schritt === 'notiz') {
-    return (
-      <Shell zurueck schmal>
-        <div className="space-y-4">
-          <p className="lbl mb-0">{SYMBOLE.find((s) => s.typ === abweichung)?.label} · {wer === 'kunde' ? 'Kunde' : wer === 'chef' ? 'unser Chef' : 'niemand'}</p>
-          <h1 className="font-display text-2xl font-semibold">Wie lange?</h1>
-          <Stepper wert={abMin} setWert={(v) => { setAbMin(v); setAbMinPerson({}); }} schritt={30} min={30} format={(v) => (v / 60).toFixed(1) + ' h'} />
-          <p className="-mt-2 text-center text-xs text-ink3">{dabei.some((p) => (anw[p.id]?.ueber ?? 0) > 0) ? 'Vorbelegt mit den Überstunden — die zählen dann hier, nicht doppelt.' : 'Gilt für alle — unten kann jede Person einzeln anders sein.'}</p>
-
-          <div>
-            <p className="lbl">Wer war dabei · wie lange</p>
-            <div className="divide-y divide-line rounded-[14px] border border-line bg-surface">
-              {dabei.map((p) => {
-                const dabeiAb = abLeute.has(p.id);
-                const min = abMinVon(p.id);
-                return (
-                  <div key={p.id} className="flex items-center justify-between gap-2 px-3 py-2">
-                    <button type="button" onClick={() => setAbLeute((s) => { const n = new Set(s); if (n.has(p.id)) n.delete(p.id); else n.add(p.id); return n; })} className="flex min-w-0 items-center gap-2 text-left">
-                      <span className={'grid h-9 w-9 flex-none place-items-center rounded-[10px] border ' + (dabeiAb ? 'border-good bg-good text-white' : 'border-line-strong bg-surface text-transparent')}><Check size={18} strokeWidth={2.6} /></span>
-                      <span className={'truncate ' + (dabeiAb ? '' : 'text-ink3')}>{p.name}{p.typ === 'temporaer' && <span className="ml-1 text-[10px] text-ink3">temp</span>}</span>
-                    </button>
-                    {dabeiAb ? (
-                      <span className="flex flex-none items-center gap-1">
-                        <MiniKnopf art="minus" onClick={() => setAbMinPerson((m) => ({ ...m, [p.id]: Math.max(30, min - 30) }))} />
-                        <span className={'w-12 text-center font-mono text-[15px] tabular-nums ' + (abMinPerson[p.id] !== undefined && abMinPerson[p.id] !== abMin ? 'font-semibold text-steel' : '')}>{stunden(min)}</span>
-                        <MiniKnopf art="plus" onClick={() => setAbMinPerson((m) => ({ ...m, [p.id]: min + 30 }))} />
-                      </span>
-                    ) : (
-                      <span className="text-xs text-ink3">nicht dabei</span>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-
-          <FotoLeiste text="Bitte Fotos machen — der Bauführer braucht Bilder bei Zusatzarbeit." />
-
-          <div className={'rounded-[14px] border-2 border-dashed p-5 text-center ' + (nimmtAuf ? 'border-accent bg-accent-soft' : 'border-steel bg-steel-soft')}>
-            {aufnahme ? (
-              <div className="space-y-2">
-                <p className="font-display font-semibold">Sprachnotiz · {aufnahme.sekunden} Sek. ✓</p>
-                <audio controls src={URL.createObjectURL(aufnahme.blob)} className="mx-auto h-9 w-full max-w-xs" />
-                {/* Der Text entsteht sofort — prüfen und korrigieren, bevor gespeichert wird */}
-                {vorschau?.status === 'laeuft' && (
-                  <div className="space-y-1.5 rounded-[10px] bg-surface p-3 text-left" aria-live="polite">
-                    <p className="text-xs font-medium text-ink2">Die App schreibt mit …</p>
-                    <div className="ki-schimmer h-3 w-11/12 rounded" /><div className="ki-schimmer h-3 w-3/4 rounded" />
-                  </div>
-                )}
-                {vorschau?.status === 'fertig' && (
-                  <div className="space-y-1.5 rounded-[10px] bg-surface p-3 text-left">
-                    <p className="text-xs font-medium text-ink2">Stimmt das so? Sonst hier korrigieren.</p>
-                    <textarea value={vorschau.text} onChange={(e) => setVorschau({ ...vorschau, text: e.target.value })} rows={3} className="field text-sm" />
-                    {vorschau.quelle && <p className="text-[11px] text-ink3">Gesprochen{vorschau.sprache !== 'de' ? ` (${vorschau.sprache})` : ''}: «{vorschau.quelle}»</p>}
-                  </div>
-                )}
-                {vorschau?.status === 'fehler' && <p className="text-xs text-ink3">{vorschau.grund}</p>}
-                <button type="button" onClick={() => { setAufnahme(null); setVorschau(null); }} className="btn-ghost">nochmal aufnehmen</button>
-              </div>
-            ) : (
-              <button type="button" onClick={() => (nimmtAuf ? aufnahmeStop() : void aufnahmeStart())} className="w-full">
-                <span className={'mx-auto grid h-16 w-16 place-items-center rounded-full ' + (nimmtAuf ? 'aufnahme-ring bg-accent text-white' : 'bg-surface text-steel ring-1 ring-line-strong')}>
-                  <svg viewBox="0 0 40 48" className="h-8 w-7" aria-hidden="true" fill="currentColor">
-                    <rect x="13" y="4" width="14" height="24" rx="7" />
-                    <path d="M8 22a12 12 0 0 0 24 0" fill="none" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round" />
-                    <rect x="18.2" y="34" width="3.6" height="8" rx="1.8" />
-                  </svg>
-                </span>
-                {nimmtAuf && <span className="mt-3 block"><Pegel stream={mikroStream} /></span>}
-                <span className="mt-2 block font-display font-semibold">{nimmtAuf ? `${sekunden} Sek. — antippen zum Stoppen` : 'Antippen und kurz erzählen, was war'}</span>
-                <span className="mt-1 block text-xs text-ink3">{nimmtAuf ? 'Die App hört zu und schreibt danach mit.' : 'In deiner Sprache. Freiwillig — die Meldung geht auch ohne.'}</span>
-              </button>
-            )}
-          </div>
-
-          <button type="button" disabled={speichert} onClick={() => void speichern(false)} className="cta disabled:opacity-70">{speichert ? 'Speichert …' : 'Speichern'}</button>
-          {hinweis && <p className="text-sm font-semibold text-accent-deep">{hinweis}</p>}
-          <button type="button" onClick={() => setSchritt('wer')} className="btn-ghost w-full">Zurück</button>
         </div>
       </Shell>
     );
@@ -983,14 +768,14 @@ export function Erfassung() {
           <div className="grid grid-cols-2 items-end gap-2">
             <div>
               <p className="mb-1 truncate text-[11px] text-ink3">Normal · bis {stunden(STANDARD_MIN)} h</p>
-              <Stepper wert={teamMin} setWert={setzeTeamMin} schritt={30} min={30} max={STANDARD_MIN} format={(v) => (v / 60).toFixed(1) + ' h'} />
+              <Stepper wert={teamMin} setWert={setzeTeamMin} schritt={30} min={30} max={STANDARD_MIN} format={(v) => (v / 60).toFixed(1)} />
             </div>
             <div>
               <p className="mb-1 truncate text-[11px] text-ink3">Überstunden</p>
               <div className="flex items-center justify-between rounded-[14px] border border-line bg-surface p-1.5 shadow-[0_1px_2px_rgb(17_17_19/0.04)]">
-                <button type="button" onClick={() => setzeTeamUeber(Math.max(0, teamUeber - 30))} aria-label="weniger" className="grid h-12 w-12 place-items-center rounded-[10px] bg-surface-2 text-ink active:scale-95"><Minus size={22} strokeWidth={2.2} /></button>
-                <ZahlFeld wert={teamUeber} setWert={setzeTeamUeber} klasse="h-12 w-20 text-2xl" />
-                <button type="button" onClick={() => setzeTeamUeber(teamUeber + 30)} aria-label="mehr" className="grid h-12 w-12 place-items-center rounded-[10px] bg-surface-2 text-ink active:scale-95"><Plus size={22} strokeWidth={2.2} /></button>
+                <button type="button" onClick={() => setzeTeamUeber(Math.max(0, teamUeber - 30))} aria-label="weniger" className="grid h-12 w-11 shrink-0 place-items-center rounded-[10px] bg-surface-2 text-ink active:scale-95"><Minus size={22} strokeWidth={2.2} /></button>
+                <ZahlFeld wert={teamUeber} setWert={setzeTeamUeber} klasse="h-12 w-16 text-xl" />
+                <button type="button" onClick={() => setzeTeamUeber(teamUeber + 30)} aria-label="mehr" className="grid h-12 w-11 shrink-0 place-items-center rounded-[10px] bg-surface-2 text-ink active:scale-95"><Plus size={22} strokeWidth={2.2} /></button>
               </div>
             </div>
           </div>
@@ -1057,7 +842,7 @@ export function Erfassung() {
             <p className="text-sm font-semibold">
               Überstunden · {stunden(dabei.reduce((s, p) => s + (anw[p.id]?.ueber ?? 0), 0))} h — kurz sagen, warum
             </p>
-            <div className={'rounded-[12px] border-2 border-dashed p-4 text-center ' + (nimmtAuf && aufnahmeZiel.current === 'ueber' ? 'border-accent bg-accent-soft' : ueberAufnahme ? 'border-good/50 bg-good-soft/40' : 'border-steel bg-steel-soft')}>
+            <div className={'rounded-[12px] border-2 border-dashed p-4 text-center ' + (nimmtAuf ? 'border-accent bg-accent-soft' : ueberAufnahme ? 'border-good/50 bg-good-soft/40' : 'border-steel bg-steel-soft')}>
               {ueberAufnahme ? (
                 <div className="space-y-2">
                   <p className="text-sm font-semibold">Sprachnotiz · {ueberAufnahme.sekunden} Sek. ✓</p>
@@ -1078,21 +863,21 @@ export function Erfassung() {
                   <button type="button" onClick={() => { setUeberAufnahme(null); setUeberVorschau(null); }} className="btn-ghost">nochmal aufnehmen</button>
                 </div>
               ) : (
-                <button type="button" onClick={() => (nimmtAuf ? aufnahmeStop() : void aufnahmeStart('ueber'))} className="w-full">
-                  <span className={'mx-auto grid h-14 w-14 place-items-center rounded-full ' + (nimmtAuf && aufnahmeZiel.current === 'ueber' ? 'aufnahme-ring bg-accent text-white' : 'bg-surface text-steel ring-1 ring-line-strong')}>
+                <button type="button" onClick={() => (nimmtAuf ? aufnahmeStop() : void aufnahmeStart())} className="w-full">
+                  <span className={'mx-auto grid h-14 w-14 place-items-center rounded-full ' + (nimmtAuf ? 'aufnahme-ring bg-accent text-white' : 'bg-surface text-steel ring-1 ring-line-strong')}>
                     <svg viewBox="0 0 40 48" className="h-7 w-6" aria-hidden="true" fill="currentColor">
                       <rect x="13" y="4" width="14" height="24" rx="7" />
                       <path d="M8 22a12 12 0 0 0 24 0" fill="none" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round" />
                       <rect x="18.2" y="34" width="3.6" height="8" rx="1.8" />
                     </svg>
                   </span>
-                  {nimmtAuf && aufnahmeZiel.current === 'ueber' && <span className="mt-2 block"><Pegel stream={mikroStream} /></span>}
-                  <span className="mt-2 block text-sm font-semibold">{nimmtAuf && aufnahmeZiel.current === 'ueber' ? `${sekunden} Sek. — antippen zum Stoppen` : 'Antippen und kurz erzählen, warum'}</span>
+                  {nimmtAuf && <span className="mt-2 block"><Pegel stream={mikroStream} /></span>}
+                  <span className="mt-2 block text-sm font-semibold">{nimmtAuf ? `${sekunden} Sek. — antippen zum Stoppen` : 'Antippen und kurz erzählen, warum'}</span>
                   <span className="mt-0.5 block text-xs text-ink3">{mikroFehlt ? 'Mikrofon nicht verfügbar — Speichern geht trotzdem.' : 'In deiner Sprache, 10 Sekunden reichen. Der Bauführer liest es am Montag.'}</span>
                 </button>
               )}
             </div>
-            <p className="text-xs text-ink3">War es Zusatzarbeit für den Kunden? Dann unten «zusätzlich» antippen — die Überstunden werden übernommen.</p>
+            <p className="text-xs text-ink3">Der Bauführer sieht die Überstunden am Montag mit deiner Notiz und entscheidet, ob es Regie ist.</p>
           </section>
         )}
 
@@ -1106,18 +891,18 @@ export function Erfassung() {
             </p>
             {doppelt.ersetzbar > 0 ? (
               <>
-                <button type="button" disabled={speichert} className="cta py-4 disabled:opacity-70" onClick={() => void speichern(true, 'ersetzen')}>
+                <button type="button" disabled={speichert} className="cta py-4 disabled:opacity-70" onClick={() => void speichern('ersetzen')}>
                   Frühere ersetzen
                   <span className="mt-0.5 block text-xs font-normal opacity-90">Am Tag stehen dann {stunden(doppelt.bisherMin - doppelt.ersetzbarMin + doppelt.neuMin)} h (Team zusammen).</span>
                 </button>
-                <button type="button" disabled={speichert} className="btn-ghost w-full py-2.5 text-sm disabled:opacity-70" onClick={() => void speichern(true, 'zusaetzlich')}>
+                <button type="button" disabled={speichert} className="btn-ghost w-full py-2.5 text-sm disabled:opacity-70" onClick={() => void speichern('zusaetzlich')}>
                   Zusätzlich speichern (zweite Baustelle) · dann {stunden(doppelt.bisherMin + doppelt.neuMin)} h
                 </button>
               </>
             ) : (
               <>
                 <p className="text-sm text-ink2">Die frühere Meldung ist vom Bauführer freigegeben — ersetzen geht hier nicht mehr. Änderungen macht der Bauführer.</p>
-                <button type="button" disabled={speichert} className="cta py-4 disabled:opacity-70" onClick={() => void speichern(true, 'zusaetzlich')}>
+                <button type="button" disabled={speichert} className="cta py-4 disabled:opacity-70" onClick={() => void speichern('zusaetzlich')}>
                   Zusätzlich speichern (zweite Baustelle)
                   <span className="mt-0.5 block text-xs font-normal opacity-90">Am Tag stehen dann {stunden(doppelt.bisherMin + doppelt.neuMin)} h (Team zusammen).</span>
                 </button>
@@ -1127,23 +912,11 @@ export function Erfassung() {
           </section>
         )}
 
-        <button type="button" disabled={speichert} onClick={() => void speichern(true)} className="cta cta-good py-5 text-[17px] disabled:opacity-70">
-          <span className="inline-flex items-center gap-2">{gespeichert ? gespeichert : <><CheckCircle2 size={22} strokeWidth={2.2} aria-hidden="true" /> Alles wie geplant</>}</span>
+        <button type="button" disabled={speichert} onClick={() => void speichern()} className="cta cta-good py-5 text-[17px] disabled:opacity-70">
+          <span className="inline-flex items-center gap-2">{gespeichert ? gespeichert : <><CheckCircle2 size={22} strokeWidth={2.2} aria-hidden="true" /> Tag melden</>}</span>
         </button>
         {hinweis && <p className="text-sm font-semibold text-accent-deep">{hinweis}</p>}
 
-        <div>
-          <p className="mb-2 text-center text-sm text-ink3">War etwas anders?</p>
-          <div className="grid grid-cols-3 gap-2">
-            {SYMBOLE.map((s) => (
-              <button key={s.typ} type="button" onClick={() => abweichungStarten(s.typ)} className="chip flex flex-col items-center gap-1.5 py-3 text-ink2">
-                {s.svg}
-                <span className="text-[11px] leading-tight">{KURZ_LABEL[s.typ]}</span>
-              </button>
-            ))}
-          </div>
-          <p className="mt-2 text-center text-xs text-ink3">Abweichung melden speichert den normalen Tag mit. Die Stunden der Zusatzarbeit zählen als Mehrzeit — nicht nochmals bei Überstunden eintragen.</p>
-        </div>
 
       </div>
     </Shell>

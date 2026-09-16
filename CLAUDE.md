@@ -119,11 +119,13 @@ in Zusatzauftrag.tsx, Feld «Anzeige nötig» in Kunden.tsx versteckt. Function 
 Je Person zwei Werte: **Normal** (Standard 8.4 h = `NORMALTAG_MIN`, Obergrenze) und **Überstunden** (Standard 0),
 `zeiteintrag.normal_min` / `ueber_min`. Zwei Team-Regler oben setzen alle gleich, die Zeilen darunter je Person.
 Überstunden brauchen ein Warum, aber keinen eigenen Ablauf: eine **Sprachnotiz** (Pflicht, ausser das Mikrofon fehlt)
-an der **normalen** Tagesmeldung (`audio_pfad`, `transkript`; `wer_hats_gewollt` bleibt dort leer). Die Zahl ist
-direkt tippbar (`ZahlFeld`, 0.1-h-Schritte). Wochenübersicht: Überstunden mit Notiz → graue Infokarte, kein roter
-Hinweis «über 10 h», leiser Link «Doch Regie? Vorrechnen» (nur die Mehrzeit, `?nur=ueber`); ohne Notiz → rot.
-Wer nach Überstunden unten «zusätzlich/warten/kaputt» antippt, bekommt die Überstunden als Abweichungs-Stunden
-vorbelegt; der normale Tag geht dann ohne diese Überstunden raus (nichts zählt doppelt). Regie bleibt getrennt: «War etwas anders?» → zusätzlich / warten / kaputt,
+an der Tagesmeldung (`audio_pfad`, `transkript`; `wer_hats_gewollt` bleibt leer). Die Zahl ist direkt tippbar
+(`ZahlFeld`, 0.1-h-Schritte). **Entscheid 17.09.: Der Abweichungs-Ablauf (zusätzlich / warten / kaputt, wer wollte
+das) ist aus der Erfassung entfernt** — es gibt nur Normal und Überstunden, wie auf dem Wochenblatt. Jede Meldung
+ist `normalfall = true`; `abweichung_typ` bleibt nur für alte Daten. **Überstunden sind in der Wochenübersicht
+automatisch ein Regieverdacht** (gelb, «Regierapport vorrechnen» rechnet nur die Mehrzeit, `?nur=ueber`; «Keine
+Regie» mit Grund; Freigabe = geprüft). Die Sicht `zusatzauftrag_stand` zählt einen Zusatzauftrag ab Migration 0015
+als «gemeldet», sobald auf der Baustelle ein Tag mit Überstunden gemeldet ist. Regie bleibt getrennt: «War etwas anders?» → zusätzlich / warten / kaputt,
 wer wollte es, Stunden je Person, Sprachnotiz. Die Idee «länger gearbeitet» als vierte Abweichung mit Nachfrage
 wurde am 16.09. verworfen (zu kompliziert); der Typ `laenger` ist im Code nur noch für alte Daten toleriert,
 die Prüfregel der Datenbank kennt ihn nicht.

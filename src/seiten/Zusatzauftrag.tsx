@@ -145,7 +145,6 @@ export function Zusatzauftrag() {
       .from('tagesmeldung')
       .select('id,team_id,datum,baustelle_id')
       .in('baustelle_id', [...new Set(gemeldet.map((a) => a.baustelle_id as string))])
-      .eq('normalfall', false)
       .in('datum', [...new Set(gemeldet.map((a) => a.gemeldet_am as string))]);
     const links: Record<string, string> = {};
     for (const a of gemeldet) {
