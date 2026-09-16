@@ -299,6 +299,18 @@ export function Cockpit() {
     return [...m.entries()].sort((a, b) => a[1].name.localeCompare(b[1].name));
   }, [eintraege]);
 
+  /** Team + Tag + Baustelle, für die schon ein Regierapport oder ein «Keine Regie»-Entscheid existiert — egal an welcher Meldung.
+   *  Alte Daten haben denselben Tag zweimal (normaler Tag mit Überstunden + Abweichung mit Rapport); der Rapport gilt für beide. */
+  const beantwortet = useMemo(() => {
+    const m = new Set<string>();
+    for (const e of eintraege) {
+      const tm = e.tagesmeldung;
+      if ((tm.regierapport?.length ?? 0) > 0 || tm.regie_entscheid) m.add(`${tm.team?.id}|${tm.datum}|${tm.baustelle?.id}`);
+    }
+    return m;
+  }, [eintraege]);
+  const schluessel = (e: Eintrag) => `${e.tagesmeldung.team?.id}|${e.tagesmeldung.datum}|${e.tagesmeldung.baustelle?.id}`;
+
   function zellStatus(liste: Eintrag[] | undefined): ZellStatus {
     if (!liste || liste.length === 0) return 'leer';
     // Freigegeben = der Bauführer hat es angeschaut und entschieden — dann ist der Hinweis erledigt,
@@ -313,6 +325,7 @@ export function Cockpit() {
       (e) =>
         (e.tagesmeldung.regierapport?.length ?? 0) === 0 &&
         !e.tagesmeldung.regie_entscheid &&
+        !beantwortet.has(schluessel(e)) &&
         (hatUeberstunden(e) ||
           (e.tagesmeldung.abweichung_typ !== null && !laengerOhneKunde(e.tagesmeldung)) ||
           e.tagesmeldung.wer_hats_gewollt === 'kunde' ||
@@ -338,8 +351,10 @@ export function Cockpit() {
       const ausloeser: string[] = [];
       const meldungEintraege = eintraege.filter((x) => x.tagesmeldung.id === tm.id);
       const ueberMin = meldungEintraege.reduce((s, x) => s + x.ueber_min, 0);
-      // Überstunden = Regieverdacht: der Bauführer liest die Notiz und entscheidet (Rapport, keine Regie)
+      // Überstunden = Regieverdacht: der Bauführer liest die Notiz und entscheidet (Rapport, keine Regie).
+      // Hat eine andere Meldung desselben Tags schon einen Rapport (alte Daten), zeigt deren Karte das — keine zweite.
       const ueberVerdacht = tm.normalfall && ueberMin > 0;
+      if (ueberVerdacht && (tm.regierapport?.length ?? 0) === 0 && !tm.regie_entscheid && beantwortet.has(`${tm.team?.id}|${tm.datum}|${tm.baustelle?.id}`)) continue;
       // «länger» ohne Kunden (alte Meldungen): keine Regie, aber die Erklärung für den langen Tag — als ruhige Infokarte
       const info = laengerOhneKunde(tm);
       if (tm.abweichung_typ && !info) ausloeser.push(`Team meldet «${ABWEICHUNG_KURZ[tm.abweichung_typ] ?? tm.abweichung_typ}»`);
@@ -364,7 +379,7 @@ export function Cockpit() {
       });
     }
     return faelle;
-  }, [eintraege, auftragProBaustelle]);
+  }, [eintraege, auftragProBaustelle, beantwortet]);
 
   const wochenTage = useMemo(() => TAGE.map((_, i) => iso(addTage(wochenStart, i))), [wochenStart]);
 
@@ -414,7 +429,7 @@ export function Cockpit() {
     // Immer Team 1 … 20 der Reihe nach — die Farbe zeigt den Stand, der Filter «Zum Anschauen» blendet den Rest aus
     return zeilen.sort((a, b) => a.team.bezeichnung.localeCompare(b.team.bezeichnung, 'de', { numeric: true }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [teams, personen, wochenTage, auftragProBaustelle]);
+  }, [teams, personen, wochenTage, auftragProBaustelle, beantwortet]);
 
   const zaehler = useMemo(() => ({
     gemeldet: teamZeilen.filter((z) => z.alle.length > 0).length,
