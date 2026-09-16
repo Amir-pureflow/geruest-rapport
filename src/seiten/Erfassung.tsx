@@ -358,7 +358,9 @@ export function Erfassung() {
   useEffect(() => { void heutigeLaden(); }, [heutigeLaden]);
 
   /** Baustelle aus «andere Baustelle …» übernehmen: wird die erste Kachel oben (markiert), das Suchfeld geht zu. */
+  const [gesuchtId, setGesuchtId] = useState<string | null>(null);
   function andereWaehlen(b: Baustelle) {
+    setGesuchtId(b.id);
     setBaustelle(b);
     setKacheln((k) => [b, ...k.filter((x) => x.id !== b.id)].slice(0, 5));
     setZeigeAndere(false);
@@ -911,7 +913,7 @@ export function Erfassung() {
             {kacheln.map((b, i) => (
               <button key={b.id} type="button" onClick={() => setBaustelle(b)} className={'chip flex min-h-[4.5rem] flex-col items-start justify-center py-2.5 text-left ' + (baustelle?.id === b.id ? 'chip-on' : '')}>
                 <span className="text-sm font-semibold leading-tight">{b.bezeichnung}</span>
-                <span className="mt-1 flex items-center gap-1.5"><span className="knr">{b.konto_nr}</span>{i === 0 && <span className="text-[10px] text-ink3">zuletzt</span>}</span>
+                <span className="mt-1 flex items-center gap-1.5"><span className="knr">{b.konto_nr}</span>{i === 0 && <span className="text-[10px] text-ink3">{b.id === gesuchtId ? 'eingegeben' : 'zuletzt'}</span>}</span>
               </button>
             ))}
             <button type="button" onClick={() => setZeigeAndere((v) => !v)} className="chip flex min-h-[4.5rem] items-center justify-center text-ink3">andere Baustelle …</button>
