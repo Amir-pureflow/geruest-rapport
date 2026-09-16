@@ -132,7 +132,8 @@ export function Erfassung() {
   const [leute, setLeute] = useState<Person[]>([]);
   const [kacheln, setKacheln] = useState<Baustelle[]>([]);
   const [alleGeplanten, setAlleGeplanten] = useState<Baustelle[]>([]);
-  const [zeigeAndere, setZeigeAndere] = useState(false);
+  // /erfassung?baustelle=wahl öffnet direkt «andere Baustelle …» (Sprung von der Chefmonteur-Startseite)
+  const [zeigeAndere, setZeigeAndere] = useState(() => new URLSearchParams(window.location.search).get('baustelle') === 'wahl');
   // Baustellensuche ohne Tastatur (Regel 2): Konto-Nr. über den Ziffernblock, ab 3 Ziffern wird gesucht
   const [ziffern, setZiffern] = useState('');
   const [suchTreffer, setSuchTreffer] = useState<Baustelle[]>([]);
@@ -250,7 +251,17 @@ export function Erfassung() {
   const heute = new Date();
   const heuteIso = iso(heute);
   // Gemeldet wird für einen Tag — normalerweise heute. Vergessen? Bis 7 Tage zurück nachtragen.
-  const [datum, setDatum] = useState<Date>(() => new Date());
+  // /erfassung?tag=JJJJ-MM-TT öffnet einen bestimmten Tag zum Nachtragen (max. 7 Tage zurück, nie in der Zukunft)
+  const [datum, setDatum] = useState<Date>(() => {
+    const t = new URLSearchParams(window.location.search).get('tag');
+    if (t && /^\d{4}-\d{2}-\d{2}$/.test(t)) {
+      const d = new Date(t + 'T12:00:00');
+      const jetzt = new Date();
+      const grenze = addTage(jetzt, -7);
+      if (!Number.isNaN(d.getTime()) && d <= jetzt && d >= grenze) return d;
+    }
+    return new Date();
+  });
   const tagIso = iso(datum);
   const istHeute = tagIso === heuteIso;
   const fruehesterIso = iso(addTage(heute, -7));

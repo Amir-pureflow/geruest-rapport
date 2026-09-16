@@ -256,6 +256,10 @@ export function StartChef() {
           {planHeute
             ? <p className="text-sm text-ink2">Laut Plan: <span className="knr">{planHeute.konto_nr}</span> {planHeute.bezeichnung ?? ''}</p>
             : <p className="text-sm text-ink3">Heute nichts im Jahresplan — in der Erfassung die Baustelle wählen.</p>}
+          {/* Der Plan ist nur ein Vorschlag — wer woanders war, wechselt die Baustelle in der Erfassung */}
+          <p className="text-xs text-ink3">
+            Woanders gewesen? <Link to="/erfassung?baustelle=wahl" className="font-semibold text-steel">Andere Baustelle wählen ›</Link>
+          </p>
           {heutige.length > 0 ? (
             <div className="rounded-[10px] border border-good/40 bg-good-soft px-3 py-2 text-sm text-good-deep">
               <strong>Heute gemeldet</strong>
@@ -308,7 +312,7 @@ export function StartChef() {
                         ? lokal ? <span className="text-amber-deep">wartet auf Netz</span>
                           : ms.some((m) => m.zeiteintrag.some((z) => z.status === 'freigegeben')) ? <span className="text-good-deep">freigegeben</span>
                             : ms.every((m) => m.normalfall) ? <span className="text-good-deep">gemeldet</span> : <span className="text-amber-deep">Abweichung</span>
-                        : zukunft ? '' : i >= 5 ? '' : <span className="text-ink3">nichts</span>}
+                        : zukunft ? '' : i >= 5 ? '' : <Link to={`/erfassung?tag=${dIso}`} className="font-semibold text-steel">nachtragen ›</Link>}
                     </span>
                   </div>
                   {korr.length > 0 && (
