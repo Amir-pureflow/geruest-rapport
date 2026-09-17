@@ -55,7 +55,7 @@ Die Tabelle hat RLS ohne Policies — nur die Service-Role (in der Function) und
 | `MISTRAL_API_KEY` | für Transkription | Mistral (Paris, EU). Ohne Schlüssel bleibt die Sprachnotiz nur zum Anhören. |
 | `TRANSKRIPT_MODELL` | nein | Standard `voxtral-mini-latest` |
 | `UEBERSETZUNG_MODELL` | nein | Standard `mistral-small-latest` |
-| `MAIL_ABSENDER` | empfohlen | z. B. `Rapporto <regie@pureflow-ai.com>` (Domain muss bei Resend verifiziert sein) |
+| `MAIL_ABSENDER` | empfohlen | seit 17.09.: `Rapporto <regie@mail.pureflow-ai.com>` — Subdomain `mail.pureflow-ai.com` ist bei Resend verifiziert (EU, DNS bei Hostpoint). Später `mail.rapporto.ch` oder die Domain der Gerüstbaufirma. |
 | `MAIL_FIRMA` | nein | Firmenname in Fusszeile und Absender-Rückfall |
 | `MAIL_TESTEMPFAENGER` | nein | Kommagetrennte Adressen, an die ein Rapport **zusätzlich zur Kunden-Mail** gesendet werden darf (Pilot, eigene Tests). Alles andere lehnt die Function mit 403 ab. Erlaubt sind ausserdem `kunde.weitere_emails` (Migration 0014) und jede Adresse mit derselben Domain wie `kunde.email`. |
 | `MAIL_ANTWORT_AN` | empfohlen | Reply-To, wenn die Sitzung keine E-Mail hat (Ansicht ohne Login): Antworten der Bauleitung landen dort, z. B. `arbnor.arifi@geruestgmbh.ch`. |
