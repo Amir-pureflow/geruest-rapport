@@ -181,7 +181,9 @@ export function StartChef() {
     const vorne = vorneIds.map((id) => teams.find((t) => t.id === id)).filter((t): t is Team => !!t).slice(0, 5);
     const erste = vorne.length > 0 ? vorne : teams.slice(0, 5);
     const rest = teams.filter((t) => !erste.some((e) => e.id === t.id));
-    return { erste, rest };
+    // Ohne Beschriftung wirkt die erste Gruppe wie eine zufällige Reihenfolge (3, 2, 1, 8, 12 …).
+    // Die Erfassung schreibt «· zuletzt» ans Team — hier fehlte das Gegenstück.
+    return { erste, rest, ausVerlauf: vorne.length > 0 };
   }, [teams, zuletzt]);
 
   const korrekturJeZeit = useMemo(() => korrekturenZusammenfassen(korrekturen), [korrekturen]);
@@ -192,17 +194,37 @@ export function StartChef() {
         <div className="space-y-4">
           <h1 className="font-display text-2xl font-semibold">Welches Team?</h1>
           <p className="text-sm text-ink3">Einmal wählen — das Gerät merkt es sich. Das ist dann auch das Team in der Erfassung.</p>
-          <div className="grid grid-cols-2 gap-2">
-            {teamAuswahl.erste.map((t) => (
-              <button key={t.id} type="button" onClick={() => teamWaehlen(t.id)} className="chip py-4 text-base">
-                {t.bezeichnung}
-                {t.chefmonteur && <span className="block text-[11px] font-normal text-ink3">{t.chefmonteur.name}</span>}
-              </button>
-            ))}
-          </div>
-          {weitereTeams > 0 && (
+          {/* Ohne Verlauf ist das schlicht die Liste 1…20 — dann EIN Gitter, sonst bleibt neben der
+              fünften Kachel eine leere Zelle stehen. Zwei Gitter nur, wenn die erste Gruppe wirklich
+              etwas anderes bedeutet («zuletzt benutzt»). */}
+          {teamAuswahl.ausVerlauf ? (
+            <>
+              <p className="lbl mb-0 pt-1">Zuletzt auf diesem Gerät</p>
+              <div className="grid grid-cols-2 gap-2">
+                {teamAuswahl.erste.map((t) => (
+                  <button key={t.id} type="button" onClick={() => teamWaehlen(t.id)} className="chip py-4 text-base">
+                    {t.bezeichnung}
+                    {t.chefmonteur && <span className="block text-[11px] font-normal text-ink3">{t.chefmonteur.name}</span>}
+                  </button>
+                ))}
+              </div>
+              {weitereTeams > 0 && (
+                <>
+                  <p className="lbl mb-0 pt-1">Alle Teams</p>
+                  <div className="grid grid-cols-2 gap-2">
+                    {teamAuswahl.rest.slice(0, weitereTeams).map((t) => (
+                      <button key={t.id} type="button" onClick={() => teamWaehlen(t.id)} className="chip py-4 text-base">
+                        {t.bezeichnung}
+                        {t.chefmonteur && <span className="block text-[11px] font-normal text-ink3">{t.chefmonteur.name}</span>}
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
+            </>
+          ) : (
             <div className="grid grid-cols-2 gap-2">
-              {teamAuswahl.rest.slice(0, weitereTeams).map((t) => (
+              {[...teamAuswahl.erste, ...teamAuswahl.rest.slice(0, weitereTeams)].map((t) => (
                 <button key={t.id} type="button" onClick={() => teamWaehlen(t.id)} className="chip py-4 text-base">
                   {t.bezeichnung}
                   {t.chefmonteur && <span className="block text-[11px] font-normal text-ink3">{t.chefmonteur.name}</span>}
