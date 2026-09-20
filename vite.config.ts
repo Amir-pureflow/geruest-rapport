@@ -15,7 +15,7 @@ export default defineConfig({
       manifest: {
         name: 'Rapporto',
         short_name: 'Rapporto',
-        description: 'Tagesmeldung, Regie und Rapporte für Gerüstbauer',
+        description: 'Tagesmeldung, Stunden und Rapporte für Gerüstbauer',
         lang: 'de',
         start_url: '/',
         display: 'standalone',
@@ -38,5 +38,8 @@ export default defineConfig({
   ],
   test: {
     environment: 'node',
+    // Nur der ausgelieferte Code wird getestet — `archiv/` bleibt liegen wie es ist
+    // (dort steht der Stand mit Regie und Board, siehe archiv/regie-und-board/README.md).
+    include: ['src/**/*.test.{ts,tsx}'],
   },
 });
