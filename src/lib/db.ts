@@ -105,7 +105,7 @@ export interface MeldungPayload {
     km: number;
     baustelle_id: string;
     konto_nr: string;
-    /** Zeiten von–bis (Migration 0016), nur wenn das Team Zeiten statt der Stundenzahl eingetragen hat. */
+    /** Zeiten von–bis (Migration 0016). Seit 20.09. schickt die Erfassung sie immer mit; alte Meldungen in der Warteschlange haben sie nicht. */
     von_min?: number | null;
     bis_min?: number | null;
     von2_min?: number | null;
