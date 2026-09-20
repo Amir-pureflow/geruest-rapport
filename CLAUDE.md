@@ -81,19 +81,25 @@ Korrekturen in der Wochenübersicht brauchen einen Grund aus vier Vorgaben (Rege
 fehlt die Migration, fällt der Code auf den zweistufigen Weg zurück.
 Farben: Rot nur für Aktion, Auswahl Stahlblau (`chip-on`), Warnung Bernstein (`amber`).
 
-## Erfassung wie das Wochenblatt (16.09., erweitert 20.09.)
+## Erfassung: nur Zeiten von–bis (16.09., 20.09., seit 20.09. abends ohne Stundenzahl)
 
-Je Person zwei Werte: **Normal** (Standard 8.4 h = `NORMALTAG_MIN`, Obergrenze) und **Überstunden** (Standard 0),
-`zeiteintrag.normal_min` / `ueber_min`. Zwei Team-Regler oben setzen alle gleich, die Zeilen darunter je Person.
-Jede Meldung ist `normalfall = true`; `abweichung_typ` / `wer_hats_gewollt` bleiben nur für alte Daten.
+**Es gibt nur noch Zeiten von–bis** (Amir 20.09.: «nimm die Stundenzahl weg, nur Zeiten eingeben»). Der Umschalter
+«Stundenzahl | von – bis», die zwei Team-Regler und die Normal/Überstunden-Felder je Person sind raus — **nicht wieder
+einbauen, ohne dass Amir es sagt**. Getippt wird nur, wann gearbeitet wurde; Normal und Überstunden rechnet die App
+daraus.
 
-**Zeiten von–bis** (Bauführer 20.09.): Umschalter «Stundenzahl | von – bis» fürs Team, je Person überschreibbar. Bis zu
-zwei Spannen (Vormittag, Nachmittag), native Uhrzeit-Wahl, Vorgabe **7:00–12:00 und 13:00–offen** — der Mittag 12–13
-ist unbezahlt (Amir 20.09., «denke ich» — mit Arbnor bestätigen) und darum als Lücke vorgegeben, **nie abgezogen**. Ohne
-«bis» lässt sich nicht speichern; überlappende Spannen auch nicht. Zählt der Mittag mit, sagt es ein Hinweis (kein
-Abzug). Summe → Normal (bis 8.4 h) + Überstunden. Spalten `zeiteintrag.von_min/bis_min/von2_min/bis2_min`
-(Migration 0016), nur gesetzt, wenn Zeiten eingetragen wurden; Cockpit und «Meine Woche» zeigen sie. Logik + Tests in
-`src/lib/zeiten.ts`. Arbeitszeit laut Bauführer 7:00–17:00; bezahlte Pause 9:00–9:30 freiwillig (kein Thema für die App).
+Ein Zeit-Block fürs ganze Team oben setzt alle gleich, die Zeile je Person kann abweichen. Bis zu zwei Spannen
+(Vormittag, Nachmittag), native Uhrzeit-Wahl, Vorgabe **7:00–12:00 und 13:00–offen** — der Mittag 12–13 ist unbezahlt
+(Amir 20.09., «denke ich» — mit Arbnor bestätigen) und darum als Lücke vorgegeben, **nie abgezogen**. Das «bis» des
+Nachmittags ist bewusst offen: ohne «bis» lässt sich nicht speichern, damit niemand eine geratene Zeit bestätigt;
+überlappende Spannen auch nicht. Zählt der Mittag mit, sagt es ein Hinweis (kein Abzug).
+
+Summe → **Normal** (bis 8.4 h = `NORMALTAG_MIN`) + **Überstunden**, gespeichert wie bisher in
+`zeiteintrag.normal_min` / `ueber_min`; dazu immer die Spalten `zeiteintrag.von_min/bis_min/von2_min/bis2_min`
+(Migration 0016). Cockpit und «Meine Woche» zeigen sie. Alte Meldungen ohne Zeiten bleiben gültig und werden weiter
+angezeigt. Jede Meldung ist `normalfall = true`; `abweichung_typ` / `wer_hats_gewollt` bleiben nur für alte Daten.
+Logik + Tests in `src/lib/zeiten.ts`. Arbeitszeit laut Bauführer 7:00–17:00; bezahlte Pause 9:00–9:30 freiwillig
+(kein Thema für die App).
 **Offen mit Arbnor:** Mittag wirklich 12–13 und unbezahlt? Weitere Pausen? Trägt der Chefmonteur für alle ein?
 
 **Überstunden** brauchen ein Warum: die **Sprachnotiz** (Pflicht, ausser das Mikrofon fehlt). Seit 20.09. ist sie immer
@@ -144,6 +150,7 @@ kennen heute nur de/ar/pl/en (Check-Constraint). Kommt mit dem Transkriptions-Sp
 
 - SORBA ersetzen oder in SORBA schreiben (kein DB-Write, keine UI-Automation)
 - Regie, Zusatzaufträge, Kundenlink, Board — entfernt 20.09., liegt im Archiv
+- Stundenzahl als Eingabe in der Erfassung — seit 20.09. abends gibt es nur Zeiten von–bis
 - Automatische Freigabe «plausibler» Stunden
 - Mitarbeiter-Scoring oder -Bewertung
 - Laufende Standortverfolgung (GPS nur punktuell, freiwillig, optional)
@@ -170,13 +177,13 @@ src/seiten/StartSekretariat.tsx   Sekretariat: Stunden je Mitarbeiter, Temporär
 src/lib/ansicht.ts                Ansicht lesen/setzen, Seiten je Ansicht
 src/ui/Karten.tsx                 NavKarte, Kachel, MONATE — gemeinsam für alle Startseiten
 src/seiten/Tag.tsx                Tagesübersicht: welche Teams haben gemeldet, welche nicht
-src/seiten/Erfassung.tsx          Teamgerät: Kacheln, Anwesenheit (+ Gäste), Stundenzahl oder Zeiten von–bis, Sprachnotiz als Bemerkung zum Tag, Fotos
+src/seiten/Erfassung.tsx          Teamgerät: Kacheln, Anwesenheit (+ Gäste), Zeiten von–bis (keine Stundenzahl mehr), Sprachnotiz als Bemerkung zum Tag, Fotos
 src/seiten/Cockpit.tsx            Wochenübersicht: Raster Team × Tag (Farbe = Stand), Tag öffnen = Personen mit Stunden/Zeiten, Korrektur, Überstunden-Karte, Bemerkung, Freigabe
 src/seiten/Export.tsx             Bauführer: SORBA-Raster. Sekretariat: dazu Lohn, Überstunden, je Temporärbüro eigenes Excel
 src/seiten/verwaltung/*           Mitarbeitende, Teams, Kunden, Baustellen, Demo (auf Amirs PC nur Demo.tsx und Kunden.tsx, Rest nur auf GitHub)
 src/lib/excel.ts                  Excel-Ausgabe mit ExcelJS: Blätter Lohn, Überstunden, je Büro, SORBA-Raster — Layout, Formeln, Druck
 src/lib/db.ts                     Dexie-Queue: Meldungen + Zeiteinträge + Audio + Fotos (Version 4 ohne Zusatzaufträge)
-src/lib/zeiten.ts                 Zeiten von–bis: Uhrzeit ↔ Minuten, Spannen summieren (ohne Pausenrechnung), Mittag-Hinweis, Normal/Über aufteilen + Tests
+src/lib/zeiten.ts                 Zeiten von–bis (die einzige Eingabe): Uhrzeit ↔ Minuten, Spannen summieren (ohne Pausenrechnung), Mittag-Hinweis, Normal/Über aufteilen + Tests
 src/lib/lohn.ts                   Lohn-/Temporärbüro-/Überstunden-Aggregation (reine Funktionen) + Tests
 src/lib/kennzahlen.ts             Diagramm «Freigabe Vorwoche» und Team-Board
 src/lib/demo.ts                   Deterministischer Demo-Betrieb (Meldungen mit Überstunden + Notizen) + Tests

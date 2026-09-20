@@ -1,4 +1,4 @@
-import { Check, CheckCircle2, ChevronLeft, ChevronRight, Flag, Minus, Plus, Car, UserPlus, X } from 'lucide-react';
+import { Check, CheckCircle2, ChevronLeft, ChevronRight, Flag, Car, UserPlus, X } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Shell } from '../ui/Shell';
@@ -8,26 +8,31 @@ import { enqueueMeldung, flushNachSupabase, offeneMeldungen, offeneAnzahl, lokal
 import { addTage, iso, lang, stunden, NORMALTAG_MIN } from '../lib/datum';
 import { fotoVerkleinern } from '../lib/foto';
 import { kennzeichen } from '../lib/fahrzeug';
-import { MAX_SPANNEN, NACHMITTAG_MIN, ausUhrzeit, aufteilen, mittagMinuten, spanneVollstaendig, spannenMinuten, spannenUeberlappen, standardSpannen, uhrzeitFeld, zuSpalten, type Spanne } from '../lib/zeiten';
+import { MAX_SPANNEN, NACHMITTAG_MIN, ausUhrzeit, aufteilen, mittagMinuten, spanneVollstaendig, spannenMinuten, spannenUeberlappen, standardSpannen, uhrzeitFeld, zeitenText, zuSpalten, type Spanne } from '../lib/zeiten';
 
 /**
  * Phase 2 — das Teamgerät. Ein Chefmonteur meldet für sein Team.
  *
- * Wie das Wochenblatt, nicht mehr: Baustelle, wer war dabei, Normalstunden, Überstunden — ein Knopf.
+ * Wenig Schritte: Baustelle, wer war dabei, von wann bis wann — ein Knopf.
  * Überstunden brauchen eine Sprachnotiz (warum); der Bauführer liest sie in der Wochenübersicht und gibt frei.
  * Es wird nie gefragt, WARUM-Kategorien oder ob etwas verrechnet wird — das entscheidet der Bauführer in SORBA (Entscheid 17.09./20.09.).
  *
- * Feedback Bauführer 20.09.: Stunden wahlweise als Zahl oder als Zeiten von–bis (ohne Pausenrechnung),
- * Sprachnotiz immer als Bemerkung zum Tag, Personen von ausserhalb des Teams hinzufügen, nur Auto (kein öV).
+ * Seit 20.09. abends gibt es **nur Zeiten von–bis** (Amir: «nimm die Stundenzahl weg, nur Zeiten eingeben»).
+ * Die Stundenzahl als Eingabe, der Umschalter und die Normal/Über-Felder je Person sind raus; Normal und
+ * Überstunden rechnet die App aus den Zeiten (ohne Pausenrechnung, `src/lib/zeiten.ts`).
+ * Weiter vom 20.09.: Sprachnotiz immer als Bemerkung zum Tag, Personen von ausserhalb des Teams hinzufügen,
+ * nur Auto (kein öV).
  */
 
 interface Team { id: string; bezeichnung: string; fahrzeug: string | null }
 interface Person { id: string; name: string; typ: string; funktion: string; oev_standard: boolean; km_standard: number; /** heute dabei, aber nicht fest im Team */ gast?: boolean }
 interface Baustelle { id: string; konto_nr: string; bezeichnung: string | null }
-/** Stundenzahl (wie auf dem Wochenblatt) oder Zeiten von–bis — je Person umschaltbar. */
-type ZeitModus = 'stunden' | 'zeit';
-/** Wie auf dem Wochenblatt: Normalstunden (Standard 8.4 h) und Überstunden getrennt — beides Lohn, keine Fragen. Bei `modus: 'zeit'` zählen die `zeiten`. */
-interface Anwesenheit { dabei: boolean; min: number; ueber: number; oev: boolean; km: number; modus: ZeitModus; zeiten: Spanne[] }
+/**
+ * Anwesenheit einer Person: die Zeiten von–bis, dazu die Anreise.
+ * Normal- und Überstunden werden daraus gerechnet (`aufteilen`), nie getippt — seit 20.09. gibt es
+ * die Stundenzahl als Eingabe nicht mehr (Amir: «nur Zeiten eingeben»).
+ */
+interface Anwesenheit { dabei: boolean; oev: boolean; km: number; zeiten: Spanne[] }
 
 type Schritt = 'team' | 'tag' | 'fertig';
 /** Nur noch für alte Meldungen (vor 17.09.) — neue Meldungen sind immer normalfall. */
@@ -54,13 +59,17 @@ function gaesteMerken(teamId: string, id: string): void {
   localStorage.setItem(GAESTE_KEY + teamId, JSON.stringify([id, ...gaesteLesen(teamId).filter((x) => x !== id)].slice(0, 5)));
 }
 
-function neueAnwesenheit(p: Person, modus: ZeitModus, spannen: Spanne[]): Anwesenheit {
-  return { dabei: true, min: STANDARD_MIN, ueber: 0, oev: OEV_AKTIV && p.oev_standard, km: p.km_standard, modus, zeiten: spannen.map((s) => ({ ...s })) };
+/** Alle eingetragenen Zeiten haben ein «bis» — sonst fehlt etwas und es wird nicht gespeichert (Regel: nichts raten). */
+function zeitenVollstaendig(zeiten: Spanne[]): boolean {
+  return zeiten.length > 0 && zeiten.every(spanneVollstaendig);
 }
 
-/** Was für die Person zählt: bei Stundenzahl die Regler, bei von–bis die Summe der Zeiten (ohne Pausenrechnung), aufgeteilt in Normal und Über. */
+function neueAnwesenheit(p: Person, spannen: Spanne[]): Anwesenheit {
+  return { dabei: true, oev: OEV_AKTIV && p.oev_standard, km: p.km_standard, zeiten: spannen.map((s) => ({ ...s })) };
+}
+
+/** Was für die Person zählt: die Summe der Zeiten (ohne Pausenrechnung), aufgeteilt in Normal und Über. */
 function wirksam(a: Anwesenheit): { min: number; ueber: number } {
-  if (a.modus !== 'zeit') return { min: a.min, ueber: a.ueber };
   const t = aufteilen(spannenMinuten(a.zeiten));
   return { min: t.normal_min, ueber: t.ueber_min };
 }
@@ -92,38 +101,6 @@ interface Gemeldet {
 type SpeicherModus = 'normal' | 'ersetzen' | 'zusaetzlich';
 const AB_KURZ: Record<Abweichung, string> = { zusaetzlich: 'zusätzlich', warten: 'gewartet', kaputt: 'repariert', laenger: 'länger' };
 
-function Stepper({ wert, setWert, schritt, min, max, format }: { wert: number; setWert: (v: number) => void; schritt: number; min: number; max?: number; format: (v: number) => string }) {
-  return (
-    <div className="flex items-center justify-between rounded-[14px] border border-line bg-surface p-1.5 shadow-[0_1px_2px_rgb(17_17_19/0.04)]">
-      <button type="button" onClick={() => setWert(Math.max(min, wert - schritt))} aria-label="weniger" className="grid h-12 w-11 shrink-0 place-items-center rounded-[10px] bg-surface-2 text-ink active:scale-95"><Minus size={22} strokeWidth={2.2} /></button>
-      <span className="whitespace-nowrap font-mono text-xl font-semibold tabular-nums">{format(wert)}</span>
-      <button type="button" onClick={() => setWert(max !== undefined ? Math.min(max, wert + schritt) : wert + schritt)} disabled={max !== undefined && wert >= max} aria-label="mehr" className="grid h-12 w-11 shrink-0 place-items-center rounded-[10px] bg-surface-2 text-ink active:scale-95 disabled:opacity-40"><Plus size={22} strokeWidth={2.2} /></button>
-    </div>
-  );
-}
-
-/** Stundenzahl zum direkten Tippen (Zifferntastatur), in 0.1-h-Schritten; −/+ daneben ändern denselben Wert. */
-function ZahlFeld({ wert, setWert, max = 16 * 60, klasse = '' }: { wert: number; setWert: (v: number) => void; max?: number; klasse?: string }) {
-  const [text, setText] = useState((wert / 60).toFixed(1));
-  const [fokus, setFokus] = useState(false);
-  useEffect(() => { if (!fokus) setText((wert / 60).toFixed(1)); }, [wert, fokus]);
-  const uebernehmen = (t: string) => {
-    const v = parseFloat(t.replace(',', '.'));
-    if (!Number.isNaN(v)) setWert(Math.max(0, Math.min(max, Math.round(v * 10) * 6)));
-  };
-  return (
-    <input
-      type="number" inputMode="decimal" step="0.5" min="0" max={max / 60}
-      value={text}
-      onFocus={(e) => { setFokus(true); e.target.select(); }}
-      onChange={(e) => { setText(e.target.value); uebernehmen(e.target.value); }}
-      onBlur={() => { setFokus(false); setText((wert / 60).toFixed(1)); }}
-      className={'rounded-[10px] border border-line bg-surface text-center font-mono font-semibold tabular-nums focus:border-accent focus:outline-none ' + klasse}
-      aria-label="Stunden"
-    />
-  );
-}
-
 /** Hinweis, wenn der unbezahlte Mittag 12–13 in den Zeiten mitgezählt ist — die App zieht nichts ab, sie sagt es nur. */
 function MittagHinweis({ spannen }: { spannen: Spanne[] }) {
   const min = mittagMinuten(spannen);
@@ -140,7 +117,7 @@ function MittagHinweis({ spannen }: { spannen: Spanne[] }) {
  * Kein Pausenabzug — die App zählt, was dasteht; der Mittag 12–13 (unbezahlt) ist als Lücke vorgegeben.
  */
 function SpannenEditor({ spannen, setSpannen, klein = false }: { spannen: Spanne[]; setSpannen: (s: Spanne[]) => void; klein?: boolean }) {
-  const feld = 'rounded-[10px] border bg-surface text-center font-mono font-semibold tabular-nums focus:border-accent focus:outline-none ' + (klein ? 'h-10 w-[5.4rem] text-[14px]' : 'h-12 w-28 text-lg');
+  const feld = 'rounded-[10px] border bg-surface text-center font-mono font-semibold tabular-nums focus:border-accent focus:outline-none ' + (klein ? 'h-10 w-[5.9rem] text-[14px]' : 'h-12 w-28 text-lg');
   const aendern = (i: number, teil: 'von' | 'bis', text: string) => {
     const v = ausUhrzeit(text);
     setSpannen(spannen.map((s, j): Spanne => (j !== i ? s : teil === 'von' ? { ...s, von: v ?? s.von } : { ...s, bis: v })));
@@ -149,7 +126,7 @@ function SpannenEditor({ spannen, setSpannen, klein = false }: { spannen: Spanne
     <div className="space-y-1.5">
       {spannen.map((s, i) => (
         <div key={i} className="flex items-center gap-1.5">
-          {spannen.length > 1 && <span className={'shrink-0 text-[10px] leading-tight text-ink3 ' + (klein ? 'w-9' : 'w-14')}>{i === 0 ? 'Vormittag' : 'Nachmittag'}</span>}
+          {spannen.length > 1 && <span className={'shrink-0 text-[10px] leading-tight text-ink3 ' + (klein ? 'w-10' : 'w-14')}>{klein ? (i === 0 ? 'Vorm.' : 'Nachm.') : i === 0 ? 'Vormittag' : 'Nachmittag'}</span>}
           <input type="time" step={300} value={uhrzeitFeld(s.von)} onChange={(e) => aendern(i, 'von', e.target.value)} aria-label="von" className={feld + ' border-line'} />
           <span className="text-ink3">–</span>
           <input type="time" step={300} value={uhrzeitFeld(s.bis)} onChange={(e) => aendern(i, 'bis', e.target.value)} aria-label="bis" className={feld + (s.bis === null ? ' border-amber/70' : ' border-line')} />
@@ -162,15 +139,6 @@ function SpannenEditor({ spannen, setSpannen, klein = false }: { spannen: Spanne
         </button>
       )}
     </div>
-  );
-}
-
-/** Kleiner −/+ Knopf in Zeilen: 40 px Tippfläche, damit man mit Handschuhen trifft. */
-function MiniKnopf({ art, onClick, klein = false }: { art: 'minus' | 'plus'; onClick: () => void; klein?: boolean }) {
-  return (
-    <button type="button" onClick={onClick} aria-label={art === 'minus' ? 'weniger' : 'mehr'} className={'grid h-10 place-items-center rounded-[10px] border border-line bg-surface text-ink2 active:scale-95 active:bg-surface-2 ' + (klein ? 'w-9' : 'w-10')}>
-      {art === 'minus' ? <Minus size={18} strokeWidth={2.2} /> : <Plus size={18} strokeWidth={2.2} />}
-    </button>
   );
 }
 
@@ -189,11 +157,11 @@ export function Erfassung() {
   const [zuletzt, setZuletzt] = useState<string[]>(zuletztLesen);
   const [weitereTeams, setWeitereTeams] = useState(0);
   const [baustelle, setBaustelle] = useState<Baustelle | null>(null);
-  const [teamMin, setTeamMin] = useState(STANDARD_MIN);
   const [anw, setAnw] = useState<Record<string, Anwesenheit>>({});
   const [anreiseOffen, setAnreiseOffen] = useState<string | null>(null);
-  // Eingabe wie auf dem Wochenblatt (Stundenzahl) oder als Zeiten von–bis (Bauführer 20.09.) — fürs Team, je Person umschaltbar
-  const [teamModus, setTeamModus] = useState<ZeitModus>('stunden');
+  /** Welche Person gerade ihre Zeiten von Hand ändert — sonst steht nur die Zeile da. */
+  const [zeitenOffen, setZeitenOffen] = useState<string | null>(null);
+  // Zeiten von–bis fürs ganze Team — die Zeilen darunter können je Person abweichen
   const [teamSpannen, setTeamSpannen] = useState<Spanne[]>(standardSpannen());
   // Personen, die heute mithelfen, aber nicht fest zum Team gehören (Bauführer 20.09.: «Mitarbeiter hinzufüge»)
   const [gaeste, setGaeste] = useState<Person[]>([]);
@@ -387,9 +355,8 @@ export function Erfassung() {
         .sort((a, b) => a.name.localeCompare(b.name));
       setLeute(personen);
       const a: Record<string, Anwesenheit> = {};
-      for (const p of personen) a[p.id] = neueAnwesenheit(p, 'stunden', standardSpannen());
+      for (const p of personen) a[p.id] = neueAnwesenheit(p, standardSpannen());
       setAnw(a);
-      setTeamModus('stunden');
       setTeamSpannen(standardSpannen());
 
       // Zuletzt auf diesem Gerät hinzugefügte Gäste — nur die, die es noch gibt und die nicht inzwischen fest im Team sind
@@ -476,25 +443,10 @@ export function Erfassung() {
   const dabei = useMemo(() => alleImTeam.filter((p) => anw[p.id]?.dabei), [alleImTeam, anw]);
   const ueberTotal = dabei.reduce((s, p) => s + wirksam(anw[p.id]).ueber, 0);
 
-  function setzeTeamMin(v: number) {
-    const w = Math.min(STANDARD_MIN, v);
-    setTeamMin(w);
-    setAnw((alt) => Object.fromEntries(Object.entries(alt).map(([k, a]) => [k, { ...a, min: w }])));
-  }
-  const [teamUeber, setTeamUeber] = useState(0);
-  function setzeTeamUeber(v: number) {
-    setTeamUeber(v);
-    setAnw((alt) => Object.fromEntries(Object.entries(alt).map(([k, a]) => [k, { ...a, ueber: v }])));
-  }
-  /** Team-Umschalter: alle auf Stundenzahl oder alle auf Zeiten (mit den Team-Zeiten als Start). */
-  function setzeTeamModus(m: ZeitModus) {
-    setTeamModus(m);
-    setAnw((alt) => Object.fromEntries(Object.entries(alt).map(([k, a]) => [k, { ...a, modus: m, zeiten: m === 'zeit' ? teamSpannen.map((s) => ({ ...s })) : a.zeiten }])));
-  }
-  /** Team-Zeiten setzen alle, die gerade auf Zeiten stehen. */
+  /** Die Team-Zeiten oben setzen alle Personen gleich; die Zeile darunter kann jede Person ändern. */
   function setzeTeamSpannen(s: Spanne[]) {
     setTeamSpannen(s);
-    setAnw((alt) => Object.fromEntries(Object.entries(alt).map(([k, a]) => [k, a.modus === 'zeit' ? { ...a, zeiten: s.map((x) => ({ ...x })) } : a])));
+    setAnw((alt) => Object.fromEntries(Object.entries(alt).map(([k, a]) => [k, { ...a, zeiten: s.map((x) => ({ ...x })) }])));
   }
 
   // Gäste: Personen ausserhalb des Teams. Liste wird erst geladen, wenn der Knopf gedrückt wird.
@@ -507,7 +459,7 @@ export function Erfassung() {
     if (alleImTeam.some((x) => x.id === p.id)) return;
     const g: Person = { ...p, gast: true };
     setGaeste((alt) => [...alt, g]);
-    setAnw((alt) => ({ ...alt, [p.id]: neueAnwesenheit(p, teamModus, teamSpannen) }));
+    setAnw((alt) => ({ ...alt, [p.id]: neueAnwesenheit(p, teamSpannen) }));
     if (teamId) { gaesteMerken(teamId, p.id); setZuletztGaeste((alt) => [g, ...alt.filter((x) => x.id !== p.id)].slice(0, 5)); }
     setZeigeGast(false);
     setGastFilter('');
@@ -554,8 +506,8 @@ export function Erfassung() {
           id: crypto.randomUUID(), mitarbeiter_id: p.id,
           normal_min: Math.min(w.min, STANDARD_MIN), ueber_min: Math.max(0, w.min - STANDARD_MIN) + w.ueber,
           oev: a.oev, km: a.km, baustelle_id: b.id, konto_nr: b.konto_nr,
-          // Zeiten nur mitschicken, wenn welche eingetragen sind — so bleibt die Stundenzahl-Meldung auch vor Migration 0016 gültig
-          ...(a.modus === 'zeit' ? zuSpalten(a.zeiten) : {}),
+          // Zeiten gehen immer mit (Migration 0016) — sie sind seit 20.09. die einzige Eingabe
+          ...zuSpalten(a.zeiten),
         };
       }),
     };
@@ -590,9 +542,9 @@ export function Erfassung() {
     if (!baustelle) { setHinweis('Zuerst die Baustelle antippen.'); return; }
     if (dabei.length === 0) { setHinweis('Niemand angehakt.'); return; }
     // Zeiten von–bis: ohne «bis» gibt es keine Stunden — nichts raten, nachfragen
-    const unvollstaendig = dabei.filter((p) => anw[p.id]?.modus === 'zeit' && !anw[p.id].zeiten.some(spanneVollstaendig));
-    if (unvollstaendig.length > 0) { setHinweis(`Bei ${unvollstaendig.map((p) => p.name).join(', ')} fehlt noch «bis» — Zeit eintragen oder auf Stundenzahl wechseln.`); return; }
-    const ueberlappt = dabei.filter((p) => anw[p.id]?.modus === 'zeit' && spannenUeberlappen(anw[p.id].zeiten));
+    const unvollstaendig = dabei.filter((p) => !zeitenVollstaendig(anw[p.id]?.zeiten ?? []));
+    if (unvollstaendig.length > 0) { setHinweis(`Bei ${unvollstaendig.map((p) => p.name).join(', ')} fehlt noch «bis» — Zeit eintragen.`); return; }
+    const ueberlappt = dabei.filter((p) => spannenUeberlappen(anw[p.id]?.zeiten ?? []));
     if (ueberlappt.length > 0) { setHinweis(`Bei ${ueberlappt.map((p) => p.name).join(', ')} überschneiden sich Vormittag und Nachmittag — bitte Zeiten prüfen.`); return; }
     const hatUeber = ueberTotal > 0;
     if (hatUeber && !ueberAufnahme && !nimmtAuf && !mikroFehlt) { setHinweis('Bei Überstunden bitte kurz sagen, warum — Mikrofon antippen.'); return; }
@@ -655,7 +607,9 @@ export function Erfassung() {
     void offeneAnzahl().then(setWartend);
     setTimeout(() => setGespeichert(null), 3500);
     setTimeout(() => setBestaetigung(null), 8000);
-    setTeamUeber(0); setAnw((alt) => Object.fromEntries(Object.entries(alt).map(([k, a]) => [k, { ...a, ueber: 0 }])));
+    // Nächste Meldung beginnt wieder mit der Vorgabe 7:00–12:00 / 13:00–offen
+    setTeamSpannen(standardSpannen());
+    setAnw((alt) => Object.fromEntries(Object.entries(alt).map(([k, a]) => [k, { ...a, zeiten: standardSpannen() }])));
     setUeberAufnahme(null); setUeberVorschau(null);
     for (const f of fotos) URL.revokeObjectURL(f.url);
     setFotos([]);
@@ -910,47 +864,21 @@ export function Erfassung() {
         </section>
 
         <section>
-          <div className="mb-2 flex items-center justify-between gap-2">
-            <p className="lbl mb-0">Stunden — alle gleich</p>
-            {/* Stundenzahl (wie das Wochenblatt) oder Zeiten von–bis (Bauführer 20.09.) — der Umschalter gilt fürs Team, unten je Person */}
-            <div className="flex gap-1" role="group" aria-label="Eingabe">
-              <button type="button" onClick={() => setzeTeamModus('stunden')} className={'chip px-2.5 py-1 text-xs ' + (teamModus === 'stunden' ? 'chip-on' : '')}>Stundenzahl</button>
-              <button type="button" onClick={() => setzeTeamModus('zeit')} className={'chip px-2.5 py-1 text-xs ' + (teamModus === 'zeit' ? 'chip-on' : '')}>von – bis</button>
-            </div>
+          {/* Nur noch Zeiten von–bis (Amir 20.09.: «nur Zeiten eingeben») — Normal und Überstunden rechnet die App daraus */}
+          <p className="lbl">Zeiten — alle gleich</p>
+          <div className="rounded-[14px] border border-line bg-surface p-3 shadow-[0_1px_2px_rgb(17_17_19/0.04)]">
+            <SpannenEditor spannen={teamSpannen} setSpannen={setzeTeamSpannen} />
+            {(() => {
+              const t = aufteilen(spannenMinuten(teamSpannen));
+              return (
+                <p className="mt-2 font-mono text-sm tabular-nums">
+                  {zeitenVollstaendig(teamSpannen) ? <>{stunden(t.normal_min + t.ueber_min)} h{t.ueber_min > 0 && <span className="font-semibold text-amber-deep"> · davon {stunden(t.ueber_min)} h Überstunden</span>}</> : <span className="text-amber-deep">«bis» eintragen</span>}
+                </p>
+              );
+            })()}
+            <p className="mt-1 text-[11px] text-ink3">Die App zieht keine Pause ab — was hier steht, zählt. Mittag 12–13 ist als Lücke vorgegeben. Unten kann jede Person anders sein.</p>
+            <MittagHinweis spannen={teamSpannen} />
           </div>
-          {teamModus === 'stunden' ? (
-            <>
-              <div className="grid grid-cols-2 items-end gap-2">
-                <div>
-                  <p className="mb-1 truncate text-[11px] text-ink3">Normal · bis {stunden(STANDARD_MIN)} h</p>
-                  <Stepper wert={teamMin} setWert={setzeTeamMin} schritt={30} min={30} max={STANDARD_MIN} format={(v) => (v / 60).toFixed(1)} />
-                </div>
-                <div>
-                  <p className="mb-1 truncate text-[11px] text-ink3">Überstunden</p>
-                  <div className="flex items-center justify-between rounded-[14px] border border-line bg-surface p-1.5 shadow-[0_1px_2px_rgb(17_17_19/0.04)]">
-                    <button type="button" onClick={() => setzeTeamUeber(Math.max(0, teamUeber - 30))} aria-label="weniger" className="grid h-12 w-11 shrink-0 place-items-center rounded-[10px] bg-surface-2 text-ink active:scale-95"><Minus size={22} strokeWidth={2.2} /></button>
-                    <ZahlFeld wert={teamUeber} setWert={setzeTeamUeber} klasse="h-12 w-16 text-xl" />
-                    <button type="button" onClick={() => setzeTeamUeber(teamUeber + 30)} aria-label="mehr" className="grid h-12 w-11 shrink-0 place-items-center rounded-[10px] bg-surface-2 text-ink active:scale-95"><Plus size={22} strokeWidth={2.2} /></button>
-                  </div>
-                </div>
-              </div>
-              <p className="mt-1.5 text-[11px] text-ink3">Wie auf dem Wochenblatt. Zahl antippen zum Tippen. Unten kann jede Person anders sein.</p>
-            </>
-          ) : (
-            <div className="rounded-[14px] border border-line bg-surface p-3 shadow-[0_1px_2px_rgb(17_17_19/0.04)]">
-              <SpannenEditor spannen={teamSpannen} setSpannen={setzeTeamSpannen} />
-              {(() => {
-                const t = aufteilen(spannenMinuten(teamSpannen));
-                return (
-                  <p className="mt-2 font-mono text-sm tabular-nums">
-                    {teamSpannen.some(spanneVollstaendig) ? <>{stunden(t.normal_min + t.ueber_min)} h{t.ueber_min > 0 && <span className="font-semibold text-amber-deep"> · davon {stunden(t.ueber_min)} h Überstunden</span>}</> : <span className="text-ink3">«bis» eintragen</span>}
-                  </p>
-                );
-              })()}
-              <p className="mt-1 text-[11px] text-ink3">Die App zieht keine Pause ab — was hier steht, zählt. Mittag 12–13 ist als Lücke vorgegeben. Unten kann jede Person anders sein.</p>
-              <MittagHinweis spannen={teamSpannen} />
-            </div>
-          )}
         </section>
 
         <section>
@@ -973,7 +901,7 @@ export function Erfassung() {
                     </span>
                     {a.dabei && (
                       <>
-                        <span className={'font-mono text-sm tabular-nums ' + (a.modus === 'zeit' && !a.zeiten.some(spanneVollstaendig) ? 'text-amber-deep' : 'text-ink2')}>{a.modus === 'zeit' && !a.zeiten.some(spanneVollstaendig) ? '– h' : `${stunden(w.min + w.ueber)} h`}</span>
+                        <span className={'font-mono text-sm tabular-nums ' + (!zeitenVollstaendig(a.zeiten) || w.ueber > 0 ? 'font-semibold text-amber-deep' : 'text-ink2')}>{zeitenVollstaendig(a.zeiten) ? `${stunden(w.min + w.ueber)} h` : '– h'}</span>
                         {/* Anreise: nur Auto (km). öV ist ausgeblendet (OEV_AKTIV), bis geklärt ist, ob es ganz weg soll. */}
                         <button type="button" onClick={() => setAnreiseOffen(anreiseOffen === p.id ? null : p.id)} aria-label="Anreise" className={'grid h-10 min-w-10 place-items-center rounded-[10px] border px-1.5 text-[11px] ' + (a.oev || a.km > 0 ? 'border-steel/40 bg-steel-soft text-steel' : 'border-line bg-surface text-ink3')}>{a.oev ? 'öV' : a.km > 0 ? `${a.km} km` : <Car size={16} />}</button>
                       </>
@@ -982,38 +910,26 @@ export function Erfassung() {
                       <button type="button" onClick={() => gastEntfernen(p.id)} aria-label={`${p.name} entfernen`} className="grid h-10 w-8 place-items-center rounded-[10px] text-ink3 active:bg-surface-2"><X size={16} /></button>
                     )}
                   </div>
-                  {a.dabei && a.modus === 'stunden' && (
-                    /* Zwei Spalten wie auf dem Wochenblatt: Normal (bis 8.4 h) und Überstunden — rechts der Wechsel auf Zeiten */
-                    <div className="mt-2 flex items-center gap-2">
-                      <div className="grid flex-1 grid-cols-2 gap-2">
-                        <div className="flex items-center gap-1">
-                          <span className="w-10 text-[10px] leading-tight text-ink3">Normal</span>
-                          <MiniKnopf klein art="minus" onClick={() => setAnw((s) => ({ ...s, [p.id]: { ...a, min: Math.max(30, a.min - 30) } }))} />
-                          <span className="w-9 text-center font-mono text-[15px] font-semibold tabular-nums">{(a.min / 60).toFixed(1)}</span>
-                          <MiniKnopf klein art="plus" onClick={() => setAnw((s) => ({ ...s, [p.id]: { ...a, min: Math.min(STANDARD_MIN, a.min + 30) } }))} />
-                        </div>
-                        <div className="flex items-center gap-1">
-                          <span className="w-10 text-[10px] leading-tight text-ink3">Über-<br />stunden</span>
-                          <MiniKnopf klein art="minus" onClick={() => setAnw((s) => ({ ...s, [p.id]: { ...a, ueber: Math.max(0, a.ueber - 30) } }))} />
-                          <ZahlFeld wert={a.ueber} setWert={(v) => setAnw((s) => ({ ...s, [p.id]: { ...a, ueber: v } }))} klasse={'h-10 w-12 text-[15px] ' + (a.ueber > 0 ? 'text-amber-deep' : 'text-ink3')} />
-                          <MiniKnopf klein art="plus" onClick={() => setAnw((s) => ({ ...s, [p.id]: { ...a, ueber: a.ueber + 30 } }))} />
-                        </div>
-                      </div>
-                      <button type="button" onClick={() => setAnw((s) => ({ ...s, [p.id]: { ...a, modus: 'zeit', zeiten: a.zeiten.length > 0 ? a.zeiten : standardSpannen() } }))} className="shrink-0 text-[11px] font-semibold text-steel" aria-label="Zeiten von–bis eintragen">von–bis</button>
-                    </div>
-                  )}
-                  {a.dabei && a.modus === 'zeit' && (
+                  {/* Die Team-Zeiten oben gelten für alle. Je Person stehen sie als eine Zeile da;
+                      die Uhrzeit-Felder kommen erst, wenn jemand abweicht («ändern») oder «bis» noch fehlt. */}
+                  {a.dabei && (zeitenOffen === p.id || !zeitenVollstaendig(a.zeiten) ? (
                     <div className="mt-2">
-                      <div className="flex items-start gap-2">
-                        <SpannenEditor klein spannen={a.zeiten} setSpannen={(z) => setAnw((s) => ({ ...s, [p.id]: { ...a, zeiten: z } }))} />
-                        <span className="ml-auto flex shrink-0 flex-col items-end gap-1 pt-2 text-[11px]">
-                          {w.ueber > 0 && <span className="font-semibold text-amber-deep">{stunden(w.ueber)} h über</span>}
-                          <button type="button" onClick={() => setAnw((s) => ({ ...s, [p.id]: { ...a, modus: 'stunden' } }))} className="font-semibold text-steel">Stundenzahl</button>
-                        </span>
+                      <SpannenEditor klein spannen={a.zeiten} setSpannen={(z) => setAnw((s) => ({ ...s, [p.id]: { ...a, zeiten: z } }))} />
+                      <div className="mt-1 flex items-center gap-3 text-[11px]">
+                        {w.ueber > 0 && <span className="font-semibold text-amber-deep">{stunden(w.ueber)} h über</span>}
+                        {!zeitenVollstaendig(a.zeiten) && <span className="text-amber-deep">«bis» fehlt noch</span>}
+                        {zeitenVollstaendig(a.zeiten) && (
+                          <button type="button" onClick={() => setZeitenOffen(null)} className="ml-auto font-semibold text-steel">fertig</button>
+                        )}
                       </div>
                       <MittagHinweis spannen={a.zeiten} />
                     </div>
-                  )}
+                  ) : (
+                    <button type="button" onClick={() => setZeitenOffen(p.id)} className="mt-1.5 flex w-full items-center gap-2 pl-[52px] text-left">
+                      <span className="min-w-0 flex-1 truncate font-mono text-[12px] tabular-nums text-ink2">{zeitenText(zuSpalten(a.zeiten))}</span>
+                      <span className="shrink-0 text-[11px] font-semibold text-steel">ändern</span>
+                    </button>
+                  ))}
                   {anreiseOffen === p.id && a.dabei && (
                     <div className="mt-2 flex items-center gap-2 pl-10">
                       {OEV_AKTIV && <button type="button" onClick={() => setAnw((s) => ({ ...s, [p.id]: { ...a, oev: !a.oev, km: a.oev ? a.km : 0 } }))} className={'chip px-3 py-1.5 text-xs ' + (a.oev ? 'chip-on' : '')}>öV</button>}
