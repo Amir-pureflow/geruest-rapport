@@ -9,81 +9,88 @@
  * Der Chefmonteur steht dabei, damit der Bauführer weiss, wen er anruft — nicht,
  * um jemanden zu messen. Der Zustand hängt nie an der Farbe allein: jede Kachel
  * trägt Uhrzeit oder Wort.
+ *
+ * Farbe umgedreht (20.09.): Vorher war jede gemeldete Kachel grün getönt — bei
+ * 17 von 20 eine grüne Wand, in der ausgerechnet das Fehlende still blieb. Jetzt
+ * ist der Normalfall weiss und ruhig; grau sind die Lücken, bernstein die Tage
+ * mit Überstunden. Was Arbeit macht, sticht heraus — der Rest ist nur Bestätigung.
+ *
+ * Die Zahl «x von 20 gemeldet» steht als Kachel schon zuoberst auf der Seite.
+ * Hier oben steht darum, was offen ist, nicht dieselbe Zahl zweimal.
  */
 import { Link } from 'react-router-dom';
 import type { TeamStand } from '../lib/kennzahlen';
 
-function Fortschritt({ von, bis }: { von: number; bis: number }) {
-  const anteil = bis > 0 ? von / bis : 0;
-  return (
-    <div className="h-1.5 w-full overflow-hidden rounded-full bg-ground" role="img" aria-label={`${von} von ${bis} Teams haben gemeldet`}>
-      <div
-        className="h-full rounded-full bg-good transition-[width] duration-500"
-        style={{ width: `${Math.max(anteil * 100, von > 0 ? 2 : 0)}%` }}
-      />
-    </div>
-  );
-}
+type Zustand = 'gemeldet' | 'ueber' | 'fehlt';
+
+const STIL: Record<Zustand, { kachel: string; punkt: string; zeit: string }> = {
+  gemeldet: { kachel: 'border-line bg-surface', punkt: 'bg-good', zeit: 'text-ink2' },
+  ueber: { kachel: 'border-amber/40 bg-amber-soft', punkt: 'bg-amber', zeit: 'text-amber-deep' },
+  fehlt: { kachel: 'border-line bg-surface-2', punkt: 'border border-line-strong bg-transparent', zeit: 'text-ink3' },
+};
 
 function Kachel({ t }: { t: TeamStand }) {
-  const gemeldet = t.gemeldetUm !== null;
-  const rand = t.abweichung ? 'bg-amber' : gemeldet ? 'bg-good' : 'bg-line-strong';
-  const flaeche = t.abweichung ? 'bg-amber-soft' : gemeldet ? 'bg-good-soft/50' : 'bg-surface';
-  const zeitFarbe = t.abweichung ? 'text-amber-deep' : gemeldet ? 'text-good-deep' : 'text-ink3';
+  const zustand: Zustand = t.abweichung ? 'ueber' : t.gemeldetUm !== null ? 'gemeldet' : 'fehlt';
+  const s = STIL[zustand];
   const ort = t.anzahlBaustellen > 1 ? `${t.anzahlBaustellen} Baustellen` : t.baustelle;
 
   return (
     <li
-      className={'relative overflow-hidden rounded-[11px] border border-line ' + flaeche}
-      /* Zustand auch für Vorlesegeräte — nicht nur über die Farbkante */
+      className={'rounded-[12px] border px-3 py-2.5 ' + s.kachel}
+      /* Zustand auch für Vorlesegeräte — nicht nur über die Farbe */
       aria-label={
         `${t.bezeichnung}, ${t.chefmonteur ?? 'kein Chefmonteur'}: ` +
-        (gemeldet ? `gemeldet um ${t.gemeldetUm}${t.abweichung ? ', mit Überstunden' : ''}` : 'noch keine Meldung')
+        (t.gemeldetUm
+          ? `gemeldet um ${t.gemeldetUm}${t.abweichung ? ', mit Überstunden' : ''}`
+          : 'noch keine Meldung')
       }
     >
-      <span className={'absolute inset-y-0 left-0 w-[3px] ' + rand} aria-hidden="true" />
-      <div className="py-2 pl-3.5 pr-3">
-        <div className="flex items-baseline justify-between gap-2">
-          <span className="font-display text-[15px] font-semibold text-ink">{t.bezeichnung}</span>
-          <span className={'font-mono text-[11px] tabular-nums ' + zeitFarbe}>{t.gemeldetUm ?? '—'}</span>
-        </div>
-        <p className="truncate text-[12px] text-ink2">{t.chefmonteur ?? 'kein Chefmonteur hinterlegt'}</p>
-        {/* Dritte Zeile bleibt auch leer stehen, damit alle Kacheln gleich hoch sind */}
-        <p className="truncate text-[11px] text-ink3">
-          {t.abweichung ? (
-            <>
-              <span className="font-semibold text-amber-deep">Überstunden</span>
-              {ort ? ` · ${ort}` : ''}
-            </>
-          ) : (
-            ort ?? ' '
-          )}
-        </p>
+      <div className="flex items-baseline justify-between gap-2">
+        <span className="truncate font-display text-[15px] font-semibold text-ink">{t.bezeichnung}</span>
+        <span className="flex shrink-0 items-center gap-1.5">
+          <span className={'inline-block h-1.5 w-1.5 rounded-full ' + s.punkt} aria-hidden="true" />
+          <span className={'font-mono text-[11px] tabular-nums ' + s.zeit}>{t.gemeldetUm ?? '—'}</span>
+        </span>
       </div>
+      <p className="mt-1 truncate text-[12px] text-ink2">{t.chefmonteur ?? 'kein Chefmonteur hinterlegt'}</p>
+      {/* Dritte Zeile bleibt auch leer stehen, damit alle Kacheln gleich hoch sind */}
+      <p className="truncate text-[11px] text-ink3">
+        {zustand === 'fehlt' ? (
+          'noch keine Meldung'
+        ) : t.abweichung ? (
+          <>
+            <span className="font-semibold text-amber-deep">Überstunden</span>
+            {ort ? ` · ${ort}` : ''}
+          </>
+        ) : (
+          (ort ?? ' ')
+        )}
+      </p>
     </li>
   );
 }
 
 export function TeamBoard({ teams }: { teams: TeamStand[] }) {
-  const gemeldet = teams.filter((t) => t.gemeldetUm !== null).length;
-  const abweichungen = teams.filter((t) => t.abweichung).length;
+  const fehlen = teams.filter((t) => t.gemeldetUm === null).length;
+  const ueber = teams.filter((t) => t.abweichung).length;
+
+  /** Ein Satz, der sagt, was noch zu tun ist — nicht, was schon gut ist. */
+  const teile: string[] = [];
+  if (fehlen > 0) teile.push(`${fehlen} ${fehlen === 1 ? 'Team hat' : 'Teams haben'} noch nicht gemeldet`);
+  if (ueber > 0) teile.push(`${ueber} mit Überstunden`);
 
   return (
     <section className="card">
       <div className="flex items-start justify-between gap-4">
         <div className="min-w-0 flex-1">
-          <p className="lbl mb-1">Heute</p>
+          <p className="lbl mb-1">Teams heute</p>
           <p className="font-display text-[17px] font-semibold text-ink">
-            {gemeldet} von {teams.length} Teams haben gemeldet
+            {teile.length > 0 ? teile.join(' · ') : `Alle ${teams.length} Teams haben gemeldet`}
           </p>
         </div>
         <Link to="/heute" className="shrink-0 text-xs font-semibold text-steel">
           Tagesübersicht ›
         </Link>
-      </div>
-
-      <div className="mt-2.5">
-        <Fortschritt von={gemeldet} bis={teams.length} />
       </div>
 
       <ul className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
@@ -92,18 +99,18 @@ export function TeamBoard({ teams }: { teams: TeamStand[] }) {
         ))}
       </ul>
 
-      <div className="mt-3.5 flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-line pt-2.5 text-[11px] text-ink3">
+      <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-line pt-3 text-[11px] text-ink3">
         <span className="flex items-center gap-1.5">
           <span className="inline-block h-2.5 w-2.5 rounded-[3px] bg-good" />gemeldet
         </span>
         <span className="flex items-center gap-1.5">
-          <span className="inline-block h-2.5 w-2.5 rounded-[3px] bg-amber" />
-          Überstunden{abweichungen > 0 ? ` · ${abweichungen}` : ''}
+          <span className="inline-block h-2.5 w-2.5 rounded-[3px] bg-amber" />Überstunden — Notiz lesen
         </span>
         <span className="flex items-center gap-1.5">
-          <span className="inline-block h-2.5 w-2.5 rounded-[3px] bg-line-strong" />noch keine Meldung
+          <span className="inline-block h-2.5 w-2.5 rounded-[3px] border border-line-strong bg-surface-2" />
+          noch keine Meldung
         </span>
-        <span className="ml-auto">Am Abend meldet das Teamgerät — vorher sind viele Kacheln normal grau.</span>
+        <span className="sm:ml-auto">Das Teamgerät meldet am Abend — vorher sind viele Kacheln grau.</span>
       </div>
     </section>
   );

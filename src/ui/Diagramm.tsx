@@ -1,8 +1,18 @@
 /**
  * Diagramme für die Büro-Startseiten (Bauführer, Sekretariat).
  *
- * Bewusst ohne Diagramm-Bibliothek: reines SVG/HTML aus den Design-Tokens.
+ * Bewusst ohne Diagramm-Bibliothek: Flächen aus den Design-Tokens, kein SVG.
  * Das hält die App klein, funktioniert offline und sieht aus wie der Rest.
+ *
+ * Warum kein SVG mehr (20.09.): Die Säulen standen in einem SVG mit fester
+ * `viewBox`. Am PC wurde die Karte über 900 px breit, das SVG skalierte
+ * mitsamt Schrift auf über 400 px Höhe — drei kleine Säulen in einer grossen
+ * leeren Fläche, mit Beschriftung dreimal zu gross. Jetzt sind es Flächen mit
+ * fester Höhe: die Schrift bleibt Schrift, die Karte bleibt ruhig.
+ *
+ * Und: Jeder Tag hat eine volle Spur im Hintergrund — sie ist alle Teams.
+ * «2 von 20» sieht man dann als zwei Zwanzigstel, statt als kurzen Strich im
+ * Nichts. Leere Tage bleiben sichtbar, statt zu verschwinden.
  *
  * Regel aus CLAUDE.md «Nicht bauen»: keine Mitarbeiter-Bewertung. Darum zeigen
  * die Diagramme Arbeit und Abläufe — nie eine Rangliste von Personen.
@@ -11,7 +21,7 @@
  * Farben: eigene Datenfarben statt der Text-Tokens (die sind zu dunkel und zu
  * grau, um als Flächen unterscheidbar zu sein). Auf Farbfehlsichtigkeit geprüft.
  */
-import { useState, type ReactNode } from 'react';
+import type { ReactNode } from 'react';
 
 export const DATENFARBE = {
   normal: '#3f3f46',
@@ -33,136 +43,107 @@ export function DiagrammKarte({
   children: ReactNode;
 }) {
   return (
-    <section className="card flex flex-col">
+    <section className="card">
       <div className="flex items-baseline justify-between gap-3">
         <p className="lbl mb-0">{titel}</p>
         {aktion}
       </div>
       {unter && <p className="mt-1 text-xs text-ink3">{unter}</p>}
-      <div className="mt-3 flex-1">{children}</div>
+      <div className="mt-4">{children}</div>
     </section>
   );
 }
 
 /** Legende — ab zwei Reihen Pflicht, damit Farbe nie allein die Bedeutung trägt. */
-function Legende({ reihen }: { reihen: { farbe: string; text: string }[] }) {
+function Legende({ reihen, hinweis }: { reihen: { farbe: string; text: string }[]; hinweis?: string }) {
   return (
-    <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1">
+    <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-line pt-3">
       {reihen.map((r) => (
-        <span key={r.text} className="flex items-center gap-1.5 text-xs text-ink3">
+        <span key={r.text} className="flex items-center gap-1.5 text-[11px] text-ink3">
           <span className="inline-block h-2.5 w-2.5 rounded-[3px]" style={{ background: r.farbe }} />
           {r.text}
         </span>
       ))}
+      {hinweis && <span className="text-[11px] text-ink3 sm:ml-auto">{hinweis}</span>}
     </div>
   );
 }
 
-function LeerHinweis({ text }: { text: string }) {
-  return <p className="py-6 text-center text-sm text-ink3">{text}</p>;
-}
-
-/** Pfad mit oben abgerundeten Ecken — das freie Ende des Balkens, nicht die Grundlinie. */
-function balkenPfad(x: number, y: number, b: number, h: number, r: number): string {
-  const rr = Math.min(r, h, b / 2);
-  return `M${x},${y + h} L${x},${y + rr} Q${x},${y} ${x + rr},${y} L${x + b - rr},${y} Q${x + b},${y} ${x + b},${y + rr} L${x + b},${y + h} Z`;
-}
-
-interface Hinweis {
-  x: number;
-  y: number;
-  inhalt: ReactNode;
-}
-
-/** Gestapelte Säulen mit Beschriftung über der Säule. Zwei Reihen, ein Wert je Reihe. */
-function Saeulen({
+/**
+ * Je Tag eine Zeile: Kürzel, Spur, Zahl. Zwei Reihen, ein Wert je Reihe.
+ *
+ * Liegende Balken statt Säulen, weil die Zahlen klein sind gegenüber dem
+ * Massstab (2 von 20 Teams). Als Säule ist das ein Strich am Boden eines hohen
+ * leeren Glases; als Zeile ist es ein kurzer Balken in einer Spur — ruhig,
+ * lesbar, und am Handy dasselbe Bild wie am PC.
+ *
+ * Die Spur ist die Obergrenze (`skala`, z. B. alle Teams) und bleibt auch an
+ * leeren Tagen stehen — so ist der Massstab immer da und die Karte nie leer.
+ */
+function Balken({
   punkte,
   reihen,
-  wertText,
   ariaLabel,
+  wertText,
   skala,
+  hinweis,
 }: {
   punkte: { label: string; werte: [number, number]; hervor?: boolean; titel: string }[];
   reihen: { farbe: string; text: string }[];
-  wertText: (summe: number) => string;
   ariaLabel: string;
-  /** Feste Obergrenze der Säulen (z. B. alle Teams), damit «2 von 20» auch optisch 2 von 20 ist. */
+  /** Die Zahl am rechten Rand der Zeile. */
+  wertText: (summe: number) => string;
+  /** Feste Obergrenze (z. B. alle Teams), damit «2 von 20» auch optisch 2 von 20 ist. */
   skala?: number;
+  /** Ein Satz zum Massstab, steht in der Legende rechts. */
+  hinweis?: string;
 }) {
-  const [hinweis, setHinweis] = useState<Hinweis | null>(null);
   const summen = punkte.map((p) => p.werte[0] + p.werte[1]);
   const max = Math.max(...summen, skala ?? 0, 1);
-  if (summen.every((s) => s === 0)) return <LeerHinweis text="Noch nichts erfasst in diesem Zeitraum." />;
-
-  const B = 360;
-  const H = 168;
-  const OBEN = 22;
-  const UNTEN = 24;
-  const hoehe = H - OBEN - UNTEN;
-  const band = B / punkte.length;
-  const breite = Math.min(30, band * 0.56);
+  const leer = summen.every((s) => s === 0);
 
   return (
-    <div className="relative">
-      <svg viewBox={`0 0 ${B} ${H}`} className="h-auto w-full" role="img" aria-label={ariaLabel}>
-        {/* Grundlinie — zurückhaltend, kein Gitternetz */}
-        <line x1="0" y1={OBEN + hoehe + 0.5} x2={B} y2={OBEN + hoehe + 0.5} stroke="#ececec" strokeWidth="1" />
+    <div>
+      <ul className="space-y-1.5" role="img" aria-label={ariaLabel}>
         {punkte.map((p, i) => {
           const summe = summen[i];
-          const x = i * band + (band - breite) / 2;
-          const gesamtH = (summe / max) * hoehe;
-          const untenH = (p.werte[0] / max) * hoehe;
-          const obenH = gesamtH - untenH;
-          const basis = OBEN + hoehe;
-          // 2 px Luft zwischen den Segmenten, damit die Grenze sichtbar bleibt
-          const luft = obenH > 0 && untenH > 0 ? 2 : 0;
           return (
-            <g
-              key={p.label}
-              onMouseEnter={(e) => setHinweis({ x: e.nativeEvent.offsetX, y: e.nativeEvent.offsetY, inhalt: p.titel })}
-              onMouseLeave={() => setHinweis(null)}
-            >
-              {/* grosszügige Trefferfläche, unabhängig von der Säulenbreite */}
-              <rect x={i * band} y={OBEN} width={band} height={hoehe} fill="transparent" />
-              {summe > 0 && (
-                <text
-                  x={x + breite / 2}
-                  y={basis - gesamtH - 7}
-                  textAnchor="middle"
-                  className="fill-ink2 font-mono text-[10px] tabular-nums"
-                >
-                  {wertText(summe)}
-                </text>
-              )}
-              {/* unteres Segment: die 2 px Luft werden oben abgezogen, die Grundlinie bleibt stehen */}
-              {untenH > 0 && (
-                <path
-                  d={balkenPfad(x, basis - untenH + luft, breite, untenH - luft, obenH > 0 ? 0 : 4)}
-                  fill={reihen[0].farbe}
-                />
-              )}
-              {obenH > 0 && <path d={balkenPfad(x, basis - gesamtH, breite, obenH, 4)} fill={reihen[1].farbe} />}
-              <text
-                x={x + breite / 2}
-                y={H - 8}
-                textAnchor="middle"
-                className={'font-mono text-[10px] ' + (p.hervor ? 'fill-ink font-semibold' : 'fill-ink3')}
+            <li key={p.label} className="flex items-center gap-3" title={p.titel}>
+              <span
+                className={
+                  'w-7 shrink-0 text-[12px] ' + (p.hervor ? 'font-semibold text-ink' : 'text-ink3')
+                }
               >
                 {p.label}
-              </text>
-            </g>
+              </span>
+              <span className="flex h-3 flex-1 gap-[2px] overflow-hidden rounded-full bg-surface-2">
+                {p.werte[0] > 0 && (
+                  <span
+                    className="block h-full"
+                    style={{ width: `${(p.werte[0] / max) * 100}%`, minWidth: 6, background: reihen[0].farbe }}
+                  />
+                )}
+                {p.werte[1] > 0 && (
+                  <span
+                    className="block h-full"
+                    style={{ width: `${(p.werte[1] / max) * 100}%`, minWidth: 6, background: reihen[1].farbe }}
+                  />
+                )}
+              </span>
+              <span
+                className={
+                  'w-[72px] shrink-0 text-right font-mono text-[12px] tabular-nums md:w-20 ' +
+                  (summe > 0 ? 'text-ink2' : 'text-ink3/60')
+                }
+              >
+                {summe > 0 ? wertText(summe) : '–'}
+              </span>
+            </li>
           );
         })}
-      </svg>
-      {hinweis && (
-        <div
-          className="pointer-events-none absolute z-10 whitespace-nowrap rounded-[8px] border border-line bg-surface px-2.5 py-1.5 text-xs text-ink shadow-[0_2px_10px_rgb(23_36_42/0.12)]"
-          style={{ left: Math.min(hinweis.x + 10, 240), top: Math.max(hinweis.y - 34, 0) }}
-        >
-          {hinweis.inhalt}
-        </div>
-      )}
-      <Legende reihen={reihen} />
+      </ul>
+      {leer && <p className="mt-3 text-center text-sm text-ink3">Noch nichts erfasst in diesem Zeitraum.</p>}
+      <Legende reihen={reihen} hinweis={hinweis} />
     </div>
   );
 }
@@ -178,13 +159,13 @@ export function WochenTeams({
 }: {
   tage: { label: string; offen: number; freigegeben: number; datum: string }[];
   hervorIndex?: number;
-  /** Anzahl aller aktiven Teams — die Zahl über der Säule heisst dann «3 von 20». */
+  /** Anzahl aller aktiven Teams — die volle Spur ist dann «20 Teams». */
   gesamt?: number;
 }) {
   const teamsText = (n: number) => `${n} ${n === 1 ? 'Team' : 'Teams'}`;
   const vonAllen = (n: number) => (gesamt > 0 ? `${n} von ${gesamt} Teams` : teamsText(n));
   return (
-    <Saeulen
+    <Balken
       ariaLabel="Teams je Tag, aufgeteilt in freigegeben und wartet auf Freigabe"
       punkte={tage.map((t, i) => ({
         label: t.label,
@@ -205,7 +186,7 @@ export function WochenTeams({
       ]}
       wertText={(n) => (gesamt > 0 ? `${n} von ${gesamt}` : String(n))}
       skala={gesamt}
+      hinweis={gesamt > 0 ? `volle Spur = alle ${gesamt} Teams` : undefined}
     />
   );
 }
-
