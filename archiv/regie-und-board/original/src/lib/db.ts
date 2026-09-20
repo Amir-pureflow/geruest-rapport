@@ -4,9 +4,8 @@
  * Gesendet wird, sobald Verbindung da ist; der Server dedupliziert
  * über client_uuid bzw. clientseitig vergebene ids — mehrfaches Senden ist harmlos.
  *
- * Eine Warteschlange: Tagesmeldungen (Teamgerät, inkl. Zeiteinträge, Sprachnotiz, Fotos).
- * Die zweite (Zusatzaufträge des Bauführers) ist seit 20.09. weg — mit der ganzen Regie; Dexie-Version 4
- * räumt die Tabelle auf Altgeräten ab.
+ * Zwei Warteschlangen: Tagesmeldungen (Teamgerät, inkl. Zeiteinträge + Sprachnotiz)
+ * und Zusatzaufträge (Bauführer).
  */
 import Dexie, { type Table } from 'dexie';
 import type { SupabaseClient } from '@supabase/supabase-js';
@@ -68,6 +67,7 @@ async function belegHochladen(client: SupabaseClient, pfad: string, blob: Blob, 
 }
 
 export type LokaleMeldung = QueueEintrag;
+export type LokalerAuftrag = QueueEintrag;
 
 export interface LokalesAudio {
   client_uuid: string;
@@ -116,6 +116,7 @@ export interface MeldungPayload {
 class LokaleDb extends Dexie {
   meldungen!: Table<LokaleMeldung, string>;
   audio!: Table<LokalesAudio, string>;
+  auftraege!: Table<LokalerAuftrag, string>;
   fotos!: Table<LokalesFoto, string>;
 
   constructor() {
@@ -133,13 +134,6 @@ class LokaleDb extends Dexie {
       meldungen: 'client_uuid, status, erstellt',
       audio: 'client_uuid',
       auftraege: 'client_uuid, status, erstellt',
-      fotos: 'id, client_uuid',
-    });
-    // 20.09.: Zusatzaufträge gibt es nicht mehr — Tabelle entfernen (null = löschen)
-    this.version(4).stores({
-      meldungen: 'client_uuid, status, erstellt',
-      audio: 'client_uuid',
-      auftraege: null,
       fotos: 'id, client_uuid',
     });
   }
@@ -160,13 +154,56 @@ export async function enqueueMeldung(payload: MeldungPayload, audio?: Blob, foto
   return e.client_uuid;
 }
 
+/** Zusatzauftrag lokal ablegen (Bauführer am Telefon — muss auch ohne Netz klappen). */
+export async function enqueueZusatzauftrag(payload: Record<string, unknown>): Promise<string> {
+  const e = neuerEintrag(payload);
+  await db.auftraege.add(e);
+  return e.client_uuid;
+}
+
 export async function offeneAnzahl(): Promise<number> {
-  return db.meldungen.where('status').equals('lokal').count();
+  const [m, a] = await Promise.all([
+    db.meldungen.where('status').equals('lokal').count(),
+    db.auftraege.where('status').equals('lokal').count(),
+  ]);
+  return m + a;
+}
+
+/** Noch nicht gesendete Zusatzaufträge — für die «wird gesendet…»-Anzeige in der Liste. */
+export async function offeneAuftraege(): Promise<LokalerAuftrag[]> {
+  return db.auftraege.where('status').equals('lokal').sortBy('erstellt');
 }
 
 /** Noch nicht gesendete Tagesmeldungen (lokal). */
 export async function offeneMeldungen(): Promise<LokaleMeldung[]> {
   return db.meldungen.where('status').equals('lokal').sortBy('erstellt');
+}
+
+async function flushAuftraege(client: SupabaseClient): Promise<FlushErgebnis> {
+  const offene = await db.auftraege.where('status').equals('lokal').sortBy('erstellt');
+  let gesendet = 0;
+  let fehler = 0;
+  let verworfen = 0;
+  let fehlerText: string | undefined;
+  for (const e of offene) {
+    try {
+      const { error } = await client
+        .from('zusatzauftrag')
+        .upsert({ ...e.payload, client_uuid: e.client_uuid }, { onConflict: 'client_uuid', ignoreDuplicates: true });
+      if (error) {
+        const d = fehlerDeuten(error);
+        fehlerText = d.text;
+        if (d.endgueltig) { await db.auftraege.update(e.client_uuid, { status: 'verworfen' }); verworfen += 1; } else fehler += 1;
+        continue;
+      }
+      await db.auftraege.update(e.client_uuid, { status: 'gesendet' });
+      gesendet += 1;
+    } catch (err) {
+      fehler += 1;
+      fehlerText = err instanceof Error ? err.message : String(err);
+    }
+  }
+  return { gesendet, fehler, verworfen, fehlerText };
 }
 
 /**
@@ -258,12 +295,19 @@ export async function lokaleMeldungEntfernen(clientUuid: string): Promise<void> 
 
 /** Lokale Warteschlange komplett leeren — nach Demo-Neustart zeigen alte Einträge ins Leere. */
 export async function lokaleWarteschlangeLeeren(): Promise<void> {
-  await Promise.all([db.meldungen.clear(), db.audio.clear(), db.fotos.clear()]);
+  await Promise.all([db.meldungen.clear(), db.audio.clear(), db.auftraege.clear(), db.fotos.clear()]);
 }
 
 /** Alle lokalen Einträge zum Server schieben. */
 export async function flushNachSupabase(client: SupabaseClient): Promise<FlushErgebnis> {
-  return flushMeldungen(client);
+  const m = await flushMeldungen(client);
+  const a = await flushAuftraege(client);
+  return {
+    gesendet: m.gesendet + a.gesendet,
+    fehler: m.fehler + a.fehler,
+    verworfen: m.verworfen + a.verworfen,
+    fehlerText: m.fehlerText ?? a.fehlerText,
+  };
 }
 
 /** Beim App-Start registrieren: sendet bei Netz-Rückkehr automatisch. */

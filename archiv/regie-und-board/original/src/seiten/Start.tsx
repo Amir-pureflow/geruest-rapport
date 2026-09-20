@@ -1,53 +1,69 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Shell } from '../ui/Shell';
+import { formatChf } from '../lib/tarif';
 import { supabase } from '../lib/supabase';
 import { addTage, iso, kurz, kw, lang, montag } from '../lib/datum';
 import { flushNachSupabase, offeneAnzahl } from '../lib/db';
-import { Kachel, NavKarte } from '../ui/Karten';
+import { Kachel, MONATE, NavKarte } from '../ui/Karten';
 import { navFuer } from '../ui/Shell';
-import { DiagrammKarte, WochenTeams } from '../ui/Diagramm';
+import { DiagrammKarte, Trichter, WochenTeams } from '../ui/Diagramm';
 import { TeamBoard } from '../ui/TeamBoard';
-import { teamStand, wochenTeams, type TeamStand, type WochenTag } from '../lib/kennzahlen';
+import { teamStand, trichter, wochenTeams, type TeamStand, type TrichterDaten, type WochenTag } from '../lib/kennzahlen';
 import { useAnsicht } from '../lib/ansicht';
 import { StartChef } from './StartChef';
 import { StartMonteur } from './StartMonteur';
 import { StartSekretariat } from './StartSekretariat';
+import { StartKunde } from './StartKunde';
 
-/** Was der Bauführer auf einen Blick braucht: wer hat gemeldet, was wartet auf Freigabe, wo sind Überstunden zu lesen. */
 interface Kennzahlen {
+  offeneAuftraege: number;
+  heuteGeplant: number;
   teamsGemeldet: number;
   teams: number;
-  /** offene Zeiteinträge vor dieser Woche — die Vorwoche steht zur Freigabe an */
   zuPruefen: number;
-  /** offene Zeiteinträge der Vorwoche mit Überstunden — da liest der Bauführer die Notiz */
-  ueberOffen: number;
+  regieOffen: number;
+  regieUeberfaellig: number;
+  regieOffenRappen: number;
+  regieMonatRappen: number;
+  /** Bestellt, geplanter Tag vorbei, keine Meldung — der Moment zum Nachfragen */
+  ohneMeldung: number;
+  /** Regie in Arbeit (alles ausser bestätigt), davon älter als 30 Tage */
+  inArbeitRappen: number;
+  inArbeitAltRappen: number;
 }
 
 /** Ein Satz pro Bereich fürs Handy-Menü — die Reihenfolge kommt aus der Seitenleiste (eine Ordnung für beide). */
 const BEREICH_TEXT: Record<string, string> = {
+  '/zusatzauftrag': 'Kundenbestellung festhalten, bevor gearbeitet wird',
   '/heute': 'Wer hat heute gemeldet, wer nicht',
   '/cockpit': 'Prüfen und freigeben, statt telefonieren',
+  '/regie': 'Versand, Zustellnachweis und Fristen',
+  '/auswertung': 'Regie pro Baustelle und Kunde, pro Monat',
   '/export': 'Freigegebene Stunden im Raster des Tagesrapports — zum Abtippen in SORBA',
+  '/board': 'Jahresplan — welches Team wann wo',
   '/verwaltung': 'Mitarbeitende, Teams, Kunden, Baustellen',
   '/erfassung?wahl': 'Teamgerät — ein Knopf für den normalen Tag',
+  '/b/demo-token': 'So bestätigt die Bauleitung — ohne Konto',
 };
 
-/** Startseite je Ansicht (09.09.): Bauführer, Chefmonteur, Monteur, Sekretariat. */
+/** Startseite je Ansicht (09.09.): Bauführer, Chefmonteur, Monteur, Sekretariat, Kunde. */
 export function Start() {
   const ansicht = useAnsicht();
   if (ansicht === 'chef') return <StartChef />;
   if (ansicht === 'monteur') return <StartMonteur />;
   if (ansicht === 'sekretariat') return <StartSekretariat />;
+  if (ansicht === 'kunde') return <StartKunde />;
   return <StartBauf />;
 }
 
-/** Bauführer: Kennzahlen, Tagesstand der Teams, alle Bereiche. Regie und Zusatzaufträge sind seit 20.09. weg (SORBA macht das). */
+/** Bauführer: Kennzahlen, Zusatzarbeit, alle Bereiche. */
 function StartBauf() {
   const [k, setK] = useState<Kennzahlen | null>(null);
   const [wartend, setWartend] = useState<{ anzahl: number; grund?: string } | null>(null);
   const [fehler, setFehler] = useState('');
   const [woche, setWoche] = useState<WochenTag[] | null>(null);
+  const [tr, setTr] = useState<TrichterDaten | null>(null);
   const [stand, setStand] = useState<TeamStand[] | null>(null);
   const heute = new Date();
   const vorwoche = iso(addTage(montag(heute), -7));
@@ -56,6 +72,7 @@ function StartBauf() {
     if (!supabase) return;
     const c = supabase;
     const heuteIso = iso(heute);
+    const monatsStart = iso(new Date(heute.getFullYear(), heute.getMonth(), 1, 12));
     const wochenStart = iso(montag(heute));
     void (async () => {
       // Erst die lokale Warteschlange leeren, dann zählen — sonst zählt das Dashboard hinterher.
@@ -72,26 +89,44 @@ function StartBauf() {
       } catch {
         setWartend(null);
       }
-      const [tm, teams, zp, uo] = await Promise.all([
+      const [za, zaHeute, tm, teams, zp, ro, ru, rm, om, ia] = await Promise.all([
+        c.from('zusatzauftrag_stand').select('id', { count: 'exact', head: true }).in('stand', ['bestellt', 'gemeldet']),
+        c.from('zusatzauftrag_stand').select('id', { count: 'exact', head: true }).eq('stand', 'bestellt').eq('geplant_fuer', heuteIso),
         c.from('tagesmeldung').select('team_id').eq('datum', heuteIso),
         c.from('team').select('id', { count: 'exact', head: true }).eq('aktiv', true),
         c.from('zeiteintrag').select('id,tagesmeldung!inner(datum)', { count: 'exact', head: true }).eq('status', 'offen').lt('tagesmeldung.datum', wochenStart),
-        c.from('zeiteintrag').select('id,tagesmeldung!inner(datum)', { count: 'exact', head: true }).eq('status', 'offen').gt('ueber_min', 0).gte('tagesmeldung.datum', vorwoche).lt('tagesmeldung.datum', wochenStart),
+        c.from('regierapport').select('betrag_rappen').in('status', ['versendet', 'rueckfrage']),
+        c.from('regierapport').select('id', { count: 'exact', head: true }).or(`status.eq.frist_abgelaufen,and(status.eq.versendet,frist_bis.lt.${heuteIso})`),
+        // Verschickt = Versanddatum zählt, nicht das Anlegen des Entwurfs
+        c.from('regierapport').select('betrag_rappen').gte('versendet_am', monatsStart).neq('status', 'entwurf'),
+        c.from('zusatzauftrag_stand').select('id', { count: 'exact', head: true }).eq('ohne_meldung', true),
+        c.from('regierapport').select('betrag_rappen,versendet_am,erstellt_am').neq('status', 'bestaetigt'),
       ]);
-      const erster = [tm, teams, zp, uo].find((r) => r.error);
+      const erster = [za, zaHeute, tm, teams, zp, ro, ru, rm, om, ia].find((r) => r.error);
       if (erster?.error) { setFehler(erster.error.message); return; }
+      const dreissigTage = Date.now() - 30 * 86400000;
+      const inArbeit = (ia.data ?? []) as { betrag_rappen: number | null; versendet_am: string | null; erstellt_am: string }[];
       // Die Teamnamen braucht die Kachel nicht mehr — die liefert das Board darunter
       const gemeldet = new Set((tm.data ?? []).map((r) => r.team_id));
       setK({
+        offeneAuftraege: za.count ?? 0,
+        heuteGeplant: zaHeute.count ?? 0,
         teamsGemeldet: gemeldet.size,
         teams: teams.count ?? 0,
         zuPruefen: zp.count ?? 0,
-        ueberOffen: uo.count ?? 0,
+        regieOffen: (ro.data ?? []).length,
+        regieOffenRappen: (ro.data ?? []).reduce((s, r) => s + (r.betrag_rappen ?? 0), 0),
+        regieUeberfaellig: ru.count ?? 0,
+        regieMonatRappen: (rm.data ?? []).reduce((s, r) => s + (r.betrag_rappen ?? 0), 0),
+        ohneMeldung: om.count ?? 0,
+        inArbeitRappen: inArbeit.reduce((s, r) => s + (r.betrag_rappen ?? 0), 0),
+        inArbeitAltRappen: inArbeit.filter((r) => new Date(r.versendet_am ?? r.erstellt_am).getTime() < dreissigTage).reduce((s, r) => s + (r.betrag_rappen ?? 0), 0),
       });
-      // Diagramm und Board danach — die Kacheln sollen nicht darauf warten
+      // Diagramme und Board danach — die Kacheln sollen nicht darauf warten
       // Die Vorwoche ist die, die zur Freigabe ansteht (Mo/Di prüft der Bauführer) — die laufende wäre halb leer
-      const [w, ts] = await Promise.all([wochenTeams(c, addTage(montag(heute), -7)), teamStand(c, heute)]);
+      const [w, t, ts] = await Promise.all([wochenTeams(c, addTage(montag(heute), -7)), trichter(c), teamStand(c, heute)]);
       setWoche(w);
+      setTr(t);
       setStand(ts);
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -111,9 +146,14 @@ function StartBauf() {
               <span className={'inline-block h-2 w-2 rounded-full ' + (supabase ? 'bg-good' : 'bg-ink3')} />
               {supabase ? 'verbunden' : 'offline-Modus'}
             </span>
-            <Link to={`/cockpit?woche=${vorwoche}`} className="cta cta-good hidden w-auto px-5 py-2.5 md:block">Vorwoche prüfen</Link>
+            <Link to="/zusatzauftrag" className="cta cta-accent hidden w-auto px-5 py-2.5 md:block">+ Zusatzarbeit</Link>
           </div>
         </header>
+
+        <Link to="/zusatzauftrag" className="cta cta-accent block p-5 text-left md:hidden">
+          <span className="block text-[17px] font-semibold">+ Zusatzarbeit</span>
+          <span className="mt-0.5 block text-sm text-white/85">Kundenbestellung festhalten, während er noch am Telefon ist — 20 Sekunden</span>
+        </Link>
 
         {wartend && (
           <div className="rounded-[12px] border border-accent/40 bg-accent-soft px-4 py-3 text-sm text-accent-deep">
@@ -129,20 +169,23 @@ function StartBauf() {
         )}
         {!k && !fehler && supabase && (
           <div className="grid grid-cols-2 gap-2.5 md:grid-cols-3 md:gap-4" aria-busy="true">
-            {Array.from({ length: 3 }, (_, i) => <div key={i} className="card h-[76px] animate-pulse bg-surface-2 md:h-[92px]" />)}
+            {Array.from({ length: 6 }, (_, i) => <div key={i} className="card h-[76px] animate-pulse bg-surface-2 md:h-[92px]" />)}
           </div>
         )}
         {k && (
           <div className="grid grid-cols-2 gap-2.5 md:grid-cols-3 md:gap-4">
             <Kachel zu="/heute" wert={`${k.teamsGemeldet}/${k.teams}`} label="Teams haben heute gemeldet" farbe={k.teams > 0 && k.teamsGemeldet === k.teams ? 'gruen' : k.teamsGemeldet < k.teams && heute.getDay() >= 1 && heute.getDay() <= 5 && heute.getHours() >= 17 ? 'gelb' : 'neutral'} />
             <Kachel zu={`/cockpit?woche=${vorwoche}`} wert={String(k.zuPruefen)} label="Zeiteinträge der Vorwoche warten auf Freigabe" farbe={k.zuPruefen > 0 ? 'gelb' : 'gruen'} />
-            <Kachel zu={`/cockpit?woche=${vorwoche}`} wert={String(k.ueberOffen)} label={k.ueberOffen > 0 ? 'Einträge mit Überstunden in der Vorwoche — Notiz lesen' : 'keine offenen Überstunden in der Vorwoche'} farbe={k.ueberOffen > 0 ? 'gelb' : 'neutral'} />
+            <Kachel zu="/zusatzauftrag" wert={String(k.offeneAuftraege)} label={k.ohneMeldung > 0 ? `offene Zusatzaufträge · ${k.ohneMeldung} ohne Meldung vom Team` : k.heuteGeplant > 0 ? `offene Zusatzaufträge · ${k.heuteGeplant} heute` : 'offene Zusatzaufträge'} warn={k.ohneMeldung > 0} />
+            <Kachel zu="/regie" wert={formatChf(k.inArbeitRappen)} label={k.inArbeitAltRappen > 0 ? `Regie in Arbeit · ${formatChf(k.inArbeitAltRappen)} älter als 30 Tage` : `Regie in Arbeit · ${k.regieOffen} beim Kunden`} warn={k.inArbeitAltRappen > 0} />
+            <Kachel zu="/regie" wert={String(k.regieUeberfaellig)} label="Frist abgelaufen — nachfassen" farbe={k.regieUeberfaellig > 0 ? 'rot' : 'neutral'} />
+            <Kachel zu="/auswertung" wert={formatChf(k.regieMonatRappen)} label={`Regie an Kunden verschickt im ${MONATE[heute.getMonth()]}`} farbe="gruen" />
           </div>
         )}
 
-        {/* Diagramm ab iPad — auf dem Handy zählen die Kacheln und die schnellen Wege */}
-        {woche && (
-          <div className="hidden md:block">
+        {/* Diagramme ab iPad (untereinander) und am PC (nebeneinander) — auf dem Handy zählen die Kacheln und die schnellen Wege */}
+        <div className="hidden gap-4 md:grid lg:grid-cols-2">
+          {woche && (
             <DiagrammKarte
               titel="Freigabe Vorwoche"
               unter={`${kurz(addTage(montag(heute), -7))} bis ${kurz(addTage(montag(heute), -1))} — je Tag: wie viele der ${k?.teams ?? 0} Teams gemeldet haben, davon freigegeben oder noch bei dir`}
@@ -150,8 +193,17 @@ function StartBauf() {
             >
               <WochenTeams tage={woche} gesamt={k?.teams ?? 0} />
             </DiagrammKarte>
-          </div>
-        )}
+          )}
+          {tr && (
+            <DiagrammKarte
+              titel="Zusatzaufträge"
+              unter="Wo sie stehen — letzte 60 Tage, Stand abgeleitet"
+              aktion={<Link to="/auswertung" className="text-xs font-semibold text-steel">Auswertung ›</Link>}
+            >
+              <Trichter stufen={tr.stufen} ohneMeldung={tr.ohneMeldung} />
+            </DiagrammKarte>
+          )}
+        </div>
 
         {stand && stand.length > 0 && heute.getDay() >= 1 && heute.getDay() <= 6 && (
           <div className="hidden md:block">
@@ -171,3 +223,4 @@ function StartBauf() {
     </Shell>
   );
 }
+

@@ -7,6 +7,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Shell } from '../ui/Shell';
 import { supabase } from '../lib/supabase';
 import { addTage, iso, kurz, kw, montag, stunden, WOCHENTAGE } from '../lib/datum';
+import { zeitenText } from '../lib/zeiten';
 
 const MONTEUR_KEY = 'monteur-id';
 /** Zuletzt gewählte Teams auf diesem Gerät — gleiche Liste wie Erfassung/Chefmonteur; auf dem eigenen Handy meist leer. */
@@ -16,6 +17,8 @@ interface Team { id: string; bezeichnung: string }
 interface Person { id: string; name: string; funktion: string; typ: string }
 interface Eintrag {
   id: string; normal_min: number; ueber_min: number; oev: boolean; km: number; status: string;
+  /** Zeiten von–bis, falls das Team welche eingetragen hat (Migration 0016) */
+  von_min?: number | null; bis_min?: number | null; von2_min?: number | null; bis2_min?: number | null;
   tagesmeldung: { datum: string; normalfall: boolean; baustelle: { konto_nr: string; bezeichnung: string | null } | null; team: { bezeichnung: string } | null };
 }
 interface Korrektur { zeiteintrag_id: string; feld: 'normal_min' | 'ueber_min'; alt: string | null; neu: string | null; begruendung: string | null; wann: string }
@@ -94,13 +97,16 @@ export function StartMonteur() {
     const c = supabase;
     setLaedt(true);
     void (async () => {
-      const { data } = await c
+      // Zeiten von–bis (Migration 0016) mitladen — fehlen die Spalten noch, ohne sie
+      const lade = (mitZeiten: boolean) => c
         .from('zeiteintrag')
-        .select('id,normal_min,ueber_min,oev,km,status,tagesmeldung:tagesmeldung_id!inner(datum,normalfall,baustelle:baustelle_id(konto_nr,bezeichnung),team:team_id(bezeichnung))')
+        .select('id,normal_min,ueber_min,oev,km,status,' + (mitZeiten ? 'von_min,bis_min,von2_min,bis2_min,' : '') + 'tagesmeldung:tagesmeldung_id!inner(datum,normalfall,baustelle:baustelle_id(konto_nr,bezeichnung),team:team_id(bezeichnung))')
         .eq('mitarbeiter_id', personId)
         .gte('tagesmeldung.datum', vonIso)
         .lte('tagesmeldung.datum', bisIso);
-      const liste = (data ?? []) as unknown as Eintrag[];
+      let erg = await lade(true);
+      if (erg.error && /(von2?_min|bis2?_min) does not exist/.test(erg.error.message)) erg = await lade(false);
+      const liste = (erg.data ?? []) as unknown as Eintrag[];
       setEintraege(liste);
       // Korrekturen des Bauführers an diesen Einträgen (nur Stundenfelder)
       if (liste.length > 0) {
@@ -247,6 +253,7 @@ export function StartMonteur() {
                             <p className="text-xs text-ink3">
                               {stunden(e.normal_min)} h normal
                               {e.ueber_min > 0 && <> + <span className="font-semibold text-amber-deep">{stunden(e.ueber_min)} h Überstunden</span></>}
+                              {zeitenText(e) && <span className="font-mono tabular-nums"> · {zeitenText(e)}</span>}
                               {e.oev ? ' · öV' : e.km > 0 ? ` · ${e.km} km` : ''}
                             </p>
                             {korr.length > 0 && (

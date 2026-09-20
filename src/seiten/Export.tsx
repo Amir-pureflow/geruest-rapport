@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import * as XLSX from 'xlsx';
 import { Shell } from '../ui/Shell';
 import { supabase } from '../lib/supabase';
-import { addTage, ausIso, iso, kurz, kw, montag, stunden, WOCHENTAGE } from '../lib/datum';
+import { addTage, ausIso, iso, kw, montag, stunden, WOCHENTAGE } from '../lib/datum';
+import { useAnsicht } from '../lib/ansicht';
 import { MONATE } from '../ui/Karten';
+import { bueroExcel, rapportExcel } from '../lib/excel';
 import {
-  blattName,
   lohnZeilen,
   monatsGrenzen,
   monatsSpalten,
@@ -14,6 +14,7 @@ import {
   wochenImMonat,
   wochenSpalten,
   wochenTitel,
+  type BueroBlatt,
   type LohnEintrag,
 } from '../lib/lohn';
 
@@ -23,7 +24,12 @@ import {
  * damit der Bauführer sehend tippt statt suchend. Das Excel geht ans Sekretariat
  * (Lohn, Überstunden) und ans Temporärbüro — je Büro ein Blatt, Person × Tag × Konto.
  *
- * Die Rechnerei liegt in src/lib/lohn.ts (mit Tests); hier nur Laden und Anzeigen.
+ * Rechte (Bauführer 20.09.: «Bauführer kein zugriff hier drauf»): Der Bauführer sieht nur das
+ * SORBA-Raster — Lohnstunden, Überstunden und Temporärbüros gehören dem Sekretariat. Das
+ * Sekretariat kann je Temporärbüro ein eigenes Excel ziehen (nur deren Leute), zum Weiterschicken.
+ *
+ * Die Rechnerei liegt in src/lib/lohn.ts (mit Tests); hier nur Laden und Anzeigen. Das Excel selbst
+ * (Aufbau, Farben, Formeln, Druck) baut src/lib/excel.ts mit ExcelJS — nachgeladen erst beim Klick.
  */
 
 interface Zeile {
@@ -66,11 +72,14 @@ function zuEintrag(z: Zeile): LohnEintrag {
   };
 }
 
-function h(min: number): number {
-  return Number(stunden(min));
+/** Dateiname ohne Zeichen, die Windows/macOS nicht mögen. */
+function dateiName(text: string): string {
+  return text.replace(/[\\/:*?"<>|]+/g, ' ').replace(/\s+/g, '_').trim();
 }
 
 export function Export() {
+  // Bauführer: nur SORBA-Raster. Sekretariat: Lohn, Überstunden, Temporärbüros dazu (Rechte in der Oberfläche, s. CLAUDE.md «Ansichten statt Login»).
+  const lohnSichtbar = useAnsicht() === 'sekretariat';
   const [anfang] = useState(startAusUrl);
   const [wochenStart, setWochenStart] = useState<Date>(anfang.wochenStart);
   const [zeitraum, setZeitraum] = useState<Zeitraum>(anfang.zeitraum);
@@ -134,15 +143,17 @@ export function Export() {
           if (nurFrei) q = q.eq('status', 'freigegeben');
           return q.order('id').range(von, bis);
         }),
-        // Überstunden seit Jahresbeginn: nur Zeilen mit Überstunden, unabhängig vom Team (die Person zählt)
-        alle<JahresZeile>((von, bis) => {
-          let q = c
-            .from('zeiteintrag')
-            .select('ueber_min,status,mitarbeiter:mitarbeiter_id(id,name,typ,temporaerbuero),tagesmeldung:tagesmeldung_id!inner(datum)')
-            .gte('tagesmeldung.datum', jahresStart).lte('tagesmeldung.datum', bisIso).gt('ueber_min', 0);
-          if (nurFrei) q = q.eq('status', 'freigegeben');
-          return q.order('id').range(von, bis);
-        }),
+        // Überstunden seit Jahresbeginn: nur Zeilen mit Überstunden, unabhängig vom Team (die Person zählt) — nur fürs Sekretariat
+        lohnSichtbar
+          ? alle<JahresZeile>((von, bis) => {
+            let q = c
+              .from('zeiteintrag')
+              .select('ueber_min,status,mitarbeiter:mitarbeiter_id(id,name,typ,temporaerbuero),tagesmeldung:tagesmeldung_id!inner(datum)')
+              .gte('tagesmeldung.datum', jahresStart).lte('tagesmeldung.datum', bisIso).gt('ueber_min', 0);
+            if (nurFrei) q = q.eq('status', 'freigegeben');
+            return q.order('id').range(von, bis);
+          })
+          : Promise.resolve([] as JahresZeile[]),
       ]);
       setZeilen(z);
       setJahr(j);
@@ -152,7 +163,7 @@ export function Export() {
       setJahr([]);
     }
     setLaedt(false);
-  }, [vonIso, bisIso, jahresStart, teamId, nurFrei]);
+  }, [vonIso, bisIso, jahresStart, teamId, nurFrei, lohnSichtbar]);
   useEffect(() => { void laden(); }, [laden]);
 
   const eintraege = useMemo(() => zeilen.map(zuEintrag), [zeilen]);
@@ -172,7 +183,7 @@ export function Export() {
     [zeitraum, wochen, wochenStart],
   );
 
-  // Raster: Zeile = Konto (+ Regie getrennt), Spalte = Person
+  // Raster: Zeile = Konto (Zusatzarbeit aus alten Meldungen getrennt), Spalte = Person
   const raster = useMemo(() => {
     const personen = [...new Map(zeilen.map((z) => [z.mitarbeiter.id, z.mitarbeiter])).values()].sort((a, b) => a.name.localeCompare(b.name));
     const vorgaenge = new Map<string, { konto: string; bezeichnung: string; regie: boolean; min: Map<string, number> }>();
@@ -194,50 +205,49 @@ export function Export() {
     else setWochenStart(addTage(wochenStart, 7 * richtung));
   }
 
-  function excel() {
-    const wb = XLSX.utils.book_new();
-    const namen = new Set<string>();
-    const blatt = (name: string, inhalt: unknown[][]) => XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(inhalt), blattName(name, namen));
-
-    // Lohn: Person × Tag (Woche) bzw. Person × KW (Monat), mit Summe
-    const kopf = ['Name', 'Anstellung', 'Temporärbüro', ...spalten, zeitraum === 'monat' ? 'Monat h' : 'Total h', 'davon Über h', 'öV-Tage', 'km'];
-    blatt('Lohn', [
-      [`Lohnstunden ${titel}`], [], kopf,
-      ...lohn.map((l) => [l.person.name, l.person.typ, l.person.temporaerbuero ?? '', ...werte(l).map(h), h(l.total_min), h(l.ueber_min), l.oevTage, l.km]),
-    ]);
-
-    // Überstunden: Zeitraum + seit Jahresbeginn
-    blatt('Überstunden', [
-      [`Überstunden ${titel}`], [], ['Name', 'Anstellung', `Über h ${zeitraum === 'monat' ? 'Monat' : 'Woche'}`, `Über h seit 1.1.${bisIso.slice(0, 4)}`],
-      ...ueber.map((u) => [u.person.name, u.person.typ, h(u.zeitraum_min), h(u.jahr_min)]),
-    ]);
-
-    // Je Temporärbüro ein Blatt: Person × Tag × Konto — so prüft das Sekretariat die Rechnung des Büros Zeile für Zeile
-    for (const b of bueros) {
-      blatt(b.buero, [
-        [`${b.buero} · ${titel}`], [],
-        ['Name', 'Datum', 'Konto-Nr.', 'Normal h', 'Über h', 'Total h'],
-        ...b.zeilen.map((z) => [z.name, kurz(ausIso(z.datum)) + z.datum.slice(0, 4), z.konto_nr, h(z.normal_min), h(z.ueber_min), h(z.normal_min + z.ueber_min)]),
-        [],
-        ['Summe je Person', '', '', 'Normal h', 'Über h', 'Total h'],
-        ...b.personen.map((p) => [p.name, '', '', h(p.normal_min), h(p.ueber_min), h(p.total_min)]),
-        ['Total Büro', '', '', '', '', h(b.total_min)],
-      ]);
-    }
-
-    const rasterRows = raster.vorgaenge.map((v) => [v.konto, v.bezeichnung, v.regie ? 'Regie' : '', ...raster.personen.map((p) => h(v.min.get(p.id) ?? 0))]);
-    blatt('SORBA-Raster', [[`SORBA-Raster ${titel}`], [], ['Konto', 'Baustelle', 'Art', ...raster.personen.map((p) => p.name)], ...rasterRows]);
-    XLSX.writeFile(wb, `Rapport_${dateiTeil}.xlsx`);
-  }
-
   const teamName = (id: string) => (id === ALLE ? 'alle Teams' : teams.find((t) => t.id === id)?.bezeichnung ?? '');
   const zeitraumText = zeitraum === 'monat' ? 'in diesem Monat' : 'in dieser Woche';
+  // Untertitel auf jedem Blatt: Zeitraum, Team, Filter — das Büro sieht, was drin ist, ohne nachzufragen
+  const untertitel = { zeitraum: titel, filter: [teamName(teamId), nurFrei ? 'nur Freigegebenes' : 'alle Einträge, auch nicht freigegebene'] };
+
+  async function excel() {
+    setFehler('');
+    try {
+      await rapportExcel({
+        unter: untertitel,
+        monat: zeitraum === 'monat',
+        jahr: bisIso.slice(0, 4),
+        lohn: lohnSichtbar
+          ? {
+            spalten,
+            zeilen: lohn.map((l) => ({ name: l.person.name, typ: l.person.typ, buero: l.person.temporaerbuero, werte: werte(l), total_min: l.total_min, ueber_min: l.ueber_min, oevTage: l.oevTage, km: l.km })),
+            ueber: ueber.map((u) => ({ name: u.person.name, typ: u.person.typ, zeitraum_min: u.zeitraum_min, jahr_min: u.jahr_min })),
+            bueros,
+          }
+          : null,
+        raster,
+        dateiname: `${lohnSichtbar ? 'Rapport' : 'SORBA-Raster'}_${dateiTeil}.xlsx`,
+      });
+    } catch (e) {
+      setFehler('Excel: ' + (e instanceof Error ? e.message : String(e)));
+    }
+  }
+
+  /** Nur ein Temporärbüro, nur dessen Leute — die Datei, die das Sekretariat dem Büro schickt (Bauführer 20.09.). */
+  async function excelBuero(b: BueroBlatt) {
+    setFehler('');
+    try {
+      await bueroExcel(b, untertitel, `Temporaer_${dateiName(b.buero)}_${dateiTeil}.xlsx`);
+    } catch (e) {
+      setFehler('Excel: ' + (e instanceof Error ? e.message : String(e)));
+    }
+  }
 
   return (
     <Shell zurueck>
       <div className="space-y-4">
         <header className="flex flex-wrap items-center justify-between gap-2">
-          <h1 className="font-display text-2xl font-semibold">Export</h1>
+          <h1 className="font-display text-2xl font-semibold">{lohnSichtbar ? 'Export' : 'SORBA-Raster'}</h1>
           <div className="flex items-center gap-2">
             <button type="button" className="btn-ghost" onClick={() => blaettern(-1)} aria-label={zeitraum === 'monat' ? 'Monat zurück' : 'Woche zurück'}>‹</button>
             <span className="font-mono text-xs text-ink2">{titel}</span>
@@ -254,7 +264,7 @@ export function Export() {
             ))}
           </div>
           <label className="flex items-center gap-1.5 text-xs"><input type="checkbox" checked={nurFrei} onChange={(e) => setNurFrei(e.target.checked)} /> nur Freigegebenes</label>
-          <button type="button" onClick={excel} disabled={zeilen.length === 0} className="cta ml-auto w-auto px-4 py-2 text-sm disabled:opacity-50">Excel herunterladen</button>
+          <button type="button" onClick={() => void excel()} disabled={zeilen.length === 0} className="cta ml-auto w-auto px-4 py-2 text-sm disabled:opacity-50">{lohnSichtbar ? 'Excel herunterladen' : 'Raster als Excel'}</button>
         </div>
 
         {teams.length <= 8 ? (
@@ -289,7 +299,7 @@ export function Export() {
               <tbody>
                 {raster.vorgaenge.map((v) => (
                   <tr key={v.konto + v.regie} className={'border-b border-line last:border-b-0 ' + (v.regie ? 'bg-accent-soft' : '')}>
-                    <td className="px-3 py-1.5 whitespace-nowrap"><span className="knr mr-1.5">{v.konto}</span>{v.bezeichnung}{v.regie && <span className="ml-1.5 font-mono text-[10px] font-semibold text-accent-deep">REGIE</span>}</td>
+                    <td className="px-3 py-1.5 whitespace-nowrap"><span className="knr mr-1.5">{v.konto}</span>{v.bezeichnung}{v.regie && <span className="ml-1.5 font-mono text-[10px] font-semibold text-accent-deep">ZUSATZARBEIT</span>}</td>
                     {raster.personen.map((p) => <td key={p.id} className="px-1 py-1.5 text-right font-mono tabular-nums">{v.min.has(p.id) ? stunden(v.min.get(p.id)!) : ''}</td>)}
                   </tr>
                 ))}
@@ -298,6 +308,8 @@ export function Export() {
           )}
         </section>
 
+        {/* Ab hier nur Sekretariat: Lohn, Überstunden, Temporärbüros (Bauführer 20.09.: kein Zugriff) */}
+        {lohnSichtbar && (
         <section className="card overflow-x-auto p-0">
           <p className="lbl px-3 pt-3">Lohnstunden — fürs Sekretariat</p>
           {lohn.length > 0 && (
@@ -321,8 +333,32 @@ export function Export() {
             </table>
           )}
         </section>
+        )}
 
-        {ueber.some((u) => u.zeitraum_min > 0 || u.jahr_min > 0) && (
+        {lohnSichtbar && bueros.length > 0 && (
+          <section className="card space-y-3">
+            <div>
+              <p className="lbl mb-0.5">Temporärbüros — je Büro ein eigenes Excel</p>
+              <p className="text-xs text-ink3">Nur die Leute dieses Büros, Person × Tag × Konto-Nr. — die Datei, die ihr dem Büro schickt.</p>
+            </div>
+            <div className="divide-y divide-line">
+              {bueros.map((b) => (
+                <div key={b.buero} className="flex flex-wrap items-center justify-between gap-2 py-2.5">
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold">{b.buero}</p>
+                    <p className="text-xs text-ink3">{b.personen.map((p) => `${p.name} ${stunden(p.total_min)} h`).join(' · ')}</p>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <span className="font-mono text-sm font-semibold tabular-nums">{stunden(b.total_min)} h</span>
+                    <button type="button" onClick={() => void excelBuero(b)} className="btn-ghost text-sm">Excel für {b.buero}</button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
+
+        {lohnSichtbar && ueber.some((u) => u.zeitraum_min > 0 || u.jahr_min > 0) && (
           <section className="card overflow-x-auto p-0">
             <p className="lbl px-3 pt-3">Überstunden — {zeitraum === 'monat' ? 'Monat' : 'Woche'} und seit Jahresbeginn</p>
             <table className="w-full text-xs">
@@ -345,7 +381,9 @@ export function Export() {
         )}
 
         <p className="text-[11px] text-ink3">
-          Das Excel enthält: Lohn, Überstunden, je Temporärbüro ein Blatt (Person × Tag × Konto-Nr.){bueros.length > 0 ? ` — ${bueros.map((b) => b.buero).join(', ')}` : ''}, SORBA-Raster.
+          {lohnSichtbar
+            ? <>Das Excel enthält: Lohn, Überstunden, je Temporärbüro ein Blatt (Person × Tag × Konto-Nr.){bueros.length > 0 ? ` — ${bueros.map((b) => b.buero).join(', ')}` : ''}, SORBA-Raster.</>
+            : <>Lohnstunden und Temporärbüro-Abrechnung liegen beim Sekretariat.</>}
         </p>
       </div>
     </Shell>

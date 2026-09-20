@@ -2,15 +2,17 @@
  * Demo-Betrieb — ein vollständiger, deterministischer Gerüstbaubetrieb:
  * 75 Mitarbeitende (45 fest + 30 temporär), 5 Bauführer, 20 Teams mit
  * Chefmonteur, 30 Kunden/Bauleitungen, alle 217 Konten zugeordnet,
- * Jahresplan, fünf Wochen Tagesmeldungen, Zusatzaufträge und Regierapporte
- * in allen Stadien. Gleicher Seed = gleiche Daten.
+ * Jahresplan, fünf Wochen Tagesmeldungen mit Überstunden und Sprachnotizen.
+ * Gleicher Seed = gleiche Daten.
+ *
+ * Seit 20.09. ohne Zusatzaufträge und Regierapporte (SORBA macht die Regie) —
+ * die frühere Fassung liegt in archiv/regie-und-board/.
  *
  * Kunden-Mails enden bewusst auf «.example» (reservierte Domain): Aus einer
  * Demo darf nie eine Mail an eine echte fremde Adresse gehen.
  */
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { positionBetrag, materialmiete, tarifNachCode, ETAPPE_MIN_RAPPEN } from './tarif';
-import { addTage, iso, montag } from './datum';
+import { addTage, iso, montag, NORMALTAG_MIN } from './datum';
 
 // ── Zufall, reproduzierbar ────────────────────────────────────────────────────
 
@@ -73,22 +75,23 @@ const KUNDEN: [string, string][] = [
   ['Hochschule Bern, Bauten', 'D. Frey'], ['Post Immobilien', 'E. Lanz'], ['SBB Immobilien Region Mitte', 'F. Kunz'],
 ];
 
-const ABWEICHUNG_TEXTE: Record<string, string[]> = {
-  zusaetzlich: [
+/** Sprachnotizen, wie die Teams sie am Abend hinterlassen — mit Überstunden (warum) oder als Bemerkung zum Tag. */
+const NOTIZ_TEXTE = {
+  ueber: [
     'Gerüst versetzt, weil der Maurer nicht durchgekommen ist. Bauleitung hat es so verlangt.',
     'Zusätzliche Konsole beim Eingang montiert, Bauleiter war vor Ort und wollte das.',
-    'Treppenturm um ein Feld verlängert für den Dachdecker.',
+    'Treppenturm um ein Feld verlängert für den Dachdecker, darum länger geblieben.',
     'Schutznetz am Strassenrand ergänzt, Polizei hat das gefordert.',
-  ],
-  warten: [
-    'Eine Stunde gewartet, weil der Kran vom Baumeister das Feld blockiert hat.',
-    'Material kam zu spät, wir konnten erst um zehn anfangen.',
-  ],
-  kaputt: [
-    'Zwei Beläge waren beschädigt, vermutlich vom Dachdecker. Ersetzt.',
+    'Zwei Beläge waren beschädigt, vermutlich vom Dachdecker. Ersetzt, hat eine Stunde gebraucht.',
     'Ankerpunkt war lose, nachgezogen und drei Rohre getauscht.',
   ],
-};
+  tag: [
+    'Eine Stunde gewartet, weil der Kran vom Baumeister das Feld blockiert hat.',
+    'Material kam zu spät, wir konnten erst um zehn anfangen.',
+    'Bauleitung war vor Ort, alles in Ordnung. Morgen brauchen wir mehr Beläge.',
+    'Regen ab drei, wir haben früher aufgehört.',
+  ],
+} as const;
 
 // ── Zeilen (1:1 die Tabellen) ─────────────────────────────────────────────────
 
@@ -100,10 +103,6 @@ export interface BaustelleUpdate { id: string; konto_nr: string; bezeichnung: st
 export interface JahresplanRow { id: string; baustelle_id: string; team_id: string; von: string; bis: string }
 export interface TagesmeldungRow { id: string; client_uuid: string; team_id: string; datum: string; baustelle_id: string; normalfall: boolean; abweichung_typ: string | null; wer_hats_gewollt: string | null; transkript: string | null; audio_sekunden: number | null; erfasst_von: string; erfasst_am: string; status: 'offen' | 'freigegeben' }
 export interface ZeiteintragRow { id: string; tagesmeldung_id: string; mitarbeiter_id: string; normal_min: number; ueber_min: number; oev: boolean; km: number; baustelle_id: string; konto_nr: string; status: 'offen' | 'freigegeben' }
-export interface ZusatzauftragRow { id: string; client_uuid: string; baustelle_id: string; besteller_name: string; besteller_rolle: string; bestellt_am: string; kanal: string; taetigkeit: string; geplant_fuer: string; notiz: string | null; status: 'offen' | 'erledigt_ohne_regie'; erledigt_grund?: 'abgesagt' | 'pauschale' | 'kulanz' | 'doppelt' | null; erledigt_am?: string | null; erledigt_von?: string | null }
-export interface RegierapportRow { id: string; zusatzauftrag_id: string | null; tagesmeldung_id: string | null; baustelle_id: string; nummer: string; status: string; betrag_rappen: number; frist_bis: string | null; erstellt_am: string; versendet_am: string | null; bestaetigt_am: string | null; empfaenger_email: string }
-export interface RegiePositionRow { id: string; regierapport_id: string; tarif_code: string; bezeichnung: string; menge_hundertstel: number; ansatz_rappen: number; betrag_rappen: number }
-export interface ZustellungRow { id: string; regierapport_id: string; an: string; ereignis: string; zeitpunkt: string }
 export interface FreigabeLogRow { id: string; zeiteintrag_id: string; wer: string; wann: string; feld: string; alt: string; neu: string }
 
 export interface DemoBetrieb {
@@ -115,10 +114,6 @@ export interface DemoBetrieb {
   jahresplan: JahresplanRow[];
   meldungen: TagesmeldungRow[];
   eintraege: ZeiteintragRow[];
-  zusatzauftraege: ZusatzauftragRow[];
-  regierapporte: RegierapportRow[];
-  positionen: RegiePositionRow[];
-  zustellungen: ZustellungRow[];
   freigaben: FreigabeLogRow[];
 }
 
@@ -215,7 +210,7 @@ export function erzeugeDemoBetrieb(opts: { baustellen: BaustelleQuelle[]; heute:
     for (const m of leute) teamMitglieder.push({ team_id: team.id, mitarbeiter_id: m.id, von: m.typ === 'temporaer' ? iso(addTage(heute, -z.int(20, 120))) : iso(addTage(heute, -z.int(200, 900))) });
   }
 
-  // Kunden ------------------------------------------------------------------
+  // Kunden (Stammdaten: wem gehört die Baustelle) ------------------------------
   const kunden: KundeRow[] = KUNDEN.map(([firma, ap]) => ({
     id: z.uuid(), name: firma, praeferenz: z.chance(0.3) ? 'sammel' : 'einzel',
     ansprechperson: ap,
@@ -235,13 +230,12 @@ export function erzeugeDemoBetrieb(opts: { baustellen: BaustelleQuelle[]; heute:
   });
   const aktive = baustellen.filter((b) => b.status === 'aktiv');
   const grosse = aktive.slice(0, 16); // Grossbaustellen: mehrere Teams gleichzeitig möglich
-  const fertige = baustellen.filter((b) => b.status === 'fertig_gemeldet');
 
   // Jahresplan --------------------------------------------------------------
   const jahresplan: JahresplanRow[] = [];
   const aktuelleBaustelle = new Map<string, BaustelleUpdate>();
   const fruehereBaustelle = new Map<string, BaustelleUpdate>();
-  let pool = aktive.slice(16);
+  const pool = aktive.slice(16);
   for (const [i, team] of teams.entries()) {
     const frueher = pool[(i * 2) % pool.length];
     const jetzt = grosse[i % grosse.length];
@@ -254,13 +248,13 @@ export function erzeugeDemoBetrieb(opts: { baustellen: BaustelleQuelle[]; heute:
       { id: z.uuid(), baustelle_id: spaeter.id, team_id: team.id, von: iso(addTage(wochenStart, 14)), bis: iso(addTage(wochenStart, 14 + z.int(20, 50))) },
     );
   }
-  pool = [];
 
   // Tagesmeldungen ----------------------------------------------------------
+  // Wie das Wochenblatt: Normal (bis 8.4 h) + Überstunden je Person. An manchen Tagen eine Sprachnotiz —
+  // mit Überstunden ist sie das Warum, sonst eine Bemerkung zum Tag (Bauführer 20.09.).
   const meldungen: TagesmeldungRow[] = [];
   const eintraege: ZeiteintragRow[] = [];
   const freigaben: FreigabeLogRow[] = [];
-  const kundenAbweichungen: { meldung: TagesmeldungRow; eintraege: ZeiteintragRow[]; baustelle: BaustelleUpdate; typ: string }[] = [];
 
   for (const team of teams) {
     const leute = mitgliederVon.get(team.id)!;
@@ -268,7 +262,7 @@ export function erzeugeDemoBetrieb(opts: { baustellen: BaustelleQuelle[]; heute:
       const wStart = addTage(wochenStart, w * 7);
       const vergangen = w < 0;
       const bs = w <= -2 ? fruehereBaustelle.get(team.id)! : aktuelleBaustelle.get(team.id)!;
-      const abweichungsTag = z.chance(0.3) ? z.int(0, 4) : -1;
+      const notizTag = z.chance(0.35) ? z.int(0, 4) : -1;
       for (let t = 0; t < 6; t++) {
         if (t === 5 && !z.chance(0.08)) continue; // Samstag selten
         const tag = addTage(wStart, t);
@@ -283,151 +277,36 @@ export function erzeugeDemoBetrieb(opts: { baustellen: BaustelleQuelle[]; heute:
           erfasst_von: opts.userId, erfasst_am: ts(tag, 16, z.int(30, 59)), status,
         };
         meldungen.push(meldung);
-        const basis = t === 4 && z.chance(0.3) ? 420 : z.chance(0.08) ? 534 : 504;
+        // Freitag oft kürzer, sonst der normale Tag
+        const basis = t === 4 && z.chance(0.3) ? 420 : NORMALTAG_MIN;
+        const tagesEintraege: ZeiteintragRow[] = [];
         for (const m of leute) {
           const istChef = m.id === team.chefmonteur_id;
           const anwesend = istChef ? z.chance(0.97) : m.typ === 'temporaer' ? z.chance(0.88) : z.chance(0.93);
           if (!anwesend) continue;
-          const total = z.chance(0.02) ? 630 : basis;
           const e: ZeiteintragRow = {
             id: z.uuid(), tagesmeldung_id: meldung.id, mitarbeiter_id: m.id,
-            normal_min: Math.min(total, 504), ueber_min: Math.max(0, total - 504),
-            oev: m.oev_standard, km: istChef ? m.km_standard : m.km_standard,
+            normal_min: basis, ueber_min: 0,
+            oev: false, km: m.km_standard,
             baustelle_id: bs.id, konto_nr: bs.konto_nr, status,
           };
           eintraege.push(e);
-          if (vergangen) freigaben.push({ id: z.uuid(), zeiteintrag_id: e.id, wer: opts.userId, wann: ts(addTage(wStart, 7), 8, z.int(5, 55)), feld: 'status', alt: 'offen', neu: 'freigegeben' });
+          tagesEintraege.push(e);
         }
 
-        if (t === abweichungsTag) {
-          const r = z.next();
-          const typ = r < 0.6 ? 'zusaetzlich' : r < 0.85 ? 'warten' : 'kaputt';
-          const r2 = z.next();
-          const wer = typ === 'warten' ? (r2 < 0.5 ? 'niemand' : 'kunde') : r2 < 0.6 ? 'kunde' : r2 < 0.85 ? 'chef' : 'niemand';
-          const ab: TagesmeldungRow = {
-            id: z.uuid(), client_uuid: z.uuid(), team_id: team.id, datum: tagIso, baustelle_id: bs.id,
-            normalfall: false, abweichung_typ: typ, wer_hats_gewollt: wer,
-            transkript: z.pick(ABWEICHUNG_TEXTE[typ]), audio_sekunden: z.int(9, 26),
-            erfasst_von: opts.userId, erfasst_am: ts(tag, 17, z.int(0, 20)), status,
-          };
-          meldungen.push(ab);
-          const dauer = typ === 'warten' ? z.int(2, 4) * 30 : z.int(2, 6) * 30;
-          const beteiligt = leute.slice(0, 2);
-          const abE: ZeiteintragRow[] = beteiligt.map((m) => ({
-            id: z.uuid(), tagesmeldung_id: ab.id, mitarbeiter_id: m.id, normal_min: dauer, ueber_min: 0,
-            oev: false, km: 0, baustelle_id: bs.id, konto_nr: bs.konto_nr, status,
-          }));
-          eintraege.push(...abE);
-          if (vergangen) for (const e of abE) freigaben.push({ id: z.uuid(), zeiteintrag_id: e.id, wer: opts.userId, wann: ts(addTage(wStart, 7), 8, z.int(5, 55)), feld: 'status', alt: 'offen', neu: 'freigegeben' });
-          if (wer === 'kunde' && typ !== 'warten') kundenAbweichungen.push({ meldung: ab, eintraege: abE, baustelle: bs, typ });
+        if (t === notizTag && tagesEintraege.length > 0) {
+          const mitUeber = z.chance(0.7);
+          meldung.transkript = z.pick(mitUeber ? NOTIZ_TEXTE.ueber : NOTIZ_TEXTE.tag);
+          meldung.audio_sekunden = z.int(8, 25);
+          // Überstunden für die ersten zwei Anwesenden (Chefmonteur + einer), in halben Stunden
+          if (mitUeber) for (const e of tagesEintraege.slice(0, 2)) e.ueber_min = z.int(2, 5) * 30;
         }
+        if (vergangen) for (const e of tagesEintraege) freigaben.push({ id: z.uuid(), zeiteintrag_id: e.id, wer: opts.userId, wann: ts(addTage(wStart, 7), 8, z.int(5, 55)), feld: 'status', alt: 'offen', neu: 'freigegeben' });
       }
     }
   }
 
-  // Zusatzaufträge + Regierapporte ------------------------------------------
-  const zusatzauftraege: ZusatzauftragRow[] = [];
-  const regierapporte: RegierapportRow[] = [];
-  const positionen: RegiePositionRow[] = [];
-  const zustellungen: ZustellungRow[] = [];
-  const kundeVon = (b: BaustelleUpdate) => kunden.find((k) => k.id === b.kunde_id)!;
-  let nummer = 31;
-  const TAET: Record<string, string> = { zusaetzlich: 'versetzen', kaputt: 'reparieren' };
-  const funktionAnsatz = (f: string) => { try { return tarifNachCode(f).ansatz_rappen; } catch { return 10800; } };
-
-  for (const ka of kundenAbweichungen) {
-    const k = kundeVon(ka.baustelle);
-    const tag = new Date(ka.meldung.datum + 'T12:00:00');
-    const alterTage = Math.round((heute.getTime() - tag.getTime()) / 86400000);
-    const za: ZusatzauftragRow = {
-      id: z.uuid(), client_uuid: z.uuid(), baustelle_id: ka.baustelle.id,
-      besteller_name: k.ansprechperson, besteller_rolle: 'Bauleitung', bestellt_am: ts(addTage(tag, -1), z.int(8, 16), z.int(0, 59)),
-      kanal: z.chance(0.7) ? 'telefon' : 'mail', taetigkeit: z.chance(0.8) ? TAET[ka.typ] ?? 'anderes' : 'ergaenzen',
-      geplant_fuer: ka.meldung.datum, notiz: null, status: 'offen', // Stand «gemeldet»/«im Regierapport» ergibt sich aus den Daten
-    };
-    zusatzauftraege.push(za);
-    if (alterTage < 1) continue; // ganz frisch: noch kein Rapport
-
-    // Positionen — nach Funktion, plus Lieferwagen / Etappe / Materialmiete
-    const rid = z.uuid();
-    const pos: RegiePositionRow[] = [];
-    const proFunktion = new Map<string, number>();
-    for (const e of ka.eintraege) {
-      const f = mitarbeiter.find((m) => m.id === e.mitarbeiter_id)?.funktion ?? 'monteur';
-      proFunktion.set(f, (proFunktion.get(f) ?? 0) + e.normal_min + e.ueber_min);
-    }
-    for (const [f, min] of proFunktion) {
-      const t = tarifNachCode(f);
-      const p = { code: f, bezeichnung: `${t.bezeichnung} ${(min / 60).toFixed(1)} h`, mengeHundertstel: Math.round((min / 60) * 100), ansatzRappen: funktionAnsatz(f) };
-      pos.push({ id: z.uuid(), regierapport_id: rid, tarif_code: f, bezeichnung: p.bezeichnung, menge_hundertstel: p.mengeHundertstel, ansatz_rappen: p.ansatzRappen, betrag_rappen: positionBetrag(p) });
-    }
-    if (z.chance(0.7)) {
-      const lw = tarifNachCode('lieferwagen_35');
-      pos.push({ id: z.uuid(), regierapport_id: rid, tarif_code: 'lieferwagen_35', bezeichnung: 'Lieferwagen 1.0 h', menge_hundertstel: 100, ansatz_rappen: lw.ansatz_rappen, betrag_rappen: lw.ansatz_rappen });
-    }
-    if (z.chance(0.6)) pos.push({ id: z.uuid(), regierapport_id: rid, tarif_code: 'etappe', bezeichnung: 'Etappenzuschlag', menge_hundertstel: 100, ansatz_rappen: ETAPPE_MIN_RAPPEN, betrag_rappen: ETAPPE_MIN_RAPPEN });
-    const basis = pos.reduce((s, p) => s + p.betrag_rappen, 0);
-    const miete = materialmiete(basis);
-    pos.push({ id: z.uuid(), regierapport_id: rid, tarif_code: 'materialmiete', bezeichnung: 'Materialmiete 9 %', menge_hundertstel: 100, ansatz_rappen: miete, betrag_rappen: miete });
-    positionen.push(...pos);
-
-    const erstellt = addTage(tag, 1);
-    const versendet = addTage(tag, z.int(1, 2));
-    const frist = addTage(versendet, 3);
-    let status = 'versendet';
-    if (alterTage >= 10) status = z.chance(0.8) ? 'bestaetigt' : 'frist_abgelaufen';
-    else if (alterTage >= 4) status = z.chance(0.6) ? 'versendet' : z.chance(0.8) ? 'bestaetigt' : 'rueckfrage';
-    else status = z.chance(0.7) ? 'versendet' : 'entwurf';
-    const bestaetigt = status === 'bestaetigt' ? addTage(versendet, z.int(0, 2)) : null;
-
-    regierapporte.push({
-      id: rid, zusatzauftrag_id: za.id, tagesmeldung_id: ka.meldung.id, baustelle_id: ka.baustelle.id, nummer: `RR-2026-${String(nummer++).padStart(4, '0')}`,
-      status, betrag_rappen: basis + miete, frist_bis: status === 'entwurf' ? null : iso(frist),
-      erstellt_am: ts(erstellt, 9, z.int(0, 59)), versendet_am: status === 'entwurf' ? null : ts(versendet, 10, z.int(0, 59)),
-      bestaetigt_am: bestaetigt ? ts(bestaetigt, 14, z.int(0, 59)) : null, empfaenger_email: k.email,
-    });
-
-    if (status !== 'entwurf') {
-      const an = k.email;
-      const g = ts(versendet, 10, z.int(0, 59));
-      zustellungen.push({ id: z.uuid(), regierapport_id: rid, an, ereignis: 'gesendet', zeitpunkt: g });
-      zustellungen.push({ id: z.uuid(), regierapport_id: rid, an, ereignis: 'zugestellt', zeitpunkt: ts(versendet, 10, 59) });
-      if (status !== 'frist_abgelaufen' || z.chance(0.5)) zustellungen.push({ id: z.uuid(), regierapport_id: rid, an, ereignis: 'geoeffnet', zeitpunkt: ts(addTage(versendet, z.int(0, 1)), z.int(11, 18), z.int(0, 59)) });
-      if (status === 'bestaetigt' && bestaetigt) {
-        zustellungen.push({ id: z.uuid(), regierapport_id: rid, an, ereignis: 'link_geklickt', zeitpunkt: ts(bestaetigt, 14, z.int(0, 30)) });
-        zustellungen.push({ id: z.uuid(), regierapport_id: rid, an, ereignis: 'bestaetigt', zeitpunkt: ts(bestaetigt, 14, z.int(31, 59)) });
-      }
-      if (status === 'rueckfrage') zustellungen.push({ id: z.uuid(), regierapport_id: rid, an, ereignis: 'rueckfrage', zeitpunkt: ts(addTage(versendet, 1), 9, z.int(0, 59)) });
-      if (status === 'frist_abgelaufen') zustellungen.push({ id: z.uuid(), regierapport_id: rid, an, ereignis: 'erinnert', zeitpunkt: ts(frist, 8, 0) });
-    }
-  }
-
-  // Offene Zusatzaufträge: heute und die nächsten Tage (davon einer an einer fertig gemeldeten Baustelle → R2)
-  const offenePlaene = [0, 0, 1, 2, 4, 6];
-  offenePlaene.forEach((inTagen, i) => {
-    const bs = i === 5 && fertige.length > 0 ? fertige[0] : z.pick(grosse);
-    const k = kundeVon(bs);
-    zusatzauftraege.push({
-      id: z.uuid(), client_uuid: z.uuid(), baustelle_id: bs.id, besteller_name: k.ansprechperson, besteller_rolle: 'Bauleitung',
-      bestellt_am: ts(addTage(heute, -z.int(0, 2)), z.int(8, 17), z.int(0, 59)), kanal: z.pick(['telefon', 'telefon', 'mail', 'vor_ort']),
-      taetigkeit: z.pick(['versetzen', 'ergaenzen', 'teilabbau', 'reparieren']), geplant_fuer: iso(addTage(heute, inTagen)),
-      notiz: z.chance(0.5) ? z.pick(['Maurer blockiert', 'Fenstermontage braucht Platz', 'Sturmschaden Ostseite', 'Dachdecker braucht Zugang']) : null,
-      status: 'offen',
-    });
-  });
-
-  // Ein Auftrag, der bestellt war, aber nie Regie wurde (Kunde hat abgesagt) — mit Grund, wer, wann
-  {
-    const bs = z.pick(grosse);
-    const k = kundeVon(bs);
-    zusatzauftraege.push({
-      id: z.uuid(), client_uuid: z.uuid(), baustelle_id: bs.id, besteller_name: k.ansprechperson, besteller_rolle: 'Bauleitung',
-      bestellt_am: ts(addTage(heute, -6), 9, 15), kanal: 'telefon', taetigkeit: 'versetzen', geplant_fuer: iso(addTage(heute, -4)),
-      notiz: 'Fenstermontage verschoben', status: 'erledigt_ohne_regie', erledigt_grund: 'abgesagt', erledigt_am: ts(addTage(heute, -5), 16, 40), erledigt_von: opts.userId,
-    });
-  }
-
-  return { mitarbeiter, teams, teamMitglieder, kunden, baustellen, jahresplan, meldungen, eintraege, zusatzauftraege, regierapporte, positionen, zustellungen, freigaben };
+  return { mitarbeiter, teams, teamMitglieder, kunden, baustellen, jahresplan, meldungen, eintraege, freigaben };
 }
 
 // ── Laden / Zurücksetzen ─────────────────────────────────────────────────────
@@ -442,7 +321,9 @@ async function inChunks(client: SupabaseClient, tabelle: string, rows: object[],
   log(`${tabelle}: ${rows.length}`);
 }
 
-/** Löscht alle Bewegungs- und Stammdaten (nicht die Baustellen) — in FK-Reihenfolge. */
+/** Löscht alle Bewegungs- und Stammdaten (nicht die Baustellen) — in FK-Reihenfolge.
+ *  Die Regie-Tabellen (zustellung_log, regie_position, regierapport, zusatzauftrag) bleiben in der Datenbank
+ *  und werden hier mitgeleert, damit alte Demo-Daten nicht im Weg stehen. */
 export async function demoZuruecksetzen(client: SupabaseClient, log: Protokoll): Promise<void> {
   const alles = async (tabelle: string, spalte = 'id') => {
     const { error } = await client.from(tabelle).delete().not(spalte, 'is', null);
@@ -458,7 +339,7 @@ export async function demoZuruecksetzen(client: SupabaseClient, log: Protokoll):
   log('Alles geleert — die 217 Konten bleiben.');
 }
 
-export interface DemoZusammenfassung { mitarbeiter: number; teams: number; kunden: number; meldungen: number; eintraege: number; regierapporte: number }
+export interface DemoZusammenfassung { mitarbeiter: number; teams: number; kunden: number; meldungen: number; eintraege: number }
 
 export async function demoLaden(client: SupabaseClient, userId: string, log: Protokoll): Promise<DemoZusammenfassung> {
   const { data: bs, error } = await client.from('baustelle').select('id,konto_nr,bezeichnung').order('konto_nr');
@@ -481,10 +362,6 @@ export async function demoLaden(client: SupabaseClient, userId: string, log: Pro
   await inChunks(client, 'tagesmeldung', d.meldungen, log);
   await inChunks(client, 'zeiteintrag', d.eintraege, log);
   await inChunks(client, 'freigabe_log', d.freigaben, log);
-  await inChunks(client, 'zusatzauftrag', d.zusatzauftraege, log);
-  await inChunks(client, 'regierapport', d.regierapporte, log);
-  await inChunks(client, 'regie_position', d.positionen, log);
-  await inChunks(client, 'zustellung_log', d.zustellungen, log);
 
-  return { mitarbeiter: d.mitarbeiter.length, teams: d.teams.length, kunden: d.kunden.length, meldungen: d.meldungen.length, eintraege: d.eintraege.length, regierapporte: d.regierapporte.length };
+  return { mitarbeiter: d.mitarbeiter.length, teams: d.teams.length, kunden: d.kunden.length, meldungen: d.meldungen.length, eintraege: d.eintraege.length };
 }

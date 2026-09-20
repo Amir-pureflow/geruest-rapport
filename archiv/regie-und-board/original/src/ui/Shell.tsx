@@ -1,7 +1,8 @@
-import type { ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { ANSICHT_LABEL, useAnsicht, type Ansicht } from '../lib/ansicht';
-import { ChevronRight, LayoutDashboard, CalendarDays, CalendarRange, Download, Settings, Smartphone, type LucideIcon } from 'lucide-react';
+import { supabase } from '../lib/supabase';
+import { ChevronRight, LayoutDashboard, PhoneCall, CalendarDays, CalendarRange, FileText, BarChart3, LayoutGrid, Download, Settings, Smartphone, ExternalLink, type LucideIcon } from 'lucide-react';
 
 /**
  * Bildmarke: Gerüst als Netz — zwei Stiele, zwei Lagen, eine Strebe, und an den Knoten leuchtende Punkte
@@ -44,9 +45,9 @@ const BUERO: Ansicht[] = ['bauf', 'sekretariat'];
 interface NavEintrag { zu: string; label: string; icon?: LucideIcon }
 interface NavGruppe { titel?: string; eintraege: NavEintrag[] }
 
-/** Gleiche Ordnung für beide Büro-Ansichten: erst das Tägliche, dann die Daten. Regie und Board gibt es seit 20.09. nicht mehr. */
-export function navFuer(a: 'bauf' | 'sekretariat'): NavGruppe[] {
-  // Sekretariat: Stunden und Stammdaten (Entscheid 17.09.)
+/** Gleiche Ordnung für beide Büro-Ansichten: erst das Tägliche, dann Geld, dann Planung. */
+export function navFuer(a: 'bauf' | 'sekretariat', kundenToken: string | null = null): NavGruppe[] {
+  // Sekretariat: vier Bereiche, alles rund um Stunden und Stammdaten (Entscheid 17.09.)
   if (a === 'sekretariat') {
     return [
       { eintraege: [{ zu: '/', label: 'Übersicht', icon: LayoutDashboard }] },
@@ -54,6 +55,7 @@ export function navFuer(a: 'bauf' | 'sekretariat'): NavGruppe[] {
         titel: 'Stunden & Daten',
         eintraege: [
           { zu: '/export', label: 'Export', icon: Download },
+          { zu: '/board', label: 'Board', icon: LayoutGrid },
           { zu: '/verwaltung', label: 'Verwaltung', icon: Settings },
         ],
       },
@@ -64,13 +66,22 @@ export function navFuer(a: 'bauf' | 'sekretariat'): NavGruppe[] {
     {
       titel: 'Tagesgeschäft',
       eintraege: [
+        { zu: '/zusatzauftrag', label: 'Zusatzauftrag', icon: PhoneCall },
         { zu: '/heute', label: 'Tagesübersicht', icon: CalendarDays },
         { zu: '/cockpit', label: 'Wochenübersicht', icon: CalendarRange },
       ],
     },
     {
-      titel: 'Daten',
+      titel: 'Regie',
       eintraege: [
+        { zu: '/regie', label: 'Regierapporte', icon: FileText },
+        { zu: '/auswertung', label: 'Auswertung', icon: BarChart3 },
+      ],
+    },
+    {
+      titel: 'Planung & Daten',
+      eintraege: [
+        { zu: '/board', label: 'Board', icon: LayoutGrid },
         // Bauführer sieht nur das Raster — Lohn-Export gehört dem Sekretariat (20.09.)
         { zu: '/export', label: 'SORBA-Raster', icon: Download },
         { zu: '/verwaltung', label: 'Verwaltung', icon: Settings },
@@ -78,7 +89,11 @@ export function navFuer(a: 'bauf' | 'sekretariat'): NavGruppe[] {
     },
     {
       titel: 'Weitere',
-      eintraege: [{ zu: '/erfassung?wahl', label: 'Erfassung (Teamgerät)', icon: Smartphone }],
+      eintraege: [
+        ...(a === 'bauf' ? [{ zu: '/erfassung?wahl', label: 'Erfassung (Teamgerät)', icon: Smartphone }] : []),
+        // Der neueste verschickte Regierapport, so wie ihn die Bauleitung sieht — ohne Rapport zeigt der Link nichts.
+        ...(kundenToken ? [{ zu: `/b/${kundenToken}`, label: 'Kundenlink ansehen', icon: ExternalLink }] : []),
+      ],
     },
   ];
 }
@@ -102,15 +117,20 @@ function NavLink({ e, aktiv }: { e: NavEintrag; aktiv: boolean }) {
 /** Seitentitel je Pfad — für die Brotkrumen oben. Unbekannte Segmente (IDs) bekommen `krume` aus der Seite. */
 const TITEL: Record<string, string> = {
   '/': 'Übersicht',
+  '/zusatzauftrag': 'Zusatzauftrag',
   '/heute': 'Tagesübersicht',
   '/cockpit': 'Wochenübersicht',
+  '/regie': 'Regierapporte',
+  '/regie/neu': 'Neuer Regierapport',
+  '/auswertung': 'Auswertung',
   '/export': 'Export',
+  '/board': 'Board',
   '/verwaltung': 'Verwaltung',
   '/erfassung': 'Erfassung',
   '/ansicht': 'Ansicht wählen',
 };
 
-/** Brotkrumen: Übersicht › Wochenübersicht. Jede Stufe ist anklickbar, die letzte nicht. */
+/** Brotkrumen: Übersicht › Regierapporte › RR-2026-0008. Jede Stufe ist anklickbar, die letzte nicht. */
 function Brotkrumen({ pathname, krume }: { pathname: string; krume?: string }) {
   const teile = pathname.split('/').filter(Boolean);
   if (teile.length === 0) return null;
@@ -153,7 +173,14 @@ export function Shell({
   const ansicht = useAnsicht();
   const { pathname } = useLocation();
   const buero = ansicht !== null && BUERO.includes(ansicht);
-  const nav = ansicht === 'bauf' || ansicht === 'sekretariat' ? navFuer(ansicht) : null;
+  const [kundenToken, setKundenToken] = useState<string | null>(null);
+  useEffect(() => {
+    if (!supabase) return;
+    void supabase.from('regierapport').select('link_token').neq('status', 'entwurf').not('link_token', 'is', null)
+      .order('versendet_am', { ascending: false }).limit(1).maybeSingle()
+      .then(({ data }) => setKundenToken((data as { link_token?: string } | null)?.link_token ?? null));
+  }, []);
+  const nav = ansicht === 'bauf' || ansicht === 'sekretariat' ? navFuer(ansicht, kundenToken) : null;
   const istAktiv = (zu: string) => {
     const pfad = zu.split('?')[0];
     return pfad === '/' ? pathname === '/' : pathname === pfad || pathname.startsWith(pfad + '/');

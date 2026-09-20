@@ -181,7 +181,7 @@ export function Tag() {
                           {a.transkript
                             ? <p className="mt-1 rounded-[10px] bg-surface px-3 py-2 italic text-ink2">«{a.transkript}»</p>
                             : a.audio_sekunden ? <p className="mt-1 text-xs text-ink3">Sprachnotiz {a.audio_sekunden} Sek. — Text wird erstellt</p> : null}
-                          <Link to={wochenLink(t.id, a.id)} onClick={() => zurWoche(t.id)} className="mt-1 inline-block text-xs font-semibold text-amber-deep">Regieverdacht in der Woche ansehen ›</Link>
+                          <Link to={wochenLink(t.id, a.id)} onClick={() => zurWoche(t.id)} className="mt-1 inline-block text-xs font-semibold text-amber-deep">In der Wochenübersicht prüfen ›</Link>
                         </div>
                       ))}
                     </div>

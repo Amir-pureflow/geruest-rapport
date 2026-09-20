@@ -1,13 +1,12 @@
 /**
- * Abfragen für die Diagramme der Büro-Startseiten.
+ * Abfragen für Diagramm und Team-Board der Bauführer-Startseite.
  *
- * Liegt getrennt von den Seiten, weil sich Bauführer und Sekretariat den Trichter
- * teilen. Alles rechnet in Minuten und Rappen als Integer (CLAUDE.md #6) —
- * umgerechnet wird erst bei der Ausgabe.
+ * Alles rechnet in Minuten als Integer (CLAUDE.md #6) — umgerechnet wird erst bei der Ausgabe.
+ * Die Regie-Abfragen (Trichter der Zusatzaufträge, Regie je Monat, Fristen) liegen seit 20.09.
+ * in archiv/regie-und-board/ — SORBA macht die Regie, nicht die App.
  */
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { addTage, iso, montag, WOCHENTAGE, kurz } from './datum';
-import type { Stufe } from '../ui/Diagramm';
 
 export interface WochenTag {
   label: string;
@@ -63,85 +62,6 @@ export async function wochenTeams(c: SupabaseClient, bezug: Date): Promise<Woche
   return tage;
 }
 
-const STUFEN: { key: string; titel: string; zu: string }[] = [
-  { key: 'bestellt', titel: 'bestellt', zu: '/zusatzauftrag' },
-  { key: 'gemeldet', titel: 'gemeldet', zu: '/heute' },
-  { key: 'im_regierapport', titel: 'im Regierapport', zu: '/regie' },
-  { key: 'beim_kunden', titel: 'beim Kunden', zu: '/regie' },
-  { key: 'bestaetigt', titel: 'bestätigt', zu: '/regie' },
-];
-
-export interface TrichterDaten {
-  stufen: Stufe[];
-  ohneMeldung: number;
-  erledigtOhneRegie: number;
-}
-
-/**
- * Wo stehen die Zusatzaufträge? Liest die Sicht `zusatzauftrag_stand` — der Stand
- * wird abgeleitet, nie geklickt (CLAUDE.md, Entscheid 06.09.).
- */
-export async function trichter(c: SupabaseClient, tageZurueck = 60): Promise<TrichterDaten> {
-  const seit = new Date();
-  seit.setDate(seit.getDate() - tageZurueck);
-  const { data } = await c
-    .from('zusatzauftrag_stand')
-    .select('stand,ohne_meldung')
-    .gte('bestellt_am', seit.toISOString());
-
-  const zeilen = (data ?? []) as { stand: string; ohne_meldung: boolean }[];
-  const zaehler = new Map<string, number>();
-  for (const z of zeilen) zaehler.set(z.stand, (zaehler.get(z.stand) ?? 0) + 1);
-
-  return {
-    stufen: STUFEN.map((s) => ({ ...s, anzahl: zaehler.get(s.key) ?? 0 })),
-    ohneMeldung: zeilen.filter((z) => z.ohne_meldung).length,
-    erledigtOhneRegie: zaehler.get('erledigt_ohne_regie') ?? 0,
-  };
-}
-
-export interface RegieMonat {
-  label: string;
-  offenRappen: number;
-  bestaetigtRappen: number;
-  hervor?: boolean;
-}
-
-const MONAT_KURZ = ['Jan', 'Feb', 'Mär', 'Apr', 'Mai', 'Jun', 'Jul', 'Aug', 'Sep', 'Okt', 'Nov', 'Dez'];
-
-/** Verschickte Regie je Monat, davon bestätigt. «Verschickt» zählt nach Versanddatum. */
-export async function regieMonate(c: SupabaseClient, anzahl = 6): Promise<RegieMonat[]> {
-  const heute = new Date();
-  const start = new Date(heute.getFullYear(), heute.getMonth() - (anzahl - 1), 1, 12);
-  const monate: RegieMonat[] = [];
-  for (let i = 0; i < anzahl; i++) {
-    const d = new Date(start.getFullYear(), start.getMonth() + i, 1, 12);
-    monate.push({
-      label: MONAT_KURZ[d.getMonth()],
-      offenRappen: 0,
-      bestaetigtRappen: 0,
-      hervor: d.getMonth() === heute.getMonth() && d.getFullYear() === heute.getFullYear(),
-    });
-  }
-
-  const { data } = await c
-    .from('regierapport')
-    .select('betrag_rappen,versendet_am,status')
-    .neq('status', 'entwurf')
-    .gte('versendet_am', start.toISOString());
-
-  for (const r of (data ?? []) as { betrag_rappen: number | null; versendet_am: string | null; status: string }[]) {
-    if (!r.versendet_am) continue;
-    const d = new Date(r.versendet_am);
-    const index = (d.getFullYear() - start.getFullYear()) * 12 + (d.getMonth() - start.getMonth());
-    if (index < 0 || index >= anzahl) continue;
-    const betrag = r.betrag_rappen ?? 0;
-    if (r.status === 'bestaetigt') monate[index].bestaetigtRappen += betrag;
-    else monate[index].offenRappen += betrag;
-  }
-  return monate;
-}
-
 export interface TeamStand {
   id: string;
   bezeichnung: string;
@@ -149,14 +69,14 @@ export interface TeamStand {
   chefmonteur: string | null;
   gemeldetUm: string | null;
   baustelle: string | null;
-  /** Verschiedene Baustellen am selben Tag — dann zählt die Zahl statt eines Namens.
-   *  Normaler Tag + Abweichung auf derselben Baustelle sind zwei Meldungen, aber EINE Baustelle. */
+  /** Verschiedene Baustellen am selben Tag — dann zählt die Zahl statt eines Namens. */
   anzahlBaustellen: number;
+  /** Überstunden gemeldet (oder eine Abweichung aus alten Daten) — der Bauführer liest die Notiz. */
   abweichung: boolean;
 }
 
 /**
- * Stand aller aktiven Teams für einen Tag: hat gemeldet, wann, wo, mit Abweichung.
+ * Stand aller aktiven Teams für einen Tag: hat gemeldet, wann, wo, mit Überstunden.
  * Bewusst kein Ranking und keine Bewertung — nur «gemeldet / noch nicht» (CLAUDE.md «Nicht bauen»).
  */
 export async function teamStand(c: SupabaseClient, datum: Date): Promise<TeamStand[]> {
@@ -165,7 +85,7 @@ export async function teamStand(c: SupabaseClient, datum: Date): Promise<TeamSta
     c.from('team').select('id,bezeichnung,chefmonteur:chefmonteur_id(name)').eq('aktiv', true),
     c
       .from('tagesmeldung')
-      .select('team_id,erfasst_am,normalfall,abweichung_typ,baustelle:baustelle_id(konto_nr,bezeichnung)')
+      .select('team_id,erfasst_am,normalfall,abweichung_typ,baustelle:baustelle_id(konto_nr,bezeichnung),zeiteintrag(ueber_min)')
       .eq('datum', tagIso),
   ]);
 
@@ -176,6 +96,7 @@ export async function teamStand(c: SupabaseClient, datum: Date): Promise<TeamSta
     normalfall: boolean;
     abweichung_typ: string | null;
     baustelle: { konto_nr: string; bezeichnung: string | null } | { konto_nr: string; bezeichnung: string | null }[] | null;
+    zeiteintrag: { ueber_min: number }[] | null;
   };
 
   const proTeam = new Map<string, MeldZeile[]>();
@@ -201,51 +122,8 @@ export async function teamStand(c: SupabaseClient, datum: Date): Promise<TeamSta
           : null,
         baustelle: b ? b.bezeichnung || `Konto ${b.konto_nr}` : null,
         anzahlBaustellen: new Set(liste.map((m) => (Array.isArray(m.baustelle) ? m.baustelle[0] : m.baustelle)?.konto_nr ?? '')).size,
-        abweichung: liste.some((m) => !m.normalfall || !!m.abweichung_typ),
+        abweichung: liste.some((m) => !m.normalfall || !!m.abweichung_typ || (m.zeiteintrag ?? []).some((z) => z.ueber_min > 0)),
       };
     })
     .sort((a, b) => a.bezeichnung.localeCompare(b.bezeichnung, 'de', { numeric: true }));
-}
-
-export interface FristEintrag {
-  id: string;
-  bezeichnung: string;
-  kontoNr: string;
-  betragRappen: number;
-  tage: number;
-  ueberfaellig: boolean;
-}
-
-/** Was liegt beim Kunden und wie lange schon? Ältestes zuerst — das ist die Arbeitsliste. */
-export async function fristen(c: SupabaseClient, grenze = 6): Promise<FristEintrag[]> {
-  const heuteIso = iso(new Date());
-  const { data } = await c
-    .from('regierapport')
-    .select('id,betrag_rappen,versendet_am,frist_bis,status,baustelle:baustelle_id(bezeichnung,konto_nr)')
-    .in('status', ['versendet', 'rueckfrage', 'frist_abgelaufen'])
-    .order('versendet_am', { ascending: true })
-    .limit(grenze);
-
-  type Zeile = {
-    id: string;
-    betrag_rappen: number | null;
-    versendet_am: string | null;
-    frist_bis: string | null;
-    status: string;
-    baustelle: { bezeichnung: string | null; konto_nr: string } | { bezeichnung: string | null; konto_nr: string }[] | null;
-  };
-
-  const jetzt = Date.now();
-  return ((data ?? []) as unknown as Zeile[]).map((r) => {
-    const b = Array.isArray(r.baustelle) ? r.baustelle[0] : r.baustelle;
-    return {
-      id: r.id,
-      // Baustellen ohne Bezeichnung über die Konto-Nr. ansprechen (wie in der Doppelmeldung)
-      bezeichnung: b?.bezeichnung || `Baustelle ${b?.konto_nr ?? ''}`.trim(),
-      kontoNr: b?.konto_nr ?? '',
-      betragRappen: r.betrag_rappen ?? 0,
-      tage: r.versendet_am ? Math.max(0, Math.floor((jetzt - new Date(r.versendet_am).getTime()) / 86400000)) : 0,
-      ueberfaellig: r.status === 'frist_abgelaufen' || (!!r.frist_bis && r.frist_bis < heuteIso),
-    };
-  });
 }

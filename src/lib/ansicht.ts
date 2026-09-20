@@ -5,39 +5,38 @@
  *
  * Rechte werden damit in der Oberfläche gesteuert, nicht auf dem Server. Für den Pilot mit
  * echten Leuten ist das bewusst so — für echte Kundendaten muss ein Login zurück.
+ *
+ * Die Ansicht «Kunde» (Kundenlink für Regierapporte) ist seit 20.09. weg — mit der ganzen Regie.
  */
 import { useSyncExternalStore } from 'react';
 
-export type Ansicht = 'bauf' | 'chef' | 'monteur' | 'sekretariat' | 'kunde';
+export type Ansicht = 'bauf' | 'chef' | 'monteur' | 'sekretariat';
 
 export const ANSICHT_KEY = 'ansicht';
 const EREIGNIS = 'ansicht-geaendert';
 
-export type Gruppe = 'buero' | 'baustelle' | 'extern';
+export type Gruppe = 'buero' | 'baustelle';
 export const GRUPPEN: { key: Gruppe; titel: string; text: string }[] = [
-  { key: 'buero', titel: 'Im Büro', text: 'am PC' },
+  { key: 'buero', titel: 'Im Büro', text: 'am PC oder iPad' },
   { key: 'baustelle', titel: 'Auf der Baustelle', text: 'am Handy' },
-  { key: 'extern', titel: 'Extern', text: 'per Link' },
 ];
 
 export const ANSICHTEN: { key: Ansicht; titel: string; text: string; gruppe: Gruppe }[] = [
-  { key: 'bauf', titel: 'Bauführer', text: 'Prüfen, freigeben, Regie verschicken', gruppe: 'buero' },
-  { key: 'sekretariat', titel: 'Sekretariat', text: 'Stunden, Lohn-Export, Mitarbeitende', gruppe: 'buero' },
+  { key: 'bauf', titel: 'Bauführer', text: 'Prüfen, freigeben, in SORBA übertragen', gruppe: 'buero' },
+  { key: 'sekretariat', titel: 'Sekretariat', text: 'Stunden, Lohn-Export, Temporärbüros, Mitarbeitende', gruppe: 'buero' },
   { key: 'chef', titel: 'Chefmonteur', text: 'Tagesmeldung fürs Team, ein Knopf am Abend', gruppe: 'baustelle' },
   { key: 'monteur', titel: 'Monteur', text: 'Meine Stunden, wie auf dem Wochenblatt', gruppe: 'baustelle' },
-  { key: 'kunde', titel: 'Kunde', text: 'Bauleitung bestätigt den Regierapport per Link', gruppe: 'extern' },
 ];
 
 export const ANSICHT_LABEL: Record<Ansicht, string> = Object.fromEntries(ANSICHTEN.map((a) => [a.key, a.titel])) as Record<Ansicht, string>;
 
-/** Welche Seiten jede Ansicht überhaupt hat. «/» und «/b/:token» gibt es immer. */
+/** Welche Seiten jede Ansicht überhaupt hat. «/» gibt es immer. */
 export const SEITEN: Record<Ansicht, string[]> = {
-  bauf: ['zusatzauftrag', 'erfassung', 'heute', 'cockpit', 'regie', 'auswertung', 'export', 'board', 'verwaltung'],
-  // Sekretariat (Entscheid 17.09.): nur Stunden, Export, Plan, Stammdaten — keine Regie, keine Zusatzaufträge
-  sekretariat: ['export', 'board', 'verwaltung'],
+  bauf: ['erfassung', 'heute', 'cockpit', 'export', 'verwaltung'],
+  // Sekretariat (Entscheid 17.09.): nur Stunden, Export, Stammdaten
+  sekretariat: ['export', 'verwaltung'],
   chef: ['erfassung'],
   monteur: [],
-  kunde: [],
 };
 
 export function ansichtLesen(): Ansicht | null {

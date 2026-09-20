@@ -1,23 +1,26 @@
-# Rapporto (Arbeitstitel bis 15.09.: Gerüst Rapport) — Zeiterfassung, Rapporte und Regie
+# Rapporto (Arbeitstitel bis 15.09.: Gerüst Rapport) — Zeiterfassung und Rapporte
 
 Digitales Erfassungswerkzeug für eine Gerüstbaufirma im Raum Bern.
 45 Festangestellte + ~30 Temporäre in der Hochsaison, 217 aktive Baustellen.
 5 Bauführer. 20 Teams à 2–3 Monteure mit je einem Chefmonteur (Telefonat 27.08.2026).
-SORBA wird **gefüttert, nicht ersetzt** — der verbindliche Regierapport und die
-Rechnung entstehen weiterhin dort.
+SORBA wird **gefüttert, nicht ersetzt** — Regierapport und Rechnung entstehen dort.
+
+**Seit 20.09.2026 ohne Regie und Board.** Der Bauführer (Demo durch Erin): «Regierapporte und alles, was damit zu tun
+hat, brauche ich in der App nicht — SORBA macht das, das wäre doppelte Arbeit.» Zusatzauftrag, Regierapporte, Auswertung,
+Kundenlink, Ansicht «Kunde», Tarifrechner, Board sind raus. Der Code liegt in `archiv/regie-und-board/` (README dort) —
+für spätere Kunden. **Nicht wieder einbauen, ohne dass Amir es sagt.**
 
 Kontext-Dokumente (eine Ebene höher):
-- `../PRODUKTKONZEPT_ZEITERFASSUNG_RAPPORTE_REGIE.md` — Fachkonzept
+- `../PRODUKTKONZEPT_ZEITERFASSUNG_RAPPORTE_REGIE.md` — Fachkonzept (Regie-Teile historisch)
 - `../BAUPLAN_UMSETZUNG.md` — Phasen, Integrationen, Datenmodell
+- `../Feedback_Bauführer_Prototyp.docx` — elf Punkte vom 20.09.
 
 ## Stack & Befehle
 
 - Vite + React 19 + TypeScript, PWA (vite-plugin-pwa), Tailwind v4
 - Dexie (IndexedDB) für die Offline-Warteschlange
-- Supabase: Postgres + RLS, Auth, Storage, Edge Functions
-- n8n: Fristen-Cron, Erinnerungen, Exportjobs
-- Resend/Postmark: Mailversand mit Zustell-Webhooks (Entscheid offen)
-- Transkription hinter Adapter (Anbieter offen, Spike ausstehend)
+- Supabase: Postgres + RLS, Auth (anonym), Storage, Edge Function `transkribieren`
+- Transkription: Mistral (Voxtral) hinter Adapter — Anbieter-Spike für 13 Sprachen ausstehend
 
 ```
 npm run dev     # Dev-Server
@@ -28,203 +31,172 @@ npm run build   # Typecheck + Produktionsbuild
 ## Sprache
 
 Schweizer Hochdeutsch, **«ss» statt «ß»**. UI-Texte für Monteure: kurze Sätze,
-keine Fachsprache, keine Anglizismen. Gesprochene Eingabe kann Deutsch, Arabisch,
-Polnisch oder Englisch sein (pro Person hinterlegt, nie geraten) — die Ausgabe
-ist immer Deutsch. **Kein Dialekt-Thema: es geht um Hochdeutsch + Fremdsprachen.**
+keine Fachsprache, keine Anglizismen. Gesprochene Eingabe kann in vielen Sprachen sein (pro Person hinterlegt, nie
+geraten) — die Ausgabe ist immer Deutsch. **Kein Dialekt-Thema: es geht um Hochdeutsch + Fremdsprachen.**
 
 ## Glossar — verbindlich, nicht umbenennen
 
 - **Wochenrapport**: das Papierblatt des Monteurs. Spalten: Tag, Konto-Nr.,
-  Strasse/Hausnummer/Ort, öV, KM, Normal Std, Überstunden, Total Std.
-  Mo–So, mehrere Zeilen pro Tag. **Enthält keine Tätigkeit.**
+  Strasse/Hausnummer/Ort, KM, Normal Std, Überstunden, Total Std. Mo–So, mehrere Zeilen pro Tag.
 - **Konto-Nr.**: sechsstellige Baustellennummer, z. B. 903673.
-- **Regie**: Zusatzarbeit nach Aufwand, SGUV-Tarif, Kunde zeichnet gegen.
-- **Zusatzauftrag**: vom Bauführer erfasste Kundenbestellung — der Auslöser
-  für Regie, erfasst *bevor* gearbeitet wird.
-- **Bauführer**: leitet, kontrolliert, schreibt Rapporte und Regierapporte
-  in SORBA. **Es gibt keinen Polier** — der Bauführer ist der Polier.
-- **Team**: 20 Teams à 2–3 Monteure, je ein **Chefmonteur** — Arbnors Wort, nicht
-  «Kolonne», nicht «Polier». Ein Teamgerät meldet für alle; mehrere Teams pro
-  Baustelle sind möglich.
-- **Tagesmeldung**: die Meldung des Teams am Tagesende (1 Knopf oder Abweichung).
-- **SGUV**: Verband; dessen Regie-Tarife sind vertraglich verbindlich.
-- **Board**: Whiteboard im Büro, Jahres-/Terminplanung (keine Tagesdisposition!).
-- **Bausitzungsprotokoll**: wöchentliches Protokoll des Kunden; enthält «ab und zu»
-  Regie — zweite Quelle für Zusatzaufträge (Ausbaustufe, Phase 7).
+- **Bauführer**: leitet, kontrolliert, gibt Stunden frei, tippt sie in SORBA. **Es gibt keinen Polier.**
+- **Team**: 20 Teams à 2–3 Monteure, je ein **Chefmonteur** — Arbnors Wort, nicht «Kolonne».
+  Ein Teamgerät meldet für alle; mehrere Teams pro Baustelle sind möglich.
+- **Tagesmeldung**: die Meldung des Teams am Tagesende (ein Knopf).
+- **Gast**: Person, die heute mithilft, aber nicht fest zum Team gehört (20.09.).
+- **Bemerkung zum Tag**: die Sprachnotiz an der Tagesmeldung — immer möglich, bei Überstunden Pflicht (20.09.).
+- **Regie / Zusatzauftrag / Board**: gibt es in der App nicht mehr (siehe oben). Die Wörter tauchen nur noch in
+  Kommentaren zu alten Daten (`abweichung_typ`) auf.
 
 ## Harte Regeln
 
-1. Das System behauptet **nie**, dass Stunden korrekt sind. Es vergleicht gegen
-   benannte Quellen und zeigt Abweichungen. Formulierungen wie «unplausibel»
-   oder «falsch» sind in UI-Texten verboten — stattdessen: «weicht ab von X».
-2. Keine Freitext-Tastatureingabe in der Monteur-/Team-Erfassung. Nirgends.
+1. Das System behauptet **nie**, dass Stunden korrekt sind. Es zeigt, was das Team gemeldet hat.
+   Formulierungen wie «unplausibel» oder «falsch» sind in UI-Texten verboten — stattdessen: «Team meldet X».
+2. Keine Freitext-Tastatureingabe in der Monteur-/Team-Erfassung. Nirgends. (Chefmonteur-Ausnahmen: Konto-Nr. als
+   Ziffern, Name eines Gastes ab 2 Buchstaben — beides wählt aus einer Liste.)
 3. Keine Auswahlliste mit mehr als 5 Einträgen in der Erfassung.
 4. **Offline zuerst**: Jede Erfassungsfunktion muss ohne Netz vollständig
    funktionieren. Schreiben geht immer in die Dexie-Queue, nie direkt ins Netz.
 5. Sync ist idempotent: jede Meldung hat eine clientseitige `client_uuid`,
    der Server macht Upsert mit `on conflict (client_uuid) do nothing`.
-6. **Geldbeträge in Rappen als Integer. Zeit in Minuten als Integer.**
-   Nie Franken-Floats, nie Dezimalstunden im Datenmodell. Formatierung
-   ausschliesslich über `formatChf()` bei der Ausgabe.
-7. Jede Änderung an Stunden wird protokolliert: wer, wann, von, auf, warum
-   (`freigabe_log`).
-8. Audio und Fotos werden nie gelöscht, solange der Vorgang offen ist — sie sind
-   der Beleg (der Bauführer verlangt heute schon Bilder bei Regie). Transkript
-   ist Arbeitshilfe, nicht Ersatz.
-9. Sprachcode kommt aus dem Mitarbeiterprofil (`sprache`), wird nie automatisch
-   pro Aufnahme geraten.
-
-## Zusatzauftrag: Stand wird abgeleitet, nie geklickt (06.09.)
-
-Gespeichert wird nur `offen` oder `erledigt_ohne_regie` (Pflichtgrund + wer + wann).
-Die Sicht `zusatzauftrag_stand` leitet ab: bestellt → gemeldet (Team-Abweichung auf der
-Baustelle) → im Regierapport → beim Kunden → bestätigt. **Kein «abgerechnet» in der App** —
-die Rechnung entsteht in SORBA, das kann die App nicht wissen. Listen und Zähler lesen
-die Sicht, nicht die Tabelle.
-
-## Ansichten statt Login (09.09.)
-
-Beim Start wählt man «Welche Ansicht?»: **Bauführer, Chefmonteur, Monteur, Sekretariat, Kunde**.
-Kein Login. Die Wahl liegt im Gerät (`localStorage.ansicht`, `src/lib/ansicht.ts`), die Seiten je
-Ansicht stehen in `SEITEN`. Die Datenbank bekommt im Hintergrund eine **anonyme Sitzung**
-(`signInAnonymously` in `main.tsx`), damit die bestehenden RLS-Policies («authenticated») greifen —
-dafür muss im Supabase-Dashboard «Allow anonymous sign-ins» an sein.
-**Folge:** Rechte werden in der Oberfläche gesteuert, nicht auf dem Server. Wer die Adresse kennt,
-kann alles sehen. Für echte Kundendaten muss ein Login zurück (Magic Link stand bis 09.09. in
-`Anmelden.tsx`, siehe Git-Historie).
+6. **Zeit in Minuten als Integer.** Nie Dezimalstunden im Datenmodell. Uhrzeiten als Minuten seit Mitternacht.
+7. Jede Änderung an Stunden wird protokolliert: wer, wann, von, auf, warum (`freigabe_log`).
+8. Audio und Fotos werden nie gelöscht — sie sind der Beleg. Transkript ist Arbeitshilfe, nicht Ersatz.
+9. Sprachcode kommt aus dem Mitarbeiterprofil (`sprache`), wird nie automatisch pro Aufnahme geraten.
+10. **Die App rechnet keine Pausen** (20.09.). Sie zählt, was eingetragen ist — kein stiller Abzug, kein Zuschlag.
 
 ## Ansichten statt Login (09.09.) und Rechte
 
-Beim Start wählt man die Ansicht (Bauführer, Chefmonteur, Monteur, Sekretariat, Kunde), kein Login.
-Sekretariat (17.09.): nur Übersicht (Stunden je Mitarbeiter, freigegeben/offen, Temporärbüros), Export, Board,
-Verwaltung — keine Regie, keine Zusatzaufträge, keine Wochenübersicht (`SEITEN.sekretariat`, `navFuer`).
-Die Datenverbindung läuft über eine anonyme Supabase-Sitzung (main.tsx). Ohne Sitzung zeigt die App
-den Grund (Ansicht.tsx), nie leere Listen. Rechte sind damit nur in der Oberfläche — vor echten
-Kundendaten kommt ein Login pro Rolle zurück (Prüfbericht 09.09., Paket 4). Anonyme Anmeldungen
-sind auf 30/Stunde/IP begrenzt: Test-Screenshots mit festem Chrome-Profil machen, nicht mit frischem.
+Beim Start wählt man die Ansicht: **Bauführer, Sekretariat, Chefmonteur, Monteur**. Kein Login. Die Wahl liegt im
+Gerät (`localStorage.ansicht`, `src/lib/ansicht.ts`), die Seiten je Ansicht stehen in `SEITEN`. Die Datenbank bekommt
+eine **anonyme Sitzung** (`signInAnonymously` in `main.tsx`) — im Supabase-Dashboard muss «Allow anonymous sign-ins» an
+sein; Limit 30/Stunde/IP (Test-Screenshots mit festem Chrome-Profil).
+**Rechte sind nur in der Oberfläche.** Wer die Adresse kennt, kann alles sehen. Vor echten Kundendaten kommt ein Login
+pro Rolle zurück (Magic Link stand bis 09.09. in `Anmelden.tsx`, Git-Historie).
+- Bauführer: Tagesübersicht, Wochenübersicht (freigeben, korrigieren), SORBA-Raster, Verwaltung, Erfassung (Test).
+- Sekretariat (17.09.): Übersicht Stunden je Mitarbeiter, Export (Lohn, Überstunden, Temporärbüros), Verwaltung —
+  nur ansehen im Cockpit. **Lohn sieht nur das Sekretariat** (Bauführer 20.09.: «kein Zugriff hier drauf»).
 
-Korrekturen in der Wochenübersicht brauchen einen Grund aus vier Vorgaben (Regel #7 «warum») und
-laufen über die RPCs aus 0009; fehlt die Migration, fällt der Code auf den zweistufigen Weg zurück.
+Korrekturen in der Wochenübersicht brauchen einen Grund aus vier Vorgaben (Regel #7) und laufen über die RPCs aus 0009;
+fehlt die Migration, fällt der Code auf den zweistufigen Weg zurück.
 Farben: Rot nur für Aktion, Auswahl Stahlblau (`chip-on`), Warnung Bernstein (`amber`).
 
-## Mehrkostenanzeige (12.09.)
-
-Bausitzungsprotokoll HPAG 7.1: «Mehrkosten ohne vorzeitige und schriftliche Anzeige werden nicht entschädigt.»
-Darum hat der Zusatzauftrag den Knopf «Bauleitung informieren» (Edge Function `mehrkosten-anzeigen`, Mail an
-kunde.email, Vermerk `angezeigt_am/an/text`). Pro Kunde einstellbar: `kunde.anzeige_noetig` (Standard ja) und
-`kunde.frist_tage` (Frist für die Gegenzeichnung, Standard 3; die Sendefunktion liest sie). Migration 0011.
-**Vorerst ausgeblendet** (14.09., bis Arbnor klärt, ob er Mehrkosten vorher anmeldet): `MEHRKOSTENANZEIGE_AKTIV = false`
-in Zusatzauftrag.tsx, Feld «Anzeige nötig» in Kunden.tsx versteckt. Function und Spalten bleiben.
-
-## Erfassung wie das Wochenblatt (16.09.)
+## Erfassung wie das Wochenblatt (16.09., erweitert 20.09.)
 
 Je Person zwei Werte: **Normal** (Standard 8.4 h = `NORMALTAG_MIN`, Obergrenze) und **Überstunden** (Standard 0),
 `zeiteintrag.normal_min` / `ueber_min`. Zwei Team-Regler oben setzen alle gleich, die Zeilen darunter je Person.
-Überstunden brauchen ein Warum, aber keinen eigenen Ablauf: eine **Sprachnotiz** (Pflicht, ausser das Mikrofon fehlt)
-an der Tagesmeldung (`audio_pfad`, `transkript`; `wer_hats_gewollt` bleibt leer). Die Zahl ist direkt tippbar
-(`ZahlFeld`, 0.1-h-Schritte). **Entscheid 17.09.: Der Abweichungs-Ablauf (zusätzlich / warten / kaputt, wer wollte
-das) ist aus der Erfassung entfernt** — es gibt nur Normal und Überstunden, wie auf dem Wochenblatt. Jede Meldung
-ist `normalfall = true`; `abweichung_typ` bleibt nur für alte Daten. **Überstunden sind in der Wochenübersicht
-automatisch ein Regieverdacht** (gelb, «Regierapport vorrechnen» rechnet nur die Mehrzeit, `?nur=ueber`; «Keine
-Regie» mit Grund; Freigabe = geprüft). Die Sicht `zusatzauftrag_stand` zählt einen Zusatzauftrag ab Migration 0015
-als «gemeldet», sobald auf der Baustelle ein Tag mit Überstunden gemeldet ist. Regie bleibt getrennt: «War etwas anders?» → zusätzlich / warten / kaputt,
-wer wollte es, Stunden je Person, Sprachnotiz. Die Idee «länger gearbeitet» als vierte Abweichung mit Nachfrage
-wurde am 16.09. verworfen (zu kompliziert); der Typ `laenger` ist im Code nur noch für alte Daten toleriert,
-die Prüfregel der Datenbank kennt ihn nicht.
+Jede Meldung ist `normalfall = true`; `abweichung_typ` / `wer_hats_gewollt` bleiben nur für alte Daten.
+
+**Zeiten von–bis** (Bauführer 20.09.): Umschalter «Stundenzahl | von – bis» fürs Team, je Person überschreibbar. Bis zu
+zwei Spannen (Vormittag, Nachmittag), native Uhrzeit-Wahl, Vorgabe **7:00–12:00 und 13:00–offen** — der Mittag 12–13
+ist unbezahlt (Amir 20.09., «denke ich» — mit Arbnor bestätigen) und darum als Lücke vorgegeben, **nie abgezogen**. Ohne
+«bis» lässt sich nicht speichern; überlappende Spannen auch nicht. Zählt der Mittag mit, sagt es ein Hinweis (kein
+Abzug). Summe → Normal (bis 8.4 h) + Überstunden. Spalten `zeiteintrag.von_min/bis_min/von2_min/bis2_min`
+(Migration 0016), nur gesetzt, wenn Zeiten eingetragen wurden; Cockpit und «Meine Woche» zeigen sie. Logik + Tests in
+`src/lib/zeiten.ts`. Arbeitszeit laut Bauführer 7:00–17:00; bezahlte Pause 9:00–9:30 freiwillig (kein Thema für die App).
+**Offen mit Arbnor:** Mittag wirklich 12–13 und unbezahlt? Weitere Pausen? Trägt der Chefmonteur für alle ein?
+
+**Überstunden** brauchen ein Warum: die **Sprachnotiz** (Pflicht, ausser das Mikrofon fehlt). Seit 20.09. ist sie immer
+da — als **Bemerkung zum Tag**, freiwillig. Der Bauführer sieht Überstunden gelb in der Wochenübersicht, liest die Notiz,
+gibt frei. Ob etwas dem Kunden verrechnet wird, entscheidet er in SORBA — die App fragt das nicht.
+
+**Gäste** (20.09.): «Person hinzufügen» — aus der Mitarbeiterliste, Name ab 2 Buchstaben, max. 5 Treffer, dazu
+«Zuletzt dabei» je Team (`localStorage teamgeraet-gaeste-<teamId>`). Gäste landen nur im `zeiteintrag`, nicht in
+`team_mitglied`.
+
+**Nur Auto** (20.09.): `OEV_AKTIV = false` in Erfassung.tsx — öV-Chip ausgeblendet, `oev` bleibt im Datenmodell.
+Ob öV ganz weg soll: klären, dann Spalte und `oev_standard` aufräumen.
 
 ## Sprachnotiz: Text vor dem Speichern (15.09.)
 
-Nach der Aufnahme schickt die Erfassung das Audio direkt an `transkribieren` (Weg «Vorschau», `audio_base64` + `team_id`),
-zeigt den Text in einem Textfeld, der Chefmonteur prüft/korrigiert ihn und speichert dann. Der geprüfte Text geht als
-`transkript/transkript_quelle/transkript_sprache` mit der Meldung in die Warteschlange; `db.ts` stösst die nachträgliche
-Transkription nur an, wenn kein Text mitkam (offline, Fehler). Die Aufnahme bleibt immer der Beleg (Regel #8).
+Nach der Aufnahme schickt die Erfassung das Audio an `transkribieren` (Weg «Vorschau», `audio_base64` + `team_id`),
+zeigt den Text, der Chefmonteur prüft/korrigiert ihn und speichert dann (`transkript/transkript_quelle/transkript_sprache`
+in der Warteschlange). `db.ts` stösst die nachträgliche Transkription nur an, wenn kein Text mitkam. Die Aufnahme bleibt
+der Beleg (Regel #8). Cockpit: Notizen ohne Überstunden erscheinen als Karte «Bemerkung zum Tag».
 
-## Regieverdacht beantworten (15.09.)
+## Export (20.09.)
 
-Ein Regieverdacht in der Wochenübersicht gilt als beantwortet, sobald (a) ein Regierapport zur Meldung existiert,
-(b) der Bauführer «Keine Regie» mit Pflichtgrund wählt (`tagesmeldung.regie_entscheid/regie_grund`, Migration 0013:
-pauschale/kulanz/irrtum/doppelt, rückgängig über «doch Regie») oder (c) alle Stunden des Tages freigegeben sind.
-Dann wird die Zelle normal, das Team fällt aus «Zum Anschauen», die Karte bleibt grau sichtbar. Stunden werden
-dabei NIE verändert (Regel #1) — «keine Regie» heisst nur: nicht an den Kunden verrechnen.
+Bauführer sieht unter `/export` nur das SORBA-Raster (Nav «SORBA-Raster»). Sekretariat: dazu Lohnstunden, Überstunden
+(Zeitraum + seit Jahresbeginn) und **je Temporärbüro ein eigenes Excel** mit nur dessen Leuten (`excelBuero`, Datei
+`Temporaer_<Büro>_<Zeitraum>.xlsx`) — die Datei, die ans Büro geht. `lohnSichtbar` in Export.tsx.
 
-## Regierapport als PDF (14.09.)
+Das Excel baut `src/lib/excel.ts` mit **ExcelJS** (Amir 20.09.: «schöner vom Design und Layout her»): Titel + Untertitel
+(Zeitraum, Team, Filter, Stand) auf jedem Blatt, dunkle Kopfzeile, Zebrastreifen, Summenzeilen als echte SUM-Formeln,
+fixierte Kopfzeile, Autofilter, Querformat auf eine Seitenbreite. Stunden exakt (min/60, Format 0.00), nicht gerundet.
+Temporärbüro-Blatt: nach Person gruppiert mit Zwischensumme, darunter «Summe je Person» und Total. SORBA-Raster mit
+senkrechten Personennamen und Totalspalte. ExcelJS (~1 MB) wird per dynamischem Import erst beim Klick geladen. SheetJS
+(`xlsx`) ist raus — die freie Ausgabe kann keine Formatierung schreiben.
 
-Die Kundenmail hängt automatisch ein PDF an, im Aufbau des SORBA-Ausdrucks (Briefkopf aus `konfiguration.FIRMA_*`,
-Rechnungsadresse `kunde.adresse`, Objekt, «Regierapport RR-JJJJ-NNNN», Tabelle Text/Me/Menge/Preis/Summe nach
-Tarifklasse, Unterschriftszeile, Fristsatz, Online-Link). Bauer: `supabase/functions/_shared/rapport_pdf.ts` (pdf-lib);
-liegt beim Deploy via MCP neben index.ts (Import `./rapport_pdf.ts`). Genutzt von `regierapport-pdf` («PDF ansehen»
-im RegieDetail, signierter Link 1 h) und `regierapport-senden` (Anhang; ein hochgeladenes eigenes Dokument geht vor).
-Datei im Bucket `anhaenge` unter `rapporte/<id>.pdf`, Pfad in `regierapport.pdf_pfad`; der Kundenlink (`bestaetigung`)
-liefert `pdf_url` zum Herunterladen. Migration 0012.
+## iPad (20.09.)
+
+Büro-Ansichten: ab `md` (iPad hochkant) quer scrollbare Bereichsleiste unter der Kopfzeile und breitere Spalte
+(`md:max-w-3xl`); ab `lg` (iPad quer, PC) Seitenleiste. Kacheln/Diagramm/Team-Board ab `md`; Handy-Karten der Startseite
+nur unter `md`.
+
+## Offen: Sprachen (Bauführer 20.09., Punkt A)
+
+Dreizehn Sprachen statt vier: Albanisch, Italienisch, Serbokroatisch, Portugiesisch, Spanisch, Polnisch, Ungarisch,
+Mazedonisch, Arabisch, Türkisch, Englisch, Griechisch + Deutsch. `mitarbeiter.sprache` und `tagesmeldung.transkript_sprache`
+kennen heute nur de/ar/pl/en (Check-Constraint). Kommt mit dem Transkriptions-Spike (Whisper / Google / Anthropic) —
+**bewusst noch nicht gebaut.**
 
 ## Nicht bauen
 
 - SORBA ersetzen oder in SORBA schreiben (kein DB-Write, keine UI-Automation)
+- Regie, Zusatzaufträge, Kundenlink, Board — entfernt 20.09., liegt im Archiv
 - Automatische Freigabe «plausibler» Stunden
 - Mitarbeiter-Scoring oder -Bewertung
 - Laufende Standortverfolgung (GPS nur punktuell, freiwillig, optional)
-- Automatische Kürzung von Stunden
+- Automatische Kürzung von Stunden, automatischer Pausenabzug
 - Eigenes Backend-Framework, native Apps, Microservices
 
 ## Arbeitsweise
 
-- **Vertikal schneiden**: ein Durchstich pro Feature (UI → Queue → DB → Anzeige),
-  nicht «erst alle Tabellen, dann alle Screens».
-- **Fixtures sind die Wahrheit**: `fixtures/tarife_sguv_2026.json` und die
-  Baustellenliste. Keine erfundenen Testdaten mit `test@example.com`.
-- **Geld-Logik nur mit Tests**: `src/lib/tarif.ts` und später `regie-regeln`
-  werden nie ohne begleitende Vitest-Fälle geändert. Referenzfall: der
-  Modellfall «Gerüst versetzen» = Fr. 955.93 (siehe tarif.test.ts).
+- **Vertikal schneiden**: ein Durchstich pro Feature (UI → Queue → DB → Anzeige).
+- **Fixtures sind die Wahrheit**: die Baustellenliste. Keine erfundenen Testdaten mit `test@example.com`.
+- **Rechenlogik nur mit Tests**: `src/lib/lohn.ts`, `src/lib/zeiten.ts` werden nie ohne Vitest-Fälle geändert.
 - Ein Feature, ein Commit.
+- Auf Amirs PC (bayan) gibt es weder Node noch git: Typecheck/Tests laufen dort nicht — vor dem Push auf einem Gerät
+  mit Node `npm run build` und `npm test` ausführen.
 
 ## Dateikarte
 
 ```
-src/seiten/Ansicht.tsx            Erste Seite: Welche Ansicht? (fünf Knöpfe, kein Login)
-src/seiten/Start.tsx              Verteiler je Ansicht; Bauführer-Dashboard mit Kennzahlen
-src/seiten/StartChef.tsx          Chefmonteur: Team, heute, laufende Woche, vom Kunden bestellt
-src/seiten/StartMonteur.tsx       Monteur: «Meine Woche» — eigene Stunden, nur lesen
-src/seiten/StartSekretariat.tsx   Sekretariat: Anruf festhalten, Regie im Blick, Export, Stammdaten
-src/seiten/StartKunde.tsx         Kunde: verschickte Rapporte mit Kundenlink (/b/<token>)
+src/seiten/Ansicht.tsx            Erste Seite: Welche Ansicht? (vier Knöpfe, kein Login)
+src/seiten/Start.tsx              Verteiler je Ansicht; Bauführer-Dashboard: Teams heute, Vorwoche zu prüfen, Überstunden offen, Diagramm, Team-Board
+src/seiten/StartChef.tsx          Chefmonteur: Team, heute, laufende Woche
+src/seiten/StartMonteur.tsx       Monteur: «Meine Woche» — eigene Stunden (mit Zeiten), nur lesen
+src/seiten/StartSekretariat.tsx   Sekretariat: Stunden je Mitarbeiter, Temporärbüros, Export, Verwaltung
 src/lib/ansicht.ts                Ansicht lesen/setzen, Seiten je Ansicht
 src/ui/Karten.tsx                 NavKarte, Kachel, MONATE — gemeinsam für alle Startseiten
-src/seiten/Zusatzauftrag.tsx      Stufe 1: Kundenbestellung in 20 Sek. (offline)
-src/seiten/Tag.tsx                Tagesübersicht: welche Teams haben gemeldet, welche nicht (Ziel der Start-Kachel)
-src/seiten/Erfassung.tsx          Teamgerät: Kacheln, Anwesenheit, Pfeile, Symbole, Sprachnotiz
-src/seiten/Cockpit.tsx            Wochenübersicht: Raster Team × Tag (Farbe = Stand), Zelle antippen = Tag mit Personen, Korrektur, Regieverdacht, «Tag freigeben»; Freigabe je Tag / je Team / alles ohne Hinweis (Sekretariat: nur ansehen)
-src/seiten/RegieVorschau.tsx      Vorschau aus der Meldung — gespeichert wird erst auf «Als Entwurf speichern»
-src/seiten/RegieListe/Detail.tsx  Regierapporte: Positionen, Anhang, Versand, Chronik, Entwurf verwerfen
-src/seiten/Auswertung.tsx         Regie pro Baustelle/Kunde/Monat aus Sicht regie_auswertung (0009), CSV
-src/lib/regie.ts                  Positionen aus Zeiteinträgen, Rapport anlegen (nie doppelt pro Meldung)
-src/seiten/Export.tsx             SORBA-Raster + Excel (Lohn, Temporärbüro)
-src/seiten/Board.tsx              Jahresplan Team × KW, Verschiebungen → planaenderung
-src/seiten/verwaltung/*           Mitarbeitende, Teams, Kunden, Baustellen, Demo
-src/seiten/Bestaetigung.tsx       Kundenlink /b/:token — ohne Login (Edge Function)
-src/lib/db.ts                     Dexie-Queue: Meldungen + Zeiteinträge + Audio, Zusatzaufträge
-src/lib/tarif.ts                  SGUV-Tarifrechner (Rappen-Integer) + Tests
+src/seiten/Tag.tsx                Tagesübersicht: welche Teams haben gemeldet, welche nicht
+src/seiten/Erfassung.tsx          Teamgerät: Kacheln, Anwesenheit (+ Gäste), Stundenzahl oder Zeiten von–bis, Sprachnotiz als Bemerkung zum Tag, Fotos
+src/seiten/Cockpit.tsx            Wochenübersicht: Raster Team × Tag (Farbe = Stand), Tag öffnen = Personen mit Stunden/Zeiten, Korrektur, Überstunden-Karte, Bemerkung, Freigabe
+src/seiten/Export.tsx             Bauführer: SORBA-Raster. Sekretariat: dazu Lohn, Überstunden, je Temporärbüro eigenes Excel
+src/seiten/verwaltung/*           Mitarbeitende, Teams, Kunden, Baustellen, Demo (auf Amirs PC nur Demo.tsx und Kunden.tsx, Rest nur auf GitHub)
+src/lib/excel.ts                  Excel-Ausgabe mit ExcelJS: Blätter Lohn, Überstunden, je Büro, SORBA-Raster — Layout, Formeln, Druck
+src/lib/db.ts                     Dexie-Queue: Meldungen + Zeiteinträge + Audio + Fotos (Version 4 ohne Zusatzaufträge)
+src/lib/zeiten.ts                 Zeiten von–bis: Uhrzeit ↔ Minuten, Spannen summieren (ohne Pausenrechnung), Mittag-Hinweis, Normal/Über aufteilen + Tests
 src/lib/lohn.ts                   Lohn-/Temporärbüro-/Überstunden-Aggregation (reine Funktionen) + Tests
-src/lib/demo.ts                   Deterministischer Demo-Betrieb + Tests
-src/lib/datum.ts                  Wochen-/Datumshelfer
+src/lib/kennzahlen.ts             Diagramm «Freigabe Vorwoche» und Team-Board
+src/lib/demo.ts                   Deterministischer Demo-Betrieb (Meldungen mit Überstunden + Notizen) + Tests
+src/lib/datum.ts                  Wochen-/Datumshelfer, NORMALTAG_MIN
 src/lib/foto.ts                   Fotos verkleinern (1600 px, JPEG) vor Queue/Upload
+src/ui/Diagramm.tsx               DiagrammKarte, WochenTeams (SVG ohne Bibliothek)
+src/ui/TeamBoard.tsx              Tagesstand aller Teams (gemeldet / Überstunden / noch nicht)
 src/ui/FotoGalerie.tsx            Vorschau aus dem Bucket «anhaenge» (signierte Links)
-src/ui/Sprachnotiz.tsx            Pegelbalken während der Aufnahme (Web Audio), Text-Enthüllung nach dem Speichern (fragt transkript ab)
-src/ui/Shell.tsx                  Rahmen: Büro-Ansichten (Bauführer, Sekretariat) am PC mit Seitenleiste ab «lg», Baustellen-Ansichten bleiben Handy-Spalte; `schmal` für Formulare
-supabase/functions/beschrieb-vorschlagen  Leistungsbeschrieb (Text für SORBA/Kunde) aus Sprachnotiz + Positionen vorschlagen — Mistral, nie ungeprüft gespeichert
-supabase/migrations/              0001 Schema · 0002 Bezeichnung · 0003 Auftrag-UUID · 0004 Versand · 0005 Stammdaten · 0006 Auftrag-Stand (Sicht) · 0007 Rapport-Ursprung · 0008 Fotos · 0009 Verbesserungen (Sichten, RPCs, Nummern, Fristen) · 0010 Beschrieb · 0009 Verbesserungen (Indizes, RPCs zeit_freigeben/zeit_korrigieren/zeit_team_setzen/regierapport_anlegen, Nummer RR-JJJJ-NNNN, Sichten regie_kennzahlen/regie_auswertung, Fristen-Job, Storage ohne Delete)
+src/ui/Sprachnotiz.tsx            Pegelbalken während der Aufnahme, Text-Enthüllung nach dem Speichern
+src/ui/Shell.tsx                  Rahmen: Büro-Ansichten mit Bereichsleiste (md) / Seitenleiste (lg), Baustellen-Ansichten Handy-Spalte
+supabase/functions/transkribieren Sprachnotiz → Text (Mistral)
+supabase/migrations/              0001–0015 historisch (inkl. Regie-Tabellen, bleiben ungenutzt) · 0016 Zeiten von–bis
+archiv/regie-und-board/           Alles Entfernte vom 20.09. + README zum Wiederherstellen
 ```
-
-Edge Functions `regierapport-senden` und `bestaetigung`: Quellcode in `supabase/functions/` (seit 07.09.),
-Deploy via Supabase-MCP oder CLI — siehe `supabase/functions/README.md`.
 
 ## Offene Entscheidungen (nicht raten — nachfragen oder Annahme markieren)
 
-- Transkriptions-Anbieter (Spike mit echten Aufnahmen de/ar/pl/en ausstehend)
-- Mail: **entschieden (03.09.)** — Resend, Absender pureflow-ai.com für den Pilot
-  (DNS via Vercel); vor echten Bauleitungs-Mails Wechsel auf die Domain der
-  Gerüstfirma (Arbnor = IT, zwei DNS-Einträge).
-- SORBA hat **keinen Import** (Arbnor, 27.08.) — die Rasteransicht ist der Endzustand,
-  kein SORBA-spezifischer Exportcode nötig. Offen: woher kommt der Vorgangscode?
-- Tariffragen: Demontage-Anteil 50 % beim «Versetzen»; Materialmiete 9 %
-  auf Kurzeinsätze
-- Business-Case-Zahl (Regierapporte/Monat) wird im Pilot gemessen — «unterschiedlich»
-  laut Arbnor; nicht erfragen. Budgetfrage erst nach dem Pilot.
+- Transkriptions-Anbieter für 13 Sprachen (Spike mit echten Aufnahmen ausstehend)
+- Mittag 12–13 unbezahlt — Annahme Amir, mit Arbnor bestätigen; weitere Pausen?
+- öV ganz weg oder nur nicht Vorgabe?
+- Sieht der Bauführer alle Baustellen oder nur seine? (Rechte pro Bauführer)
+- Login pro Rolle vor echten Kundendaten
+- SORBA hat **keinen Import** (Arbnor, 27.08.) — die Rasteransicht ist der Endzustand.

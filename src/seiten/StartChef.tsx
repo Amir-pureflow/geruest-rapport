@@ -1,7 +1,7 @@
 /**
  * Startseite Chefmonteur: das eigene Team, der heutige Tag, die laufende Woche (Vorwochen erreichbar).
  * Ein Knopf («Tag melden») führt in die Erfassung; das Team ist dasselbe wie dort (TEAM_KEY).
- * Zeigt nur, was gemeldet und was bestellt ist — keine Urteile (CLAUDE.md #1).
+ * Zeigt nur, was gemeldet ist — keine Urteile (CLAUDE.md #1).
  * Meldungen, die noch auf dem Gerät warten, erscheinen in der Woche mit «wartet auf Netz» (CLAUDE.md #4).
  */
 import { useCallback, useEffect, useMemo, useState } from 'react';
@@ -9,7 +9,6 @@ import { Link } from 'react-router-dom';
 import { Shell } from '../ui/Shell';
 import { supabase } from '../lib/supabase';
 import { addTage, iso, kurz, lang, montag, stunden, WOCHENTAGE } from '../lib/datum';
-import { taetigkeitText } from '../lib/zusatzauftrag';
 import { kennzeichen } from '../lib/fahrzeug';
 import { flushNachSupabase, offeneAnzahl, offeneMeldungen, type MeldungPayload } from '../lib/db';
 
@@ -27,7 +26,6 @@ interface Meldung {
   lokal: boolean;
 }
 interface Plan { von: string; bis: string; baustelle: { id: string; konto_nr: string; bezeichnung: string | null } | null }
-interface Auftrag { id: string; baustelle_id: string; taetigkeit: string; besteller_name: string; geplant_fuer: string | null; stand: string }
 /** Eine Korrektur des Bauführers an den Stunden (freigabe_log, Felder normal_min / ueber_min). */
 interface Korrektur { zeiteintrag_id: string; feld: 'normal_min' | 'ueber_min'; alt: string | null; neu: string | null; begruendung: string | null; wann: string }
 
@@ -74,7 +72,6 @@ export function StartChef() {
   const [meldungen, setMeldungen] = useState<Meldung[]>([]);
   const [korrekturen, setKorrekturen] = useState<Korrektur[]>([]);
   const [plan, setPlan] = useState<Plan[]>([]);
-  const [auftraege, setAuftraege] = useState<Auftrag[]>([]);
   const [wartend, setWartend] = useState(0);
   const [laedt, setLaedt] = useState(true);
   const [fehler, setFehler] = useState<string | null>(null);
@@ -147,12 +144,6 @@ export function StartChef() {
         const { data: k } = await c.from('freigabe_log').select('zeiteintrag_id,feld,alt,neu,begruendung,wann').in('zeiteintrag_id', zeitIds).in('feld', ['normal_min', 'ueber_min']).order('wann');
         setKorrekturen((k ?? []) as Korrektur[]);
       } else setKorrekturen([]);
-
-      const baustellen = planRows.map((r) => r.baustelle?.id).filter((x): x is string => !!x);
-      if (baustellen.length > 0) {
-        const { data: a } = await c.from('zusatzauftrag_stand').select('id,baustelle_id,taetigkeit,besteller_name,geplant_fuer,stand').in('baustelle_id', baustellen).in('stand', ['bestellt', 'gemeldet']).order('geplant_fuer');
-        setAuftraege((a ?? []) as Auftrag[]);
-      } else setAuftraege([]);
     } catch (err) {
       // Ohne Netz: wenigstens die lokalen Meldungen zeigen, den Fehler ehrlich benennen
       setFehler(err instanceof Error ? err.message : String(err));
@@ -245,7 +236,6 @@ export function StartChef() {
   const planHeute = plan.find((p) => p.von <= heuteIso && p.bis >= heuteIso)?.baustelle ?? null;
   const tage = Array.from({ length: 7 }, (_, i) => addTage(wochenStart, i));
   const wochenTotal = meldungen.flatMap((m) => m.zeiteintrag).reduce((s, z) => s + z.normal_min + z.ueber_min, 0);
-  const baustelleName = (id: string) => plan.find((p) => p.baustelle?.id === id)?.baustelle;
 
   return (
     <Shell>
@@ -354,26 +344,6 @@ export function StartChef() {
           </div>
           <p className="text-[11px] text-ink3">«freigegeben» heisst: der Bauführer hat die Stunden angeschaut. Änderungen bitte ihm sagen.</p>
         </section>
-
-        {auftraege.length > 0 && (
-          <section className="space-y-2">
-            <p className="lbl mb-0">Vom Kunden bestellt — auf euren Baustellen</p>
-            {auftraege.map((a) => {
-              const b = baustelleName(a.baustelle_id);
-              return (
-                <div key={a.id} className="card space-y-0.5 py-3">
-                  <p className="text-sm font-semibold">{taetigkeitText(a.taetigkeit)}</p>
-                  <p className="text-xs text-ink3">
-                    {b ? <><span className="knr">{b.konto_nr}</span> {b.bezeichnung ?? ''} · </> : null}
-                    bestellt von {a.besteller_name}{a.geplant_fuer ? ` · geplant ${kurz(new Date(a.geplant_fuer + 'T12:00:00'))}` : ''}
-                    {a.stand === 'gemeldet' ? ' · schon gemeldet' : ''}
-                  </p>
-                </div>
-              );
-            })}
-            <p className="text-[11px] text-ink3">Wenn ihr das macht: am Abend «zusätzlich gearbeitet» melden, mit Bild. So wird es Regie.</p>
-          </section>
-        )}
 
         {laedt && <p className="text-center text-xs text-ink3">lädt …</p>}
       </div>

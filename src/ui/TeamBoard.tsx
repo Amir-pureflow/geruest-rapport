@@ -38,7 +38,7 @@ function Kachel({ t }: { t: TeamStand }) {
       /* Zustand auch für Vorlesegeräte — nicht nur über die Farbkante */
       aria-label={
         `${t.bezeichnung}, ${t.chefmonteur ?? 'kein Chefmonteur'}: ` +
-        (gemeldet ? `gemeldet um ${t.gemeldetUm}${t.abweichung ? ', mit Abweichung' : ''}` : 'noch keine Meldung')
+        (gemeldet ? `gemeldet um ${t.gemeldetUm}${t.abweichung ? ', mit Überstunden' : ''}` : 'noch keine Meldung')
       }
     >
       <span className={'absolute inset-y-0 left-0 w-[3px] ' + rand} aria-hidden="true" />
@@ -52,7 +52,7 @@ function Kachel({ t }: { t: TeamStand }) {
         <p className="truncate text-[11px] text-ink3">
           {t.abweichung ? (
             <>
-              <span className="font-semibold text-amber-deep">Abweichung</span>
+              <span className="font-semibold text-amber-deep">Überstunden</span>
               {ort ? ` · ${ort}` : ''}
             </>
           ) : (
@@ -98,7 +98,7 @@ export function TeamBoard({ teams }: { teams: TeamStand[] }) {
         </span>
         <span className="flex items-center gap-1.5">
           <span className="inline-block h-2.5 w-2.5 rounded-[3px] bg-amber" />
-          Abweichung{abweichungen > 0 ? ` · ${abweichungen}` : ''}
+          Überstunden{abweichungen > 0 ? ` · ${abweichungen}` : ''}
         </span>
         <span className="flex items-center gap-1.5">
           <span className="inline-block h-2.5 w-2.5 rounded-[3px] bg-line-strong" />noch keine Meldung

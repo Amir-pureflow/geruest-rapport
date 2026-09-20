@@ -5,29 +5,20 @@
  * Das hält die App klein, funktioniert offline und sieht aus wie der Rest.
  *
  * Regel aus CLAUDE.md «Nicht bauen»: keine Mitarbeiter-Bewertung. Darum zeigen
- * die Diagramme Arbeit, Geld und Abläufe — nie eine Rangliste von Personen.
+ * die Diagramme Arbeit und Abläufe — nie eine Rangliste von Personen.
+ * (Regie-Diagramme — Trichter, Regie je Monat, Fristen — liegen seit 20.09. in archiv/regie-und-board/.)
  *
  * Farben: eigene Datenfarben statt der Text-Tokens (die sind zu dunkel und zu
  * grau, um als Flächen unterscheidbar zu sein). Auf Farbfehlsichtigkeit geprüft.
  */
 import { useState, type ReactNode } from 'react';
-import { Link } from 'react-router-dom';
-import { formatChf } from '../lib/tarif';
 
 export const DATENFARBE = {
   normal: '#3f3f46',
   ueber: '#111113',
   offen: '#9a9aa3',
   bestaetigt: '#178a4c',
-  /** Trichterstufen hell → dunkel: je weiter fortgeschritten, desto kräftiger. */
-  stufe: ['#e4e4e7', '#c4c4cb', '#9a9aa3', '#5e5e66', '#111113'],
 } as const;
-
-/** Fr. 1'711 — ohne Rappen, für knappe Beschriftungen im Diagramm. */
-export function chfKnapp(rappen: number): string {
-  const franken = Math.round(rappen / 100);
-  return "Fr. " + franken.toString().replace(/\B(?=(\d{3})+(?!\d))/g, "'");
-}
 
 /** Rahmen für ein Diagramm: Titel, Untertitel, optionaler Link. */
 export function DiagrammKarte({
@@ -218,100 +209,3 @@ export function WochenTeams({
   );
 }
 
-/** Regie je Monat: verschickter Betrag, davon bereits bestätigt. */
-export function RegieMonate({
-  monate,
-}: {
-  monate: { label: string; offenRappen: number; bestaetigtRappen: number; hervor?: boolean }[];
-}) {
-  return (
-    <Saeulen
-      ariaLabel="Verschickte Regie je Monat, aufgeteilt in bestätigt und noch offen"
-      punkte={monate.map((m) => ({
-        label: m.label,
-        werte: [m.bestaetigtRappen, m.offenRappen],
-        hervor: m.hervor,
-        titel: `${m.label} · ${chfKnapp(m.bestaetigtRappen + m.offenRappen)} verschickt${m.offenRappen > 0 ? ` · ${chfKnapp(m.offenRappen)} noch offen` : ''}`,
-      }))}
-      reihen={[
-        { farbe: DATENFARBE.bestaetigt, text: 'bestätigt' },
-        { farbe: DATENFARBE.offen, text: 'noch beim Kunden' },
-      ]}
-      wertText={(rappen) => chfKnapp(rappen).replace('Fr. ', '')}
-    />
-  );
-}
-
-export interface Stufe {
-  key: string;
-  titel: string;
-  anzahl: number;
-  zu: string;
-}
-
-/**
- * Trichter: wo stehen die Zusatzaufträge gerade? Die Stufen kommen aus der Sicht
- * `zusatzauftrag_stand` — bestellt → gemeldet → im Regierapport → beim Kunden →
- * bestätigt. Waagrechte Balken, weil die Stufennamen Platz brauchen.
- */
-export function Trichter({ stufen, ohneMeldung }: { stufen: Stufe[]; ohneMeldung: number }) {
-  const max = Math.max(...stufen.map((s) => s.anzahl), 1);
-  const gesamt = stufen.reduce((s, x) => s + x.anzahl, 0);
-  if (gesamt === 0) return <LeerHinweis text="Keine Zusatzaufträge in diesem Zeitraum." />;
-
-  return (
-    <div>
-      <ul className="space-y-1.5">
-        {stufen.map((s, i) => (
-          <li key={s.key}>
-            <Link to={s.zu} className="group flex items-center gap-3 rounded-[8px] px-1 py-1 transition hover:bg-ground/70">
-              <span className="w-[8.5rem] shrink-0 text-[13px] text-ink2">{s.titel}</span>
-              <span className="flex h-4 flex-1 items-center">
-                <span
-                  className="h-full rounded-[4px] transition-[width]"
-                  style={{ width: `${Math.max((s.anzahl / max) * 100, s.anzahl > 0 ? 3 : 0)}%`, background: DATENFARBE.stufe[i] }}
-                />
-              </span>
-              <span className="w-6 shrink-0 text-right font-mono text-[13px] tabular-nums text-ink">{s.anzahl}</span>
-            </Link>
-          </li>
-        ))}
-      </ul>
-      {ohneMeldung > 0 && (
-        <p className="mt-3 border-t border-line pt-2.5 text-xs text-ink3">
-          <strong className="font-semibold text-accent-deep">{ohneMeldung}</strong> davon: geplanter Tag vorbei, noch keine
-          Meldung — nachfragen.
-        </p>
-      )}
-    </div>
-  );
-}
-
-/** Fristenliste fürs Sekretariat: was liegt wie lange beim Kunden? */
-export function Fristen({
-  eintraege,
-}: {
-  eintraege: { id: string; bezeichnung: string; kontoNr: string; betragRappen: number; tage: number; ueberfaellig: boolean }[];
-}) {
-  if (eintraege.length === 0) return <LeerHinweis text="Nichts offen beim Kunden." />;
-  return (
-    <ul className="divide-y divide-line">
-      {eintraege.map((e) => (
-        <li key={e.id}>
-          <Link to={`/regie/${e.id}`} className="flex items-center justify-between gap-3 py-2 transition hover:bg-ground/70">
-            <span className="min-w-0">
-              <span className="block truncate text-[14px] font-semibold text-ink">{e.bezeichnung}</span>
-              <span className="font-mono text-[11px] text-ink3">{e.kontoNr}</span>
-            </span>
-            <span className="shrink-0 text-right">
-              <span className="block font-mono text-[13px] tabular-nums text-ink">{formatChf(e.betragRappen)}</span>
-              <span className={'block text-[11px] ' + (e.ueberfaellig ? 'font-semibold text-accent-deep' : 'text-ink3')}>
-                seit {e.tage} Tag{e.tage === 1 ? '' : 'en'}
-              </span>
-            </span>
-          </Link>
-        </li>
-      ))}
-    </ul>
-  );
-}

@@ -1,25 +1,25 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { Shell } from '../ui/Shell';
 import { FotoGalerie } from '../ui/FotoGalerie';
 import { supabase } from '../lib/supabase';
+import { minutenBetrag, formatChf, tarifNachCode, RUECKFALL_ANSATZ_RAPPEN } from '../lib/tarif';
 import { addTage, iso, kurz as ch, kw, montag, stunden, NORMALTAG_MIN } from '../lib/datum';
 import { zeitenText } from '../lib/zeiten';
 import { useAnsicht } from '../lib/ansicht';
+import { taetigkeitText } from '../lib/zusatzauftrag';
 
 /**
  * Phase 3 — Wochenübersicht des Bauführers.
  *
  * Aufbau (17.09.): ein Raster — jedes Team eine Zeile, sieben Zellen Mo–So mit Teamstunden, Farbe = Stand
- * (weiss offen, grün freigegeben, gelb Überstunden, rot über 10 h). Zelle antippen öffnet den Tag:
- * Personen mit Stunden und Zeiten, Korrektur, Überstunden-Karte mit Sprachnotiz, Bemerkung zum Tag, «Tag freigeben».
- * Dazu «N Tage freigeben» je Team und ein Knopf oben für alle Tage ohne Hinweis. Kein Montag-Zwang.
- *
- * Seit 20.09. ohne Regie: Ob Überstunden dem Kunden verrechnet werden, entscheidet der Bauführer in SORBA —
- * die App zeigt nur, was das Team gemeldet hat (Regie-Code in archiv/regie-und-board/).
+ * (weiss offen, grün freigegeben, gelb Regieverdacht/Überstunden, rot über 10 h). Zelle antippen öffnet den Tag:
+ * Personen mit Stunden, Korrektur, Regieverdacht-Karte, «Tag freigeben». Dazu «N Tage freigeben» je Team und
+ * ein Knopf oben für alle Tage ohne Hinweis. Kein Montag-Zwang: freigeben geht jederzeit.
  *
  * Harte Regel #1: Das System sagt NIE «diese Stunden sind falsch».
- * Jede Markierung nennt ihre Quelle («Team meldet 1.5 h Überstunden») — entscheiden tut der Bauführer.
- * Jede Korrektur landet im freigabe_log.
+ * Jede Markierung nennt ihre Quelle («weicht ab von X», «offener Zusatzauftrag»)
+ * — entscheiden tut der Bauführer. Jede Korrektur landet im freigabe_log.
  */
 
 interface LogZeile { feld: string; alt: string | null; neu: string | null; begruendung: string | null; wann: string }
@@ -52,10 +52,33 @@ interface Eintrag {
     team: { id: string; bezeichnung: string } | null;
     baustelle: { id: string; konto_nr: string; bezeichnung: string | null } | null;
     foto: { id: string; pfad: string }[];
+    /** Schon ein Regierapport zu dieser Meldung? Dann dorthin, nie einen zweiten anlegen. */
+    regierapport: { id: string; status: string; nummer: string | null }[];
+    /** Bauführer-Entscheid: gemeldete Zusatzarbeit wird nicht verrechnet (Migration 0013) */
+    regie_entscheid: 'keine_regie' | null;
+    regie_grund: string | null;
+    regie_entschieden_am: string | null;
   };
 }
 
+const REGIE_GRUND: Record<string, string> = {
+  pauschale: 'in der Offerte / Pauschale drin',
+  kulanz: 'Kulanz — wir verrechnen es nicht',
+  irrtum: 'Team hat sich vertan — war normale Arbeit',
+  doppelt: 'schon in einem anderen Rapport',
+};
+
+const RAPPORT_STAND: Record<string, string> = { entwurf: 'Entwurf', versendet: 'beim Kunden', rueckfrage: 'Rückfrage', frist_abgelaufen: 'Frist abgelaufen', bestaetigt: 'bestätigt' };
+
 interface Team { id: string; bezeichnung: string; chefmonteur: { name: string } | null }
+
+interface OffenerAuftrag {
+  id: string;
+  baustelle_id: string;
+  taetigkeit: string;
+  besteller_name: string;
+  geplant_fuer: string | null;
+}
 
 type ZellStatus = 'leer' | 'gruen' | 'gelb' | 'rot' | 'frei';
 type Filter = 'zutun' | 'alle';
@@ -65,9 +88,9 @@ const TAGE = ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'];
 const GRUENDE = ['Mit Chefmonteur abgeklärt', 'Pause abgezogen', 'Anreise ist keine Arbeitszeit', 'Tippfehler im Teamgerät'];
 const FELD: Record<string, string> = { normal_min: 'Normalzeit', ueber_min: 'Überzeit' };
 const ABWEICHUNG_KURZ: Record<string, string> = { zusaetzlich: 'zusätzlich gearbeitet', warten: 'warten müssen', kaputt: 'etwas kaputt', laenger: 'länger gearbeitet' };
-/** «länger» (alte Daten) erklärt den langen Tag — kein eigener Hinweis. */
+/** «länger» ohne Kunden ist Lohn, keine Regie — erklärt den langen Tag, macht ihn aber nicht verdächtig. */
 const laengerOhneKunde = (tm: { abweichung_typ: string | null; wer_hats_gewollt: string | null }) => tm.abweichung_typ === 'laenger' && tm.wer_hats_gewollt !== 'kunde';
-/** Überstunden sind der Hinweis: der Bauführer liest die Sprachnotiz und gibt frei. Ob etwas verrechnet wird, entscheidet er in SORBA (20.09.). */
+/** Überstunden sind seit 17.09. immer ein Regieverdacht — der Bauführer entscheidet mit der Sprachnotiz, ob es Regie ist. */
 const hatUeberstunden = (e: { ueber_min: number; tagesmeldung: { normalfall: boolean } }) => e.tagesmeldung.normalfall && e.ueber_min > 0;
 const SPRACHE: Record<string, string> = { de: 'Deutsch', ar: 'Arabisch', pl: 'Polnisch', en: 'Englisch' };
 /** Normaler Tag + Abweichung sind zwei Meldungen und richtig so. Verdächtig ist nur: der normale Tag mehrfach. */
@@ -97,7 +120,7 @@ const ZELLE: Record<ZellStatus, string> = {
 
 export function Cockpit() {
   // Montag/Dienstag prüft der Bauführer die Vorwoche (Arbnor, 27.08.) — dann dort starten, nicht in der leeren neuen Woche
-  // Aufruf mit ?woche=JJJJ-MM-TT&team=<id> (z. B. aus der Tagesübersicht) springt direkt dorthin.
+  // Aufruf mit ?woche=JJJJ-MM-TT&team=<id> (z. B. vom Regierapport «Ursprung») springt direkt dorthin.
   const params = new URLSearchParams(window.location.search);
   const [wochenStart, setWochenStart] = useState<Date>(() => {
     const w = params.get('woche');
@@ -111,6 +134,7 @@ export function Cockpit() {
   // Freigabe im Wochenrhythmus: das Wochenblatt wird am Wochenende abgegeben, der Bauführer prüft Mo/Di.
   // Solange die Woche läuft, gibt es keine Sammelfreigabe — Einzelfälle bleiben im Detail möglich.
   const [eintraege, setEintraege] = useState<Eintrag[]>([]);
+  const [auftraege, setAuftraege] = useState<OffenerAuftrag[]>([]);
   const [userId, setUserId] = useState<string | null>(null);
   // Freigeben und korrigieren tut der Bauführer — das Sekretariat schaut nur.
   const darfFreigeben = useAnsicht() === 'bauf';
@@ -145,6 +169,22 @@ export function Cockpit() {
   }, [wochenwahlOffen]);
   // Transkription auf Knopfdruck (Aufnahmen von vor dem Einbau, oder nach einem Fehler)
   const [transkribiert, setTranskribiert] = useState<Set<string>>(new Set());
+  // «Keine Regie»: der Bauführer schliesst eine gemeldete Zusatzarbeit ohne Rapport ab — mit Grund. Stunden bleiben.
+  const [keineRegieFrage, setKeineRegieFrage] = useState<string | null>(null);
+  async function keineRegie(meldungId: string, grund: string) {
+    if (!supabase) return;
+    const { error } = await supabase.from('tagesmeldung').update({ regie_entscheid: 'keine_regie', regie_grund: grund, regie_entschieden_am: new Date().toISOString(), regie_entschieden_von: userId }).eq('id', meldungId);
+    if (error) { melden('Konnte nicht speichern: ' + error.message, 'fehler'); return; }
+    setKeineRegieFrage(null);
+    melden('Als «keine Regie» abgeschlossen ✓ — die Stunden bleiben');
+    void laden();
+  }
+  async function dochRegie(meldungId: string) {
+    if (!supabase) return;
+    const { error } = await supabase.from('tagesmeldung').update({ regie_entscheid: null, regie_grund: null, regie_entschieden_am: null, regie_entschieden_von: null }).eq('id', meldungId);
+    if (error) { melden('Konnte nicht speichern: ' + error.message, 'fehler'); return; }
+    void laden();
+  }
   async function transkribieren(meldungId: string) {
     if (!supabase) return;
     setTranskribiert((s) => new Set(s).add(meldungId));
@@ -157,14 +197,16 @@ export function Cockpit() {
   const [teams, setTeams] = useState<Team[]>([]);
   // Standard «Zu tun»: nur Teams mit Hinweis. Kommt man gezielt zu einem Team (Tagesübersicht/Rapport), alle zeigen.
   const [filter, setFilter] = useState<Filter>(() => (params.get('team') ? 'alle' : 'zutun'));
-  // Aufgeklappter Tag eines Teams — die Tagesübersicht springt mit ?team&tag direkt hinein
+  // Aufgeklappter Tag eines Teams — Tagesübersicht, Regierapport und Zusatzauftrag springen mit ?team&tag direkt hinein
   const [offen, setOffen] = useState<{ team: string; datum: string } | null>(() => {
     const t = params.get('team');
     const d = params.get('tag');
     return t && d ? { team: t, datum: d } : null;
   });
   const [audio, setAudio] = useState<{ meldung: string; url: string } | null>(null);
-  // Herkunft «aus der Tagesübersicht»: markierte Meldung, und das Team ins Bild scrollen
+  // Herkunft «vom Regierapport»: markierter Tag + Meldung, Rücksprung, und das Team ins Bild scrollen
+  const markierterTag = params.get('tag');
+  const herkunftRapport = params.get('rapport');
   const markierteMeldung = params.get('meldung');
   const zielRef = useRef<HTMLDivElement | null>(null);
   const gescrollt = useRef(false);
@@ -195,7 +237,7 @@ export function Cockpit() {
       'id,normal_min,ueber_min,status,' + (mitZeiten ? 'von_min,bis_min,von2_min,bis2_min,' : '') +
       'freigabe_log(feld,alt,neu,begruendung,wann),mitarbeiter:mitarbeiter_id(id,name,funktion,typ),tagesmeldung:tagesmeldung_id!inner(id,datum,normalfall,abweichung_typ,wer_hats_gewollt,transkript,' +
       (mitTranskript ? 'transkript_quelle,transkript_sprache,transkript_fehler,' : '') +
-      'audio_pfad,audio_sekunden,team:team_id(id,bezeichnung),baustelle:baustelle_id(id,konto_nr,bezeichnung),foto(id,pfad))';
+      'audio_pfad,audio_sekunden,regie_entscheid,regie_grund,regie_entschieden_am,team:team_id(id,bezeichnung),baustelle:baustelle_id(id,konto_nr,bezeichnung),foto(id,pfad),regierapport(id,status,nummer))';
     const eintraegeLaden = async () => {
       const lade = (t: boolean, z: boolean) => c.from('zeiteintrag').select(auswahl(t, z)).gte('tagesmeldung.datum', vonIso).lte('tagesmeldung.datum', bisIso);
       let mitTranskript = true;
@@ -208,9 +250,17 @@ export function Cockpit() {
       }
       return lade(false, false);
     };
-    const z = await eintraegeLaden();
+    const [z, a] = await Promise.all([
+      eintraegeLaden(),
+      // Sicht: nur bestellt/gemeldet — wer schon einen Regierapport hat, wird nicht nochmals verdächtig
+      supabase
+        .from('zusatzauftrag_stand')
+        .select('id,baustelle_id,taetigkeit,besteller_name,geplant_fuer')
+        .in('stand', ['bestellt', 'gemeldet']),
+    ]);
     if (z.error) setLadeFehler(z.error.message);
     else { setLadeFehler(''); setEintraege((z.data ?? []) as unknown as Eintrag[]); }
+    if (a.data) setAuftraege(a.data);
     setLaedt(false);
   }, [vonIso, bisIso]);
 
@@ -228,6 +278,20 @@ export function Cockpit() {
     if (!supabase) return;
     void supabase.auth.getUser().then(({ data }) => setUserId(data.user?.id ?? null));
   }, []);
+
+  const auftragProBaustelle = useMemo(() => {
+    const m = new Map<string, OffenerAuftrag>();
+    for (const a of auftraege) if (!m.has(a.baustelle_id)) m.set(a.baustelle_id, a);
+    return m;
+  }, [auftraege]);
+
+  /** Ein offener Auftrag macht nur den GEPLANTEN Tag verdächtig — nicht die ganze Woche. */
+  function passenderAuftrag(baustelleId: string | undefined, datum: string): OffenerAuftrag | undefined {
+    if (!baustelleId) return undefined;
+    const a = auftragProBaustelle.get(baustelleId);
+    if (!a) return undefined;
+    return a.geplant_fuer === null || a.geplant_fuer === datum ? a : undefined;
+  }
 
   // Matrix: Person → Tag → Einträge (mit Team-Zuordnung)
   const personen = useMemo(() => {
@@ -247,50 +311,87 @@ export function Cockpit() {
     return [...m.entries()].sort((a, b) => a[1].name.localeCompare(b[1].name));
   }, [eintraege]);
 
+  /** Team + Tag + Baustelle, für die schon ein Regierapport oder ein «Keine Regie»-Entscheid existiert — egal an welcher Meldung.
+   *  Alte Daten haben denselben Tag zweimal (normaler Tag mit Überstunden + Abweichung mit Rapport); der Rapport gilt für beide. */
+  const beantwortet = useMemo(() => {
+    const m = new Set<string>();
+    for (const e of eintraege) {
+      const tm = e.tagesmeldung;
+      if ((tm.regierapport?.length ?? 0) > 0 || tm.regie_entscheid) m.add(`${tm.team?.id}|${tm.datum}|${tm.baustelle?.id}`);
+    }
+    return m;
+  }, [eintraege]);
+  const schluessel = (e: Eintrag) => `${e.tagesmeldung.team?.id}|${e.tagesmeldung.datum}|${e.tagesmeldung.baustelle?.id}`;
+
   function zellStatus(liste: Eintrag[] | undefined): ZellStatus {
     if (!liste || liste.length === 0) return 'leer';
-    // Freigegeben = der Bauführer hat es angeschaut — dann ist der Hinweis erledigt,
-    // auch bei Überstunden oder über 10 h. Sonst bliebe das Team ewig unter «Zum Anschauen».
+    // Freigegeben = der Bauführer hat es angeschaut und entschieden — dann ist der Hinweis erledigt,
+    // auch bei Regieverdacht oder über 10 h. Sonst bliebe das Team ewig unter «Zum Anschauen».
     if (liste.every((e) => e.status === 'freigegeben')) return 'frei';
     const summe = liste.reduce((s, e) => s + e.normal_min + e.ueber_min, 0);
-    // Über 10 h ist nur dann ein offener Hinweis, wenn das Team den langen Tag nicht selbst erklärt hat (Überstunden mit Notiz)
+    // Über 10 h ist nur dann ein offener Hinweis, wenn das Team den langen Tag nicht selbst erklärt hat («länger gearbeitet»)
     const erklaert = liste.some((e) => e.tagesmeldung.abweichung_typ === 'laenger' || hatUeberstunden(e));
     if (summe > ZEHN_STUNDEN_MIN && !erklaert) return 'rot';
-    // Überstunden (oder eine Abweichung aus alten Daten) = Hinweis: der Bauführer liest die Notiz, prüft die Stunden, gibt frei
-    const hinweis = liste.some((e) => hatUeberstunden(e) || (e.tagesmeldung.abweichung_typ !== null && !laengerOhneKunde(e.tagesmeldung)));
-    if (hinweis) return 'gelb';
+    // Gibt es zur Meldung schon einen Regierapport, ist der Verdacht beantwortet — die Zelle wird wieder normal.
+    const verdacht = liste.some(
+      (e) =>
+        (e.tagesmeldung.regierapport?.length ?? 0) === 0 &&
+        !e.tagesmeldung.regie_entscheid &&
+        !beantwortet.has(schluessel(e)) &&
+        (hatUeberstunden(e) ||
+          (e.tagesmeldung.abweichung_typ !== null && !laengerOhneKunde(e.tagesmeldung)) ||
+          e.tagesmeldung.wer_hats_gewollt === 'kunde' ||
+          passenderAuftrag(e.tagesmeldung.baustelle?.id, e.tagesmeldung.datum) !== undefined),
+    );
+    if (verdacht) return 'gelb';
     return 'gruen';
   }
 
-  // Hinweise: eine Karte pro Tagesmeldung mit Überstunden (oder Abweichung aus alten Daten) — Notiz, Fotos, Stunden
+  // Regieverdacht: eine Karte pro betroffener Tagesmeldung
   const verdachtsfaelle = useMemo(() => {
     const gesehen = new Set<string>();
-    const faelle: { meldung: Eintrag['tagesmeldung']; eintraege: Eintrag[]; ausloeser: string[]; geprueft: boolean; info: boolean }[] = [];
+    const faelle: { meldung: Eintrag['tagesmeldung']; eintraege: Eintrag[]; ausloeser: string[]; geprueft: boolean; rapport: { id: string; status: string; nummer: string | null } | null; keineRegie: string | null; info: boolean }[] = [];
+    // Normaltag + Abweichung derselben Baustelle am selben Tag: die Abweichung IST die Antwort auf den
+    // offenen Zusatzauftrag — der Normaltag bekommt dann keine eigene Verdachtskarte mehr.
+    const mitAbweichung = new Set(
+      eintraege.filter((x) => !x.tagesmeldung.normalfall).map((x) => `${x.tagesmeldung.team?.id}|${x.tagesmeldung.datum}|${x.tagesmeldung.baustelle?.id}`),
+    );
     for (const e of eintraege) {
       const tm = e.tagesmeldung;
       if (gesehen.has(tm.id)) continue;
+      if (tm.normalfall && mitAbweichung.has(`${tm.team?.id}|${tm.datum}|${tm.baustelle?.id}`)) continue;
       const ausloeser: string[] = [];
       const meldungEintraege = eintraege.filter((x) => x.tagesmeldung.id === tm.id);
       const ueberMin = meldungEintraege.reduce((s, x) => s + x.ueber_min, 0);
-      // «länger» ohne Kunden (alte Meldungen): die Erklärung für den langen Tag — als ruhige Infokarte
+      // Überstunden = Regieverdacht: der Bauführer liest die Notiz und entscheidet (Rapport, keine Regie).
+      // Hat eine andere Meldung desselben Tags schon einen Rapport (alte Daten), zeigt deren Karte das — keine zweite.
+      const ueberVerdacht = tm.normalfall && ueberMin > 0;
+      if (ueberVerdacht && (tm.regierapport?.length ?? 0) === 0 && !tm.regie_entscheid && beantwortet.has(`${tm.team?.id}|${tm.datum}|${tm.baustelle?.id}`)) continue;
+      // «länger» ohne Kunden (alte Meldungen): keine Regie, aber die Erklärung für den langen Tag — als ruhige Infokarte
       const info = laengerOhneKunde(tm);
       if (tm.abweichung_typ && !info) ausloeser.push(`Team meldet «${ABWEICHUNG_KURZ[tm.abweichung_typ] ?? tm.abweichung_typ}»`);
       if (tm.wer_hats_gewollt === 'kunde') ausloeser.push('Team: der Kunde wollte es');
-      if (tm.normalfall && ueberMin > 0) ausloeser.push(`Team meldet ${stunden(ueberMin)} h Überstunden${tm.transkript || tm.audio_pfad ? ' — Sprachnotiz unten' : ''}`);
-      if (laengerOhneKunde(tm)) ausloeser.push('Team meldet «länger gearbeitet»', tm.wer_hats_gewollt === 'chef' ? 'unser Chef wollte es' : 'niemand hat es verlangt');
+      if (ueberVerdacht) ausloeser.push(`Team meldet ${stunden(ueberMin)} h Überstunden${tm.transkript || tm.audio_pfad ? ' — Sprachnotiz unten' : ''}`);
+      const auftrag = passenderAuftrag(tm.baustelle?.id, tm.datum);
+      if (auftrag && !info)
+        ausloeser.push(`offener Zusatzauftrag: ${taetigkeitText(auftrag.taetigkeit)} (${auftrag.besteller_name})`);
+      if (laengerOhneKunde(tm)) ausloeser.push('Team meldet «länger gearbeitet»', tm.wer_hats_gewollt === 'chef' ? 'unser Chef wollte es — Lohnstunden, keine Regie' : 'niemand hat es verlangt — Lohnstunden, keine Regie');
       if (ausloeser.length === 0) continue;
       gesehen.add(tm.id);
+      const liste = eintraege.filter((x) => x.tagesmeldung.id === tm.id);
       faelle.push({
         meldung: tm,
-        eintraege: meldungEintraege,
+        eintraege: liste,
         ausloeser,
-        // alle Stunden dieser Meldung freigegeben → der Bauführer hat es angeschaut
-        geprueft: meldungEintraege.length > 0 && meldungEintraege.every((x) => x.status === 'freigegeben'),
+        // alle Stunden dieser Meldung freigegeben → der Bauführer hat den Verdacht geprüft
+        geprueft: liste.length > 0 && liste.every((x) => x.status === 'freigegeben'),
+        rapport: tm.regierapport?.[0] ?? null,
+        keineRegie: tm.regie_entscheid === 'keine_regie' ? (REGIE_GRUND[tm.regie_grund ?? ''] ?? 'ohne Grund') : null,
         info,
       });
     }
     return faelle;
-  }, [eintraege]);
+  }, [eintraege, auftragProBaustelle, beantwortet]);
 
   const wochenTage = useMemo(() => TAGE.map((_, i) => iso(addTage(wochenStart, i))), [wochenStart]);
 
@@ -340,7 +441,7 @@ export function Cockpit() {
     // Immer Team 1 … 20 der Reihe nach — die Farbe zeigt den Stand, der Filter «Zum Anschauen» blendet den Rest aus
     return zeilen.sort((a, b) => a.team.bezeichnung.localeCompare(b.team.bezeichnung, 'de', { numeric: true }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [teams, personen, wochenTage]);
+  }, [teams, personen, wochenTage, auftragProBaustelle, beantwortet]);
 
   const zaehler = useMemo(() => ({
     gemeldet: teamZeilen.filter((z) => z.alle.length > 0).length,
@@ -358,6 +459,18 @@ export function Cockpit() {
 
   // Der eine Knopf gilt für die ganze Woche, nicht nur für die sichtbaren Teams
   const gruene = useMemo(() => teamZeilen.flatMap((z) => z.gruene), [teamZeilen]);
+
+  function betragVorgerechnet(liste: Eintrag[]): number {
+    return liste.reduce((s, e) => {
+      let ansatz = RUECKFALL_ANSATZ_RAPPEN;
+      try {
+        ansatz = tarifNachCode(e.mitarbeiter.funktion).ansatz_rappen;
+      } catch {
+        /* unbekannte Funktion → Monteursansatz */
+      }
+      return s + minutenBetrag(e.normal_min + e.ueber_min, ansatz);
+    }, 0);
+  }
 
   function melden(text: string, art: 'ok' | 'fehler' = 'ok') {
     setRueckmeldung({ text, art });
@@ -539,6 +652,15 @@ export function Cockpit() {
             <button type="button" className="btn-ghost shrink-0" onClick={() => void laden()}>Nochmals</button>
           </p>
         )}
+        {herkunftRapport && (
+          <div className="flex items-center justify-between gap-3 rounded-[12px] border border-steel/40 bg-steel-soft px-4 py-2.5 text-sm">
+            <span>
+              Sicht aus dem Regierapport{markierterTag ? <> — markiert ist <strong>{ch(new Date(markierterTag + 'T12:00:00'))}</strong></> : ''}
+            </span>
+            <Link to={`/regie/${herkunftRapport}`} className="shrink-0 font-semibold text-steel">‹ zurück zum Rapport</Link>
+          </div>
+        )}
+
         {/* Stand der Woche in einer Zeile — und der eine Knopf für alles, was keinen Hinweis hat */}
         {!laedt && eintraege.length > 0 && (
           <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 rounded-[14px] border border-line bg-surface px-4 py-3">
@@ -646,7 +768,7 @@ export function Cockpit() {
                                 <span className="block">{stunden(t.min)}</span>
                                 {/* Das Wort zum Stand steht in der Zelle; am Handy (schmale Zellen) nur ein Haken für «freigegeben» */}
                                 <span className="hidden font-sans text-[9px] font-medium opacity-80 sm:block">{ZELL_WORT[t.status]}</span>
-                                <span className="block font-sans text-[9px] font-medium opacity-80 sm:hidden">{t.status === 'frei' ? '✓' : t.status === 'gelb' ? 'Über' : t.status === 'rot' ? '>10 h' : 'offen'}</span>
+                                <span className="block font-sans text-[9px] font-medium opacity-80 sm:hidden">{t.status === 'frei' ? '✓' : t.status === 'gelb' ? 'Regie?' : t.status === 'rot' ? '>10 h' : 'offen'}</span>
                               </>
                             )}
                           </button>
@@ -733,7 +855,7 @@ export function Cockpit() {
                           </p>
                         )}
 
-                        {/* Bemerkung zum Tag: Sprachnotiz ohne Überstunden (seit 20.09. immer möglich). Meldungen mit Überstunden-Karte zeigen die Notiz dort. */}
+                        {/* Bemerkung zum Tag: Sprachnotiz ohne Regieverdacht (seit 20.09. immer möglich). Meldungen mit Verdachtskarte zeigen die Notiz dort. */}
                         {[...new Map(detail.filter((e) => (e.tagesmeldung.transkript || e.tagesmeldung.audio_pfad) && !faelle.some((f) => f.meldung.id === e.tagesmeldung.id)).map((e) => [e.tagesmeldung.id, e.tagesmeldung])).values()].map((meldung) => (
                           <div key={meldung.id} className="rounded-[12px] border border-line bg-ground p-3">
                             <p className="font-display text-[14px] font-semibold">
@@ -767,11 +889,11 @@ export function Cockpit() {
                           </div>
                         ))}
 
-                        {faelle.map(({ meldung, eintraege: liste, ausloeser, geprueft, info }) => (
-                          <div key={meldung.id} className={'rounded-[12px] border p-3 ' + (geprueft || info ? 'border-line bg-ground' : 'border-amber/40 bg-amber-soft/60') + (markierteMeldung === meldung.id ? ' ring-2 ring-steel' : '')}>
+                        {faelle.map(({ meldung, eintraege: liste, ausloeser, geprueft, rapport, keineRegie: keineRegieGrund, info }) => (
+                          <div key={meldung.id} className={'rounded-[12px] border p-3 ' + (rapport || geprueft || keineRegieGrund || info ? 'border-line bg-ground' : 'border-amber/40 bg-amber-soft/60') + (markierteMeldung === meldung.id ? ' ring-2 ring-steel' : '')}>
                             <div className="flex items-baseline justify-between gap-2">
                               <span className="font-display text-[14px] font-semibold">
-                                {info ? 'Länger gearbeitet' : geprueft ? 'Überstunden geprüft ✓' : 'Überstunden — Notiz lesen'}
+                                {rapport ? 'Regierapport angelegt ✓' : keineRegieGrund ? 'Keine Regie ✓' : info ? 'Länger gearbeitet' : geprueft ? 'Regieverdacht geprüft ✓' : 'Regieverdacht'}
                                 {mehrereBaustellen && <span className="font-body text-xs font-normal text-ink3"> · {meldung.baustelle?.bezeichnung ?? '—'}</span>}
                               </span>
                             </div>
@@ -816,13 +938,55 @@ export function Cockpit() {
                                 {audio?.meldung === meldung.id && <audio controls autoPlay src={audio.url} className="h-8 flex-1" />}
                               </div>
                             )}
-                            <p className="mt-2 text-sm">
-                              {meldung.normalfall
-                                ? <>{stunden(liste.reduce((s, e) => s + e.ueber_min, 0))} h Überstunden</>
-                                : <>{stunden(liste.reduce((s, e) => s + e.normal_min + e.ueber_min, 0))} h {meldung.abweichung_typ === 'laenger' ? 'länger' : 'Zusatzarbeit'}</>}
-                              <span className="text-xs text-ink3"> · {liste.map((e) => `${e.mitarbeiter.name.split(' ').pop()} ${stunden(meldung.normalfall ? e.ueber_min : e.normal_min + e.ueber_min)}`).join(' · ')}</span>
-                            </p>
-                            {/* Ob das dem Kunden verrechnet wird, entscheidet der Bauführer in SORBA (20.09.) — die App zeigt nur, was das Team gemeldet hat. */}
+                            {meldung.normalfall && liste.every((e) => e.ueber_min === 0) ? (
+                              /* Normaler Tag mit offenem Auftrag: die Stunden sind Aufbau (Offerte), nicht Regie.
+                                 Regie entsteht nur aus gemeldeten Überstunden — sonst beim Team nachfragen. */
+                              <p className="mt-2 rounded-[10px] border border-dashed border-amber/60 px-3 py-2 text-xs text-ink2">
+                                Das Team hat den Tag ohne Überstunden gemeldet ({stunden(liste.reduce((s, e) => s + e.normal_min + e.ueber_min, 0))} h). Der Zusatzauftrag ist noch offen — beim Chefmonteur nachfragen, ob die Zusatzarbeit ausgeführt wurde.
+                              </p>
+                            ) : (
+                              <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+                                <span className="text-sm">
+                                  {meldung.normalfall
+                                    ? <>{stunden(liste.reduce((s, e) => s + e.ueber_min, 0))} h Überstunden</>
+                                    : <>{stunden(liste.reduce((s, e) => s + e.normal_min + e.ueber_min, 0))} h {meldung.abweichung_typ === 'laenger' ? 'länger' : 'Zusatzarbeit'}</>}
+                                  {info
+                                    ? <span className="text-xs text-ink3"> · geht in den Lohn, nicht an den Kunden</span>
+                                    : <> ·{' '}<span className="font-mono font-semibold text-accent-deep">{formatChf(betragVorgerechnet(meldung.normalfall ? liste.map((e) => ({ ...e, normal_min: e.ueber_min, ueber_min: 0 })) : liste))}</span><span className="text-xs text-ink3"> vorgerechnet</span></>}
+                                </span>
+                                {meldung.regierapport?.length > 0 ? (
+                                  <Link to={`/regie/${meldung.regierapport[0].id}`} className="btn-ghost shrink-0 border-steel text-steel">
+                                    {meldung.regierapport[0].nummer ?? 'Regierapport'} · {RAPPORT_STAND[meldung.regierapport[0].status] ?? meldung.regierapport[0].status} ›
+                                  </Link>
+                                ) : keineRegieGrund ? (
+                                  <span className="flex items-center gap-2 text-xs text-ink2">
+                                    <span>keine Regie · {keineRegieGrund}</span>
+                                    {darfFreigeben && <button type="button" className="font-semibold text-steel" onClick={() => void dochRegie(meldung.id)}>doch Regie</button>}
+                                  </span>
+                                ) : info ? (
+                                  <Link to={`/regie/neu?meldung=${meldung.id}${meldung.normalfall ? '&nur=ueber' : ''}`} className="shrink-0 text-xs font-semibold text-steel">Doch Regie? Vorrechnen ›</Link>
+                                ) : (
+                                  <span className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+                                    {darfFreigeben && (
+                                      <button type="button" className="btn-ghost" onClick={() => setKeineRegieFrage(keineRegieFrage === meldung.id ? null : meldung.id)}>Keine Regie …</button>
+                                    )}
+                                    <Link to={`/regie/neu?meldung=${meldung.id}${meldung.normalfall ? '&nur=ueber' : ''}`} className="btn-ghost border-accent text-accent-deep">
+                                      Regierapport vorrechnen ›
+                                    </Link>
+                                  </span>
+                                )}
+                              </div>
+                            )}
+                            {keineRegieFrage === meldung.id && !rapport && !keineRegieGrund && (
+                              <div className="mt-2 space-y-1.5 rounded-[10px] bg-surface p-3">
+                                <p className="text-xs text-ink2">Warum keine Regie? Die Stunden bleiben im Lohn — nur die Verrechnung an den Kunden entfällt.</p>
+                                <div className="flex flex-wrap gap-1.5">
+                                  {Object.entries(REGIE_GRUND).map(([k, text]) => (
+                                    <button key={k} type="button" className="chip px-3 py-1.5 text-xs" onClick={() => void keineRegie(meldung.id, k)}>{text}</button>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
                           </div>
                         ))}
 
@@ -844,7 +1008,7 @@ export function Cockpit() {
                               {speichert ? 'Speichert …' : `${tagName(tag.datum)} freigeben · ${personenN} Pers.`}
                             </button>
                             {(tag.status === 'gelb' || tag.status === 'rot') && (
-                              <p className="text-center text-[11px] text-ink3">Freigeben heisst: angeschaut — Notiz gelesen, Stunden geprüft. Verrechnen an den Kunden läuft in SORBA.</p>
+                              <p className="text-center text-[11px] text-ink3">Freigeben heisst: angeschaut. Regie läuft über die Karte oben — Rapport vorrechnen oder «Keine Regie».</p>
                             )}
                           </div>
                         ) : tag.offen.length === 0 ? (
@@ -863,7 +1027,7 @@ export function Cockpit() {
           <p className="flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-ink3">
             <span><span className="mr-1 inline-block h-2 w-2 rounded-sm bg-surface ring-1 ring-line-strong" />offen</span>
             <span><span className="mr-1 inline-block h-2 w-2 rounded-sm bg-good-soft ring-1 ring-good/40" />freigegeben</span>
-            <span><span className="mr-1 inline-block h-2 w-2 rounded-sm bg-amber-soft ring-1 ring-amber/40" />Überstunden — Notiz lesen</span>
+            <span><span className="mr-1 inline-block h-2 w-2 rounded-sm bg-amber-soft ring-1 ring-amber/40" />Regieverdacht (Überstunden)</span>
             <span><span className="mr-1 inline-block h-2 w-2 rounded-sm bg-accent-soft ring-1 ring-accent/40" />über 10 h</span>
             <span>Zelle antippen = Tag öffnen</span>
           </p>

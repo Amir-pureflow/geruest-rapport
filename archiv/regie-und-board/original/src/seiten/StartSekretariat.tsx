@@ -224,6 +224,7 @@ export function StartSekretariat() {
 
         <nav className="grid gap-3 md:hidden">
           <NavKarte zu="/export" titel="Export" text="Lohn-Excel, Überstunden, Temporärbüro, SORBA-Raster" />
+          <NavKarte zu="/board" titel="Board" text="Jahresplan — welches Team wann wo" />
           <NavKarte zu="/verwaltung" titel="Verwaltung" text="Mitarbeitende, Teams, Kunden, Baustellen" />
         </nav>
       </div>

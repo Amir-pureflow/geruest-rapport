@@ -1,9 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { supabase } from '../../lib/supabase';
 
-// Regie ist seit 20.09.2026 aus der App (Archiv: archiv/regie-und-board). Die Spalten praeferenz, anzeige_noetig,
-// frist_tage, weitere_emails bleiben in der Tabelle und werden mit ihren Standardwerten mitgespeichert — nur die
-// Eingabefelder dafür sind weg. Wer Regie zurückholt, nimmt die Fassung aus dem Archiv.
 interface Kunde { id?: string; name: string; ansprechperson: string | null; email: string | null; telefon: string | null; praeferenz: 'einzel' | 'sammel'; anzeige_noetig: boolean; frist_tage: number; adresse: string | null; weitere_emails: string | null }
 
 const LEER: Kunde = { name: '', ansprechperson: '', email: '', telefon: '', praeferenz: 'einzel', anzeige_noetig: true, frist_tage: 3, adresse: '', weitere_emails: '' };
@@ -44,7 +41,7 @@ export function Kunden() {
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between gap-2">
-        <p className="text-sm text-ink2"><b className="text-ink">{liste.length}</b> Kunden</p>
+        <p className="text-sm text-ink2"><b className="text-ink">{liste.length}</b> Kunden · {liste.filter((k) => k.praeferenz === 'sammel').length} mit Sammelabrechnung</p>
         <button type="button" onClick={() => setBearbeitet({ ...LEER })} className="btn-ghost">+ Neu</button>
       </div>
 
@@ -56,10 +53,41 @@ export function Kunden() {
             <input value={bearbeitet.ansprechperson ?? ''} onChange={(e) => f({ ansprechperson: e.target.value })} placeholder="Bauleitung (Name)" className="field" />
             <input value={bearbeitet.telefon ?? ''} onChange={(e) => f({ telefon: e.target.value })} placeholder="Telefon" className="field" />
           </div>
-          <input type="email" value={bearbeitet.email ?? ''} onChange={(e) => f({ email: e.target.value })} placeholder="E-Mail der Bauleitung" className="field" />
+          <input type="email" value={bearbeitet.email ?? ''} onChange={(e) => f({ email: e.target.value })} placeholder="E-Mail der Bauleitung — dorthin gehen die Regierapporte" className="field" />
           <div>
-            <label className="lbl">Adresse</label>
+            <label className="lbl">Weitere Empfänger (optional, mit Komma)</label>
+            <input type="text" value={bearbeitet.weitere_emails ?? ''} onChange={(e) => f({ weitere_emails: e.target.value })} placeholder="stellvertretung@firma.ch, buchhaltung@firma.ch" className="field" />
+            <p className="mt-1 text-[11px] text-ink3">Regierapporte dürfen an die Bauleitung, an diese Adressen und an jede Adresse derselben Firma (gleiche Domain) gehen.</p>
+          </div>
+          <div>
+            <label className="lbl">Rechnungsadresse (steht auf dem Regierapport-PDF)</label>
             <textarea value={bearbeitet.adresse ?? ''} onChange={(e) => f({ adresse: e.target.value })} rows={2} placeholder={'Weltpoststrasse 19/21\n3015 Bern'} className="field" />
+          </div>
+          <div>
+            <label className="lbl">Regierapporte</label>
+            <div className="flex gap-2">
+              <button type="button" onClick={() => f({ praeferenz: 'einzel' })} className={'chip px-3 ' + (bearbeitet.praeferenz === 'einzel' ? 'chip-on' : '')}>einzeln, sofort</button>
+              <button type="button" onClick={() => f({ praeferenz: 'sammel' })} className={'chip px-3 ' + (bearbeitet.praeferenz === 'sammel' ? 'chip-on' : '')}>gesammelt, Monatsende</button>
+            </div>
+          </div>
+          {/* Regeln aus dem Werkvertrag — pro Kunde anders, darum hier und nicht im Code */}
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div hidden>
+              <label className="lbl">Zusatzarbeit vorher anzeigen</label>
+              <div className="flex gap-2">
+                <button type="button" onClick={() => f({ anzeige_noetig: true })} className={'chip px-3 ' + (bearbeitet.anzeige_noetig ? 'chip-on' : '')}>ja, schriftlich</button>
+                <button type="button" onClick={() => f({ anzeige_noetig: false })} className={'chip px-3 ' + (!bearbeitet.anzeige_noetig ? 'chip-on' : '')}>nicht nötig</button>
+              </div>
+              <p className="mt-1 text-[11px] text-ink3">Viele Bauleitungen zahlen Mehrkosten nur, wenn sie vor der Arbeit schriftlich angezeigt wurden.</p>
+            </div>
+            <div>
+              <label className="lbl">Frist für die Gegenzeichnung</label>
+              <div className="flex items-center gap-2">
+                <input type="number" min={1} max={60} value={bearbeitet.frist_tage} onChange={(e) => f({ frist_tage: Number(e.target.value) })} className="field w-24" />
+                <span className="text-sm text-ink2">Tage</span>
+              </div>
+              <p className="mt-1 text-[11px] text-ink3">Steht im Werkvertrag. Üblich sind 3 Tage.</p>
+            </div>
           </div>
           <div className="flex gap-2">
             <button type="button" onClick={() => void speichern()} className="cta py-3 text-base">Speichern</button>
@@ -79,6 +107,8 @@ export function Kunden() {
               <span className="block truncate text-[11px] text-ink3">{k.ansprechperson ?? '–'} · {k.email ?? 'keine Mail'}</span>
             </span>
             <span className="flex flex-none items-center gap-2 font-mono text-[11px] text-ink3">
+              {k.praeferenz === 'sammel' && <span className="rounded bg-steel-soft px-1 text-steel">Sammel</span>}
+              {k.frist_tage !== 3 && <span className="rounded bg-surface-2 px-1 text-ink3">{k.frist_tage} Tage</span>}
               {k.baustellen} BS
             </span>
           </button>

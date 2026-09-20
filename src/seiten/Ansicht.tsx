@@ -1,14 +1,14 @@
 /**
- * Erste Seite: «Welche Ansicht?» — fünf Knöpfe, kein Login (Entscheid 09.09.).
+ * Erste Seite: «Welche Ansicht?» — vier Knöpfe, kein Login (Entscheid 09.09.).
  * Die Wahl bleibt im Gerät; oben rechts lässt sie sich jederzeit wechseln.
  */
 import { useNavigate } from 'react-router-dom';
 import { Marke, Wortmarke } from '../ui/Shell';
 import { ANSICHTEN, GRUPPEN, ansichtSetzen, useAnsicht, type Ansicht } from '../lib/ansicht';
 import { supabase } from '../lib/supabase';
-import { HardHat, ClipboardList, Users, User, Handshake, ChevronRight, type LucideIcon } from 'lucide-react';
+import { HardHat, ClipboardList, Users, User, ChevronRight, type LucideIcon } from 'lucide-react';
 
-const ICON: Record<Ansicht, LucideIcon> = { bauf: HardHat, sekretariat: ClipboardList, chef: Users, monteur: User, kunde: Handshake };
+const ICON: Record<Ansicht, LucideIcon> = { bauf: HardHat, sekretariat: ClipboardList, chef: Users, monteur: User };
 
 export function Ansicht({ hinweis }: { hinweis?: string }) {
   const navigiere = useNavigate();
@@ -21,15 +21,15 @@ export function Ansicht({ hinweis }: { hinweis?: string }) {
 
   return (
     <div className="flex min-h-screen flex-col">
-      <main className="mx-auto flex w-full max-w-md flex-1 flex-col justify-center px-5 py-10 lg:max-w-4xl lg:px-10">
+      <main className="mx-auto flex w-full max-w-md flex-1 flex-col justify-center px-5 py-10 md:max-w-3xl md:px-10">
         <div className="mb-8 text-center">
           <div className="mb-4 flex justify-center"><Marke className="h-16 w-16 rounded-[18px]" /></div>
           <p><Wortmarke gross /></p>
-          <p className="mx-auto mt-2 max-w-xs text-sm text-ink2">Tagesmeldung, Regie und Freigabe — ohne Papier, ohne Suchen.</p>
+          <p className="mx-auto mt-2 max-w-xs text-sm text-ink2">Tagesmeldung, Stunden und Freigabe — ohne Papier, ohne Suchen.</p>
           <p className="mt-4 text-xs font-medium uppercase tracking-[0.12em] text-ink3">Wer bist du?</p>
         </div>
 
-        <div className="grid gap-6 lg:grid-cols-3 lg:gap-8">
+        <div className="grid gap-6 md:grid-cols-2 lg:gap-8">
           {GRUPPEN.map((g) => (
             <section key={g.key} className="space-y-2.5">
               <p className="lbl mb-0">{g.titel} <span className="normal-case tracking-normal text-ink3/70">· {g.text}</span></p>

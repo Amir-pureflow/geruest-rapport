@@ -67,34 +67,18 @@ describe('Demo-Betrieb — Struktur wie im Gespräch mit Arbnor', () => {
     expect(d.freigaben).toHaveLength(freigegebene.length);
   });
 
-  it('Abweichungen haben Transkript und Auslöser, Regierapporte rechnen in Rappen', () => {
-    const ab = d.meldungen.filter((m) => !m.normalfall);
-    expect(ab.length).toBeGreaterThan(10);
-    for (const m of ab) {
-      expect(m.abweichung_typ).toBeTruthy();
-      expect(m.wer_hats_gewollt).toBeTruthy();
-      expect(m.transkript).toBeTruthy();
+  it('Nur normale Tage (seit 17.09. kein Abweichungs-Ablauf); Überstunden kommen mit Sprachnotiz, wie das Wochenblatt', () => {
+    expect(d.meldungen.every((m) => m.normalfall && m.abweichung_typ === null)).toBe(true);
+    const mitUeber = d.meldungen.filter((m) => d.eintraege.some((e) => e.tagesmeldung_id === m.id && e.ueber_min > 0));
+    expect(mitUeber.length).toBeGreaterThan(5);
+    for (const m of mitUeber) expect(m.transkript).toBeTruthy();
+    // Bemerkungen zum Tag ohne Überstunden gibt es auch
+    const nurNotiz = d.meldungen.filter((m) => m.transkript && !mitUeber.includes(m));
+    expect(nurNotiz.length).toBeGreaterThan(0);
+    for (const e of d.eintraege) {
+      expect(e.normal_min).toBeLessThanOrEqual(504);
+      expect(e.ueber_min % 30).toBe(0);
     }
-    expect(d.regierapporte.length).toBeGreaterThan(5);
-    for (const r of d.regierapporte) {
-      const pos = d.positionen.filter((p) => p.regierapport_id === r.id);
-      const summe = pos.reduce((s, p) => s + p.betrag_rappen, 0);
-      expect(summe).toBe(r.betrag_rappen);
-      expect(Number.isInteger(r.betrag_rappen)).toBe(true);
-      expect(r.nummer).toMatch(/^RR-2026-\d{4}$/);
-      if (r.status === 'bestaetigt') {
-        expect(d.zustellungen.filter((z) => z.regierapport_id === r.id).map((z) => z.ereignis)).toContain('bestaetigt');
-      }
-    }
-    const stati = new Set(d.regierapporte.map((r) => r.status));
-    expect(stati.has('bestaetigt')).toBe(true);
-    expect(stati.has('versendet')).toBe(true);
-  });
-
-  it('offene Zusatzaufträge für die nächsten Tage vorhanden', () => {
-    const offen = d.zusatzauftraege.filter((z) => z.status === 'offen');
-    expect(offen.length).toBeGreaterThanOrEqual(6);
-    expect(offen.some((z) => z.geplant_fuer === '2026-09-03')).toBe(true);
   });
 
   it('ist reproduzierbar (gleicher Seed = gleiche Daten)', () => {

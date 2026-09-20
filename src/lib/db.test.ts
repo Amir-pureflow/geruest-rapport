@@ -5,7 +5,7 @@
 import 'fake-indexeddb/auto';
 import { describe, it, expect, beforeEach } from 'vitest';
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { db, enqueueMeldung, enqueueZusatzauftrag, flushNachSupabase, lokaleWarteschlangeLeeren, offeneMeldungen, type MeldungPayload } from './db';
+import { db, enqueueMeldung, flushNachSupabase, lokaleWarteschlangeLeeren, offeneMeldungen, type MeldungPayload } from './db';
 
 type DbFehler = { code?: string; message: string } | null;
 interface Aufruf { tabelle: string; op: string; rows: unknown }
@@ -90,12 +90,16 @@ describe('flushNachSupabase — Idempotenz', () => {
     expect(koepfe[0].rows).toHaveProperty('client_uuid');
   });
 
-  it('Zusatzaufträge laufen ebenso genau einmal durch', async () => {
-    await enqueueZusatzauftrag({ baustelle_id: 'b1', besteller_name: 'Bauleitung', kanal: 'telefon', taetigkeit: 'versetzen' });
+  it('Zeiten von–bis gehen mit, wenn sie im Eintrag stehen (Migration 0016)', async () => {
+    const m = meldung(3);
+    m.eintraege[0] = { ...m.eintraege[0], von_min: 420, bis_min: 720, von2_min: 780, bis2_min: 1020 };
+    await enqueueMeldung(m);
     const { client, aufrufe } = fakeClient();
-    expect((await flushNachSupabase(client)).gesendet).toBe(1);
-    expect((await flushNachSupabase(client)).gesendet).toBe(0);
-    expect(aufrufe.filter((a) => a.tabelle === 'zusatzauftrag')).toHaveLength(1);
+    await flushNachSupabase(client);
+    const zeiten = aufrufe.find((a) => a.tabelle === 'zeiteintrag' && a.op === 'upsert')!.rows as Record<string, unknown>[];
+    expect(zeiten[0]).toMatchObject({ von_min: 420, bis_min: 720, von2_min: 780, bis2_min: 1020 });
+    // ohne Zeiten bleiben die Spalten weg — die Stundenzahl-Meldung ist auch vor der Migration gültig
+    expect(zeiten[1]).not.toHaveProperty('von_min');
   });
 });
 

@@ -64,7 +64,7 @@ export function Demo() {
         <p className="text-sm text-ink2">
           Erzeugt einen vollständigen Gerüstbaubetrieb: <b>75 Mitarbeitende</b> (45 fest, 30 temporär),
           5 Bauführer, <b>20 Teams</b> mit Chefmonteur, 30 Kunden mit Bauleitung, alle 217 Konten zugeordnet,
-          Jahresplan, <b>fünf Wochen Tagesmeldungen</b>, Zusatzaufträge und Regierapporte in allen Stadien.
+          Jahresplan und <b>fünf Wochen Tagesmeldungen</b>.
         </p>
         <p className="text-xs text-ink3">
           Kunden-Mails enden auf <span className="font-mono">.example</span> — aus der Demo geht nie eine Mail an eine echte fremde Adresse.
@@ -82,7 +82,7 @@ export function Demo() {
         </div>
         <div className="space-y-2 border-t border-line pt-3">
           <p className="text-sm text-ink2">
-            Löscht alle Tagesmeldungen, Zeiteinträge, Zusatzaufträge und Regierapporte. Stammdaten bleiben.
+            Löscht alle Tagesmeldungen und Zeiteinträge. Stammdaten bleiben.
           </p>
           {bestaetigen === 'leeren' ? (
             <div className="rounded-[10px] border border-accent/40 bg-accent-soft p-3 text-sm">
@@ -99,7 +99,7 @@ export function Demo() {
         {fehler && <p className="text-sm font-semibold text-accent-deep">{fehler}</p>}
         {ergebnis && (
           <p className="rounded-[10px] bg-good-soft p-3 text-sm text-good-deep">
-            Fertig: {ergebnis.mitarbeiter} Mitarbeitende, {ergebnis.teams} Teams, {ergebnis.kunden} Kunden, {ergebnis.meldungen} Tagesmeldungen mit {ergebnis.eintraege} Zeiteinträgen, {ergebnis.regierapporte} Regierapporte.
+            Fertig: {ergebnis.mitarbeiter} Mitarbeitende, {ergebnis.teams} Teams, {ergebnis.kunden} Kunden, {ergebnis.meldungen} Tagesmeldungen mit {ergebnis.eintraege} Zeiteinträgen.
           </p>
         )}
         {protokoll.length > 0 && (

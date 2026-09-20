@@ -8,21 +8,17 @@ import { Ansicht } from './seiten/Ansicht';
 import { Erfassung } from './seiten/Erfassung';
 import { Cockpit } from './seiten/Cockpit';
 import { Tag } from './seiten/Tag';
-import { Bestaetigung } from './seiten/Bestaetigung';
-import { Zusatzauftrag } from './seiten/Zusatzauftrag';
-import { RegieListe } from './seiten/RegieListe';
-import { RegieDetail } from './seiten/RegieDetail';
-import { RegieVorschau } from './seiten/RegieVorschau';
 import { Export } from './seiten/Export';
-import { Board } from './seiten/Board';
 import { Verwaltung } from './seiten/verwaltung/Verwaltung';
-import { Auswertung } from './seiten/Auswertung';
 import { Shell } from './ui/Shell';
 import { ANSICHTEN, ANSICHT_LABEL, ansichtSetzen } from './lib/ansicht';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { startAutoFlush, flushNachSupabase } from './lib/db';
 import { supabase } from './lib/supabase';
 import { SEITEN, useAnsicht, type Ansicht as AnsichtKey } from './lib/ansicht';
+
+// Regie, Zusatzaufträge, Kundenlink und Board sind seit 20.09.2026 nicht mehr Teil der App (Bauführer: SORBA macht das).
+// Der Code liegt in archiv/regie-und-board/ — siehe dort README.
 
 if (supabase) {
   const client = supabase;
@@ -101,21 +97,13 @@ function App() {
   return (
     <BrowserRouter>
       <Routes>
-        {/* Kundenlink bleibt immer erreichbar — der Kunde hat kein Konto */}
-        <Route path="/b/:token" element={<Bestaetigung />} />
         <Route path="/ansicht" element={<Ansicht hinweis={verbindungsHinweis} />} />
         {(!ansicht || !sitzung) && <Route path="*" element={<Ansicht hinweis={verbindungsHinweis} />} />}
         {sitzung && ansicht && <Route path="/" element={<Start />} />}
-        {hat('zusatzauftrag') && <Route path="/zusatzauftrag" element={<Zusatzauftrag />} />}
         {hat('erfassung') && <Route path="/erfassung" element={<Erfassung />} />}
         {hat('heute') && <Route path="/heute" element={<Tag />} />}
         {hat('cockpit') && <Route path="/cockpit" element={<Cockpit />} />}
-        {hat('regie') && <Route path="/regie" element={<RegieListe />} />}
-        {hat('regie') && <Route path="/regie/neu" element={<RegieVorschau />} />}
-        {hat('regie') && <Route path="/regie/:id" element={<RegieDetail />} />}
-        {hat('auswertung') && <Route path="/auswertung" element={<Auswertung />} />}
         {hat('export') && <Route path="/export" element={<Export />} />}
-        {hat('board') && <Route path="/board" element={<Board />} />}
         {hat('verwaltung') && <Route path="/verwaltung" element={<Verwaltung />} />}
         {sitzung && ansicht && <Route path="*" element={<FremdeSeite ansicht={ansicht} />} />}
       </Routes>
