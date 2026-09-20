@@ -100,18 +100,25 @@ function StartBauf() {
   return (
     <Shell>
       <div className="space-y-5">
-        <header className="flex items-end justify-between gap-4">
-          <div>
+        <header className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2">
+          <div className="min-w-0">
             <p className="lbl mb-0.5">Bauführer</p>
             <h1 className="font-display text-2xl font-semibold md:text-3xl">{lang(heute)}</h1>
-            <p className="mt-1 hidden text-sm text-ink3 md:block">Woche {kw(heute)} · {kurz(montag(heute))} bis {kurz(addTage(montag(heute), 6))}</p>
+            <p className="mt-1 text-[13px] text-ink3 md:text-sm">
+              Woche {kw(heute)} · {kurz(montag(heute))} bis {kurz(addTage(montag(heute), 6))}
+            </p>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex shrink-0 items-center gap-3">
             <span className="flex items-center gap-1.5 font-mono text-xs text-ink3">
               <span className={'inline-block h-2 w-2 rounded-full ' + (supabase ? 'bg-good' : 'bg-ink3')} />
               {supabase ? 'verbunden' : 'offline-Modus'}
             </span>
-            <Link to={`/cockpit?woche=${vorwoche}`} className="cta cta-good hidden w-auto px-5 py-2.5 md:block">Vorwoche prüfen</Link>
+            {/* Die eine Aktion — und nur, wenn es etwas zu tun gibt (Firmenrot, siehe index.css) */}
+            {k && k.zuPruefen > 0 && (
+              <Link to={`/cockpit?woche=${vorwoche}`} className="cta hidden w-auto px-5 py-2.5 md:block">
+                Vorwoche prüfen
+              </Link>
+            )}
           </div>
         </header>
 
@@ -129,28 +136,62 @@ function StartBauf() {
         )}
         {!k && !fehler && supabase && (
           <div className="grid grid-cols-2 gap-2.5 md:grid-cols-3 md:gap-4" aria-busy="true">
-            {Array.from({ length: 3 }, (_, i) => <div key={i} className="card h-[76px] animate-pulse bg-surface-2 md:h-[92px]" />)}
+            {Array.from({ length: 3 }, (_, i) => (
+              <div key={i} className={'card h-[104px] animate-pulse bg-surface-2 md:h-[116px] ' + (i === 0 ? 'col-span-2 md:col-span-1' : '')} />
+            ))}
           </div>
         )}
         {k && (
-          <div className="grid grid-cols-2 gap-2.5 md:grid-cols-3 md:gap-4">
-            <Kachel zu="/heute" wert={`${k.teamsGemeldet}/${k.teams}`} label="Teams haben heute gemeldet" farbe={k.teams > 0 && k.teamsGemeldet === k.teams ? 'gruen' : k.teamsGemeldet < k.teams && heute.getDay() >= 1 && heute.getDay() <= 5 && heute.getHours() >= 17 ? 'gelb' : 'neutral'} />
-            <Kachel zu={`/cockpit?woche=${vorwoche}`} wert={String(k.zuPruefen)} label="Zeiteinträge der Vorwoche warten auf Freigabe" farbe={k.zuPruefen > 0 ? 'gelb' : 'gruen'} />
-            <Kachel zu={`/cockpit?woche=${vorwoche}`} wert={String(k.ueberOffen)} label={k.ueberOffen > 0 ? 'Einträge mit Überstunden in der Vorwoche — Notiz lesen' : 'keine offenen Überstunden in der Vorwoche'} farbe={k.ueberOffen > 0 ? 'gelb' : 'neutral'} />
-          </div>
+          <>
+            {/* Handy: der Tagesstand steht oben über die ganze Breite, die zwei Zahlen zur Vorwoche darunter */}
+            <div className="grid grid-cols-2 gap-2.5 md:grid-cols-3 md:gap-4">
+              <div className="col-span-2 md:col-span-1">
+                <Kachel
+                  zu="/heute"
+                  wert={`${k.teamsGemeldet} von ${k.teams}`}
+                  label="Teams haben heute gemeldet"
+                  fortschritt={{ von: k.teamsGemeldet, bis: k.teams }}
+                  farbe={
+                    k.teams > 0 && k.teamsGemeldet === k.teams
+                      ? 'gruen'
+                      : k.teamsGemeldet < k.teams && heute.getDay() >= 1 && heute.getDay() <= 5 && heute.getHours() >= 17
+                        ? 'gelb'
+                        : 'neutral'
+                  }
+                />
+              </div>
+              <Kachel
+                zu={`/cockpit?woche=${vorwoche}`}
+                wert={String(k.zuPruefen)}
+                label={k.zuPruefen > 0 ? 'Zeiteinträge der Vorwoche warten auf Freigabe' : 'Vorwoche ist freigegeben'}
+                farbe={k.zuPruefen > 0 ? 'gelb' : 'gruen'}
+              />
+              <Kachel
+                zu={`/cockpit?woche=${vorwoche}`}
+                wert={String(k.ueberOffen)}
+                label={k.ueberOffen > 0 ? 'Überstunden der Vorwoche — Notiz lesen' : 'Überstunden der Vorwoche offen'}
+                farbe={k.ueberOffen > 0 ? 'gelb' : 'neutral'}
+              />
+            </div>
+
+            {/* Handy: derselbe Knopf wie oben am PC — dort ist er in der Kopfzeile */}
+            {k.zuPruefen > 0 && (
+              <Link to={`/cockpit?woche=${vorwoche}`} className="cta md:hidden">
+                Vorwoche prüfen
+              </Link>
+            )}
+          </>
         )}
 
-        {/* Diagramm ab iPad — auf dem Handy zählen die Kacheln und die schnellen Wege */}
+        {/* Seit 20.09. auch am Handy: die Säulen haben feste Höhe und passen in die schmale Spalte */}
         {woche && (
-          <div className="hidden md:block">
-            <DiagrammKarte
-              titel="Freigabe Vorwoche"
-              unter={`${kurz(addTage(montag(heute), -7))} bis ${kurz(addTage(montag(heute), -1))} — je Tag: wie viele der ${k?.teams ?? 0} Teams gemeldet haben, davon freigegeben oder noch bei dir`}
-              aktion={<Link to={`/cockpit?woche=${vorwoche}`} className="text-xs font-semibold text-steel">Wochenübersicht ›</Link>}
-            >
-              <WochenTeams tage={woche} gesamt={k?.teams ?? 0} />
-            </DiagrammKarte>
-          </div>
+          <DiagrammKarte
+            titel="Freigabe Vorwoche"
+            unter={`${kurz(addTage(montag(heute), -7))} bis ${kurz(addTage(montag(heute), -1))} · je Tag die Teams, die gemeldet haben`}
+            aktion={<Link to={`/cockpit?woche=${vorwoche}`} className="shrink-0 text-xs font-semibold text-steel">Wochenübersicht ›</Link>}
+          >
+            <WochenTeams tage={woche} gesamt={k?.teams ?? 0} />
+          </DiagrammKarte>
         )}
 
         {stand && stand.length > 0 && heute.getDay() >= 1 && heute.getDay() <= 6 && (
@@ -160,13 +201,14 @@ function StartBauf() {
         )}
 
         {/* Handy: Karten je Bereich. Ab iPad steht die Bereichsleiste in der Kopfzeile (Shell). */}
-        <nav className="grid gap-3 md:hidden">
-          {navFuer('bauf').flatMap((g) => g.eintraege).filter((e) => e.zu !== '/').map((e) => (
-            <NavKarte key={e.zu} zu={e.zu} titel={e.label} text={BEREICH_TEXT[e.zu] ?? ''} />
-          ))}
+        <nav className="md:hidden">
+          <p className="lbl">Bereiche</p>
+          <div className="grid gap-2.5">
+            {navFuer('bauf').flatMap((g) => g.eintraege).filter((e) => e.zu !== '/').map((e) => (
+              <NavKarte key={e.zu} zu={e.zu} titel={e.label} text={BEREICH_TEXT[e.zu] ?? ''} />
+            ))}
+          </div>
         </nav>
-
-        <p className="text-center text-[11px] text-ink3 md:hidden">Woche {kw(heute)} · {kurz(montag(heute))} bis {kurz(addTage(montag(heute), 6))}</p>
       </div>
     </Shell>
   );

@@ -182,7 +182,7 @@ src/lib/kennzahlen.ts             Diagramm «Freigabe Vorwoche» und Team-Board
 src/lib/demo.ts                   Deterministischer Demo-Betrieb (Meldungen mit Überstunden + Notizen) + Tests
 src/lib/datum.ts                  Wochen-/Datumshelfer, NORMALTAG_MIN
 src/lib/foto.ts                   Fotos verkleinern (1600 px, JPEG) vor Queue/Upload
-src/ui/Diagramm.tsx               DiagrammKarte, WochenTeams (SVG ohne Bibliothek)
+src/ui/Diagramm.tsx               DiagrammKarte, WochenTeams — je Tag eine Zeile mit Spur (Flächen, keine Bibliothek, kein SVG)
 src/ui/TeamBoard.tsx              Tagesstand aller Teams (gemeldet / Überstunden / noch nicht)
 src/ui/FotoGalerie.tsx            Vorschau aus dem Bucket «anhaenge» (signierte Links)
 src/ui/Sprachnotiz.tsx            Pegelbalken während der Aufnahme, Text-Enthüllung nach dem Speichern

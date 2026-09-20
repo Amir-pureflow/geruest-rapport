@@ -24,13 +24,54 @@ const KACHEL_STIL: Record<KachelFarbe, { karte: string; zahl: string; text: stri
   rot: { karte: 'bg-accent-soft', zahl: 'text-accent-deep', text: 'text-accent-deep/70' },
 };
 
-/** Kennzahl-Kachel. `farbe` tönt die Fläche; «warn» schaltet auf Bernstein, wenn keine Farbe gesetzt ist. */
-export function Kachel({ zu, wert, label, warn, farbe }: { zu: string; wert: string; label: string; warn?: boolean; farbe?: KachelFarbe }) {
-  const f = KACHEL_STIL[farbe ?? (warn ? 'gelb' : 'neutral')];
+/** Farbe des Fortschrittsbalkens — dieselbe Familie wie Zahl und Text der Kachel. */
+const BALKEN: Record<KachelFarbe, string> = {
+  neutral: 'bg-ink2',
+  gruen: 'bg-good',
+  gelb: 'bg-amber',
+  blau: 'bg-steel',
+  rot: 'bg-accent',
+};
+
+/**
+ * Kennzahl-Kachel. `farbe` tönt die Fläche; «warn» schaltet auf Bernstein, wenn keine Farbe gesetzt ist.
+ * `fortschritt` legt einen feinen Balken unter die Zahl — «1 von 20» sieht man dann, statt es zu lesen.
+ * Alle Kacheln einer Reihe sind gleich hoch, der Text sitzt unten an.
+ */
+export function Kachel({
+  zu,
+  wert,
+  label,
+  warn,
+  farbe,
+  fortschritt,
+}: {
+  zu: string;
+  wert: string;
+  label: string;
+  warn?: boolean;
+  farbe?: KachelFarbe;
+  fortschritt?: { von: number; bis: number };
+}) {
+  const gewaehlt = farbe ?? (warn ? 'gelb' : 'neutral');
+  const f = KACHEL_STIL[gewaehlt];
+  const anteil = fortschritt && fortschritt.bis > 0 ? fortschritt.von / fortschritt.bis : 0;
   return (
-    <Link to={zu} className={'card block ' + f.karte}>
-      <span className={'block text-2xl font-semibold tabular-nums tracking-tight lg:text-[28px] ' + f.zahl}>{wert}</span>
-      <span className={'mt-0.5 block text-xs lg:text-sm ' + f.text}>{label}</span>
+    <Link to={zu} className={'card flex flex-col justify-between gap-2 ' + f.karte}>
+      <span className={'block text-[26px] font-semibold leading-none tabular-nums tracking-tight lg:text-[30px] ' + f.zahl}>
+        {wert}
+      </span>
+      <span className="block">
+        {fortschritt && (
+          <span className="mb-2 block h-1 w-full overflow-hidden rounded-full bg-ink/10" aria-hidden="true">
+            <span
+              className={'block h-full rounded-full transition-[width] duration-500 ' + BALKEN[gewaehlt]}
+              style={{ width: `${Math.max(anteil * 100, fortschritt.von > 0 ? 3 : 0)}%` }}
+            />
+          </span>
+        )}
+        <span className={'block text-xs leading-snug lg:text-[13px] ' + f.text}>{label}</span>
+      </span>
     </Link>
   );
 }
