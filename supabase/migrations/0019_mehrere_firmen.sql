@@ -142,6 +142,43 @@ begin
   update team         set firma_id = v_geruest where bezeichnung = 'Team Vaiti';
 end $$;
 
+-- ── Kontonummern gehören der Firma, nicht der Datenbank ──────────────────────────────────────
+-- `baustelle.konto_nr` war weltweit eindeutig. Mit mehreren Firmen ist das falsch: jede Firma
+-- nummeriert ihre Baustellen selbst, und zwei Firmen dürfen dieselbe Nummer führen.
+do $$
+declare r record;
+begin
+  for r in
+    select conname from pg_constraint
+     where conrelid = 'baustelle'::regclass and contype = 'u'
+       and pg_get_constraintdef(oid) = 'UNIQUE (konto_nr)'
+  loop
+    execute format('alter table baustelle drop constraint %I', r.conname);
+  end loop;
+end $$;
+
+alter table baustelle drop constraint if exists baustelle_firma_konto_nr_key;
+alter table baustelle add constraint baustelle_firma_konto_nr_key unique (firma_id, konto_nr);
+
+-- ── Die Gerüst GmbH braucht ihre eigenen Baustellen ──────────────────────────────────────────
+-- Die 217 Konten stammen aus Arbnors Liste, hängen aber am Demobetrieb von We-Plan (Meldungen,
+-- Jahresplan, Rapporte zeigen darauf). Darum bleiben die Originale bei We-Plan, und die Gerüst
+-- GmbH bekommt dieselben Konten als eigene Zeilen — ohne Kunde, den trägt Arbnor selbst ein.
+do $$
+declare
+  v_weplan uuid;
+  v_geruest uuid;
+begin
+  select id into v_weplan  from firma where name = 'We-Plan';
+  select id into v_geruest from firma where name = 'Gerüst GmbH';
+
+  insert into baustelle (konto_nr, strasse, plz, ort, bezeichnung, status, kunde_id, firma_id)
+  select b.konto_nr, b.strasse, b.plz, b.ort, b.bezeichnung, 'aktiv', null, v_geruest
+    from baustelle b
+   where b.firma_id = v_weplan
+     and not exists (select 1 from baustelle x where x.firma_id = v_geruest and x.konto_nr = b.konto_nr);
+end $$;
+
 -- Ab jetzt Pflicht: eine Zeile ohne Firma wäre eine Zeile, die niemand sieht und niemand löscht.
 do $$
 declare t text;
