@@ -55,10 +55,20 @@ $$;
 revoke all on function anhang_gehoert_firma(text) from public;
 grant execute on function anhang_gehoert_firma(text) to authenticated;
 
--- Die alten Regeln weg: «jede angemeldete Sitzung darf alles im Eimer».
-drop policy if exists anhaenge_authenticated_all    on storage.objects;
-drop policy if exists anhaenge_authenticated_select on storage.objects;
-drop policy if exists anhaenge_authenticated_insert on storage.objects;
+-- Alle bestehenden Regeln auf `storage.objects` weg, die den Eimer `anhaenge` betreffen.
+-- Nicht nach Namen: hiesse eine davon anders als erwartet, bliebe sie stehen und würde die neue
+-- aushebeln (Regeln gelten als ODER). Regeln anderer Eimer bleiben unberührt.
+do $$
+declare r record;
+begin
+  for r in
+    select policyname from pg_policies
+     where schemaname = 'storage' and tablename = 'objects'
+       and (qual ilike '%anhaenge%' or with_check ilike '%anhaenge%' or policyname ilike '%anhaenge%')
+  loop
+    execute format('drop policy %I on storage.objects', r.policyname);
+  end loop;
+end $$;
 
 create policy anhaenge_firma_lesen on storage.objects
   for select to authenticated
