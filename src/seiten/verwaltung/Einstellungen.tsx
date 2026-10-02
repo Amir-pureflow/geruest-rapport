@@ -4,7 +4,71 @@
  * für alle Geräte dieser Firma. Nach dem Umschalten lädt die App neu, damit Menü und Erfassung passen.
  */
 import { useState } from 'react';
-import { einstellungen, einstellungSetzen, schalterGelesen, eigeneFirma, type Einstellungen } from '../../lib/einstellungen';
+import {
+  einstellungen, einstellungSetzen, schalterGelesen, eigeneFirma,
+  briefkopf, briefkopfSetzen, type Briefkopf, type Einstellungen,
+} from '../../lib/einstellungen';
+
+/** Die Felder des Briefkopfs in der Reihenfolge, in der sie auf dem Rapport stehen. */
+const BRIEFKOPF_FELDER: { feld: keyof Briefkopf; label: string; platzhalter: string; breit?: boolean }[] = [
+  { feld: 'name', label: 'Firmenname', platzhalter: 'Gerüst GmbH', breit: true },
+  { feld: 'slogan', label: 'Zusatz (optional)', platzhalter: 'Gerüstbau seit 1998', breit: true },
+  { feld: 'adresse', label: 'Adresse', platzhalter: 'Industriestrasse 12, 3052 Zollikofen', breit: true },
+  { feld: 'tel', label: 'Telefon', platzhalter: '031 911 22 33' },
+  { feld: 'fax', label: 'Fax (optional)', platzhalter: '031 911 22 34' },
+  { feld: 'mail', label: 'E-Mail', platzhalter: 'info@firma.ch' },
+  { feld: 'web', label: 'Web', platzhalter: 'www.firma.ch' },
+  { feld: 'bank', label: 'Bankverbindung', platzhalter: 'IBAN CH00 0000 0000 0000 0', breit: true },
+  { feld: 'mwst', label: 'MwSt-Nummer', platzhalter: 'CHE-123.456.789 MWST', breit: true },
+];
+
+/**
+ * Briefkopf für den Regierapport als PDF. Nur sichtbar, wenn die Firma mit Regie arbeitet —
+ * ohne Regie entsteht nie ein PDF, dann wäre das Formular nur im Weg.
+ */
+function BriefkopfKarte() {
+  const [werte, setWerte] = useState<Briefkopf>(briefkopf);
+  const [speichert, setSpeichert] = useState(false);
+  const [meldung, setMeldung] = useState<{ text: string; art: 'ok' | 'fehler' } | null>(null);
+
+  async function speichern() {
+    setSpeichert(true);
+    const f = await briefkopfSetzen(werte);
+    setSpeichert(false);
+    setMeldung(f ? { text: f, art: 'fehler' } : { text: 'Gespeichert ✓', art: 'ok' });
+  }
+
+  return (
+    <section className="card space-y-2.5">
+      <div>
+        <h2 className="font-display text-[15px] font-semibold">Briefkopf auf dem Rapport</h2>
+        <p className="mt-0.5 text-xs text-ink3">Steht oben auf dem PDF, das der Kunde bekommt. Leere Felder werden weggelassen.</p>
+      </div>
+      <div className="grid gap-2.5 sm:grid-cols-2">
+        {BRIEFKOPF_FELDER.map((f) => (
+          <div key={f.feld} className={f.breit ? 'sm:col-span-2' : ''}>
+            <label className="lbl" htmlFor={'bk-' + f.feld}>{f.label}</label>
+            <input
+              id={'bk-' + f.feld}
+              value={werte[f.feld]}
+              onChange={(e) => { setWerte({ ...werte, [f.feld]: e.target.value }); setMeldung(null); }}
+              placeholder={f.platzhalter}
+              className="field"
+            />
+          </div>
+        ))}
+      </div>
+      <div className="flex items-center gap-3">
+        <button type="button" disabled={speichert} onClick={() => void speichern()} className="cta w-auto px-5 py-2.5 text-sm disabled:opacity-60">
+          {speichert ? 'Speichert …' : 'Briefkopf speichern'}
+        </button>
+        {meldung && (
+          <span className={'text-sm font-semibold ' + (meldung.art === 'ok' ? 'text-good-deep' : 'text-accent-deep')}>{meldung.text}</span>
+        )}
+      </div>
+    </section>
+  );
+}
 
 interface Wahl<K extends keyof Einstellungen> {
   feld: K;
@@ -105,6 +169,8 @@ export function Einstellungen() {
           </div>
         </section>
       ))}
+
+      {werte.erfassung === 'regie' && <BriefkopfKarte />}
 
       <p className="text-[11px] text-ink3">
         Nach dem Umschalten lädt die App neu. Was schon gemeldet wurde, bleibt so, wie es ist.

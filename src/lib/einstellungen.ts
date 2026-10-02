@@ -36,6 +36,45 @@ let gelesen: boolean | null = null;
 /** Die eigene Firma — fürs Speichern der Schalter und für den Namen in der Kopfzeile. */
 let firma: { id: string; name: string } | null = null;
 
+/**
+ * Briefkopf für den Regierapport als PDF (Migration 0021). Steht bei der Firma, nicht global:
+ * das PDF landet beim Kunden, dort muss der richtige Betrieb oben stehen.
+ */
+export interface Briefkopf {
+  name: string; slogan: string; adresse: string; tel: string; fax: string;
+  mail: string; web: string; bank: string; mwst: string;
+}
+export const BRIEFKOPF_LEER: Briefkopf = { name: '', slogan: '', adresse: '', tel: '', fax: '', mail: '', web: '', bank: '', mwst: '' };
+const BRIEFKOPF_SPALTE: Record<keyof Briefkopf, string> = {
+  name: 'briefkopf_name', slogan: 'briefkopf_slogan', adresse: 'briefkopf_adresse',
+  tel: 'briefkopf_tel', fax: 'briefkopf_fax', mail: 'briefkopf_mail',
+  web: 'briefkopf_web', bank: 'briefkopf_bank', mwst: 'briefkopf_mwst',
+};
+let briefkopfStand: Briefkopf = BRIEFKOPF_LEER;
+
+/** Der zuletzt gelesene Briefkopf. */
+export function briefkopf(): Briefkopf {
+  return briefkopfStand;
+}
+
+/** Briefkopf speichern. Leere Felder werden zu null, damit das PDF sie weglässt. */
+export async function briefkopfSetzen(neu: Briefkopf): Promise<string | null> {
+  if (!supabase) return 'Keine Datenverbindung.';
+  if (!firma) return 'Die Firma ist noch nicht geladen. Seite neu laden und nochmals versuchen.';
+  const zeile: Record<string, string | null> = {};
+  for (const [feld, spalte] of Object.entries(BRIEFKOPF_SPALTE)) {
+    zeile[spalte] = neu[feld as keyof Briefkopf].trim() || null;
+  }
+  const { error } = await supabase.from('firma').update(zeile).eq('id', firma.id);
+  if (error) {
+    return /does not exist/i.test(error.message)
+      ? 'Migration 0021 ist noch nicht eingespielt — ohne sie gibt es die Felder nicht.'
+      : error.message;
+  }
+  briefkopfStand = neu;
+  return null;
+}
+
 function lesenLokal(): Einstellungen {
   try {
     const x = JSON.parse(localStorage.getItem(KEY) ?? 'null') as Partial<Einstellungen> | null;
@@ -72,16 +111,28 @@ export function eigeneFirma(): { id: string; name: string } | null {
  */
 export async function einstellungenLaden(): Promise<Einstellungen> {
   if (!supabase) return zwischenspeicher;
-  const { data } = await supabase
+  // Der Briefkopf kommt seit 0021 dazu. Fehlt die Migration, scheitert die Abfrage mit den
+  // neuen Spalten — dann nochmals ohne sie, damit die App trotzdem startet.
+  const mitBriefkopf = await supabase
     .from('firma')
-    .select('id,name,modus_erfassung,modus_sekretariat,modus_mehrkostenanzeige')
+    .select('id,name,modus_erfassung,modus_sekretariat,modus_mehrkostenanzeige,briefkopf_name,briefkopf_slogan,briefkopf_adresse,briefkopf_tel,briefkopf_fax,briefkopf_mail,briefkopf_web,briefkopf_bank,briefkopf_mwst')
     .limit(1);
+  const ohneBriefkopf = mitBriefkopf.data && mitBriefkopf.data.length > 0
+    ? null
+    : await supabase.from('firma').select('id,name,modus_erfassung,modus_sekretariat,modus_mehrkostenanzeige').limit(1);
+  const data = ((mitBriefkopf.data ?? ohneBriefkopf?.data ?? null) as unknown) as Record<string, string | boolean | null>[] | null;
   if (!data || data.length === 0) { gelesen = false; return zwischenspeicher; }
   gelesen = true;
   const r = data[0] as unknown as {
     id: string; name: string; modus_erfassung: string; modus_sekretariat: string; modus_mehrkostenanzeige: boolean;
   };
   firma = { id: r.id, name: r.name };
+  const bk = data[0] as Record<string, string | null>;
+  briefkopfStand = {
+    name: bk.briefkopf_name ?? '', slogan: bk.briefkopf_slogan ?? '', adresse: bk.briefkopf_adresse ?? '',
+    tel: bk.briefkopf_tel ?? '', fax: bk.briefkopf_fax ?? '', mail: bk.briefkopf_mail ?? '',
+    web: bk.briefkopf_web ?? '', bank: bk.briefkopf_bank ?? '', mwst: bk.briefkopf_mwst ?? '',
+  };
   const neu: Einstellungen = {
     erfassung: r.modus_erfassung === 'regie' ? 'regie' : 'wochenblatt',
     mehrkostenanzeige: r.modus_mehrkostenanzeige === true,

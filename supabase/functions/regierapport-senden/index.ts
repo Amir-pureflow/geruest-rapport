@@ -98,7 +98,7 @@ Deno.serve(async (req) => {
 
     const { data: rRoh } = await supa
       .from('regierapport')
-      .select('id, status, nummer, link_token, betrag_rappen, frist_bis, anhang_pfad, tagesmeldung_id, empfaenger_email, versendet_am, beschrieb, baustelle:baustelle_id(bezeichnung, konto_nr, kunde:kunde_id(email, ansprechperson, frist_tage, weitere_emails))')
+      .select('id, status, nummer, link_token, betrag_rappen, frist_bis, anhang_pfad, tagesmeldung_id, empfaenger_email, versendet_am, beschrieb, firma:firma_id(name, briefkopf_name, briefkopf_mail), baustelle:baustelle_id(bezeichnung, konto_nr, kunde:kunde_id(email, ansprechperson, frist_tage, weitere_emails))')
       .eq('id', regierapport_id)
       .single();
     if (!rRoh) return antwort(404, { fehler: 'Regierapport nicht gefunden' });
@@ -110,11 +110,16 @@ Deno.serve(async (req) => {
     const fristTage = Math.min(60, Math.max(1, Number(r.baustelle?.kunde?.frist_tage ?? 3) || 3));
     const fristSatz = `Gemäss Vertrag ist der Rapport innert ${fristTage} ${fristTage === 1 ? 'Tag' : 'Tagen'} gegenzuzeichnen`;
     const betreffBasis = `Regie ${bez} · ${knr}`; // fester Betreff pro Baustelle → ein Mailverlauf
-    const firma = k.MAIL_FIRMA ?? 'Rapporto';
+    // Name der absendenden Firma: aus ihrer Zeile (Migration 0021), sonst der globale Wert.
+    // Die Adresse bleibt die verifizierte Absenderdomain — alles andere lehnt Resend ab.
+    const eigene = (r as unknown as { firma?: { name: string; briefkopf_name: string | null; briefkopf_mail: string | null } | null }).firma;
+    const firma = eigene?.briefkopf_name ?? eigene?.name ?? k.MAIL_FIRMA ?? 'Rapporto';
     const gruss = absender.name ? `Freundliche Grüsse<br>${absender.name}` : 'Freundliche Grüsse';
     const grussText = absender.name ? `Freundliche Grüsse\n${absender.name}` : 'Freundliche Grüsse';
     const fuss = `${firma}${absender.email ? ` · Rückfragen an ${absender.email}` : ''}`;
-    const von = k.MAIL_ABSENDER ?? `${firma} <onboarding@resend.dev>`;
+    // Absender: der Anzeigename ist die Firma, die Adresse die verifizierte aus `konfiguration`.
+    const absenderAdresse = (k.MAIL_ABSENDER ?? '').match(/<([^>]+)>/)?.[1] ?? k.MAIL_ABSENDER ?? 'onboarding@resend.dev';
+    const von = `${firma} <${absenderAdresse}>`;
 
     async function resend(mail: Record<string, unknown>): Promise<{ ok: true; id: string } | { ok: false; fehler: string }> {
       const res = await fetch('https://api.resend.com/emails', {
@@ -167,7 +172,7 @@ Deno.serve(async (req) => {
       ].join('\n');
 
       const mail: Record<string, unknown> = { from: von, to: [r.empfaenger_email], subject: betreff, html, text };
-      if (absender.email ?? k.MAIL_ANTWORT_AN) mail.reply_to = absender.email ?? k.MAIL_ANTWORT_AN;
+      if (absender.email ?? eigene?.briefkopf_mail ?? k.MAIL_ANTWORT_AN) mail.reply_to = absender.email ?? eigene?.briefkopf_mail ?? k.MAIL_ANTWORT_AN;
       const erg = await resend(mail);
       if (!erg.ok) return antwort(502, { fehler: erg.fehler });
 
@@ -257,7 +262,7 @@ Deno.serve(async (req) => {
     ].join('\n');
 
     const mail: Record<string, unknown> = { from: von, to: [empfaenger_email], subject: betreff, html, text };
-    if (absender.email ?? k.MAIL_ANTWORT_AN) mail.reply_to = absender.email ?? k.MAIL_ANTWORT_AN;
+    if (absender.email ?? eigene?.briefkopf_mail ?? k.MAIL_ANTWORT_AN) mail.reply_to = absender.email ?? eigene?.briefkopf_mail ?? k.MAIL_ANTWORT_AN;
 
     // Anhang: das SORBA-Dokument, falls hochgeladen — sonst das automatisch erzeugte PDF (wie der SORBA-Ausdruck).
     const b64 = (buf: Uint8Array) => { let bin = ''; for (let i = 0; i < buf.length; i += 0x8000) bin += String.fromCharCode(...buf.subarray(i, i + 0x8000)); return btoa(bin); };

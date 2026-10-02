@@ -203,12 +203,17 @@ export async function pdfBauen(d: RapportDaten): Promise<Uint8Array> {
 export async function rapportPdfErzeugen(supa: SupabaseClient, regierapportId: string, opts: { basisUrl?: string; sachbearbeiter?: string | null } = {}) {
   const { data: rRoh, error } = await supa
     .from('regierapport')
-    .select('id, nummer, betrag_rappen, beschrieb, erstellt_am, link_token, baustelle:baustelle_id(bezeichnung, konto_nr, strasse, plz, ort, kunde:kunde_id(name, adresse, ansprechperson, frist_tage)), tagesmeldung:tagesmeldung_id(datum)')
+    .select('id, nummer, betrag_rappen, beschrieb, erstellt_am, link_token, firma:firma_id(name, briefkopf_name, briefkopf_slogan, briefkopf_adresse, briefkopf_tel, briefkopf_fax, briefkopf_mail, briefkopf_web, briefkopf_bank, briefkopf_mwst), baustelle:baustelle_id(bezeichnung, konto_nr, strasse, plz, ort, kunde:kunde_id(name, adresse, ansprechperson, frist_tage)), tagesmeldung:tagesmeldung_id(datum)')
     .eq('id', regierapportId)
     .single();
   if (error || !rRoh) throw new Error('Regierapport nicht gefunden');
   const r = rRoh as unknown as {
     id: string; nummer: string | null; betrag_rappen: number | null; beschrieb: string | null; erstellt_am: string; link_token: string;
+    firma: {
+      name: string; briefkopf_name: string | null; briefkopf_slogan: string | null; briefkopf_adresse: string | null;
+      briefkopf_tel: string | null; briefkopf_fax: string | null; briefkopf_mail: string | null;
+      briefkopf_web: string | null; briefkopf_bank: string | null; briefkopf_mwst: string | null;
+    } | null;
     baustelle: { bezeichnung: string | null; konto_nr: string; strasse: string | null; plz: string | null; ort: string | null; kunde: { name: string; adresse: string | null; ansprechperson: string | null; frist_tage: number | null } | null } | null;
     tagesmeldung: { datum: string } | null;
   };
@@ -217,6 +222,22 @@ export async function rapportPdfErzeugen(supa: SupabaseClient, regierapportId: s
     supa.from('konfiguration').select('schluessel,wert'),
   ]);
   const firma: Record<string, string> = Object.fromEntries((conf ?? []).map((k: { schluessel: string; wert: string }) => [k.schluessel, k.wert]));
+
+  // Briefkopf der Firma schlägt die globalen Werte (Migration 0021). Leere Felder lassen den
+  // alten Wert stehen, damit nichts bricht, solange eine Firma ihren Briefkopf nicht erfasst hat.
+  const bk = r.firma;
+  if (bk) {
+    const setze = (schluessel: string, wert: string | null | undefined) => { if (wert) firma[schluessel] = wert; };
+    setze('FIRMA_NAME', bk.briefkopf_name ?? bk.name);
+    setze('FIRMA_SLOGAN', bk.briefkopf_slogan);
+    setze('FIRMA_ADRESSE', bk.briefkopf_adresse);
+    setze('FIRMA_TEL', bk.briefkopf_tel);
+    setze('FIRMA_FAX', bk.briefkopf_fax);
+    setze('FIRMA_MAIL', bk.briefkopf_mail);
+    setze('FIRMA_WEB', bk.briefkopf_web);
+    setze('FIRMA_BANK', bk.briefkopf_bank);
+    setze('FIRMA_MWST', bk.briefkopf_mwst);
+  }
   const basis = (opts.basisUrl ?? firma.APP_URL ?? '').replace(/\/$/, '');
   const bytes = await pdfBauen({
     nummer: r.nummer,
