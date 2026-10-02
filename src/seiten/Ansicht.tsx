@@ -6,9 +6,9 @@ import { useNavigate } from 'react-router-dom';
 import { Marke, Wortmarke } from '../ui/Shell';
 import { ANSICHTEN, GRUPPEN, ansichtSetzen, useAnsicht, type Ansicht } from '../lib/ansicht';
 import { supabase } from '../lib/supabase';
-import { HardHat, ClipboardList, Users, User, ChevronRight, type LucideIcon } from 'lucide-react';
+import { HardHat, ClipboardList, Users, User, Handshake, ChevronRight, type LucideIcon } from 'lucide-react';
 
-const ICON: Record<Ansicht, LucideIcon> = { bauf: HardHat, sekretariat: ClipboardList, chef: Users, monteur: User };
+const ICON: Record<Ansicht, LucideIcon> = { bauf: HardHat, sekretariat: ClipboardList, chef: Users, monteur: User, kunde: Handshake };
 
 export function Ansicht({ hinweis }: { hinweis?: string }) {
   const navigiere = useNavigate();

@@ -15,7 +15,8 @@ import { ANSICHTEN, ANSICHT_LABEL, ansichtSetzen } from './lib/ansicht';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { startAutoFlush, flushNachSupabase } from './lib/db';
 import { supabase } from './lib/supabase';
-import { SEITEN, useAnsicht, type Ansicht as AnsichtKey } from './lib/ansicht';
+import { seitenFuer, useAnsicht, type Ansicht as AnsichtKey } from './lib/ansicht';
+import { einstellungenLaden } from './lib/einstellungen';
 
 // Regie, Zusatzaufträge, Kundenlink und Board sind seit 20.09.2026 nicht mehr Teil der App (Bauführer: SORBA macht das).
 // Der Code liegt in archiv/regie-und-board/ — siehe dort README.
@@ -39,7 +40,7 @@ function FremdeSeite({ ansicht }: { ansicht: AnsichtKey }) {
   const { pathname, search } = useLocation();
   const navigiere = useNavigate();
   const seite = pathname.split('/')[1];
-  const passende = ANSICHTEN.filter((a) => SEITEN[a.key].includes(seite));
+  const passende = ANSICHTEN.filter((a) => seitenFuer(a.key).includes(seite));
   function wechseln(zu: AnsichtKey) {
     ansichtSetzen(zu);
     navigiere(pathname + search, { replace: true });
@@ -86,13 +87,15 @@ function App() {
         if (error || !neu.session) setVerbindungsHinweis(error?.message ?? 'Keine Sitzung');
         else setSitzung(true);
       }
+      // Firmen-Schalter (Erfassung, Mehrkostenanzeige, Sekretariat) vor dem ersten Bild laden
+      await einstellungenLaden().catch(() => undefined);
       setBereit(true);
     })();
   }, []);
 
   if (!bereit) return null; // kurzer Moment beim Start
 
-  const hat = (seite: string) => sitzung && !!ansicht && SEITEN[ansicht].includes(seite);
+  const hat = (seite: string) => sitzung && !!ansicht && seitenFuer(ansicht).includes(seite);
 
   return (
     <BrowserRouter>

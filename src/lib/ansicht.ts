@@ -9,35 +9,63 @@
  * Die Ansicht «Kunde» (Kundenlink für Regierapporte) ist seit 20.09. weg — mit der ganzen Regie.
  */
 import { useSyncExternalStore } from 'react';
+import { einstellungen } from './einstellungen';
 
-export type Ansicht = 'bauf' | 'chef' | 'monteur' | 'sekretariat';
+export type Ansicht = 'bauf' | 'chef' | 'monteur' | 'sekretariat' | 'kunde';
 
 export const ANSICHT_KEY = 'ansicht';
 const EREIGNIS = 'ansicht-geaendert';
 
-export type Gruppe = 'buero' | 'baustelle';
-export const GRUPPEN: { key: Gruppe; titel: string; text: string }[] = [
+export type Gruppe = 'buero' | 'baustelle' | 'extern';
+const GRUPPEN_ALLE: { key: Gruppe; titel: string; text: string }[] = [
   { key: 'buero', titel: 'Im Büro', text: 'am PC oder iPad' },
   { key: 'baustelle', titel: 'Auf der Baustelle', text: 'am Handy' },
+  { key: 'extern', titel: 'Extern', text: 'per Link' },
 ];
+/** «Extern» gibt es nur, wenn die Firma mit Regie arbeitet — sonst gibt es keinen Kundenlink. */
+export const GRUPPEN = GRUPPEN_ALLE.filter((g) => g.key !== 'extern' || einstellungen().erfassung === 'regie');
 
-export const ANSICHTEN: { key: Ansicht; titel: string; text: string; gruppe: Gruppe }[] = [
+const ANSICHTEN_ALLE: { key: Ansicht; titel: string; text: string; gruppe: Gruppe }[] = [
   { key: 'bauf', titel: 'Bauführer', text: 'Prüfen, freigeben, in SORBA übertragen', gruppe: 'buero' },
   { key: 'sekretariat', titel: 'Sekretariat', text: 'Stunden, Lohn-Export, Temporärbüros, Mitarbeitende', gruppe: 'buero' },
   { key: 'chef', titel: 'Chefmonteur', text: 'Tagesmeldung fürs Team, ein Knopf am Abend', gruppe: 'baustelle' },
   { key: 'monteur', titel: 'Monteur', text: 'Meine Stunden, wie auf dem Wochenblatt', gruppe: 'baustelle' },
+  { key: 'kunde', titel: 'Kunde', text: 'Bauleitung bestätigt den Regierapport per Link', gruppe: 'extern' },
 ];
+
+/** Die Ansicht «Kunde» gibt es nur im Regie-Modus (Firmen-Schalter MODUS_ERFASSUNG). */
+export const ANSICHTEN = ANSICHTEN_ALLE.filter((a) => a.key !== 'kunde' || einstellungen().erfassung === 'regie');
 
 export const ANSICHT_LABEL: Record<Ansicht, string> = Object.fromEntries(ANSICHTEN.map((a) => [a.key, a.titel])) as Record<Ansicht, string>;
 
-/** Welche Seiten jede Ansicht überhaupt hat. «/» gibt es immer. */
-export const SEITEN: Record<Ansicht, string[]> = {
+/** Welche Seiten jede Ansicht ohne Regie hat. «/» gibt es immer. */
+const SEITEN_BASIS: Record<Ansicht, string[]> = {
   bauf: ['erfassung', 'heute', 'cockpit', 'export', 'verwaltung'],
   // Sekretariat (Entscheid 17.09.): nur Stunden, Export, Stammdaten
   sekretariat: ['export', 'verwaltung'],
   chef: ['erfassung'],
   monteur: [],
+  kunde: [],
 };
+
+/**
+ * Seiten je Ansicht — abhängig von den Firmen-Schaltern (Verwaltung → Einstellungen, 02.10.2026):
+ * MODUS_ERFASSUNG = regie   → Zusatzauftrag, Regierapporte, Auswertung, Board kommen dazu.
+ * MODUS_SEKRETARIAT = voll  → das Sekretariat sieht dasselbe wie der Bauführer (ohne Teamgerät).
+ */
+export function seitenFuer(a: Ansicht): string[] {
+  const e = einstellungen();
+  const regie = e.erfassung === 'regie';
+  if (a === 'bauf') return regie ? ['zusatzauftrag', 'erfassung', 'heute', 'cockpit', 'regie', 'auswertung', 'export', 'board', 'verwaltung'] : SEITEN_BASIS.bauf;
+  if (a === 'sekretariat') {
+    if (e.sekretariat !== 'voll') return SEITEN_BASIS.sekretariat;
+    return regie ? ['zusatzauftrag', 'heute', 'cockpit', 'regie', 'auswertung', 'export', 'board', 'verwaltung'] : ['heute', 'cockpit', 'export', 'verwaltung'];
+  }
+  return SEITEN_BASIS[a];
+}
+
+/** @deprecated — `seitenFuer(a)` nehmen, damit die Firmen-Schalter gelten. */
+export const SEITEN = SEITEN_BASIS;
 
 export function ansichtLesen(): Ansicht | null {
   try {
