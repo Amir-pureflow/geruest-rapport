@@ -4,7 +4,7 @@
  * für alle Geräte dieser Firma. Nach dem Umschalten lädt die App neu, damit Menü und Erfassung passen.
  */
 import { useState } from 'react';
-import { einstellungen, einstellungSetzen, schalterGelesen, type Einstellungen } from '../../lib/einstellungen';
+import { einstellungen, einstellungSetzen, schalterGelesen, eigeneFirma, type Einstellungen } from '../../lib/einstellungen';
 
 interface Wahl<K extends keyof Einstellungen> {
   feld: K;
@@ -41,15 +41,6 @@ const WAHLEN = [
       { wert: true, label: 'An', text: 'Beim Zusatzauftrag steht «Bauleitung informieren». Ein Tipp schickt die Mail und hält fest, wann und an wen.' },
     ],
   } as Wahl<'mehrkostenanzeige'>,
-  {
-    feld: 'anmeldung',
-    titel: 'Anmeldung',
-    erklaerung: 'Was kommt, wenn jemand die App öffnet.',
-    optionen: [
-      { wert: 'ansicht', label: 'Direkt loslegen', text: 'Man wählt gleich seine Rolle. Kein Passwort. Wer die Adresse der App kennt, kommt hinein.' },
-      { wert: 'login', label: 'Mit Passwort', text: 'Zuerst meldet sich die Firma an, danach wählt man die Rolle wie bisher. Das Gerät bleibt angemeldet.' },
-    ],
-  } as Wahl<'anmeldung'>,
 ];
 
 export function Einstellungen() {
@@ -58,6 +49,7 @@ export function Einstellungen() {
   const [speichert, setSpeichert] = useState<string | null>(null);
   // Kam beim Start nichts aus der Datenbank, zeigt die Seite unten nur die Standardwerte — das muss dastehen
   const ohneDatenbank = schalterGelesen() === false;
+  const firma = eigeneFirma();
 
   async function setzen<K extends keyof Einstellungen>(feld: K, wert: Einstellungen[K]) {
     if (werte[feld] === wert || speichert) return;
@@ -74,13 +66,13 @@ export function Einstellungen() {
   return (
     <div className="space-y-4">
       <p className="text-sm text-ink2">
-        Gilt für diese Firma und für alle ihre Geräte. Jede Firma hat ihre eigene Datenbank. Was hier eingestellt wird, ändert bei anderen Firmen nichts.
+        Gilt für {firma?.name ?? 'diese Firma'} und für alle ihre Geräte. Andere Firmen arbeiten in derselben App, sehen aber
+        weder diese Einstellungen noch diese Daten.
       </p>
       {ohneDatenbank && !fehler && (
         <p className="rounded-[12px] border border-amber/40 bg-amber-soft px-4 py-2.5 text-sm text-amber-deep">
-          Diese Einstellungen stehen noch nicht in der Datenbank. Bis Migration 0017 eingespielt ist, gilt überall, was
-          unten angekreuzt ist, und Umschalten wird abgewiesen. Die Datei liegt im Repo unter
-          supabase/migrations/0017_firma_einstellungen.sql.
+          Diese Einstellungen konnten nicht gelesen werden. Entweder fehlt Migration 0019, oder dieser Zugang hängt an
+          keiner Firma. Bis dahin gilt, was unten angekreuzt ist, und Umschalten wird abgewiesen.
         </p>
       )}
       {fehler && <p className="rounded-[12px] border border-accent/40 bg-accent-soft px-4 py-2.5 text-sm text-accent-deep">{fehler}</p>}

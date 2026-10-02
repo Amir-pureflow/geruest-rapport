@@ -1,6 +1,9 @@
 /**
- * Erste Seite: «Welche Ansicht?» — vier Knöpfe, kein Login (Entscheid 09.09.).
+ * Nach der Anmeldung: «Welche Ansicht?» — vier Knöpfe.
  * Die Wahl bleibt im Gerät; oben rechts lässt sie sich jederzeit wechseln.
+ *
+ * Bis 02.10.2026 war das die allererste Seite und es gab kein Passwort. Seither meldet sich
+ * zuerst die Firma an (Anmelden.tsx); welche Daten man danach sieht, entscheidet die Datenbank.
  */
 import { useNavigate } from 'react-router-dom';
 import { Marke, Wortmarke } from '../ui/Shell';
@@ -10,7 +13,7 @@ import { HardHat, ClipboardList, Users, User, Handshake, ChevronRight, type Luci
 
 const ICON: Record<Ansicht, LucideIcon> = { bauf: HardHat, sekretariat: ClipboardList, chef: Users, monteur: User, kunde: Handshake };
 
-export function Ansicht({ hinweis }: { hinweis?: string }) {
+export function Ansicht() {
   const navigiere = useNavigate();
   const aktuell = useAnsicht();
 
@@ -54,19 +57,6 @@ export function Ansicht({ hinweis }: { hinweis?: string }) {
           ))}
         </div>
 
-        {hinweis && (
-          <div className="mt-5 rounded-[12px] border border-accent/40 bg-accent-soft px-4 py-3 text-sm text-accent-deep">
-            <strong>Keine Datenverbindung:</strong> {hinweis}
-            <span className="mt-1 block text-xs">
-              {/rate limit/i.test(hinweis)
-                ? 'Zu viele neue Geräte in kurzer Zeit (Supabase-Limit). In ein paar Minuten neu laden — bestehende Geräte sind nicht betroffen.'
-                : /anonymous/i.test(hinweis)
-                  ? 'Im Supabase-Dashboard unter Authentication › Sign In / Providers «Allow anonymous sign-ins» einschalten, dann diese Seite neu laden.'
-                  : 'Netz prüfen und diese Seite neu laden.'}
-            </span>
-            <button type="button" className="btn-ghost mt-2" onClick={() => location.reload()}>Neu laden</button>
-          </div>
-        )}
         {!supabase && (
           <p className="mt-5 text-center text-xs text-ink3">Offline-Modus — ohne .env läuft die App nur lokal.</p>
         )}

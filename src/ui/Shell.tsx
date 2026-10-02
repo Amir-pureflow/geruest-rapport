@@ -1,9 +1,10 @@
-import type { ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { ANSICHT_LABEL, useAnsicht, type Ansicht } from '../lib/ansicht';
-import { ChevronRight, LayoutDashboard, CalendarDays, CalendarRange, Download, Settings, Smartphone, PhoneCall, FileText, BarChart3, LayoutGrid, type LucideIcon } from 'lucide-react';
+import { ChevronRight, ChevronDown, LayoutDashboard, CalendarDays, CalendarRange, Download, Settings, Smartphone, PhoneCall, FileText, BarChart3, LayoutGrid, ArrowLeftRight, LogOut, type LucideIcon } from 'lucide-react';
 import { einstellungen } from '../lib/einstellungen';
-import { abmelden, firmaName } from '../lib/konto';
+import { abmelden } from '../lib/konto';
+import { eigeneFirma } from '../lib/einstellungen';
 
 /**
  * Bildmarke: Gerüst als Netz — zwei Stiele, zwei Lagen, eine Strebe, und an den Knoten leuchtende Punkte
@@ -30,6 +31,96 @@ export function Wortmarke({ gross = false }: { gross?: boolean }) {
     <span className={'font-semibold tracking-[-0.02em] ' + (gross ? 'text-2xl' : 'text-[15px]')}>
       Rapport<span className="wortmarke-akzent">o</span>
     </span>
+  );
+}
+
+/** Kürzel aus dem Firmennamen für den runden Knopf: «Gerüst GmbH» wird «GG», «We-Plan» wird «WP». */
+function kuerzel(name: string): string {
+  const teile = name.split(/[\s-]+/).filter(Boolean);
+  return (teile.slice(0, 2).map((t) => t[0]).join('') || '?').toUpperCase();
+}
+
+/**
+ * Wer ist angemeldet und bei welcher Firma.
+ *
+ * Ein Knopf mit Kürzel, Firma und Rolle; dahinter die zwei Dinge, die man damit tut: Ansicht
+ * wechseln und abmelden. Am Handy bleibt nur das Kürzel sichtbar, der Rest würde die Kopfzeile
+ * sprengen. Vorher standen Firma, Rolle und «Abmelden» als drei lose Teile nebeneinander.
+ *
+ * `platz` sagt, wohin das Menü aufgeht: in der Kopfzeile nach unten und rechtsbündig, unten in
+ * der Seitenleiste nach oben und linksbündig. Sonst läuft es aus dem Bild.
+ */
+function Konto({ ansicht, platz = 'kopf' }: { ansicht: Ansicht; platz?: 'kopf' | 'leiste' }) {
+  const [offen, setOffen] = useState(false);
+  const huelle = useRef<HTMLDivElement | null>(null);
+  const firma = eigeneFirma();
+
+  useEffect(() => {
+    if (!offen) return;
+    const zu = (ev: MouseEvent) => { if (huelle.current && !huelle.current.contains(ev.target as Node)) setOffen(false); };
+    const esc = (ev: KeyboardEvent) => { if (ev.key === 'Escape') setOffen(false); };
+    document.addEventListener('mousedown', zu);
+    document.addEventListener('keydown', esc);
+    return () => { document.removeEventListener('mousedown', zu); document.removeEventListener('keydown', esc); };
+  }, [offen]);
+
+  const name = firma?.name ?? 'Angemeldet';
+  return (
+    <div ref={huelle} className="relative">
+      <button
+        type="button"
+        onClick={() => setOffen((o) => !o)}
+        aria-expanded={offen}
+        aria-haspopup="menu"
+        className={
+          'flex max-w-[13rem] items-center gap-2 rounded-[12px] border px-1.5 py-1 transition-colors ' +
+          (offen ? 'border-line-strong bg-surface-2' : 'border-line bg-surface hover:bg-surface-2')
+        }
+      >
+        <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-accent-soft text-[11px] font-semibold tracking-tight text-accent-deep">
+          {kuerzel(name)}
+        </span>
+        <span className="hidden min-w-0 text-left sm:block">
+          <span className="block truncate text-[12.5px] font-medium leading-tight text-ink">{name}</span>
+          <span className="block truncate text-[11px] leading-tight text-ink3">{ANSICHT_LABEL[ansicht]}</span>
+        </span>
+        <ChevronDown size={14} className={'shrink-0 text-ink3 transition-transform ' + (offen ? 'rotate-180' : '')} aria-hidden="true" />
+      </button>
+
+      {offen && (
+        <div
+          role="menu"
+          className={
+            'absolute z-30 w-60 rounded-[14px] border border-line bg-surface p-1.5 shadow-[0_8px_24px_rgb(17_17_19/0.10)] ' +
+            (platz === 'leiste' ? 'bottom-full left-0 mb-1.5' : 'right-0 mt-1.5')
+          }
+        >
+          <div className="px-2.5 pb-1.5 pt-1">
+            <p className="truncate text-[13px] font-semibold text-ink">{name}</p>
+            <p className="text-[11px] text-ink3">angemeldet als {ANSICHT_LABEL[ansicht]}</p>
+          </div>
+          <div className="my-1 border-t border-line" />
+          <Link
+            to="/ansicht"
+            role="menuitem"
+            onClick={() => setOffen(false)}
+            className="flex items-center gap-2.5 rounded-[9px] px-2.5 py-2 text-[13px] text-ink2 transition-colors hover:bg-ground hover:text-ink"
+          >
+            <ArrowLeftRight size={15} strokeWidth={1.8} className="text-ink3" aria-hidden="true" />
+            Ansicht wechseln
+          </Link>
+          <button
+            type="button"
+            role="menuitem"
+            onClick={() => void abmelden().then(() => location.replace('/'))}
+            className="flex w-full items-center gap-2.5 rounded-[9px] px-2.5 py-2 text-left text-[13px] text-accent-deep transition-colors hover:bg-accent-soft"
+          >
+            <LogOut size={15} strokeWidth={1.8} aria-hidden="true" />
+            Abmelden
+          </button>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -189,27 +280,8 @@ export function Shell({
     return pfad === '/' ? pathname === '/' : pathname === pfad || pathname.startsWith(pfad + '/');
   };
 
-  // Im Modus «login» steht daneben der Weg hinaus. Ohne Anmeldung gibt es nichts abzumelden.
-  const mitLogin = einstellungen().anmeldung === 'login';
-  const firma = firmaName();
-  const wechsel = ansicht && (
-    <span className="flex items-center gap-1.5">
-      {mitLogin && firma && <span className="hidden text-xs text-ink3 sm:inline" title="Angemeldete Firma">{firma}</span>}
-      <Link to="/ansicht" className="btn-ghost text-xs" title="Ansicht wechseln">
-        {ANSICHT_LABEL[ansicht]} <span aria-hidden="true">⇄</span>
-      </Link>
-      {mitLogin && (
-        <button
-          type="button"
-          onClick={() => void abmelden().then(() => location.replace('/'))}
-          className="btn-ghost text-xs"
-          title="Abmelden"
-        >
-          Abmelden
-        </button>
-      )}
-    </span>
-  );
+  const wechsel = ansicht && <Konto ansicht={ansicht} />;
+  const wechselLeiste = ansicht && <Konto ansicht={ansicht} platz="leiste" />;
 
   return (
     <div className={'min-h-screen ' + (buero ? 'lg:grid lg:grid-cols-[236px_minmax(0,1fr)]' : '')}>
@@ -229,7 +301,7 @@ export function Shell({
               </div>
             ))}
           </nav>
-          <div className="mt-auto px-2 pt-6">{wechsel}</div>
+          <div className="mt-auto px-2 pt-6">{wechselLeiste}</div>
         </aside>
       )}
 
