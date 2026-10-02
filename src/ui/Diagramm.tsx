@@ -199,7 +199,7 @@ export function WochenTeams({
       ]}
       wertText={(n) => (gesamt > 0 ? `${n} von ${gesamt}` : String(n))}
       skala={gesamt}
-      hinweis={gesamt > 0 ? `volle Spur = alle ${gesamt} Teams` : undefined}
+      hinweis={gesamt === 1 ? 'volle Spur = das eine Team' : gesamt > 1 ? `volle Spur = alle ${gesamt} Teams` : undefined}
     />
   );
 }
