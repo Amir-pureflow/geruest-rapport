@@ -41,6 +41,15 @@ const WAHLEN = [
       { wert: true, label: 'An', text: 'Beim Zusatzauftrag steht «Bauleitung informieren». Ein Tipp schickt die Mail und hält fest, wann und an wen.' },
     ],
   } as Wahl<'mehrkostenanzeige'>,
+  {
+    feld: 'anmeldung',
+    titel: 'Anmeldung',
+    erklaerung: 'Was kommt, wenn jemand die App öffnet.',
+    optionen: [
+      { wert: 'ansicht', label: 'Direkt loslegen', text: 'Man wählt gleich seine Rolle. Kein Passwort. Wer die Adresse der App kennt, kommt hinein.' },
+      { wert: 'login', label: 'Mit Passwort', text: 'Zuerst meldet sich die Firma an, danach wählt man die Rolle wie bisher. Das Gerät bleibt angemeldet.' },
+    ],
+  } as Wahl<'anmeldung'>,
 ];
 
 export function Einstellungen() {

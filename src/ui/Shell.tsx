@@ -3,6 +3,7 @@ import { Link, useLocation } from 'react-router-dom';
 import { ANSICHT_LABEL, useAnsicht, type Ansicht } from '../lib/ansicht';
 import { ChevronRight, LayoutDashboard, CalendarDays, CalendarRange, Download, Settings, Smartphone, PhoneCall, FileText, BarChart3, LayoutGrid, type LucideIcon } from 'lucide-react';
 import { einstellungen } from '../lib/einstellungen';
+import { abmelden, firmaName } from '../lib/konto';
 
 /**
  * Bildmarke: Gerüst als Netz — zwei Stiele, zwei Lagen, eine Strebe, und an den Knoten leuchtende Punkte
@@ -188,10 +189,26 @@ export function Shell({
     return pfad === '/' ? pathname === '/' : pathname === pfad || pathname.startsWith(pfad + '/');
   };
 
+  // Im Modus «login» steht daneben der Weg hinaus. Ohne Anmeldung gibt es nichts abzumelden.
+  const mitLogin = einstellungen().anmeldung === 'login';
+  const firma = firmaName();
   const wechsel = ansicht && (
-    <Link to="/ansicht" className="btn-ghost text-xs" title="Ansicht wechseln">
-      {ANSICHT_LABEL[ansicht]} <span aria-hidden="true">⇄</span>
-    </Link>
+    <span className="flex items-center gap-1.5">
+      {mitLogin && firma && <span className="hidden text-xs text-ink3 sm:inline" title="Angemeldete Firma">{firma}</span>}
+      <Link to="/ansicht" className="btn-ghost text-xs" title="Ansicht wechseln">
+        {ANSICHT_LABEL[ansicht]} <span aria-hidden="true">⇄</span>
+      </Link>
+      {mitLogin && (
+        <button
+          type="button"
+          onClick={() => void abmelden().then(() => location.replace('/'))}
+          className="btn-ghost text-xs"
+          title="Abmelden"
+        >
+          Abmelden
+        </button>
+      )}
+    </span>
   );
 
   return (

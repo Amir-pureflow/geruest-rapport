@@ -5,6 +5,7 @@ import './index.css';
 import { registerSW } from 'virtual:pwa-register';
 import { Start } from './seiten/Start';
 import { Ansicht } from './seiten/Ansicht';
+import { Anmelden } from './seiten/Anmelden';
 import { Erfassung } from './seiten/Erfassung';
 import { Cockpit } from './seiten/Cockpit';
 import { Tag } from './seiten/Tag';
@@ -27,6 +28,7 @@ import { startAutoFlush, flushNachSupabase } from './lib/db';
 import { supabase } from './lib/supabase';
 import { seitenFuer, useAnsicht, type Ansicht as AnsichtKey } from './lib/ansicht';
 import { einstellungen, einstellungenLaden } from './lib/einstellungen';
+import { angemeldet } from './lib/konto';
 
 // Regie, Zusatzaufträge, Kundenlink und Board waren vom 20.09. bis 02.10.2026 ganz draussen (Bauführer: SORBA macht das).
 // Seit 02.10. gibt es sie wieder, aber nur für Firmen, die das wollen — Firmen-Schalter MODUS_ERFASSUNG (Verwaltung → Einstellungen).
@@ -84,27 +86,55 @@ function App() {
   const [verbindungsHinweis, setVerbindungsHinweis] = useState('');
   // Ohne Sitzung liefert die Datenbank leere Listen — dann lieber den Grund zeigen als «Keine Teams».
   const [sitzung, setSitzung] = useState(!supabase);
+  // Ist eine Firma mit Passwort angemeldet? Nur dann geht es im Modus «login» weiter.
+  const [firmaAngemeldet, setFirmaAngemeldet] = useState(false);
 
-  // Kein Login (09.09.): Die Datenbank braucht trotzdem eine Sitzung, damit ihre Rechte greifen.
-  // Darum im Hintergrund eine anonyme Sitzung — einmal pro Gerät, unsichtbar.
+  /**
+   * Beim Start: Schalter lesen, dann die Sitzung herstellen.
+   *
+   * Modus «ansicht» (bis 02.10. und weiterhin Standard): anonyme Sitzung im Hintergrund, damit die
+   * Rechte der Datenbank überhaupt greifen. Modus «login»: keine anonyme Sitzung mehr — ohne
+   * Anmeldung kommt niemand hinein.
+   */
   useEffect(() => {
     if (!supabase) return;
     const c = supabase;
     void (async () => {
-      const { data } = await c.auth.getSession();
-      if (data.session) setSitzung(true);
-      else {
-        const { data: neu, error } = await c.auth.signInAnonymously();
-        if (error || !neu.session) setVerbindungsHinweis(error?.message ?? 'Keine Sitzung');
-        else setSitzung(true);
-      }
-      // Firmen-Schalter (Erfassung, Mehrkostenanzeige, Sekretariat) vor dem ersten Bild laden
+      // Die Schalter zuerst: sie entscheiden, ob überhaupt anonym angemeldet werden darf
       await einstellungenLaden().catch(() => undefined);
+      const mitLogin = einstellungen().anmeldung === 'login';
+
+      if (mitLogin) {
+        const ok = await angemeldet().catch(() => false);
+        setFirmaAngemeldet(ok);
+        setSitzung(ok);
+      } else {
+        const { data } = await c.auth.getSession();
+        if (data.session) setSitzung(true);
+        else {
+          const { data: neu, error } = await c.auth.signInAnonymously();
+          if (error || !neu.session) setVerbindungsHinweis(error?.message ?? 'Keine Sitzung');
+          else setSitzung(true);
+        }
+      }
       setBereit(true);
     })();
   }, []);
 
   if (!bereit) return null; // kurzer Moment beim Start
+
+  // Modus «login» und niemand angemeldet: nur die Anmeldeseite, sonst nichts.
+  // Der Kundenlink /b/:token bleibt offen — die Bauleitung hat kein Konto und soll keines brauchen.
+  const mitLogin = einstellungen().anmeldung === 'login';
+  if (mitLogin && !firmaAngemeldet && !window.location.pathname.startsWith('/b/')) {
+    return (
+      <BrowserRouter>
+        <Routes>
+          <Route path="*" element={<Anmelden />} />
+        </Routes>
+      </BrowserRouter>
+    );
+  }
 
   const hat = (seite: string) => sitzung && !!ansicht && seitenFuer(ansicht).includes(seite);
   const regieModus = einstellungen().erfassung === 'regie';

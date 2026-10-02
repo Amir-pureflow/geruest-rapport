@@ -17,12 +17,19 @@ export interface Einstellungen {
   mehrkostenanzeige: boolean;
   /** 'stunden' = nur Stunden, Export, Board, Verwaltung · 'voll' = zusätzlich Regie, Zusatzauftrag, Übersichten */
   sekretariat: 'stunden' | 'voll';
+  /** 'ansicht' = direkt die Rollenwahl (bis 02.10.) · 'login' = davor meldet sich die Firma an */
+  anmeldung: 'ansicht' | 'login';
 }
 
-export const STANDARD: Einstellungen = { erfassung: 'wochenblatt', mehrkostenanzeige: false, sekretariat: 'stunden' };
+export const STANDARD: Einstellungen = { erfassung: 'wochenblatt', mehrkostenanzeige: false, sekretariat: 'stunden', anmeldung: 'ansicht' };
 
 const KEY = 'firma-einstellungen';
-const SCHLUESSEL = { erfassung: 'MODUS_ERFASSUNG', mehrkostenanzeige: 'MODUS_MEHRKOSTENANZEIGE', sekretariat: 'MODUS_SEKRETARIAT' } as const;
+const SCHLUESSEL = {
+  erfassung: 'MODUS_ERFASSUNG',
+  mehrkostenanzeige: 'MODUS_MEHRKOSTENANZEIGE',
+  sekretariat: 'MODUS_SEKRETARIAT',
+  anmeldung: 'MODUS_ANMELDUNG',
+} as const;
 
 let zwischenspeicher: Einstellungen = lesenLokal();
 /** Hat die Datenbank beim letzten Versuch die Schalter geliefert? null = noch nicht versucht oder offline. */
@@ -64,6 +71,9 @@ export async function einstellungenLaden(): Promise<Einstellungen> {
     erfassung: m.get(SCHLUESSEL.erfassung) === 'regie' ? 'regie' : 'wochenblatt',
     mehrkostenanzeige: m.get(SCHLUESSEL.mehrkostenanzeige) === 'an',
     sekretariat: m.get(SCHLUESSEL.sekretariat) === 'voll' ? 'voll' : 'stunden',
+    // Fehlt die Zeile, bleibt es beim bisherigen Weg — eine halb eingerichtete Anmeldung darf
+    // niemanden aussperren. Steht sie auf «login», ist die Anmeldung Pflicht.
+    anmeldung: m.get(SCHLUESSEL.anmeldung) === 'login' ? 'login' : 'ansicht',
   };
   zwischenspeicher = neu;
   try { localStorage.setItem(KEY, JSON.stringify(neu)); } catch { /* ohne Speicher läuft es auch */ }
