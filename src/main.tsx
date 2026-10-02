@@ -31,8 +31,13 @@ import { einstellungen, einstellungenLaden } from './lib/einstellungen';
 import { angemeldet } from './lib/konto';
 
 // Regie, Zusatzaufträge, Kundenlink und Board waren vom 20.09. bis 02.10.2026 ganz draussen (Bauführer: SORBA macht das).
-// Seit 02.10. gibt es sie wieder, aber nur für Firmen, die das wollen — Firmen-Schalter MODUS_ERFASSUNG (Verwaltung → Einstellungen).
-// Gerüst GmbH (Arbnor) läuft weiterhin ohne. Das Archiv in archiv/regie-und-board/ bleibt als Nachschlagewerk stehen.
+// Seit 02.10. gibt es sie wieder, aber nur für Firmen, die das wollen — Schalter in der Zeile der Firma
+// (Verwaltung → Einstellungen). Gerüst GmbH (Arbnor) läuft ohne, We-Plan mit. Das Archiv in
+// archiv/regie-und-board/ bleibt als Nachschlagewerk stehen.
+//
+// Seit Migration 0019 ist die Anmeldung Pflicht: eine Datenbank für alle Firmen, und die Datenbank
+// zeigt nur die Zeilen der angemeldeten Firma. Ohne Anmeldung gibt es keine einzige Zeile — darum
+// gibt es auch keine anonyme Sitzung mehr.
 
 if (supabase) {
   const client = supabase;
@@ -83,50 +88,28 @@ function FremdeSeite({ ansicht }: { ansicht: AnsichtKey }) {
 function App() {
   const ansicht = useAnsicht();
   const [bereit, setBereit] = useState(!supabase);
-  const [verbindungsHinweis, setVerbindungsHinweis] = useState('');
   // Ohne Sitzung liefert die Datenbank leere Listen — dann lieber den Grund zeigen als «Keine Teams».
   const [sitzung, setSitzung] = useState(!supabase);
-  // Ist eine Firma mit Passwort angemeldet? Nur dann geht es im Modus «login» weiter.
-  const [firmaAngemeldet, setFirmaAngemeldet] = useState(false);
 
   /**
-   * Beim Start: Schalter lesen, dann die Sitzung herstellen.
-   *
-   * Modus «ansicht» (bis 02.10. und weiterhin Standard): anonyme Sitzung im Hintergrund, damit die
-   * Rechte der Datenbank überhaupt greifen. Modus «login»: keine anonyme Sitzung mehr — ohne
-   * Anmeldung kommt niemand hinein.
+   * Beim Start: ist eine Firma angemeldet? Erst dann die Schalter dieser Firma laden.
+   * Ohne Anmeldung liefert die Datenbank nichts, also hat auch das Laden keinen Sinn.
    */
   useEffect(() => {
     if (!supabase) return;
-    const c = supabase;
     void (async () => {
-      // Die Schalter zuerst: sie entscheiden, ob überhaupt anonym angemeldet werden darf
-      await einstellungenLaden().catch(() => undefined);
-      const mitLogin = einstellungen().anmeldung === 'login';
-
-      if (mitLogin) {
-        const ok = await angemeldet().catch(() => false);
-        setFirmaAngemeldet(ok);
-        setSitzung(ok);
-      } else {
-        const { data } = await c.auth.getSession();
-        if (data.session) setSitzung(true);
-        else {
-          const { data: neu, error } = await c.auth.signInAnonymously();
-          if (error || !neu.session) setVerbindungsHinweis(error?.message ?? 'Keine Sitzung');
-          else setSitzung(true);
-        }
-      }
+      const ok = await angemeldet().catch(() => false);
+      setSitzung(ok);
+      if (ok) await einstellungenLaden().catch(() => undefined);
       setBereit(true);
     })();
   }, []);
 
   if (!bereit) return null; // kurzer Moment beim Start
 
-  // Modus «login» und niemand angemeldet: nur die Anmeldeseite, sonst nichts.
+  // Niemand angemeldet: nur die Anmeldeseite, sonst nichts.
   // Der Kundenlink /b/:token bleibt offen — die Bauleitung hat kein Konto und soll keines brauchen.
-  const mitLogin = einstellungen().anmeldung === 'login';
-  if (mitLogin && !firmaAngemeldet && !window.location.pathname.startsWith('/b/')) {
+  if (!sitzung && !window.location.pathname.startsWith('/b/')) {
     return (
       <BrowserRouter>
         <Routes>
@@ -142,8 +125,8 @@ function App() {
   return (
     <BrowserRouter>
       <Routes>
-        <Route path="/ansicht" element={<Ansicht hinweis={verbindungsHinweis} />} />
-        {(!ansicht || !sitzung) && <Route path="*" element={<Ansicht hinweis={verbindungsHinweis} />} />}
+        <Route path="/ansicht" element={<Ansicht />} />
+        {(!ansicht || !sitzung) && <Route path="*" element={<Ansicht />} />}
         {sitzung && ansicht && <Route path="/" element={<Start />} />}
         {hat('erfassung') && <Route path="/erfassung" element={<Erfassung />} />}
         {hat('heute') && <Route path="/heute" element={<Tag />} />}

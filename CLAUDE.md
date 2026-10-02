@@ -66,14 +66,21 @@ geraten) — die Ausgabe ist immer Deutsch. **Kein Dialekt-Thema: es geht um Hoc
 9. Sprachcode kommt aus dem Mitarbeiterprofil (`sprache`), wird nie automatisch pro Aufnahme geraten.
 10. **Die App rechnet keine Pausen** (20.09.). Sie zählt, was eingetragen ist — kein stiller Abzug, kein Zuschlag.
 
-## Ansichten statt Login (09.09.) und Rechte
+## Ansichten und Rechte (09.09., Anmeldung zurück am 02.10.)
 
-Beim Start wählt man die Ansicht: **Bauführer, Sekretariat, Chefmonteur, Monteur**. Kein Login. Die Wahl liegt im
-Gerät (`localStorage.ansicht`, `src/lib/ansicht.ts`), die Seiten je Ansicht stehen in `SEITEN`. Die Datenbank bekommt
-eine **anonyme Sitzung** (`signInAnonymously` in `main.tsx`) — im Supabase-Dashboard muss «Allow anonymous sign-ins» an
-sein; Limit 30/Stunde/IP (Test-Screenshots mit festem Chrome-Profil).
-**Rechte sind nur in der Oberfläche.** Wer die Adresse kennt, kann alles sehen. Vor echten Kundendaten kommt ein Login
-pro Rolle zurück (Magic Link stand bis 09.09. in `Anmelden.tsx`, Git-Historie).
+Zuerst meldet sich die **Firma** an (`src/seiten/Anmelden.tsx`, Mail + Passwort). Danach wählt man die Ansicht:
+**Bauführer, Sekretariat, Chefmonteur, Monteur**. Die Wahl liegt im Gerät (`localStorage.ansicht`,
+`src/lib/ansicht.ts`), die Seiten je Ansicht liefert `seitenFuer()`. Das Gerät bleibt angemeldet, bis jemand abmeldet:
+auf der Baustelle tippt niemand jeden Abend ein Passwort.
+
+Vom 09.09. bis 02.10. gab es gar keine Anmeldung und die Datenbank bekam eine anonyme Sitzung. Nachgemessen am
+02.10.: mit nichts als dem öffentlichen Schlüssel aus dem JavaScript liessen sich Mitarbeiternamen, Stunden, Kunden,
+Regiebeträge und das Freigabe-Protokoll lesen. Darum die Anmeldung und `0019`.
+
+**Zwischen Firmen trennt jetzt die Datenbank. Innerhalb einer Firma noch nicht.** Bauführer, Sekretariat und
+Teamgerät teilen den Zugang der Firma; im `freigabe_log` steht dann die Firma, nicht die Person. Persönliche Konten
+und Rechte je Rolle sind der nächste Schritt — `benutzer` ist dafür vorbereitet, mehrere Konten dürfen zu einer Firma
+gehören.
 - Bauführer: Tagesübersicht, Wochenübersicht (freigeben, korrigieren), SORBA-Raster, Verwaltung, Erfassung (Test).
 - Sekretariat (17.09.): Übersicht Stunden je Mitarbeiter, Export (Lohn, Überstunden, Temporärbüros), Verwaltung —
   nur ansehen im Cockpit. **Lohn sieht nur das Sekretariat** (Bauführer 20.09.: «kein Zugriff hier drauf»).
@@ -82,24 +89,42 @@ Korrekturen in der Wochenübersicht brauchen einen Grund aus vier Vorgaben (Rege
 fehlt die Migration, fällt der Code auf den zweistufigen Weg zurück.
 Farben: Rot nur für Aktion, Auswahl Stahlblau (`chip-on`), Warnung Bernstein (`amber`).
 
-## Firmen-Schalter (02.10.2026) — ein Code, pro Firma anders
+## Mehrere Firmen in einer Datenbank (02.10.2026, Migration `0019`)
 
-Jede Firma hat ihr eigenes Supabase-Projekt. Drei Zeilen in `konfiguration` (Migration `0017`) sagen, wie die App dort
-arbeitet. Gelesen wird **einmal beim Start** (`einstellungenLaden()` in `main.tsx`, vor dem ersten Bild) und danach nur
-noch aus dem Zwischenspeicher (`src/lib/einstellungen.ts`, zusätzlich in `localStorage`) — die Erfassung läuft offline
-und darf auf keine Abfrage warten. Gesetzt werden sie in **Verwaltung → Einstellungen**; danach lädt die App neu.
+**Eine Datenbank für alle Firmen, nicht eine je Firma.** Der erste Entwurf (ein Supabase-Projekt pro Kunde) wurde
+verworfen: zehn Kunden wären zehn Datenbanken, zehn Deployments, jede Migration zehnmal von Hand, zehn Abonnemente.
+Amir: «das ist doch gar nicht gut.» Eine neue Firma ist jetzt **eine Zeile und ein Zugang**.
 
-| Schlüssel | Werte | Standard | Wirkung |
+- Tabelle `firma` hält Name und Schalter. Tabelle `benutzer` verbindet ein Auth-Konto mit einer Firma.
+- Neun Tabellen tragen `firma_id` direkt (`mitarbeiter`, `team`, `baustelle`, `kunde`, `jahresplan`, `tagesmeldung`,
+  `zeiteintrag`, `zusatzauftrag`, `regierapport`), die Kindtabellen erben über ihren Vater.
+- **Die Datenbank trennt, nicht die Oberfläche.** Jede Policy vergleicht mit `aktuelle_firma()`. Wer als Gerüst GmbH
+  angemeldet ist, bekommt We-Plans Zeilen nicht einmal mit einem eigenen Programm und dem öffentlichen Schlüssel.
+- Neue Zeilen bekommen die Firma automatisch: `default aktuelle_firma()` auf der Spalte. Die App schickt nichts mit.
+- **Anmeldung ist Pflicht.** Keine anonyme Sitzung mehr: ohne Eintrag in `benutzer` gibt es keine Firma und damit
+  keine einzige sichtbare Zeile. Einzige Ausnahme ist der Kundenlink `/b/:token`, der über eine Edge Function mit
+  Service-Role läuft — die Bauleitung hat kein Konto und soll keines brauchen.
+- Die Edge Functions nutzen die Service-Role und umgehen RLS. Beim Erweitern daran denken: dort muss `firma_id`
+  von Hand stimmen.
+
+### Die Schalter je Firma
+
+Sie stehen als Spalten in `firma` (vorher global in `konfiguration`, Migration `0017`). Gelesen wird **nach der
+Anmeldung**, einmal (`einstellungenLaden()`), danach aus dem Zwischenspeicher (`src/lib/einstellungen.ts`, zusätzlich
+`localStorage`) — die Erfassung läuft offline und darf auf keine Abfrage warten. Gesetzt in **Verwaltung → Einstellungen**.
+
+| Spalte | Werte | Standard | Wirkung |
 |---|---|---|---|
-| `MODUS_ERFASSUNG` | `wochenblatt` · `regie` | `wochenblatt` | `regie` bringt Zusatzauftrag, Regierapporte, Auswertung, Board, Kundenlink, Ansicht «Kunde», den Abweichungs-Ablauf im Teamgerät und den Regie-Entscheid in der Wochenübersicht |
-| `MODUS_SEKRETARIAT` | `stunden` · `voll` | `stunden` | `voll` gibt dem Sekretariat dieselben Bereiche wie dem Bauführer (ohne Teamgerät) und, mit Regie, Fristen + Regie je Monat auf der Übersicht |
-| `MODUS_MEHRKOSTENANZEIGE` | `aus` · `an` | `aus` | `an` zeigt «Bauleitung informieren» am Zusatzauftrag (Bausitzungsprotokoll 7.1) und die Anzeigepflicht je Kunde |
+| `modus_erfassung` | `wochenblatt` · `regie` | `wochenblatt` | `regie` bringt Zusatzauftrag, Regierapporte, Auswertung, Board, Kundenlink, Ansicht «Kunde», den Abweichungs-Ablauf im Teamgerät und den Regie-Entscheid in der Wochenübersicht |
+| `modus_sekretariat` | `stunden` · `voll` | `stunden` | `voll` gibt dem Sekretariat dieselben Bereiche wie dem Bauführer (ohne Teamgerät) und, mit Regie, Fristen + Regie je Monat auf der Übersicht |
+| `modus_mehrkostenanzeige` | `false` · `true` | `false` | `true` zeigt «Bauleitung informieren» am Zusatzauftrag (Bausitzungsprotokoll 7.1) und die Anzeigepflicht je Kunde |
+
+Heute: **Gerüst GmbH** (Arbnor) = Wochenblatt, ein Team (Nuhi Vaiti als Gruppenleiter, Ismail Vaiti als
+Gerüstbaumitarbeiter). **We-Plan** = Regie, Sekretariat voll, Mehrkostenanzeige an, der ganze Demobetrieb.
 
 **Regeln dazu:**
-- Fehlt die Migration, scheitert die Abfrage oder ist das Gerät offline, bleibt der **letzte bekannte Stand** gültig —
-  nie ein Rückfall auf die Standardwerte. Eine Störung darf einer Regie-Firma nicht die Regie wegnehmen.
-- Die RLS-Policies in `0017` lassen `authenticated` nur Schlüssel lesen und schreiben, die auf `MODUS\_%` passen.
-  Mail- und KI-Schlüssel in derselben Tabelle bleiben allein der Service-Role.
+- Liefert die Datenbank nichts (Migration fehlt, offline, Zugang ohne Firma), bleibt der **letzte bekannte Stand**
+  gültig — nie ein Rückfall auf die Standardwerte. Eine Störung darf einer Regie-Firma nicht die Regie wegnehmen.
 - Was von den Schaltern abhängt, ist **eine Funktion, keine Konstante** (`ansichten()`, `gruppen()`, `seitenFuer()`,
   `navFuer()`). Eine Modulkonstante stünde fest, bevor die Schalter geladen sind.
 - Der Standard ist immer der Stand der Gerüst GmbH. Wer einen Schalter einbaut, lässt deren Ansicht unverändert.
@@ -107,6 +132,15 @@ und darf auf keine Abfrage warten. Gesetzt werden sie in **Verwaltung → Einste
 Wo die Schalter wirken: `src/lib/ansicht.ts`, `src/ui/Shell.tsx`, `src/main.tsx` (Routen, nachgeladen),
 `src/seiten/Erfassung.tsx`, `Cockpit.tsx`, `Start.tsx`, `StartChef.tsx`, `StartSekretariat.tsx`, `Zusatzauftrag.tsx`,
 `verwaltung/Kunden.tsx`, `src/lib/demo.ts` (lädt `demo_regie.ts` nur im Regie-Modus).
+
+### Umstellung (Reihenfolge einhalten)
+
+1. Supabase › Authentication › Sign In / Providers › Email: **«Confirm email» aus**.
+2. Die Firmen-Zugänge anlegen (ein Befehl, Passwörter nie in einer Datei).
+3. Migration `0019` im SQL-Editor ausführen. Sie sucht die Zugänge an ihrer Mailadresse.
+4. Erst dann die neue App-Fassung ausliefern. Vorher sperrt sie alle aus, weil es noch keine Zugänge gibt.
+
+Danach darf im Dashboard auch «Allow anonymous sign-ins» aus.
 
 ## Erfassung wie das Wochenblatt (16.09., erweitert 20.09.)
 
@@ -196,7 +230,9 @@ src/seiten/StartChef.tsx          Chefmonteur: Team, heute, laufende Woche
 src/seiten/StartMonteur.tsx       Monteur: «Meine Woche» — eigene Stunden (mit Zeiten), nur lesen
 src/seiten/StartSekretariat.tsx   Sekretariat: Stunden je Mitarbeiter, Temporärbüros, Export, Verwaltung
 src/lib/ansicht.ts                Ansicht lesen/setzen, Seiten je Ansicht (seitenFuer — hängt an den Schaltern)
-src/lib/einstellungen.ts          Firmen-Schalter: lesen, zwischenspeichern, setzen
+src/lib/einstellungen.ts          Schalter der angemeldeten Firma: lesen, zwischenspeichern, setzen
+src/lib/konto.ts                  Anmelden, abmelden, «ist jemand angemeldet»
+src/seiten/Anmelden.tsx           Anmeldung der Firma — die erste Seite
 src/seiten/verwaltung/Einstellungen.tsx  Die drei Schalter umlegen (lädt die App danach neu)
 src/ui/Karten.tsx                 NavKarte, Kachel, MONATE — gemeinsam für alle Startseiten
 src/seiten/Tag.tsx                Tagesübersicht: welche Teams haben gemeldet, welche nicht
@@ -229,7 +265,7 @@ src/ui/FotoGalerie.tsx            Vorschau aus dem Bucket «anhaenge» (signiert
 src/ui/Sprachnotiz.tsx            Pegelbalken während der Aufnahme, Text-Enthüllung nach dem Speichern
 src/ui/Shell.tsx                  Rahmen: Büro-Ansichten mit Bereichsleiste (md) / Seitenleiste (lg), Baustellen-Ansichten Handy-Spalte
 supabase/functions/transkribieren Sprachnotiz → Text (Mistral)
-supabase/migrations/              0001–0015 historisch (inkl. Regie-Tabellen) · 0016 Zeiten von–bis · 0017 Firmen-Schalter
+supabase/migrations/              0001–0015 historisch (inkl. Regie-Tabellen) · 0016 Zeiten von–bis · 0017 Firmen-Schalter (durch 0019 abgelöst) · 0019 mehrere Firmen, Rechte je Firma
 archiv/regie-und-board/           Stand vom 20.09. als Nachschlagewerk — nicht mehr die Quelle (Regie ist zurück, hinter Schaltern)
 ```
 

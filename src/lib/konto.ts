@@ -20,30 +20,10 @@
 import { supabase } from './supabase';
 import { ansichtSetzen } from './ansicht';
 
-const FIRMA_KEY = 'firma-name';
-
-/** Name der angemeldeten Firma, für die Kopfzeile. Kommt aus dem Konto, liegt fürs Offline im Gerät. */
-export function firmaName(): string | null {
-  try {
-    return localStorage.getItem(FIRMA_KEY);
-  } catch {
-    return null;
-  }
-}
-
-function firmaMerken(name: string | null) {
-  try {
-    if (name) localStorage.setItem(FIRMA_KEY, name);
-    else localStorage.removeItem(FIRMA_KEY);
-  } catch {
-    /* privater Modus — dann steht der Name eben nicht in der Kopfzeile */
-  }
-}
-
 /** Anmelden. null heisst geklappt, sonst ein Satz für den Bildschirm. */
 export async function anmelden(email: string, passwort: string): Promise<string | null> {
   if (!supabase) return 'Keine Datenverbindung.';
-  const { data, error } = await supabase.auth.signInWithPassword({ email: email.trim().toLowerCase(), password: passwort });
+  const { error } = await supabase.auth.signInWithPassword({ email: email.trim().toLowerCase(), password: passwort });
   if (error) {
     const m = error.message;
     if (/invalid login credentials/i.test(m)) return 'E-Mail oder Passwort stimmt nicht.';
@@ -51,14 +31,14 @@ export async function anmelden(email: string, passwort: string): Promise<string 
     if (/rate limit/i.test(m)) return 'Zu viele Versuche. Kurz warten und nochmals probieren.';
     return m;
   }
-  firmaMerken((data.user?.user_metadata?.firma as string | undefined) ?? null);
+  // Welche Firma das ist, holt die App gleich danach aus der Datenbank (einstellungenLaden).
   return null;
 }
 
 /** Abmelden: Sitzung weg, Rollenwahl weg. Was in der Warteschlange liegt, bleibt auf dem Gerät. */
 export async function abmelden(): Promise<void> {
   ansichtSetzen(null);
-  firmaMerken(null);
+  try { localStorage.removeItem('firma-einstellungen'); } catch { /* egal */ }
   if (supabase) await supabase.auth.signOut();
 }
 
@@ -70,9 +50,5 @@ export async function angemeldet(): Promise<boolean> {
   if (!supabase) return false;
   const { data } = await supabase.auth.getSession();
   const s = data.session;
-  if (s && s.user.is_anonymous !== true) {
-    firmaMerken((s.user.user_metadata?.firma as string | undefined) ?? firmaName());
-    return true;
-  }
-  return false;
+  return !!s && s.user.is_anonymous !== true;
 }
