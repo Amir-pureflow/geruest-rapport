@@ -2,6 +2,7 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { ANSICHT_LABEL, useAnsicht, type Ansicht } from '../lib/ansicht';
 import { supabase } from '../lib/supabase';
+import { einstellungen } from '../lib/einstellungen';
 import { ChevronRight, LayoutDashboard, PhoneCall, CalendarDays, CalendarRange, FileText, BarChart3, LayoutGrid, Download, Settings, Smartphone, ExternalLink, type LucideIcon } from 'lucide-react';
 
 /**
@@ -44,8 +45,9 @@ interface NavGruppe { titel?: string; eintraege: NavEintrag[] }
 
 /** Gleiche Ordnung für beide Büro-Ansichten: erst das Tägliche, dann Geld, dann Planung. */
 export function navFuer(a: 'bauf' | 'sekretariat', kundenToken: string | null = null): NavGruppe[] {
-  // Sekretariat: vier Bereiche, alles rund um Stunden und Stammdaten (Entscheid 17.09.)
-  if (a === 'sekretariat') {
+  // Sekretariat im Modus «stunden»: vier Bereiche rund um Stunden und Stammdaten.
+  // Im Modus «voll» (Firmen-Schalter) bekommt es dieselbe Seitenleiste wie der Bauführer, ohne Teamgerät.
+  if (a === 'sekretariat' && einstellungen().sekretariat === 'stunden') {
     return [
       { eintraege: [{ zu: '/', label: 'Übersicht', icon: LayoutDashboard }] },
       {

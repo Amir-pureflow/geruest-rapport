@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { supabase } from '../../lib/supabase';
+import { einstellungen } from '../../lib/einstellungen';
 
 interface Kunde { id?: string; name: string; ansprechperson: string | null; email: string | null; telefon: string | null; praeferenz: 'einzel' | 'sammel'; anzeige_noetig: boolean; frist_tage: number; adresse: string | null; weitere_emails: string | null }
 
@@ -72,7 +73,7 @@ export function Kunden() {
           </div>
           {/* Regeln aus dem Werkvertrag — pro Kunde anders, darum hier und nicht im Code */}
           <div className="grid gap-3 sm:grid-cols-2">
-            <div hidden>
+            <div hidden={!einstellungen().mehrkostenanzeige}>
               <label className="lbl">Zusatzarbeit vorher anzeigen</label>
               <div className="flex gap-2">
                 <button type="button" onClick={() => f({ anzeige_noetig: true })} className={'chip px-3 ' + (bearbeitet.anzeige_noetig ? 'chip-on' : '')}>ja, schriftlich</button>

@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { Shell } from '../ui/Shell';
 import { supabase } from '../lib/supabase';
 import { ausIso, kurz } from '../lib/datum';
+import { einstellungen } from '../lib/einstellungen';
 import { TAETIGKEITEN, TAETIGKEIT_LABEL } from '../lib/zusatzauftrag';
 import {
   enqueueZusatzauftrag,
@@ -107,7 +108,7 @@ const CACHE_KEY = 'baustellen-cache-v2';
 type Rueckmeldung = { art: 'gesendet' | 'wartet'; text: string };
 
 /** Mehrkostenanzeige an die Bauleitung: gebaut, aber ausgeblendet, bis mit Arbnor geklärt ist, wie sie es heute machen (15.09.). */
-const MEHRKOSTENANZEIGE_AKTIV = false;
+const MEHRKOSTENANZEIGE_AKTIV = einstellungen().mehrkostenanzeige;
 
 export function Zusatzauftrag() {
   const [baustellen, setBaustellen] = useState<Baustelle[]>([]);

@@ -116,6 +116,22 @@ kunde.email, Vermerk `angezeigt_am/an/text`). Pro Kunde einstellbar: `kunde.anze
 **Vorerst ausgeblendet** (14.09., bis Arbnor klärt, ob er Mehrkosten vorher anmeldet): `MEHRKOSTENANZEIGE_AKTIV = false`
 in Zusatzauftrag.tsx, Feld «Anzeige nötig» in Kunden.tsx versteckt. Function und Spalten bleiben.
 
+## Ein Code, pro Firma Schalter (02.10.)
+
+Jede Gerüstbaufirma hat ihr eigenes Supabase-Projekt. Wie die App dort arbeitet, steht in drei Zeilen der
+Tabelle `konfiguration` (Migration 0016), bedient über **Verwaltung → Einstellungen** (`src/seiten/verwaltung/Einstellungen.tsx`):
+
+| Schlüssel | Werte | Wirkung |
+|---|---|---|
+| `MODUS_ERFASSUNG` | `wochenblatt` (Standard) · `regie` | Teamgerät: nur Normal + Überstunden, oder zusätzlich «War etwas anders?» → Symbol → «Wer wollte das?» → Stunden je Person → Notiz |
+| `MODUS_SEKRETARIAT` | `stunden` (Standard) · `voll` | Sekretariat: nur Stunden/Export/Board/Verwaltung, oder zusätzlich Zusatzauftrag, Übersichten, Regie (`seitenFuer`, `navFuer`, `StartSekretariatVoll`) |
+| `MODUS_MEHRKOSTENANZEIGE` | `aus` (Standard) · `an` | Knopf «Bauleitung informieren» am Zusatzauftrag + Feld `anzeige_noetig` beim Kunden |
+
+Gelesen wird einmal beim Start (`einstellungenLaden()` in main.tsx), danach aus `einstellungen()` — die Erfassung
+läuft offline und darf nicht auf eine Abfrage warten. Kommt nichts zurück (Migration fehlt, offline), bleibt der
+letzte bekannte Stand. Gerüst GmbH (Arbnor) läuft auf den Standardwerten; die Vorführung bei anderen Firmen auf `regie`/`voll`/`an`.
+Marken im Git: `stand-vor-wochenblatt` (15.09., nur Regie-Ablauf) und `stand-wochenblatt` (17.09.).
+
 ## Erfassung wie das Wochenblatt (16.09.)
 
 Je Person zwei Werte: **Normal** (Standard 8.4 h = `NORMALTAG_MIN`, Obergrenze) und **Überstunden** (Standard 0),

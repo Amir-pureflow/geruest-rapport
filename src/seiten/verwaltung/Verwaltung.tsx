@@ -5,14 +5,16 @@ import { Teams } from './Teams';
 import { Kunden } from './Kunden';
 import { Baustellen } from './Baustellen';
 import { Demo } from './Demo';
+import { Einstellungen } from './Einstellungen';
 
-type Tab = 'mitarbeiter' | 'teams' | 'kunden' | 'baustellen' | 'demo';
+type Tab = 'mitarbeiter' | 'teams' | 'kunden' | 'baustellen' | 'einstellungen' | 'demo';
 
 const TABS: [Tab, string][] = [
   ['mitarbeiter', 'Mitarbeitende'],
   ['teams', 'Teams'],
   ['kunden', 'Kunden'],
   ['baustellen', 'Baustellen'],
+  ['einstellungen', 'Einstellungen'],
   ['demo', 'Demo'],
 ];
 
@@ -40,6 +42,7 @@ export function Verwaltung() {
         {tab === 'teams' && <Teams />}
         {tab === 'kunden' && <Kunden />}
         {tab === 'baustellen' && <Baustellen />}
+        {tab === 'einstellungen' && <Einstellungen />}
         {tab === 'demo' && <Demo />}
       </div>
     </Shell>

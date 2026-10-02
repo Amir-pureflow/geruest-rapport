@@ -15,6 +15,8 @@ import { StartChef } from './StartChef';
 import { StartMonteur } from './StartMonteur';
 import { StartSekretariat } from './StartSekretariat';
 import { StartKunde } from './StartKunde';
+import { StartSekretariatVoll } from './StartSekretariatVoll';
+import { einstellungen } from '../lib/einstellungen';
 
 interface Kennzahlen {
   offeneAuftraege: number;
@@ -52,7 +54,7 @@ export function Start() {
   const ansicht = useAnsicht();
   if (ansicht === 'chef') return <StartChef />;
   if (ansicht === 'monteur') return <StartMonteur />;
-  if (ansicht === 'sekretariat') return <StartSekretariat />;
+  if (ansicht === 'sekretariat') return einstellungen().sekretariat === 'voll' ? <StartSekretariatVoll /> : <StartSekretariat />;
   if (ansicht === 'kunde') return <StartKunde />;
   return <StartBauf />;
 }

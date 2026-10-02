@@ -8,6 +8,8 @@
  */
 import { useSyncExternalStore } from 'react';
 
+import { einstellungen } from './einstellungen';
+
 export type Ansicht = 'bauf' | 'chef' | 'monteur' | 'sekretariat' | 'kunde';
 
 export const ANSICHT_KEY = 'ansicht';
@@ -30,15 +32,26 @@ export const ANSICHTEN: { key: Ansicht; titel: string; text: string; gruppe: Gru
 
 export const ANSICHT_LABEL: Record<Ansicht, string> = Object.fromEntries(ANSICHTEN.map((a) => [a.key, a.titel])) as Record<Ansicht, string>;
 
-/** Welche Seiten jede Ansicht überhaupt hat. «/» und «/b/:token» gibt es immer. */
-export const SEITEN: Record<Ansicht, string[]> = {
+/** Welche Seiten jede Ansicht überhaupt hat. «/» und «/b/:token» gibt es immer.
+ *  Das Sekretariat hängt am Schalter MODUS_SEKRETARIAT (Verwaltung → Einstellungen):
+ *  «stunden» = nur Lohnarbeit, «voll» = mit Regie und Zusatzauftrag. */
+const SEITEN_FEST: Record<Ansicht, string[]> = {
   bauf: ['zusatzauftrag', 'erfassung', 'heute', 'cockpit', 'regie', 'auswertung', 'export', 'board', 'verwaltung'],
-  // Sekretariat (Entscheid 17.09.): nur Stunden, Export, Plan, Stammdaten — keine Regie, keine Zusatzaufträge
   sekretariat: ['export', 'board', 'verwaltung'],
   chef: ['erfassung'],
   monteur: [],
   kunde: [],
 };
+
+export function seitenFuer(a: Ansicht): string[] {
+  if (a === 'sekretariat' && einstellungen().sekretariat === 'voll') {
+    return ['zusatzauftrag', 'heute', 'cockpit', 'regie', 'auswertung', 'export', 'board', 'verwaltung'];
+  }
+  return SEITEN_FEST[a];
+}
+
+/** @deprecated — `seitenFuer(a)` nehmen, damit der Firmen-Schalter gilt. */
+export const SEITEN = SEITEN_FEST;
 
 export function ansichtLesen(): Ansicht | null {
   try {
