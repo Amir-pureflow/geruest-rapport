@@ -106,6 +106,14 @@ Amir: «das ist doch gar nicht gut.» Eine neue Firma ist jetzt **eine Zeile und
   Service-Role läuft — die Bauleitung hat kein Konto und soll keines brauchen.
 - Die Edge Functions nutzen die Service-Role und umgehen RLS. Beim Erweitern daran denken: dort muss `firma_id`
   von Hand stimmen.
+- **Dateien** (`0020`): der Eimer `anhaenge` ist über `anhang_gehoert_firma()` abgesichert. Der Pfad verrät den
+  Besitzer (`audio/<client_uuid>`, `fotos/<client_uuid>/`, `rapporte/<rapport_id>`), der hängt an einer Zeile mit
+  Firma. Löschen bleibt gesperrt (Regel #8). Ein neuer Pfad ohne Eintrag in dieser Funktion ist gesperrt — daran
+  denken, wer einen neuen Ordner einführt.
+- **Rapportnummern** (`0020`): je Firma ab 1, eindeutig nur innerhalb der Firma.
+- **Briefkopf auf dem PDF** (`0021`): Spalten `briefkopf_*` in `firma`, gepflegt in Verwaltung → Einstellungen
+  (nur im Regie-Modus sichtbar). Leere Felder fallen auf die globalen `konfiguration.FIRMA_*` zurück. Die beiden
+  Edge Functions `regierapport-pdf` und `regierapport-senden` lesen sie — **nach einer Änderung neu ausliefern**.
 
 ### Die Schalter je Firma
 
@@ -265,7 +273,7 @@ src/ui/FotoGalerie.tsx            Vorschau aus dem Bucket «anhaenge» (signiert
 src/ui/Sprachnotiz.tsx            Pegelbalken während der Aufnahme, Text-Enthüllung nach dem Speichern
 src/ui/Shell.tsx                  Rahmen: Büro-Ansichten mit Bereichsleiste (md) / Seitenleiste (lg), Baustellen-Ansichten Handy-Spalte
 supabase/functions/transkribieren Sprachnotiz → Text (Mistral)
-supabase/migrations/              0001–0015 historisch (inkl. Regie-Tabellen) · 0016 Zeiten von–bis · 0017 Firmen-Schalter (durch 0019 abgelöst) · 0019 mehrere Firmen, Rechte je Firma
+supabase/migrations/              0001–0015 historisch (inkl. Regie-Tabellen) · 0016 Zeiten von–bis · 0017 Firmen-Schalter (durch 0019 abgelöst) · 0019 mehrere Firmen, Rechte je Firma · 0020 Dateien und Rapportnummern je Firma · 0021 Briefkopf je Firma
 archiv/regie-und-board/           Stand vom 20.09. als Nachschlagewerk — nicht mehr die Quelle (Regie ist zurück, hinter Schaltern)
 ```
 
