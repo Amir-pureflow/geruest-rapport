@@ -16,29 +16,29 @@ interface Wahl<K extends keyof Einstellungen> {
 const WAHLEN = [
   {
     feld: 'erfassung',
-    titel: 'Erfassung auf dem Teamgerät',
-    erklaerung: 'Was der Chefmonteur am Abend meldet.',
+    titel: 'Was der Chefmonteur am Abend meldet',
+    erklaerung: 'Auf dem Handy, auf der Baustelle.',
     optionen: [
-      { wert: 'wochenblatt', label: 'Wie das Wochenblatt', text: 'Baustelle, wer war dabei, Normalstunden und Überstunden. Überstunden brauchen eine Sprachnotiz — der Bauführer entscheidet daraus, ob es Regie ist. Nichts anderes.' },
-      { wert: 'regie', label: 'Mit Regie-Ablauf', text: 'Zusätzlich «War etwas anders?» mit den Symbolen zusätzlich gearbeitet, warten müssen, etwas kaputt. Danach «Wer wollte das?», Stunden je Person, Fotos und Sprachnotiz.' },
+      { wert: 'wochenblatt', label: 'Nur die Stunden', text: 'Baustelle, wer war dabei, Stunden. Mehr nicht. Gibt es Überstunden, sagt er kurz ins Mikrofon, warum. Der Bauführer hört es und entscheidet.' },
+      { wert: 'regie', label: 'Stunden und Zusatzarbeit', text: 'Dazu die Frage, ob etwas anders war. Er tippt ein Bild an, sagt wer es wollte, trägt die Stunden je Person ein und macht Fotos.' },
     ],
   } as Wahl<'erfassung'>,
   {
     feld: 'sekretariat',
-    titel: 'Ansicht Sekretariat',
-    erklaerung: 'Was das Sekretariat sieht und bearbeiten kann.',
+    titel: 'Was das Sekretariat sieht',
+    erklaerung: 'Für die Lohnabrechnung braucht es nur einen Teil.',
     optionen: [
-      { wert: 'stunden', label: 'Nur Stunden', text: 'Übersicht mit Stunden je Mitarbeiter, Export fürs Lohn-Excel, Board und Verwaltung. Keine Regierapporte, keine Zusatzaufträge.' },
-      { wert: 'voll', label: 'Mit Regie', text: 'Zusätzlich Zusatzauftrag am Telefon, Tages- und Wochenübersicht, Regierapporte mit Nachfassen und die Auswertung.' },
+      { wert: 'stunden', label: 'Nur die Stunden', text: 'Die Stunden je Mitarbeiter, der Export fürs Lohn-Excel und die Stammdaten. Sonst nichts.' },
+      { wert: 'voll', label: 'Alles wie der Bauführer', text: 'Dazu die Tages- und die Wochenübersicht. Führt die Firma Zusatzarbeit, sieht das Sekretariat auch die Rapporte an die Kunden.' },
     ],
   } as Wahl<'sekretariat'>,
   {
     feld: 'mehrkostenanzeige',
-    titel: 'Mehrkostenanzeige',
-    erklaerung: 'Bausitzungsprotokoll 7.1: «Mehrkosten ohne vorzeitige und schriftliche Anzeige werden nicht entschädigt.»',
+    titel: 'Zusatzarbeit vorher anmelden',
+    erklaerung: 'Viele Bauleitungen zahlen sie nur, wenn sie vor der Arbeit schriftlich angemeldet war.',
     optionen: [
-      { wert: false, label: 'Aus', text: 'Kein Knopf am Zusatzauftrag. Die Firma meldet Mehrkosten auf ihrem eigenen Weg an.' },
-      { wert: true, label: 'An', text: 'Der Zusatzauftrag bekommt «Bauleitung informieren»: eine Mail vor der Arbeit, mit Vermerk wann und an wen.' },
+      { wert: false, label: 'Aus', text: 'Die Firma meldet das selber an, wie bisher. In der App gibt es dafür keinen Knopf.' },
+      { wert: true, label: 'An', text: 'Beim Zusatzauftrag steht «Bauleitung informieren». Ein Tipp schickt die Mail und hält fest, wann und an wen.' },
     ],
   } as Wahl<'mehrkostenanzeige'>,
 ];
@@ -65,12 +65,13 @@ export function Einstellungen() {
   return (
     <div className="space-y-4">
       <p className="text-sm text-ink2">
-        Gilt für diese Firma und alle ihre Geräte. Jede Gerüstbaufirma hat ihre eigene Datenbank — die Schalter hier ändern nichts bei anderen Firmen.
+        Gilt für diese Firma und für alle ihre Geräte. Jede Firma hat ihre eigene Datenbank. Was hier eingestellt wird, ändert bei anderen Firmen nichts.
       </p>
       {ohneDatenbank && !fehler && (
         <p className="rounded-[12px] border border-amber/40 bg-amber-soft px-4 py-2.5 text-sm text-amber-deep">
-          Die Schalter stehen noch nicht in der Datenbank. Bis Migration 0017 eingespielt ist, gilt überall der Standard
-          unten, und Umschalten wird abgewiesen. Die Datei liegt im Repo: supabase/migrations/0017_firma_einstellungen.sql.
+          Diese Einstellungen stehen noch nicht in der Datenbank. Bis Migration 0017 eingespielt ist, gilt überall, was
+          unten angekreuzt ist, und Umschalten wird abgewiesen. Die Datei liegt im Repo unter
+          supabase/migrations/0017_firma_einstellungen.sql.
         </p>
       )}
       {fehler && <p className="rounded-[12px] border border-accent/40 bg-accent-soft px-4 py-2.5 text-sm text-accent-deep">{fehler}</p>}
@@ -105,7 +106,7 @@ export function Einstellungen() {
       ))}
 
       <p className="text-[11px] text-ink3">
-        Nach dem Umschalten lädt die App neu. Schon gespeicherte Meldungen bleiben, wie sie sind — die Wochenübersicht zeigt beide Arten.
+        Nach dem Umschalten lädt die App neu. Was schon gemeldet wurde, bleibt so, wie es ist.
       </p>
     </div>
   );
