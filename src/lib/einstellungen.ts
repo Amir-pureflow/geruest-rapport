@@ -3,7 +3,7 @@
  *
  * Jede Firma arbeitet anders: die eine will nur das Wochenblatt (Normal + Überstunden),
  * die andere den vollen Regie-Ablauf mit Symbolen und Mehrkostenanzeige. Statt zwei Zweigen
- * gibt es Schalter, die in der Verwaltung gesetzt werden (Tabelle `konfiguration`, Migration 0016).
+ * gibt es Schalter, die in der Verwaltung gesetzt werden (Tabelle `konfiguration`, Migration 0017).
  *
  * Gelesen wird einmal beim Start (main.tsx) und danach aus dem Zwischenspeicher — die Erfassung
  * läuft offline und darf nicht auf eine Abfrage warten.
@@ -44,7 +44,7 @@ export function einstellungen(): Einstellungen {
 export async function einstellungenLaden(): Promise<Einstellungen> {
   if (!supabase) return zwischenspeicher;
   const { data } = await supabase.from('konfiguration').select('schluessel,wert').in('schluessel', Object.values(SCHLUESSEL));
-  // Nichts gelesen (Migration 0016 fehlt, RLS, offline)? Dann bleibt der letzte bekannte Stand —
+  // Nichts gelesen (Migration 0017 fehlt, RLS, offline)? Dann bleibt der letzte bekannte Stand —
   // sonst fiele die Firma bei jeder Störung auf die Standardwerte zurück.
   if (!data || data.length === 0) return zwischenspeicher;
   const m = new Map((data as { schluessel: string; wert: string }[]).map((r) => [r.schluessel, r.wert]));
