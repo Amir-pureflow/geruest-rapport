@@ -4,7 +4,7 @@
  * für alle Geräte dieser Firma. Nach dem Umschalten lädt die App neu, damit Menü und Erfassung passen.
  */
 import { useState } from 'react';
-import { einstellungen, einstellungSetzen, type Einstellungen } from '../../lib/einstellungen';
+import { einstellungen, einstellungSetzen, schalterGelesen, type Einstellungen } from '../../lib/einstellungen';
 
 interface Wahl<K extends keyof Einstellungen> {
   feld: K;
@@ -47,6 +47,8 @@ export function Einstellungen() {
   const [werte, setWerte] = useState(einstellungen());
   const [fehler, setFehler] = useState('');
   const [speichert, setSpeichert] = useState<string | null>(null);
+  // Kam beim Start nichts aus der Datenbank, zeigt die Seite unten nur die Standardwerte — das muss dastehen
+  const ohneDatenbank = schalterGelesen() === false;
 
   async function setzen<K extends keyof Einstellungen>(feld: K, wert: Einstellungen[K]) {
     if (werte[feld] === wert || speichert) return;
@@ -65,6 +67,12 @@ export function Einstellungen() {
       <p className="text-sm text-ink2">
         Gilt für diese Firma und alle ihre Geräte. Jede Gerüstbaufirma hat ihre eigene Datenbank — die Schalter hier ändern nichts bei anderen Firmen.
       </p>
+      {ohneDatenbank && !fehler && (
+        <p className="rounded-[12px] border border-amber/40 bg-amber-soft px-4 py-2.5 text-sm text-amber-deep">
+          Die Schalter stehen noch nicht in der Datenbank. Bis Migration 0017 eingespielt ist, gilt überall der Standard
+          unten, und Umschalten wird abgewiesen. Die Datei liegt im Repo: supabase/migrations/0017_firma_einstellungen.sql.
+        </p>
+      )}
       {fehler && <p className="rounded-[12px] border border-accent/40 bg-accent-soft px-4 py-2.5 text-sm text-accent-deep">{fehler}</p>}
 
       {WAHLEN.map((w) => (

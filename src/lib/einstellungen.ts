@@ -25,6 +25,8 @@ const KEY = 'firma-einstellungen';
 const SCHLUESSEL = { erfassung: 'MODUS_ERFASSUNG', mehrkostenanzeige: 'MODUS_MEHRKOSTENANZEIGE', sekretariat: 'MODUS_SEKRETARIAT' } as const;
 
 let zwischenspeicher: Einstellungen = lesenLokal();
+/** Hat die Datenbank beim letzten Versuch die Schalter geliefert? null = noch nicht versucht oder offline. */
+let gelesen: boolean | null = null;
 
 function lesenLokal(): Einstellungen {
   try {
@@ -40,13 +42,23 @@ export function einstellungen(): Einstellungen {
   return zwischenspeicher;
 }
 
+/**
+ * Standen die Schalter beim letzten Laden wirklich in der Datenbank?
+ * `false` heisst fast immer: Migration 0017 ist im Supabase-Projekt noch nicht eingespielt.
+ * Dann gilt überall der Standard — das darf die Verwaltung nicht verschweigen.
+ */
+export function schalterGelesen(): boolean | null {
+  return gelesen;
+}
+
 /** Beim Start aus der Datenbank nachladen (und für den nächsten Start merken). */
 export async function einstellungenLaden(): Promise<Einstellungen> {
   if (!supabase) return zwischenspeicher;
   const { data } = await supabase.from('konfiguration').select('schluessel,wert').in('schluessel', Object.values(SCHLUESSEL));
   // Nichts gelesen (Migration 0017 fehlt, RLS, offline)? Dann bleibt der letzte bekannte Stand —
   // sonst fiele die Firma bei jeder Störung auf die Standardwerte zurück.
-  if (!data || data.length === 0) return zwischenspeicher;
+  if (!data || data.length === 0) { gelesen = false; return zwischenspeicher; }
+  gelesen = true;
   const m = new Map((data as { schluessel: string; wert: string }[]).map((r) => [r.schluessel, r.wert]));
   const neu: Einstellungen = {
     erfassung: m.get(SCHLUESSEL.erfassung) === 'regie' ? 'regie' : 'wochenblatt',
@@ -63,7 +75,11 @@ export async function einstellungSetzen<K extends keyof Einstellungen>(feld: K, 
   if (!supabase) return 'Keine Datenverbindung.';
   const text = feld === 'mehrkostenanzeige' ? (wert ? 'an' : 'aus') : String(wert);
   const { error } = await supabase.from('konfiguration').upsert({ schluessel: SCHLUESSEL[feld], wert: text }, { onConflict: 'schluessel' });
-  if (error) return error.message;
+  // Ohne Migration 0017 hat die Tabelle gar keine Policy: Schreiben wird abgewiesen, Lesen gibt leer zurück.
+  // Den Postgres-Satz übersetzen, sonst sucht man den Fehler in der App statt in der Datenbank.
+  if (error) return /row-level security|permission denied/i.test(error.message)
+    ? 'Die Datenbank lässt das nicht zu: Migration 0017 ist noch nicht eingespielt. Sie steht im Repo unter supabase/migrations/0017_firma_einstellungen.sql und muss einmal im SQL-Editor laufen.'
+    : error.message;
   zwischenspeicher = { ...zwischenspeicher, [feld]: wert };
   try { localStorage.setItem(KEY, JSON.stringify(zwischenspeicher)); } catch { /* egal */ }
   return null;
