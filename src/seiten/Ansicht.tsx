@@ -4,7 +4,7 @@
  */
 import { useNavigate } from 'react-router-dom';
 import { Marke, Wortmarke } from '../ui/Shell';
-import { ANSICHTEN, GRUPPEN, ansichtSetzen, useAnsicht, type Ansicht } from '../lib/ansicht';
+import { ansichten, gruppen, ansichtSetzen, useAnsicht, type Ansicht } from '../lib/ansicht';
 import { supabase } from '../lib/supabase';
 import { HardHat, ClipboardList, Users, User, Handshake, ChevronRight, type LucideIcon } from 'lucide-react';
 
@@ -30,10 +30,10 @@ export function Ansicht({ hinweis }: { hinweis?: string }) {
         </div>
 
         <div className="grid gap-6 md:grid-cols-2 lg:gap-8">
-          {GRUPPEN.map((g) => (
+          {gruppen().map((g) => (
             <section key={g.key} className="space-y-2.5">
               <p className="lbl mb-0">{g.titel} <span className="normal-case tracking-normal text-ink3/70">· {g.text}</span></p>
-              {ANSICHTEN.filter((a) => a.gruppe === g.key).map((a) => (
+              {ansichten().filter((a) => a.gruppe === g.key).map((a) => (
                 <button
                   key={a.key}
                   type="button"

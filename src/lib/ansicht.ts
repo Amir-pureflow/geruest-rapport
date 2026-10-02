@@ -6,7 +6,8 @@
  * Rechte werden damit in der Oberfläche gesteuert, nicht auf dem Server. Für den Pilot mit
  * echten Leuten ist das bewusst so — für echte Kundendaten muss ein Login zurück.
  *
- * Die Ansicht «Kunde» (Kundenlink für Regierapporte) ist seit 20.09. weg — mit der ganzen Regie.
+ * Die Ansicht «Kunde» (Kundenlink für Regierapporte) gibt es nur, wenn die Firma mit Regie arbeitet
+ * (Firmen-Schalter `MODUS_ERFASSUNG`, Verwaltung → Einstellungen, 02.10.2026).
  */
 import { useSyncExternalStore } from 'react';
 import { einstellungen } from './einstellungen';
@@ -22,8 +23,16 @@ const GRUPPEN_ALLE: { key: Gruppe; titel: string; text: string }[] = [
   { key: 'baustelle', titel: 'Auf der Baustelle', text: 'am Handy' },
   { key: 'extern', titel: 'Extern', text: 'per Link' },
 ];
-/** «Extern» gibt es nur, wenn die Firma mit Regie arbeitet — sonst gibt es keinen Kundenlink. */
-export const GRUPPEN = GRUPPEN_ALLE.filter((g) => g.key !== 'extern' || einstellungen().erfassung === 'regie');
+/**
+  * «Extern» gibt es nur, wenn die Firma mit Regie arbeitet — sonst gibt es keinen Kundenlink.
+  *
+  * Absichtlich eine Funktion, keine Konstante: die Schalter werden beim Start aus der Datenbank
+  * nachgeladen (`einstellungenLaden()` in main.tsx). Eine Konstante stünde schon fest, bevor das
+  * passiert ist, und wäre beim ersten Besuch auf einem neuen Gerät falsch.
+  */
+export function gruppen() {
+  return GRUPPEN_ALLE.filter((g) => g.key !== 'extern' || einstellungen().erfassung === 'regie');
+}
 
 const ANSICHTEN_ALLE: { key: Ansicht; titel: string; text: string; gruppe: Gruppe }[] = [
   { key: 'bauf', titel: 'Bauführer', text: 'Prüfen, freigeben, in SORBA übertragen', gruppe: 'buero' },
@@ -33,10 +42,13 @@ const ANSICHTEN_ALLE: { key: Ansicht; titel: string; text: string; gruppe: Grupp
   { key: 'kunde', titel: 'Kunde', text: 'Bauleitung bestätigt den Regierapport per Link', gruppe: 'extern' },
 ];
 
-/** Die Ansicht «Kunde» gibt es nur im Regie-Modus (Firmen-Schalter MODUS_ERFASSUNG). */
-export const ANSICHTEN = ANSICHTEN_ALLE.filter((a) => a.key !== 'kunde' || einstellungen().erfassung === 'regie');
+/** Die Ansicht «Kunde» gibt es nur im Regie-Modus (Firmen-Schalter MODUS_ERFASSUNG). Siehe `gruppen()`. */
+export function ansichten() {
+  return ANSICHTEN_ALLE.filter((a) => a.key !== 'kunde' || einstellungen().erfassung === 'regie');
+}
 
-export const ANSICHT_LABEL: Record<Ansicht, string> = Object.fromEntries(ANSICHTEN.map((a) => [a.key, a.titel])) as Record<Ansicht, string>;
+/** Beschriftung für alle Ansichten — hängt nicht an den Schaltern, darum eine Tabelle. */
+export const ANSICHT_LABEL: Record<Ansicht, string> = Object.fromEntries(ANSICHTEN_ALLE.map((a) => [a.key, a.titel])) as Record<Ansicht, string>;
 
 /** Welche Seiten jede Ansicht ohne Regie hat. «/» gibt es immer. */
 const SEITEN_BASIS: Record<Ansicht, string[]> = {
@@ -70,7 +82,7 @@ export const SEITEN = SEITEN_BASIS;
 export function ansichtLesen(): Ansicht | null {
   try {
     const a = localStorage.getItem(ANSICHT_KEY);
-    return ANSICHTEN.some((x) => x.key === a) ? (a as Ansicht) : null;
+    return ansichten().some((x) => x.key === a) ? (a as Ansicht) : null;
   } catch {
     return null;
   }

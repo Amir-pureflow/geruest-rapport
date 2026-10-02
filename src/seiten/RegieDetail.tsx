@@ -1,0 +1,759 @@
+import { useCallback, useEffect, useMemo, useState, type ChangeEvent } from 'react';
+import { Link, useNavigate, useParams } from 'react-router-dom';
+import { Shell } from '../ui/Shell';
+import { FotoGalerie } from '../ui/FotoGalerie';
+import { fotoVerkleinern } from '../lib/foto';
+import { supabase } from '../lib/supabase';
+import { formatChf, materialmiete, tarifNachCode, positionBetrag, ETAPPE_MIN_RAPPEN } from '../lib/tarif';
+import { ausIso, lang } from '../lib/datum';
+import { taetigkeitText } from '../lib/zusatzauftrag';
+
+/**
+ * Phase 4 — der einzelne Regierapport:
+ * Positionen prüfen, Etappe/Materialmiete zuschalten, SORBA-PDF anhängen,
+ * versenden (fester Betreff, Frist +3 Tage), danach die Zustell-Chronik.
+ * Der verbindliche Beleg bleibt das SORBA-Dokument im Anhang.
+ */
+
+interface Rapport {
+  id: string;
+  status: string;
+  nummer: string | null;
+  betrag_rappen: number | null;
+  frist_bis: string | null;
+  versendet_am: string | null;
+  bestaetigt_am: string | null;
+  empfaenger_email: string | null;
+  anhang_pfad: string | null;
+  link_token: string;
+  /** Leistungsbeschrieb für SORBA und den Kunden — Vorschlag aus Sprachnotiz und Positionen, vom Bauführer geprüft */
+  beschrieb: string | null;
+  beschrieb_quelle: 'ki' | 'hand' | null;
+  baustelle: { bezeichnung: string | null; konto_nr: string; kunde: { email: string | null; ansprechperson: string | null } | null } | null;
+  /** Ursprung: die Tagesmeldung, aus der der Rapport gerechnet wurde (bei alten Rapporten evtl. leer). */
+  tagesmeldung: {
+    id: string;
+    datum: string;
+    abweichung_typ: string | null;
+    wer_hats_gewollt: string | null;
+    transkript: string | null;
+    transkript_quelle: string | null;
+    transkript_sprache: string | null;
+    audio_pfad: string | null;
+    audio_sekunden: number | null;
+    team: { id: string; bezeichnung: string; chefmonteur: { name: string } | null } | null;
+    zeiteintrag: { normal_min: number; ueber_min: number; status: string; mitarbeiter: { name: string } | null }[];
+    foto: { id: string; pfad: string }[];
+  } | null;
+  /** Vom Bauführer nachgereichte Bilder direkt am Rapport */
+  foto: { id: string; pfad: string }[];
+  zusatzauftrag: { besteller_name: string; kanal: string; taetigkeit: string; geplant_fuer: string | null; bestellt_am: string; notiz: string | null } | null;
+}
+
+const STATUS_STIL: Record<string, string> = {
+  entwurf: 'bg-surface-2 text-ink2',
+  versendet: 'bg-amber-soft text-amber-deep',
+  rueckfrage: 'bg-amber-soft text-amber-deep',
+  frist_abgelaufen: 'bg-accent-soft text-accent-deep',
+  bestaetigt: 'bg-good-soft text-good-deep',
+};
+const STATUS_TEXT: Record<string, string> = {
+  entwurf: 'Entwurf',
+  versendet: 'versendet',
+  bestaetigt: 'bestätigt',
+  rueckfrage: 'Rückfrage',
+  frist_abgelaufen: 'Frist abgelaufen',
+};
+
+const ABWEICHUNG_TEXT: Record<string, string> = { zusaetzlich: 'zusätzliche Arbeit', warten: 'Wartezeit', kaputt: 'etwas kaputt', laenger: 'länger gearbeitet' };
+const WER_TEXT: Record<string, string> = { kunde: 'der Kunde wollte es', chef: 'der Chef wollte es', niemand: 'niemand hat es verlangt' };
+const KANAL_TEXT: Record<string, string> = { telefon: 'per Telefon', mail: 'per Mail', vor_ort: 'vor Ort' };
+
+/** «Do 10.9.2026» aus einem ISO-Datum */
+function tagKurz(isoDatum: string): string {
+  return lang(ausIso(isoDatum.slice(0, 10)));
+}
+
+/** «Di 9.9.2026, 14:32» aus einem Zeitstempel */
+function zeitstempel(ts: string): string {
+  const d = new Date(ts);
+  return `${lang(d)}, ${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}`;
+}
+
+interface Position {
+  id: string;
+  tarif_code: string;
+  bezeichnung: string;
+  menge_hundertstel: number;
+  ansatz_rappen: number;
+  betrag_rappen: number;
+}
+
+const FIXE_POSITIONEN = new Set(['etappe', 'materialmiete']);
+
+interface LogZeile {
+  id: string;
+  ereignis: string;
+  zeitpunkt: string;
+  an: string;
+  /** Bei «rueckfrage»: der Text, den die Bauleitung geschrieben hat */
+  detail: { kommentar?: string } | null;
+}
+
+const EREIGNIS_LABEL: Record<string, string> = {
+  gesendet: 'Mail gesendet',
+  zugestellt: 'zugestellt',
+  geoeffnet: 'geöffnet',
+  link_geklickt: 'Link geöffnet',
+  bestaetigt: 'vom Kunden bestätigt',
+  rueckfrage: 'Rückfrage des Kunden',
+  erinnert: 'Erinnerung gesendet',
+  korrektur: 'zurück auf Entwurf zum Korrigieren',
+};
+
+export function RegieDetail() {
+  const { id } = useParams();
+  const [rapport, setRapport] = useState<Rapport | null>(null);
+
+  const [transkriptLaeuft, setTranskriptLaeuft] = useState(false);
+  async function transkribieren(meldungId: string) {
+    if (!supabase) return;
+    setTranskriptLaeuft(true);
+    const { data, error } = await supabase.functions.invoke('transkribieren', { body: { tagesmeldung_id: meldungId, erneut: true } });
+    const f = (data as { fehler?: string } | null)?.fehler ?? error?.message;
+    if (f) setFehler('Text konnte nicht erstellt werden: ' + f);
+    setTranskriptLaeuft(false);
+    void laden();
+  }
+  /** Laden und «gibt es nicht» sind zwei verschiedene Dinge — nie ewig «Lädt …» zeigen. */
+  const [zustand, setZustand] = useState<'laedt' | 'bereit' | 'fehlt'>('laedt');
+  const [positionen, setPositionen] = useState<Position[]>([]);
+  const [logs, setLogs] = useState<LogZeile[]>([]);
+  const [empfaenger, setEmpfaenger] = useState('');
+  const [sendet, setSendet] = useState(false);
+  const [fehler, setFehler] = useState('');
+  const [kopiert, setKopiert] = useState(false);
+  // Leistungsbeschrieb: Entwurf im Feld, Vorschlag aus der Edge Function, gespeichert erst auf Knopfdruck
+  const [beschrieb, setBeschrieb] = useState('');
+  const [beschriebLaeuft, setBeschriebLaeuft] = useState(false);
+  // PDF wie der SORBA-Ausdruck: erzeugt der Server, öffnet in neuem Tab
+  const [pdfLaeuft, setPdfLaeuft] = useState(false);
+  async function pdfAnsehen() {
+    if (!supabase || !rapport || pdfLaeuft) return;
+    setPdfLaeuft(true);
+    const fenster = window.open('', '_blank');
+    const { data, error } = await supabase.functions.invoke('regierapport-pdf', { body: { regierapport_id: rapport.id, basis_url: window.location.origin } });
+    setPdfLaeuft(false);
+    if (error || !data?.url) { fenster?.close(); setFehler('PDF konnte nicht erstellt werden: ' + (data?.fehler ?? error?.message ?? '')); return; }
+    if (fenster) fenster.location.href = data.url; else window.open(data.url, '_blank');
+  }
+  const [beschriebInfo, setBeschriebInfo] = useState('');
+  const [beschriebKopiert, setBeschriebKopiert] = useState(false);
+
+  async function beschriebVorschlagen() {
+    if (!supabase || !rapport) return;
+    setBeschriebLaeuft(true);
+    setBeschriebInfo('');
+    const { data, error } = await supabase.functions.invoke('beschrieb-vorschlagen', { body: { regierapport_id: rapport.id } });
+    let antwortFehler: string | undefined;
+    if (error && 'context' in error && error.context instanceof Response) {
+      try { antwortFehler = ((await error.context.json()) as { fehler?: string }).fehler; } catch { /* keine JSON-Antwort */ }
+    }
+    if (error || !data?.beschrieb) {
+      setBeschriebInfo('Vorschlag nicht möglich: ' + (antwortFehler ?? data?.fehler ?? error?.message ?? 'unbekannter Fehler'));
+    } else {
+      setBeschrieb(data.beschrieb);
+      const q = data.quellen as { transkript: boolean; zusatzauftrag: boolean; fotos: number } | undefined;
+      setBeschriebInfo(`Vorschlag aus ${[q?.transkript ? 'Sprachnotiz' : null, 'Positionen', q?.zusatzauftrag ? 'Zusatzauftrag' : null].filter(Boolean).join(', ')}${q?.transkript ? '' : ' (keine Sprachnotiz vorhanden)'} — bitte lesen und anpassen, dann speichern.`);
+    }
+    setBeschriebLaeuft(false);
+  }
+  async function beschriebSpeichern(quelle: 'ki' | 'hand') {
+    if (!supabase || !rapport) return;
+    const text = beschrieb.trim();
+    const { error } = await supabase.from('regierapport').update({ beschrieb: text || null, beschrieb_quelle: text ? quelle : null }).eq('id', rapport.id);
+    if (error) { setBeschriebInfo('Speichern fehlgeschlagen: ' + error.message); return; }
+    setBeschriebInfo(text ? 'Gespeichert ✓ — steht jetzt in der Kundenmail und auf dem Kundenlink.' : 'Beschrieb entfernt.');
+    void laden();
+  }
+  function beschriebKopieren() {
+    void navigator.clipboard.writeText(beschrieb.trim()).then(() => {
+      setBeschriebKopiert(true);
+      setTimeout(() => setBeschriebKopiert(false), 2000);
+    });
+  }
+  const [verwerfenFrage, setVerwerfenFrage] = useState(false);
+  const navigiere = useNavigate();
+
+  /** Entwurf verwerfen: nur solange nichts verschickt ist. Positionen, nachgereichte Bilder und der Rapport selbst gehen weg;
+   *  die Meldung des Teams und deren Fotos bleiben unberührt (Beleg). */
+  async function entwurfVerwerfen() {
+    if (!supabase || !id || rapport?.status !== 'entwurf') return;
+    // Dateien im Bucket bleiben liegen (Regel #8, Migration 0009 erlaubt kein Löschen) — nur die Verweise gehen weg.
+    await supabase.from('foto').delete().eq('regierapport_id', id);
+    await supabase.from('regie_position').delete().eq('regierapport_id', id);
+    await supabase.from('zustellung_log').delete().eq('regierapport_id', id);
+    const { error } = await supabase.from('regierapport').delete().eq('id', id);
+    if (error) { setFehler('Verwerfen: ' + error.message); return; }
+    navigiere('/regie');
+  }
+  const [audioUrl, setAudioUrl] = useState<string | null>(null);
+
+  /** Nach einer Rückfrage korrigieren: zurück auf Entwurf. Nummer und Kundenlink bleiben, der Verlauf auch —
+   *  beim nächsten Senden entsteht ein neues PDF und ein neuer Eintrag «Mail gesendet». */
+  async function korrigieren() {
+    if (!supabase || !id || rapport?.status !== 'rueckfrage') return;
+    const { error } = await supabase.from('regierapport').update({ status: 'entwurf', frist_bis: null }).eq('id', id);
+    if (error) { setFehler('Korrigieren: ' + error.message); return; }
+    const { error: logFehler } = await supabase.from('zustellung_log').insert({ regierapport_id: id, an: rapport.empfaenger_email ?? 'kunde', ereignis: 'korrektur' });
+    if (logFehler) setFehler('Zurück auf Entwurf, aber der Verlauf konnte nicht ergänzt werden: ' + logFehler.message);
+    void laden();
+  }
+
+  const [fotoLaedt, setFotoLaedt] = useState(false);
+  /** Bilder nachreichen — z. B. vom Bauführer selbst gemacht oder per Mail vom Team bekommen. */
+  async function fotosNachreichen(e: ChangeEvent<HTMLInputElement>) {
+    const dateien = e.target.files;
+    e.target.value = '';
+    if (!supabase || !id || !dateien || dateien.length === 0) return;
+    setFotoLaedt(true);
+    const { data: u } = await supabase.auth.getUser();
+    for (const datei of Array.from(dateien).slice(0, 6)) {
+      try {
+        const blob = await fotoVerkleinern(datei);
+        const fid = crypto.randomUUID();
+        const pfad = `fotos/rapport/${id}/${fid}.jpg`;
+        // Kein upsert: der Bucket erlaubt kein Überschreiben; «existiert schon» zählt als Erfolg.
+        const { error: e1 } = await supabase.storage.from('anhaenge').upload(pfad, blob, { upsert: false, contentType: 'image/jpeg' });
+        if (e1 && !/already exists|409/i.test(e1.message)) { setFehler('Foto: ' + e1.message); break; }
+        const { error: e2 } = await supabase.from('foto').insert({ id: fid, regierapport_id: id, pfad, erstellt_von: u.user?.id ?? null });
+        if (e2) { setFehler('Foto: ' + e2.message); break; }
+      } catch {
+        setFehler('Ein Bild konnte nicht gelesen werden.');
+      }
+    }
+    setFotoLaedt(false);
+    void laden();
+  }
+
+  async function sprachnotizAnhoeren(pfad: string) {
+    if (!supabase) return;
+    const { data } = await supabase.storage.from('anhaenge').createSignedUrl(pfad, 300);
+    if (data?.signedUrl) setAudioUrl(data.signedUrl);
+  }
+
+  const laden = useCallback(async () => {
+    if (!supabase || !id) return;
+    const c = supabase;
+    // Transkript-Spalten kommen mit Migration 0009 — fehlen sie noch, ohne sie laden
+    const auswahl = (mitTranskript: boolean) =>
+      'id,status,nummer,betrag_rappen,frist_bis,versendet_am,bestaetigt_am,empfaenger_email,anhang_pfad,link_token,beschrieb,beschrieb_quelle,baustelle:baustelle_id(bezeichnung,konto_nr,kunde:kunde_id(email,ansprechperson)),tagesmeldung:tagesmeldung_id(id,datum,abweichung_typ,wer_hats_gewollt,transkript,' +
+      (mitTranskript ? 'transkript_quelle,transkript_sprache,' : '') +
+      'audio_pfad,audio_sekunden,team:team_id(id,bezeichnung,chefmonteur:chefmonteur_id(name)),zeiteintrag(normal_min,ueber_min,status,mitarbeiter:mitarbeiter_id(name)),foto(id,pfad)),foto(id,pfad),zusatzauftrag:zusatzauftrag_id(besteller_name,kanal,taetigkeit,geplant_fuer,bestellt_am,notiz)';
+    const rapportLaden = async () => {
+      const erst = await c.from('regierapport').select(auswahl(true)).eq('id', id).single();
+      if (erst.error && /transkript_\w+ does not exist/.test(erst.error.message)) return c.from('regierapport').select(auswahl(false)).eq('id', id).single();
+      return erst;
+    };
+    const [r, p, l] = await Promise.all([
+      rapportLaden(),
+      supabase.from('regie_position').select('id,tarif_code,bezeichnung,menge_hundertstel,ansatz_rappen,betrag_rappen').eq('regierapport_id', id),
+      supabase.from('zustellung_log').select('id,ereignis,zeitpunkt,an,detail').eq('regierapport_id', id).order('zeitpunkt'),
+    ]);
+    if (r.error || !r.data) {
+      setRapport(null);
+      setZustand('fehlt');
+      return;
+    }
+    const rp = r.data as unknown as Rapport;
+    setBeschrieb(rp.beschrieb ?? '');
+    setRapport(rp);
+    if (rp.empfaenger_email) setEmpfaenger(rp.empfaenger_email);
+    else if (rp.baustelle?.kunde?.email) setEmpfaenger(rp.baustelle.kunde.email);
+    if (p.data) setPositionen(p.data);
+    if (l.data) setLogs(l.data);
+    setZustand('bereit');
+  }, [id]);
+
+  useEffect(() => {
+    void laden();
+  }, [laden]);
+
+  const basis = useMemo(
+    () => positionen.filter((p) => p.tarif_code !== 'materialmiete').reduce((s, p) => s + p.betrag_rappen, 0),
+    [positionen],
+  );
+  const mieteZeile = positionen.find((p) => p.tarif_code === 'materialmiete');
+  const etappeZeile = positionen.find((p) => p.tarif_code === 'etappe');
+  const fahrzeugZeile = positionen.find((p) => p.tarif_code === 'lieferwagen_35');
+  const total = basis + (mieteZeile?.betrag_rappen ?? 0);
+  const entwurf = rapport?.status === 'entwurf';
+
+  /** Miete hängt von der Zwischensumme ab — nach jedem Umschalten neu rechnen. */
+  async function betragAktualisieren() {
+    if (!supabase || !id) return;
+    const { data: p } = await supabase
+      .from('regie_position')
+      .select('id,tarif_code,betrag_rappen')
+      .eq('regierapport_id', id);
+    const zeilen = p ?? [];
+    const neuBasis = zeilen
+      .filter((x) => x.tarif_code !== 'materialmiete')
+      .reduce((s, x) => s + x.betrag_rappen, 0);
+    const miete = zeilen.find((x) => x.tarif_code === 'materialmiete');
+    if (miete) {
+      const neu = materialmiete(neuBasis);
+      await supabase.from('regie_position').update({ betrag_rappen: neu, ansatz_rappen: neu }).eq('id', miete.id);
+    }
+    const { data: p2 } = await supabase.from('regie_position').select('betrag_rappen').eq('regierapport_id', id);
+    const totalNeu = (p2 ?? []).reduce((s, x) => s + x.betrag_rappen, 0);
+    await supabase.from('regierapport').update({ betrag_rappen: totalNeu }).eq('id', id);
+    void laden();
+  }
+
+  async function etappeUmschalten() {
+    if (!supabase || !id || !entwurf) return;
+    if (etappeZeile) {
+      await supabase.from('regie_position').delete().eq('id', etappeZeile.id);
+    } else {
+      await supabase.from('regie_position').insert({
+        regierapport_id: id,
+        tarif_code: 'etappe',
+        bezeichnung: 'Etappenzuschlag',
+        menge_hundertstel: 100,
+        ansatz_rappen: ETAPPE_MIN_RAPPEN,
+        betrag_rappen: ETAPPE_MIN_RAPPEN,
+      });
+    }
+    await betragAktualisieren();
+  }
+
+  /** Der Lieferwagen ist im Regiefall eine Preisposition wie eine Arbeitsstunde — und wird heute leicht vergessen. */
+  async function fahrzeugUmschalten() {
+    if (!supabase || !id || !entwurf) return;
+    if (fahrzeugZeile) {
+      await supabase.from('regie_position').delete().eq('id', fahrzeugZeile.id);
+    } else {
+      const ansatz = tarifNachCode('lieferwagen_35').ansatz_rappen;
+      await supabase.from('regie_position').insert({
+        regierapport_id: id,
+        tarif_code: 'lieferwagen_35',
+        bezeichnung: 'Lieferwagen bis 3,5 t · 1.0 h',
+        menge_hundertstel: 100,
+        ansatz_rappen: ansatz,
+        betrag_rappen: ansatz,
+      });
+    }
+    await betragAktualisieren();
+  }
+
+  /**
+   * «Wie viel davon ist Regie?» — das entscheidet der Bauführer, nicht das System.
+   * Stunden pro Position in Halbstundenschritten anpassen; Betrag rechnet nach Tarif.
+   */
+  async function stundenAnpassen(p: Position, deltaHundertstel: number) {
+    if (!supabase || !id || !entwurf) return;
+    const menge = Math.max(0, p.menge_hundertstel + deltaHundertstel);
+    if (menge === p.menge_hundertstel) return;
+    const betrag = positionBetrag({ code: p.tarif_code, bezeichnung: p.bezeichnung, mengeHundertstel: menge, ansatzRappen: p.ansatz_rappen });
+    const bezeichnung = p.bezeichnung.replace(/\d+(\.\d)? h$/, `${(menge / 100).toFixed(1)} h`);
+    await supabase.from('regie_position').update({ menge_hundertstel: menge, betrag_rappen: betrag, bezeichnung }).eq('id', p.id);
+    await betragAktualisieren();
+  }
+
+  async function mieteUmschalten() {
+    if (!supabase || !id || !entwurf) return;
+    if (mieteZeile) {
+      await supabase.from('regie_position').delete().eq('id', mieteZeile.id);
+    } else {
+      const betrag = materialmiete(basis);
+      await supabase.from('regie_position').insert({
+        regierapport_id: id,
+        tarif_code: 'materialmiete',
+        bezeichnung: 'Materialmiete 9 %',
+        menge_hundertstel: 100,
+        ansatz_rappen: betrag,
+        betrag_rappen: betrag,
+      });
+    }
+    await betragAktualisieren();
+  }
+
+  async function anhangWaehlen(e: ChangeEvent<HTMLInputElement>) {
+    const datei = e.target.files?.[0];
+    if (!supabase || !id || !datei) return;
+    // Eindeutiger Pfad pro Upload: der Bucket erlaubt kein Überschreiben (Belege bleiben).
+    const pfad = `${id}/${Date.now()}-${datei.name}`;
+    const { error } = await supabase.storage.from('anhaenge').upload(pfad, datei, { upsert: false });
+    if (error && !/already exists|409/i.test(error.message)) {
+      setFehler('Anhang: ' + error.message);
+      return;
+    }
+    await supabase.from('regierapport').update({ anhang_pfad: pfad }).eq('id', id);
+    void laden();
+  }
+
+  async function senden() {
+    if (!supabase || !id) return;
+    setFehler('');
+    if (!empfaenger.trim().includes('@')) {
+      setFehler('E-Mail der Bauleitung eintragen.');
+      return;
+    }
+    setSendet(true);
+    const { data, error } = await supabase.functions.invoke('regierapport-senden', {
+      body: { regierapport_id: id, empfaenger_email: empfaenger.trim(), basis_url: window.location.origin },
+    });
+    setSendet(false);
+    let antwortFehler = (data as { fehler?: string } | null)?.fehler;
+    // Bei einem Fehlerstatus steckt der Grund im Antworttext, nicht in error.message.
+    if (!antwortFehler && error && 'context' in error && error.context instanceof Response) {
+      try {
+        const j = (await error.context.json()) as { fehler?: string };
+        antwortFehler = j.fehler;
+      } catch { /* kein JSON */ }
+    }
+    if (error || antwortFehler) {
+      setFehler(antwortFehler ?? error?.message ?? 'Versand fehlgeschlagen.');
+      return;
+    }
+    void laden();
+  }
+
+  function linkKopieren() {
+    if (!rapport) return;
+    void navigator.clipboard
+      .writeText(`${window.location.origin}/b/${rapport.link_token}`)
+      .then(() => {
+        setKopiert(true);
+        setTimeout(() => setKopiert(false), 2000);
+      });
+  }
+
+  if (!rapport || zustand !== 'bereit') {
+    return (
+      <Shell zurueck schmal>
+        {zustand === 'fehlt' || !supabase || !id ? (
+          <div className="card space-y-3">
+            <p className="font-display font-semibold">Dieser Regierapport existiert nicht mehr.</p>
+            <p className="text-sm text-ink3">Vielleicht wurde der Entwurf verworfen oder der Link ist veraltet.</p>
+            <Link to="/regie" className="btn-ghost inline-block">Zu den Regierapporten ›</Link>
+          </div>
+        ) : (
+          <div className="card text-sm text-ink3">Lädt …</div>
+        )}
+      </Shell>
+    );
+  }
+
+  return (
+    <Shell zurueck schmal krume={rapport.nummer ?? 'Regierapport'}>
+      <div className="space-y-6">
+        <header className="flex items-start justify-between gap-4">
+          <div className="min-w-0">
+            <p className="lbl mb-1">Regierapport{rapport.nummer ? ` ${rapport.nummer}` : ''}</p>
+            <h1 className="text-[26px] font-semibold tracking-tight lg:text-[28px]">
+              {rapport.baustelle?.bezeichnung ?? '—'}
+            </h1>
+            <p className="mt-1.5 flex flex-wrap items-center gap-2 text-sm text-ink3">
+              {rapport.baustelle && <span className="knr">{rapport.baustelle.konto_nr}</span>}
+              {rapport.frist_bis && rapport.status === 'versendet' && (
+                <span>Frist bis {lang(ausIso(rapport.frist_bis))}</span>
+              )}
+            </p>
+          </div>
+          <span className={'shrink-0 rounded-full px-2.5 py-1 text-xs font-medium ' + (STATUS_STIL[rapport.status] ?? 'bg-surface-2 text-ink2')}>
+            {STATUS_TEXT[rapport.status] ?? rapport.status}
+          </span>
+        </header>
+
+        {/* Rückfrage der Bauleitung: der Text steht im zustellung_log — hier zuoberst, sonst sieht ihn niemand */}
+        {(() => {
+          // Offen ist eine Rückfrage, solange nach ihr nicht nochmals gesendet wurde — auch wenn der Rapport wieder Entwurf ist
+          const rf = [...logs].reverse().find((l) => l.ereignis === 'rueckfrage');
+          const letzteSendung = [...logs].reverse().find((l) => l.ereignis === 'gesendet');
+          const offen = !!rf && rapport.status !== 'bestaetigt' && !(letzteSendung && letzteSendung.zeitpunkt > rf.zeitpunkt);
+          if (!offen) return null;
+          return (
+            <section className="rounded-[14px] border border-amber/40 bg-amber-soft/60 px-4 py-3 space-y-1.5">
+              <p className="text-sm font-semibold text-amber-deep">Rückfrage der Bauleitung · {zeitstempel(rf!.zeitpunkt)}</p>
+              {rf!.detail?.kommentar
+                ? <p className="rounded-[10px] bg-surface px-3 py-2 text-sm italic">«{rf!.detail.kommentar}»</p>
+                : <p className="text-sm text-ink2">Ohne Text.</p>}
+              {rapport.status === 'entwurf' ? (
+                <p className="text-xs text-ink2">Der Rapport ist zurück auf Entwurf. Positionen anpassen und unten nochmals senden — damit ist die Rückfrage beantwortet. Nummer und Kundenlink bleiben gleich.</p>
+              ) : (
+                <>
+                  <p className="text-xs text-ink2">
+                    Antworten per Mail oder Telefon{rapport.empfaenger_email ? ` (${rapport.empfaenger_email})` : ''}. Stimmt alles, reicht die Antwort — der Kunde bestätigt über seinen Link. Stimmt etwas nicht: korrigieren und nochmals senden, Nummer und Link bleiben gleich.
+                  </p>
+                  <button type="button" className="btn-ghost" onClick={() => void korrigieren()}>Korrigieren — zurück auf Entwurf</button>
+                </>
+              )}
+            </section>
+          );
+        })()}
+
+        {/* Ursprung: woher die Zahlen kommen — Tagesmeldung des Teams und die Bestellung des Kunden */}
+        {(rapport.tagesmeldung || rapport.zusatzauftrag) && (
+          <section className="panel space-y-3 bg-steel-soft">
+            <p className="lbl mb-0 text-steel">Ursprung</p>
+            {rapport.tagesmeldung && (() => {
+              const m = rapport.tagesmeldung;
+              const total = m.zeiteintrag.reduce((s, z) => s + z.normal_min + z.ueber_min, 0);
+              return (
+                <div className="space-y-1.5 text-sm">
+                  <p>
+                    <strong>Tagesmeldung {tagKurz(m.datum)}</strong>
+                    {m.team && <> · {m.team.bezeichnung}{m.team.chefmonteur ? ` (${m.team.chefmonteur.name})` : ''}</>}
+                  </p>
+                  <p className="text-ink2">
+                    Team meldet: <strong>{ABWEICHUNG_TEXT[m.abweichung_typ ?? ''] ?? 'Überstunden'}</strong>
+                    {m.wer_hats_gewollt && <> · {WER_TEXT[m.wer_hats_gewollt] ?? m.wer_hats_gewollt}</>}
+                  </p>
+                  {m.zeiteintrag.length > 0 && (
+                    <p className="text-ink2">
+                      {m.zeiteintrag.map((z) => `${z.mitarbeiter?.name ?? '?'} ${((z.normal_min + z.ueber_min) / 60).toFixed(1)} h`).join(' · ')}
+                      <span className="text-ink3"> · zusammen {(total / 60).toFixed(1)} h</span>
+                    </p>
+                  )}
+                  {m.foto?.length > 0 && (
+                    <div>
+                      <p className="mb-1 text-[11px] text-ink3">Fotos vom Team · {m.foto.length}</p>
+                      <FotoGalerie pfade={m.foto.map((f) => f.pfad)} />
+                    </div>
+                  )}
+                  {m.transkript && (
+                    <div className="rounded-[10px] bg-ground px-3 py-2 text-ink2">
+                      <p className="italic">«{m.transkript}»</p>
+                      {m.transkript_quelle && (
+                        <details className="mt-1 text-xs text-ink3">
+                          <summary className="cursor-pointer">{(m.transkript_sprache ?? 'de') === 'de' ? 'So wurde es gesprochen · Text ist bereinigt' : `Original (${{ ar: 'Arabisch', pl: 'Polnisch', en: 'Englisch' }[m.transkript_sprache ?? ''] ?? 'andere Sprache'}) · automatisch übersetzt`}</summary>
+                          <p className="mt-1 italic" dir="auto">{m.transkript_quelle}</p>
+                        </details>
+                      )}
+                    </div>
+                  )}
+                  {!m.transkript && m.audio_pfad && (
+                    <p className="flex flex-wrap items-center gap-2 text-xs text-ink3">
+                      {transkriptLaeuft ? 'Text wird erstellt …' : 'Noch kein Text zur Sprachnotiz.'}
+                      {!transkriptLaeuft && <button type="button" className="btn-ghost px-2 py-0.5 text-xs" onClick={() => void transkribieren(m.id)}>Text erstellen</button>}
+                    </p>
+                  )}
+                  {(m.audio_pfad || m.audio_sekunden) && (
+                    <div className="flex items-center gap-2">
+                      {m.audio_pfad ? (
+                        <button type="button" onClick={() => void sprachnotizAnhoeren(m.audio_pfad!)} className="btn-ghost">▶ Sprachnotiz{m.audio_sekunden ? ` · ${m.audio_sekunden} Sek.` : ''}</button>
+                      ) : (
+                        <span className="font-mono text-[11px] text-ink3">Sprachnotiz {m.audio_sekunden} Sek. (Demo — keine Aufnahme hinterlegt)</span>
+                      )}
+                      {audioUrl && <audio controls autoPlay src={audioUrl} className="h-8 flex-1" />}
+                    </div>
+                  )}
+                  {m.team && (
+                    <Link to={`/cockpit?woche=${m.datum}&tag=${m.datum}&team=${m.team.id}&meldung=${m.id}&rapport=${rapport.id}`} className="inline-block font-semibold text-steel">
+                      Diese Woche in der Wochenübersicht anschauen ›
+                    </Link>
+                  )}
+                </div>
+              );
+            })()}
+            {rapport.zusatzauftrag && (
+              <div className="border-t border-line pt-2.5 text-sm">
+                <p>
+                  <strong>Bestellt von {rapport.zusatzauftrag.besteller_name}</strong> {KANAL_TEXT[rapport.zusatzauftrag.kanal] ?? rapport.zusatzauftrag.kanal}
+                  {' '}am {tagKurz(rapport.zusatzauftrag.bestellt_am)}
+                </p>
+                <p className="text-ink2">
+                  {taetigkeitText(rapport.zusatzauftrag.taetigkeit)}
+                  {rapport.zusatzauftrag.geplant_fuer && <> · geplant für {tagKurz(rapport.zusatzauftrag.geplant_fuer)}</>}
+                  {rapport.zusatzauftrag.notiz && <> · {rapport.zusatzauftrag.notiz}</>}
+                </p>
+                <Link to="/zusatzauftrag" className="mt-1 inline-block text-xs font-semibold text-steel">Zu den Zusatzaufträgen ›</Link>
+              </div>
+            )}
+            {!rapport.tagesmeldung && (
+              <p className="text-xs text-ink3">Zu diesem Rapport ist keine Tagesmeldung verknüpft (älterer Rapport).</p>
+            )}
+          </section>
+        )}
+
+        <section className="panel space-y-2">
+          <div className="flex items-center justify-between gap-3">
+            <p className="lbl mb-0">Bilder zum Rapport</p>
+            <label className="btn-ghost inline-block cursor-pointer">
+              {fotoLaedt ? 'lädt …' : '+ Bilder nachreichen'}
+              <input type="file" accept="image/*" multiple className="hidden" onChange={(e) => void fotosNachreichen(e)} />
+            </label>
+          </div>
+          {rapport.foto?.length > 0
+            ? <FotoGalerie pfade={rapport.foto.map((f) => f.pfad)} />
+            : <p className="text-xs text-ink3">{rapport.tagesmeldung?.foto?.length ? 'Die Bilder des Teams stehen oben beim Ursprung.' : 'Noch keine Bilder — der Kunde will sehen, was gemacht wurde.'}</p>}
+        </section>
+
+        <section className="card">
+          <p className="lbl">Positionen · SGUV 2026/27</p>
+          <div className="divide-y divide-line">
+            {positionen.map((p) => (
+              <div key={p.id} className="flex items-center justify-between gap-2 py-1.5 text-sm">
+                <span className="min-w-0 truncate">{p.bezeichnung}</span>
+                <span className="flex flex-none items-center gap-1.5">
+                  {entwurf && !FIXE_POSITIONEN.has(p.tarif_code) && (
+                    <>
+                      <button type="button" onClick={() => void stundenAnpassen(p, -50)} className="btn-ghost px-2 py-0.5" title="−0.5 h">−</button>
+                      <button type="button" onClick={() => void stundenAnpassen(p, 50)} className="btn-ghost px-2 py-0.5" title="+0.5 h">+</button>
+                    </>
+                  )}
+                  <span className="w-24 text-right font-mono tabular-nums">{formatChf(p.betrag_rappen)}</span>
+                </span>
+              </div>
+            ))}
+          </div>
+          {entwurf && (
+            <div className="mt-3 flex flex-wrap gap-2">
+              <button type="button" onClick={() => void fahrzeugUmschalten()} className={'chip ' + (fahrzeugZeile ? 'chip-on' : '')}>
+                Lieferwagen 1 h
+              </button>
+              <button type="button" onClick={() => void etappeUmschalten()} className={'chip ' + (etappeZeile ? 'chip-on' : '')}>
+                Etappenzuschlag
+              </button>
+              <button type="button" onClick={() => void mieteUmschalten()} className={'chip ' + (mieteZeile ? 'chip-on' : '')}>
+                Materialmiete 9 %
+              </button>
+            </div>
+          )}
+          <div className="mt-4 flex items-baseline justify-between border-t border-line pt-3">
+            <span className="text-[15px] font-semibold">Total</span>
+            <span className="text-[22px] font-semibold tracking-tight tabular-nums">
+              {formatChf(total)}
+            </span>
+          </div>
+          <p className="mt-1 text-[11px] text-ink3">
+            Vorgerechnet als Entscheidungshilfe — der verbindliche Beleg ist das SORBA-Dokument im Anhang.
+            {entwurf && ' Mit − / + nur die Stunden stehen lassen, die wirklich Zusatzarbeit waren.'}
+          </p>
+        </section>
+
+        {/* Leistungsbeschrieb: der Text, den der Bauführer in SORBA tippt — vorgeschlagen, nie ungeprüft */}
+        <section className="card space-y-2">
+          <div className="flex items-baseline justify-between gap-3">
+            <p className="lbl mb-0">Was gemacht wurde · Text für SORBA und Kunde</p>
+            {rapport.beschrieb && <span className="text-[11px] text-ink3">{rapport.beschrieb_quelle === 'ki' ? 'Vorschlag, geprüft' : 'von Hand'}</span>}
+          </div>
+          <textarea
+            value={beschrieb}
+            onChange={(e) => setBeschrieb(e.target.value)}
+            rows={4}
+            placeholder="z. B. Gerüst an der Westfassade auf Wunsch der Bauleitung versetzt, 3 Mann, 1 h."
+            className="field min-h-[6rem] text-sm"
+          />
+          <div className="flex flex-wrap items-center gap-2">
+            <button type="button" className="btn-ghost disabled:opacity-60" disabled={beschriebLaeuft} onClick={() => void beschriebVorschlagen()}>
+              {beschriebLaeuft ? 'Schreibt …' : 'Text vorschlagen'}
+            </button>
+            <button type="button" className="btn-ghost" disabled={beschrieb.trim() === (rapport.beschrieb ?? '')} onClick={() => void beschriebSpeichern(beschriebInfo.startsWith('Vorschlag aus') ? 'ki' : 'hand')}>
+              Speichern
+            </button>
+            <button type="button" className="btn-ghost" disabled={!beschrieb.trim()} onClick={beschriebKopieren}>
+              {beschriebKopiert ? 'Kopiert ✓' : 'Für SORBA kopieren'}
+            </button>
+          </div>
+          {beschriebInfo && <p className={'text-xs ' + (beschriebInfo.includes('fehlgeschlagen') || beschriebInfo.includes('nicht möglich') ? 'font-semibold text-accent-deep' : 'text-ink2')}>{beschriebInfo}</p>}
+          <p className="text-[11px] text-ink3">
+            Grundlage: {rapport.tagesmeldung?.transkript ? 'Sprachnotiz des Teams, Positionen' : 'nur die Positionen — keine Sprachnotiz vorhanden'}{rapport.zusatzauftrag ? ', Zusatzauftrag' : ''}.
+            Die KI schreibt nur den Text. Zahlen kommen aus den Positionen, entscheiden tust du.
+          </p>
+        </section>
+
+        {entwurf ? (
+          <section className="card space-y-4">
+            <p className="text-[15px] font-semibold">An die Bauleitung senden</p>
+            <div>
+              <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-[12px] bg-ground px-3.5 py-3">
+                <span className="text-sm text-ink2">Die Mail nimmt automatisch ein PDF mit, im Aufbau des SORBA-Ausdrucks.</span>
+                <button type="button" className="btn-ghost shrink-0" disabled={pdfLaeuft} onClick={() => void pdfAnsehen()}>{pdfLaeuft ? 'Erstellt …' : 'PDF ansehen'}</button>
+              </div>
+              <label className="lbl">Eigenes Dokument statt PDF (optional, z. B. aus SORBA)</label>
+              {rapport.anhang_pfad ? (
+                <p className="text-sm">
+                  📎 {rapport.anhang_pfad.split('/').pop()}{' '}
+                  <label className="ml-1 cursor-pointer text-xs text-steel underline">
+                    ersetzen
+                    <input type="file" className="hidden" onChange={(e) => void anhangWaehlen(e)} />
+                  </label>
+                </p>
+              ) : (
+                <label className="block cursor-pointer rounded-[10px] border border-dashed border-line-strong px-3.5 py-3 text-center text-sm text-ink3 hover:border-ink3">
+                  Datei wählen — aus SORBA gespeichert
+                  <input type="file" className="hidden" onChange={(e) => void anhangWaehlen(e)} />
+                </label>
+              )}
+              <p className="mt-1 text-[11px] text-ink3">
+                Ohne eigenes Dokument hängt die App ihr PDF an.
+              </p>
+            </div>
+            <div>
+              <label className="lbl">E-Mail der Bauleitung</label>
+              <input
+                type="email"
+                value={empfaenger}
+                onChange={(e) => setEmpfaenger(e.target.value)}
+                placeholder="bauleitung@firma.ch"
+                className="field"
+              />
+              <p className="mt-1 text-[11px] text-ink3">Erlaubt: die hinterlegte Bauleitung, weitere Adressen des Kunden (Verwaltung → Kunden) und Adressen derselben Firma.</p>
+            </div>
+            <button type="button" onClick={() => void senden()} disabled={sendet} className="cta cta-accent">
+              {sendet ? 'Sendet …' : 'Regierapport senden'}
+            </button>
+            {fehler && <p className="text-sm font-semibold text-accent-deep">{fehler}</p>}
+            <p className="text-[11px] text-ink3">
+              Fester Betreff «Regie {rapport.baustelle?.bezeichnung} · {rapport.baustelle?.konto_nr}»,
+              Frist läuft ab Versand 3 Tage.
+            </p>
+            <div className="border-t border-line pt-3">
+              {!verwerfenFrage ? (
+              <button type="button" onClick={() => setVerwerfenFrage(true)} className="text-xs font-semibold text-ink3 underline underline-offset-2">
+                Entwurf verwerfen
+              </button>
+            ) : (
+              <div className="rounded-[10px] border border-accent/40 bg-accent-soft p-3 text-sm">
+                <p>Diesen Entwurf löschen? Die Meldung des Teams bleibt bestehen, du kannst später wieder einen Rapport daraus machen.</p>
+                <div className="mt-2 grid grid-cols-2 gap-2">
+                  <button type="button" className="btn-ghost" onClick={() => setVerwerfenFrage(false)}>Behalten</button>
+                  <button type="button" className="btn-ghost border-accent text-accent-deep" onClick={() => void entwurfVerwerfen()}>Verwerfen</button>
+                </div>
+              </div>
+              )}
+            </div>
+          </section>
+        ) : (
+          <section className="panel space-y-2">
+            <p className="lbl">Verlauf</p>
+            {rapport.versendet_am && !logs.some((l) => l.ereignis === 'gesendet') && (
+              <div className="flex items-baseline justify-between gap-2 text-sm">
+                <span>verschickt</span>
+                <span className="font-mono text-xs text-ink3">{zeitstempel(rapport.versendet_am)}</span>
+              </div>
+            )}
+            {logs.length === 0 && !rapport.versendet_am && <p className="text-sm text-ink3">Noch keine Ereignisse.</p>}
+            {logs.map((l) => (
+              <div key={l.id} className="text-sm">
+                <div className="flex items-baseline justify-between gap-2">
+                  <span>{EREIGNIS_LABEL[l.ereignis] ?? l.ereignis}</span>
+                  <span className="font-mono text-xs text-ink3">{zeitstempel(l.zeitpunkt)}</span>
+                </div>
+                {l.ereignis === 'rueckfrage' && l.detail?.kommentar && <p className="mt-0.5 text-xs italic text-ink2">«{l.detail.kommentar}»</p>}
+              </div>
+            ))}
+            <div className="flex gap-2 pt-2">
+              <button type="button" onClick={linkKopieren} className="btn-ghost">
+                {kopiert ? 'Kopiert ✓' : 'Kundenlink kopieren'}
+              </button>
+            </div>
+          </section>
+        )}
+      </div>
+    </Shell>
+  );
+}

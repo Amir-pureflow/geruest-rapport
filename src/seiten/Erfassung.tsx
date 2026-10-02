@@ -1,5 +1,5 @@
 import { Check, CheckCircle2, ChevronLeft, ChevronRight, Flag, Minus, Plus, Car, UserPlus, X } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
 import { Link } from 'react-router-dom';
 import { Shell } from '../ui/Shell';
 import { Pegel, TranskriptLive } from '../ui/Sprachnotiz';
@@ -8,14 +8,21 @@ import { enqueueMeldung, flushNachSupabase, offeneMeldungen, offeneAnzahl, lokal
 import { addTage, iso, lang, stunden, NORMALTAG_MIN } from '../lib/datum';
 import { fotoVerkleinern } from '../lib/foto';
 import { kennzeichen } from '../lib/fahrzeug';
+import { einstellungen } from '../lib/einstellungen';
 import { MAX_SPANNEN, NACHMITTAG_MIN, ausUhrzeit, aufteilen, mittagMinuten, spanneVollstaendig, spannenMinuten, spannenUeberlappen, standardSpannen, uhrzeitFeld, zuSpalten, type Spanne } from '../lib/zeiten';
 
 /**
  * Phase 2 — das Teamgerät. Ein Chefmonteur meldet für sein Team.
  *
- * Wie das Wochenblatt, nicht mehr: Baustelle, wer war dabei, Normalstunden, Überstunden — ein Knopf.
- * Überstunden brauchen eine Sprachnotiz (warum); der Bauführer liest sie in der Wochenübersicht und gibt frei.
- * Es wird nie gefragt, WARUM-Kategorien oder ob etwas verrechnet wird — das entscheidet der Bauführer in SORBA (Entscheid 17.09./20.09.).
+ * Immer: Baustelle, wer war dabei, Normalstunden, Überstunden — ein Knopf. Überstunden brauchen eine
+ * Sprachnotiz (warum); der Bauführer liest sie in der Wochenübersicht und gibt frei.
+ *
+ * Firmen-Schalter `MODUS_ERFASSUNG` (Verwaltung → Einstellungen, Entscheid 02.10.2026):
+ *   wochenblatt — nur das. Der Bauführer entscheidet in SORBA, ob etwas verrechnet wird (17.09./20.09.).
+ *                 So arbeitet die Gerüst GmbH.
+ *   regie       — zusätzlich «War etwas anders?»: Symbol → «Wer wollte das?» → Stunden je Person → Notiz.
+ *                 Daraus entsteht beim Bauführer ein Regierapport für den Kunden.
+ * Es wird nie gefragt, OB etwas Regie ist — das kann der Monteur nicht wissen.
  *
  * Feedback Bauführer 20.09.: Stunden wahlweise als Zahl oder als Zeiten von–bis (ohne Pausenrechnung),
  * Sprachnotiz immer als Bemerkung zum Tag, Personen von ausserhalb des Teams hinzufügen, nur Auto (kein öV).
@@ -29,9 +36,12 @@ type ZeitModus = 'stunden' | 'zeit';
 /** Wie auf dem Wochenblatt: Normalstunden (Standard 8.4 h) und Überstunden getrennt — beides Lohn, keine Fragen. Bei `modus: 'zeit'` zählen die `zeiten`. */
 interface Anwesenheit { dabei: boolean; min: number; ueber: number; oev: boolean; km: number; modus: ZeitModus; zeiten: Spanne[] }
 
-type Schritt = 'team' | 'tag' | 'fertig';
-/** Nur noch für alte Meldungen (vor 17.09.) — neue Meldungen sind immer normalfall. */
+/** Die drei Schritte des Wochenblatts, dazu Symbol/Wer/Notiz — die gibt es nur im Regie-Modus. */
+type Schritt = 'team' | 'tag' | 'symbol' | 'wer' | 'notiz' | 'fertig';
+/** Im Wochenblatt-Modus nur für alte Meldungen (vor 17.09.); im Regie-Modus die gemeldete Abweichung. */
 type Abweichung = 'zusaetzlich' | 'warten' | 'kaputt' | 'laenger';
+/** Wer die Zusatzarbeit wollte — das ist die Frage, die der Monteur beantworten kann. «Ist das Regie?» kann er nicht. */
+type Wer = 'kunde' | 'chef' | 'niemand';
 
 const TEAM_KEY = 'teamgeraet-team-id';
 /** Zuletzt gewählte Teams auf diesem Gerät (max. 5, neuestes vorne) — damit die Teamwahl nie mehr als 5 Kacheln braucht (Regel 3). */
@@ -41,6 +51,34 @@ const STANDARD_MIN = NORMALTAG_MIN;
 const OEV_AKTIV = false;
 /** Zuletzt hinzugefügte Personen je Team (max. 5) — wer letzte Woche mitgeholfen hat, ist mit einem Tipp wieder da. */
 const GAESTE_KEY = 'teamgeraet-gaeste-';
+
+/** Die drei Abweichungen als Bild — gelesen wird auf der Baustelle mit Handschuhen und Sonne auf dem Display. */
+const SYMBOLE: { typ: Abweichung; label: string; svg: ReactElement }[] = [
+  {
+    typ: 'zusaetzlich', label: 'zusätzlich gearbeitet',
+    svg: <svg viewBox="0 0 40 40" className="h-9 w-9" fill="currentColor"><rect x="17" y="8" width="6" height="24" rx="2" /><rect x="8" y="17" width="24" height="6" rx="2" /></svg>,
+  },
+  {
+    typ: 'warten', label: 'warten müssen',
+    svg: <svg viewBox="0 0 40 40" className="h-9 w-9" fill="none" stroke="currentColor"><circle cx="20" cy="20" r="13" strokeWidth="3.5" /><path d="M20 12v8.5l6 3.5" strokeWidth="3.5" strokeLinecap="round" /></svg>,
+  },
+  {
+    typ: 'kaputt', label: 'etwas kaputt / repariert',
+    svg: <svg viewBox="0 0 40 40" className="h-9 w-9"><path d="M20 7 L34 31 H6 Z" fill="none" stroke="currentColor" strokeWidth="3.5" strokeLinejoin="round" /><rect x="18.2" y="15" width="3.6" height="8" rx="1.8" fill="currentColor" /><circle cx="20" cy="26.5" r="2" fill="currentColor" /></svg>,
+  },
+];
+
+/** Kurzform für die drei Kacheln im Tag-Schritt — zwei Wörter, die auch allein verständlich sind. */
+const KURZ_LABEL: Record<Abweichung, string> = { zusaetzlich: 'zusätzlich gearbeitet', warten: 'warten müssen', kaputt: 'etwas kaputt', laenger: 'länger gearbeitet' };
+
+function Helm({ farbe }: { farbe: string }) {
+  return (
+    <svg viewBox="0 0 48 40" className="h-10 w-12" aria-hidden="true">
+      <path d="M11 28a13 13 0 0 1 26 0z" fill={farbe} />
+      <rect x="5" y="28" width="38" height="5" rx="2.5" fill={farbe} />
+    </svg>
+  );
+}
 
 function gaesteLesen(teamId: string): string[] {
   try {
@@ -175,6 +213,8 @@ function MiniKnopf({ art, onClick, klein = false }: { art: 'minus' | 'plus'; onC
 }
 
 export function Erfassung() {
+  // Firmen-Schalter: mit oder ohne Abweichungs-Ablauf. Einmal gelesen, danach aus dem Zwischenspeicher — die Erfassung läuft offline.
+  const modus = einstellungen().erfassung;
   const [teams, setTeams] = useState<Team[]>([]);
   const [teamId, setTeamId] = useState<string | null>(() => localStorage.getItem(TEAM_KEY));
   const [leute, setLeute] = useState<Person[]>([]);
@@ -204,6 +244,15 @@ export function Erfassung() {
   // Über die Startseite (/erfassung?wahl) immer zuerst das Team zeigen — zum Testen mehrerer Teams im selben Browser.
   // Das Teamgerät selbst öffnet /erfassung ohne Parameter und landet direkt beim Tag.
   const [schritt, setSchritt] = useState<Schritt>(teamId && !new URLSearchParams(window.location.search).has('wahl') ? 'tag' : 'team');
+
+  // ── Abweichung (nur Regie-Modus) ──
+  const [abweichung, setAbweichung] = useState<Abweichung | null>(null);
+  const [wer, setWer] = useState<Wer | null>(null);
+  /** Stunden der Zusatzarbeit — für alle gleich, je Person überschreibbar */
+  const [abMin, setAbMin] = useState(60);
+  const [abMinPerson, setAbMinPerson] = useState<Record<string, number>>({});
+  const abMinVon = (id: string) => abMinPerson[id] ?? abMin;
+  const [abLeute, setAbLeute] = useState<Set<string>>(new Set());
   // Überstunden: Sprachnotiz als Warum (Pflicht, ausser das Mikrofon fehlt) — hängt an der Tagesmeldung
   const [mikroFehlt, setMikroFehlt] = useState(false);
   const [ueberAufnahme, setUeberAufnahme] = useState<{ blob: Blob; sekunden: number } | null>(null);
@@ -523,6 +572,25 @@ export function Erfassung() {
   }, [alleLeute, gastFilter, alleImTeam]);
   const zuletztGaesteFrei = zuletztGaeste.filter((p) => !alleImTeam.some((x) => x.id === p.id));
 
+  /**
+   * Abweichung beginnen (nur Regie-Modus): Leute mit Überstunden sind vorbelegt, ihre Überstunden
+   * werden die Stunden der Zusatzarbeit — nicht doppelt. Die Sprachnotiz vom Tag wandert mit; sie ist
+   * ja genau die Erklärung, die zur Abweichung gehört.
+   */
+  function abweichungStarten(typ: Abweichung) {
+    if (!baustelle) { setHinweis('Zuerst die Baustelle antippen.'); return; }
+    if (dabei.length === 0) { setHinweis('Zuerst anhaken, wer dabei war.'); return; }
+    const mitUeber = dabei.filter((p) => (anw[p.id]?.ueber ?? 0) > 0);
+    setAbweichung(typ);
+    setAbLeute(new Set((mitUeber.length > 0 ? mitUeber : dabei).map((p) => p.id)));
+    if (mitUeber.length > 0) {
+      setAbMin(anw[mitUeber[0].id].ueber);
+      setAbMinPerson(Object.fromEntries(mitUeber.map((p) => [p.id, anw[p.id].ueber])));
+    }
+    setHinweis('');
+    setSchritt('wer');
+  }
+
   /** Frühere Normal-Meldungen des Teams an diesem Tag entfernen (alle Baustellen) — lokal und auf dem Server, nur solange nichts freigegeben ist. */
   async function fruehereEntfernen(liste: Gemeldet[]) {
     const alte = liste.filter((m) => m.normalfall && !m.freigegeben);
@@ -534,31 +602,62 @@ export function Erfassung() {
     }
   }
 
-  /** Meldung für die gewählte Baustelle bauen: alle Anwesenden, Normal- und Überstunden wie eingestellt; die Sprachnotiz als Bemerkung zum Tag (bei Überstunden Pflicht). */
-  function meldungBauen(b: Baustelle, notiz: { blob: Blob; sekunden: number } | null): MeldungPayload {
+  /**
+   * Meldung für die gewählte Baustelle bauen.
+   *
+   * `normal`: alle Anwesenden, Normal- und Überstunden wie eingestellt; die Sprachnotiz als Bemerkung
+   * zum Tag (bei Überstunden Pflicht). `ohneUeberFuer` nimmt denen die Überstunden weg, deren Stunden
+   * in die Abweichung gewandert sind — sonst stünden sie zweimal da.
+   *
+   * Sonst (nur Regie-Modus): die Abweichung — nur die Beteiligten, mit ihren Stunden der Zusatzarbeit,
+   * Symbol und «wer wollte das». Keine Anreise, die hängt am normalen Tag.
+   */
+  function meldungBauen(
+    b: Baustelle,
+    notiz: { blob: Blob; sekunden: number } | null,
+    art: 'normal' | 'abweichung' = 'normal',
+    ohneUeberFuer: Set<string> = new Set(),
+  ): MeldungPayload {
+    const normal = art === 'normal';
+    const beteiligt = normal ? dabei : dabei.filter((p) => abLeute.has(p.id));
+    const ueberVon = (p: Person) => (ohneUeberFuer.has(p.id) ? 0 : wirksam(anw[p.id]).ueber);
     const nz = notiz;
     const vs = ueberVorschau;
     const textOk = !!nz && vs?.status === 'fertig' && !!vs.text.trim();
     return {
       id: crypto.randomUUID(), team_id: teamId!, datum: tagIso, baustelle_id: b.id,
-      normalfall: true, abweichung_typ: null, wer_hats_gewollt: null,
+      normalfall: normal, abweichung_typ: normal ? null : abweichung, wer_hats_gewollt: normal ? null : wer,
       audio_sekunden: nz?.sekunden ?? null, erfasst_von: userId,
       // geprüfter Text (ggf. vom Chefmonteur korrigiert) geht mit — sonst erstellt der Server ihn nach dem Upload
       transkript: textOk ? vs!.text.trim() : null,
       transkript_quelle: textOk ? vs!.quelle : null,
       transkript_sprache: textOk ? vs!.sprache : null,
-      eintraege: dabei.map((p) => {
+      eintraege: beteiligt.map((p) => {
         const a = anw[p.id];
         const w = wirksam(a);
+        const min = normal ? w.min : abMinVon(p.id);
         return {
           id: crypto.randomUUID(), mitarbeiter_id: p.id,
-          normal_min: Math.min(w.min, STANDARD_MIN), ueber_min: Math.max(0, w.min - STANDARD_MIN) + w.ueber,
-          oev: a.oev, km: a.km, baustelle_id: b.id, konto_nr: b.konto_nr,
+          normal_min: Math.min(min, STANDARD_MIN),
+          ueber_min: Math.max(0, min - STANDARD_MIN) + (normal ? ueberVon(p) : 0),
+          oev: normal ? a.oev : false, km: normal ? a.km : 0, baustelle_id: b.id, konto_nr: b.konto_nr,
           // Zeiten nur mitschicken, wenn welche eingetragen sind — so bleibt die Stundenzahl-Meldung auch vor Migration 0016 gültig
-          ...(a.modus === 'zeit' ? zuSpalten(a.zeiten) : {}),
+          ...(normal && a.modus === 'zeit' ? zuSpalten(a.zeiten) : {}),
         };
       }),
     };
+  }
+
+  /** Die Abweichung in Worten: «2.0 h zusätzlich je 3 Pers.» — oder, wenn sie unterschiedlich sind, die Summe. */
+  function abweichungText(): string {
+    if (!abweichung) return '';
+    const liste = dabei.filter((p) => abLeute.has(p.id));
+    const erste = liste[0]?.id ?? '';
+    const gleich = liste.every((p) => abMinVon(p.id) === abMinVon(erste));
+    const gesamt = liste.reduce((sum, p) => sum + abMinVon(p.id), 0);
+    return gleich
+      ? `${stunden(abMinVon(erste))} h ${AB_KURZ[abweichung]} je ${liste.length} Pers.`
+      : `${stunden(gesamt)} h ${AB_KURZ[abweichung]} (${liste.length} Pers., unterschiedlich)`;
   }
 
   /** Stunden des normalen Tags in Worten: «8.0 h» wenn alle gleich, sonst «7.5–8.5 h». */
@@ -572,12 +671,12 @@ export function Erfassung() {
   }
 
   /** Speichern darf nie stumm scheitern: jeder Fehler landet als Satz auf dem Bildschirm. */
-  async function speichern(modus: SpeicherModus = 'normal') {
+  async function speichern(modus: SpeicherModus = 'normal', art: 'normal' | 'abweichung' = 'normal') {
     if (speichertRef.current) return;
     speichertRef.current = true;
     setSpeichert(true);
     try {
-      await speichernInnen(modus);
+      await speichernInnen(modus, art);
     } catch (e) {
       setGespeichert(null);
       setHinweis('Speichern fehlgeschlagen: ' + (e instanceof Error ? e.message : String(e)) + ' — nochmals versuchen; die Aufnahme ist noch da.');
@@ -586,22 +685,42 @@ export function Erfassung() {
       setSpeichert(false);
     }
   }
-  async function speichernInnen(modus: SpeicherModus) {
+  async function speichernInnen(modus: SpeicherModus, art: 'normal' | 'abweichung' = 'normal') {
     if (!baustelle) { setHinweis('Zuerst die Baustelle antippen.'); return; }
     if (dabei.length === 0) { setHinweis('Niemand angehakt.'); return; }
+    if (art === 'abweichung' && abLeute.size === 0) { setHinweis('Niemand bei der Zusatzarbeit angehakt.'); return; }
     // Zeiten von–bis: ohne «bis» gibt es keine Stunden — nichts raten, nachfragen
     const unvollstaendig = dabei.filter((p) => anw[p.id]?.modus === 'zeit' && !anw[p.id].zeiten.some(spanneVollstaendig));
     if (unvollstaendig.length > 0) { setHinweis(`Bei ${unvollstaendig.map((p) => p.name).join(', ')} fehlt noch «bis» — Zeit eintragen oder auf Stundenzahl wechseln.`); return; }
     const ueberlappt = dabei.filter((p) => anw[p.id]?.modus === 'zeit' && spannenUeberlappen(anw[p.id].zeiten));
     if (ueberlappt.length > 0) { setHinweis(`Bei ${ueberlappt.map((p) => p.name).join(', ')} überschneiden sich Vormittag und Nachmittag — bitte Zeiten prüfen.`); return; }
     const hatUeber = ueberTotal > 0;
-    if (hatUeber && !ueberAufnahme && !nimmtAuf && !mikroFehlt) { setHinweis('Bei Überstunden bitte kurz sagen, warum — Mikrofon antippen.'); return; }
+    if (art === 'normal' && hatUeber && !ueberAufnahme && !nimmtAuf && !mikroFehlt) { setHinweis('Bei Überstunden bitte kurz sagen, warum — Mikrofon antippen.'); return; }
     setHinweis('');
     const clientUuids: string[] = [];
+    /** Steht nur bei der Abweichung: ob der normale Tag gleich mitgespeichert wurde */
+    let normalMitgespeichert = false;
     // Meldung mit Sprachnotiz — die Abschluss-Seite zeigt dann den Text, sobald er da ist
     let notizUuid: string | undefined;
 
-    {
+    if (art === 'abweichung') {
+      // Die normalen Stunden des Tags dürfen nicht verloren gehen: fehlt die Normalmeldung für diese
+      // Baustelle, geht sie zuerst mit in die Warteschlange — ohne die Überstunden der Beteiligten.
+      let aktuell = heuteGemeldet;
+      try { aktuell = await heutigeLaden(); } catch { /* lokaler Stand reicht */ }
+      if (!aktuell.some((m) => m.normalfall && m.baustelle_id === baustelle.id)) {
+        // Die Notiz gehört nur dann auch zum normalen Tag, wenn dort Überstunden bleiben (Leute ausserhalb
+        // der Abweichung) — sonst stünde derselbe Text zweimal beim Bauführer.
+        const restUeber = dabei.some((p) => !abLeute.has(p.id) && wirksam(anw[p.id]).ueber > 0);
+        const fuerNormal = restUeber ? ueberAufnahme : null;
+        clientUuids.push(await enqueueMeldung(meldungBauen(baustelle, fuerNormal, 'normal', abLeute), fuerNormal?.blob));
+        normalMitgespeichert = true;
+      }
+      const notiz = await aufnahmeAbschliessen();
+      const uuid = await enqueueMeldung(meldungBauen(baustelle, notiz, 'abweichung'), notiz?.blob, fotos.map((f) => f.blob));
+      clientUuids.push(uuid);
+      if (notiz) notizUuid = uuid;
+    } else {
       const bisher = heuteGemeldet.filter((m) => m.normalfall);
       const gleiche = bisher.filter((m) => m.baustelle_id === baustelle.id);
       if (gleiche.some((m) => m.freigegeben)) {
@@ -627,7 +746,11 @@ export function Erfassung() {
       clientUuids.push(uuidNormal);
       if (notiz) notizUuid = uuidNormal;
     }
-    const zusammenfassung = `Gespeichert: ${normalStundenText()}`;
+    const zusammenfassung = art === 'normal'
+      ? `Gespeichert: ${normalStundenText()}`
+      : normalMitgespeichert
+        ? `Gespeichert: normaler Tag ${normalStundenText()} + ${abweichungText()}`
+        : `Gespeichert: ${abweichungText()} (normaler Tag war schon gemeldet)`;
 
     setGespeichert('Lokal gespeichert …');
     if (supabase && navigator.onLine) {
@@ -635,7 +758,7 @@ export function Erfassung() {
       const offen = await offeneMeldungen();
       const alleDurch = clientUuids.every((u) => offen.every((m) => m.client_uuid !== u));
       if (alleDurch) {
-        setGespeichert('Gespeichert ✓');
+        setGespeichert(art === 'normal' ? 'Gespeichert ✓' : 'Abweichung gespeichert ✓');
         setBestaetigung(zusammenfassung + ' ✓');
         setFertig({ text: zusammenfassung, stand: 'gesendet', notizUuid });
         if (erg.verworfen > 0) setHinweis(`${erg.verworfen} alte Meldung${erg.verworfen === 1 ? '' : 'en'} aussortiert: ${erg.fehlerText ?? ''}`);
@@ -655,6 +778,7 @@ export function Erfassung() {
     void offeneAnzahl().then(setWartend);
     setTimeout(() => setGespeichert(null), 3500);
     setTimeout(() => setBestaetigung(null), 8000);
+    setAbweichung(null); setWer(null); setAbMin(60); setAbMinPerson({}); setAbLeute(new Set());
     setTeamUeber(0); setAnw((alt) => Object.fromEntries(Object.entries(alt).map(([k, a]) => [k, { ...a, ueber: 0 }])));
     setUeberAufnahme(null); setUeberVorschau(null);
     for (const f of fotos) URL.revokeObjectURL(f.url);
@@ -738,6 +862,138 @@ export function Erfassung() {
     );
   }
 
+  // ── Regie-Modus: Symbol → «Wer wollte das?» → Stunden je Person und Notiz ──
+  if (schritt === 'symbol') {
+    return (
+      <Shell zurueck schmal>
+        <div className="space-y-4">
+          <p className="lbl mb-0">Abweichung</p>
+          <h1 className="font-display text-2xl font-semibold">Was war anders?</h1>
+          <div className="grid grid-cols-3 gap-2">
+            {SYMBOLE.map((x) => (
+              <button key={x.typ} type="button" onClick={() => abweichungStarten(x.typ)} className="chip flex flex-col items-center gap-2 py-5 text-ink2">
+                {x.svg}
+                <span className="text-xs leading-tight">{x.label}</span>
+              </button>
+            ))}
+          </div>
+          {hinweis && <p className="text-sm font-semibold text-accent-deep">{hinweis}</p>}
+          <button type="button" onClick={() => setSchritt('tag')} className="btn-ghost w-full">Zurück</button>
+        </div>
+      </Shell>
+    );
+  }
+
+  if (schritt === 'wer') {
+    return (
+      <Shell zurueck schmal>
+        <div className="space-y-4">
+          <p className="lbl mb-0">{SYMBOLE.find((x) => x.typ === abweichung)?.label}</p>
+          <h1 className="font-display text-2xl font-semibold">Wer wollte das?</h1>
+          <div className="grid grid-cols-3 gap-2">
+            {([['kunde', 'Kunde', '#D82816'], ['chef', 'Unser Chef', '#29506B'], ['niemand', 'Niemand', '']] as const).map(([w, label, farbe]) => (
+              <button key={w} type="button" onClick={() => { setWer(w); setSchritt('notiz'); }} className="chip flex flex-col items-center gap-2 py-5">
+                {farbe ? <Helm farbe={farbe} /> : (
+                  <svg viewBox="0 0 48 40" className="h-10 w-12" aria-hidden="true"><circle cx="24" cy="20" r="12" fill="none" stroke="#6C7B81" strokeWidth="3" /><line x1="15.5" y1="28.5" x2="32.5" y2="11.5" stroke="#6C7B81" strokeWidth="3" /></svg>
+                )}
+                <span className="text-sm font-semibold">{label}</span>
+              </button>
+            ))}
+          </div>
+          <p className="text-xs text-ink3">Kunde = der Bauleiter hat es angeordnet · Unser Chef = kam von uns · Niemand = selbst gemacht, meist weil etwas kaputt war</p>
+          <button type="button" onClick={() => setSchritt('symbol')} className="btn-ghost w-full">Zurück</button>
+        </div>
+      </Shell>
+    );
+  }
+
+  if (schritt === 'notiz') {
+    return (
+      <Shell zurueck schmal>
+        <div className="space-y-4">
+          <p className="lbl mb-0">{SYMBOLE.find((x) => x.typ === abweichung)?.label} · {wer === 'kunde' ? 'Kunde' : wer === 'chef' ? 'unser Chef' : 'niemand'}</p>
+          <h1 className="font-display text-2xl font-semibold">Wie lange?</h1>
+          <Stepper wert={abMin} setWert={(v) => { setAbMin(v); setAbMinPerson({}); }} schritt={30} min={30} format={(v) => (v / 60).toFixed(1) + ' h'} />
+          <p className="-mt-2 text-center text-xs text-ink3">
+            {dabei.some((x) => wirksam(anw[x.id]).ueber > 0)
+              ? 'Vorbelegt mit den Überstunden — die zählen dann hier, nicht doppelt.'
+              : 'Gilt für alle — unten kann jede Person einzeln anders sein.'}
+          </p>
+
+          <div>
+            <p className="lbl">Wer war dabei · wie lange</p>
+            <div className="divide-y divide-line rounded-[14px] border border-line bg-surface">
+              {dabei.map((x) => {
+                const dabeiAb = abLeute.has(x.id);
+                const min = abMinVon(x.id);
+                return (
+                  <div key={x.id} className="flex items-center justify-between gap-2 px-3 py-2">
+                    <button type="button" onClick={() => setAbLeute((alt) => { const n = new Set(alt); if (n.has(x.id)) n.delete(x.id); else n.add(x.id); return n; })} className="flex min-w-0 items-center gap-2 text-left">
+                      <span className={'grid h-9 w-9 flex-none place-items-center rounded-[10px] border ' + (dabeiAb ? 'border-good bg-good text-white' : 'border-line-strong bg-surface text-transparent')}><Check size={18} strokeWidth={2.6} /></span>
+                      <span className={'truncate ' + (dabeiAb ? '' : 'text-ink3')}>{x.name}{x.typ === 'temporaer' && <span className="ml-1 text-[10px] text-ink3">temp</span>}</span>
+                    </button>
+                    {dabeiAb ? (
+                      <span className="flex flex-none items-center gap-1">
+                        <MiniKnopf art="minus" onClick={() => setAbMinPerson((m) => ({ ...m, [x.id]: Math.max(30, min - 30) }))} />
+                        <span className={'w-12 text-center font-mono text-[15px] tabular-nums ' + (abMinPerson[x.id] !== undefined && abMinPerson[x.id] !== abMin ? 'font-semibold text-steel' : '')}>{stunden(min)}</span>
+                        <MiniKnopf art="plus" onClick={() => setAbMinPerson((m) => ({ ...m, [x.id]: min + 30 }))} />
+                      </span>
+                    ) : (
+                      <span className="text-xs text-ink3">nicht dabei</span>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          <FotoLeiste text="Bitte Fotos machen — der Bauführer braucht Bilder bei Zusatzarbeit." />
+
+          {/* Dieselbe Sprachnotiz wie am Tag: wurde beim Tag schon aufgenommen, ist sie hier schon da */}
+          <div className={'rounded-[14px] border-2 border-dashed p-5 text-center ' + (nimmtAuf ? 'border-accent bg-accent-soft' : ueberAufnahme ? 'border-good/50 bg-good-soft/40' : 'border-steel bg-steel-soft')}>
+            {ueberAufnahme ? (
+              <div className="space-y-2">
+                <p className="font-display font-semibold">Sprachnotiz · {ueberAufnahme.sekunden} Sek. ✓</p>
+                <audio controls src={URL.createObjectURL(ueberAufnahme.blob)} className="mx-auto h-9 w-full max-w-xs" />
+                {ueberVorschau?.status === 'laeuft' && (
+                  <div className="space-y-1.5 rounded-[10px] bg-surface p-3 text-left" aria-live="polite">
+                    <p className="text-xs font-medium text-ink2">Die App schreibt mit …</p>
+                    <div className="ki-schimmer h-3 w-11/12 rounded" /><div className="ki-schimmer h-3 w-3/4 rounded" />
+                  </div>
+                )}
+                {ueberVorschau?.status === 'fertig' && (
+                  <div className="space-y-1.5 rounded-[10px] bg-surface p-3 text-left">
+                    <p className="text-xs font-medium text-ink2">Stimmt das so? Sonst hier korrigieren.</p>
+                    <textarea value={ueberVorschau.text} onChange={(e) => setUeberVorschau({ ...ueberVorschau, text: e.target.value })} rows={3} className="field text-sm" />
+                  </div>
+                )}
+                {ueberVorschau?.status === 'fehler' && <p className="text-xs text-ink3">{ueberVorschau.grund}</p>}
+                <button type="button" onClick={() => { setUeberAufnahme(null); setUeberVorschau(null); }} className="btn-ghost">nochmal aufnehmen</button>
+              </div>
+            ) : (
+              <button type="button" onClick={() => (nimmtAuf ? aufnahmeStop() : void aufnahmeStart())} className="w-full">
+                <span className={'mx-auto grid h-16 w-16 place-items-center rounded-full ' + (nimmtAuf ? 'aufnahme-ring bg-accent text-white' : 'bg-surface text-steel ring-1 ring-line-strong')}>
+                  <svg viewBox="0 0 40 48" className="h-8 w-7" aria-hidden="true" fill="currentColor">
+                    <rect x="13" y="4" width="14" height="24" rx="7" />
+                    <path d="M8 22a12 12 0 0 0 24 0" fill="none" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round" />
+                    <rect x="18.2" y="34" width="3.6" height="8" rx="1.8" />
+                  </svg>
+                </span>
+                {nimmtAuf && <span className="mt-3 block"><Pegel stream={mikroStream} /></span>}
+                <span className="mt-2 block font-display font-semibold">{nimmtAuf ? `${sekunden} Sek. — antippen zum Stoppen` : 'Antippen und kurz erzählen, was war'}</span>
+                <span className="mt-1 block text-xs text-ink3">{nimmtAuf ? 'Die App hört zu und schreibt danach mit.' : 'In deiner Sprache. Freiwillig — die Meldung geht auch ohne.'}</span>
+              </button>
+            )}
+          </div>
+
+          <button type="button" disabled={speichert} onClick={() => void speichern('normal', 'abweichung')} className="cta disabled:opacity-70">{speichert ? 'Speichert …' : 'Speichern'}</button>
+          {hinweis && <p className="text-sm font-semibold text-accent-deep">{hinweis}</p>}
+          <button type="button" onClick={() => setSchritt('wer')} className="btn-ghost w-full">Zurück</button>
+        </div>
+      </Shell>
+    );
+  }
+
   if (schritt === 'fertig') {
     const stand = fertig?.stand ?? 'gesendet';
     return (
@@ -773,7 +1029,7 @@ export function Erfassung() {
           </section>
 
           <Link to="/" className="cta cta-good block text-center">Fertig für {istHeute ? 'heute' : 'diesen Tag'}</Link>
-          <button type="button" className="btn-ghost w-full py-2.5" onClick={() => setSchritt('tag')}>Noch etwas melden — zweite Baustelle</button>
+          <button type="button" className="btn-ghost w-full py-2.5" onClick={() => setSchritt('tag')}>Noch etwas melden — zweite Baustelle{modus === 'regie' ? ' oder Abweichung' : ''}</button>
           <button type="button" className="btn-ghost w-full py-2.5" onClick={() => { setDatum(addTage(datum, -1)); setSchritt('tag'); }}>Anderen Tag nachtragen</button>
         </div>
       </Shell>
@@ -1118,7 +1374,11 @@ export function Erfassung() {
                 </button>
               )}
             </div>
-            <p className="text-xs text-ink3">{ueberTotal > 0 ? 'Der Bauführer sieht die Überstunden mit deiner Notiz und gibt sie frei.' : 'Der Bauführer liest die Notiz in der Wochenübersicht — z. B. Material fehlt, Kunde war da, früher Schluss.'}</p>
+            <p className="text-xs text-ink3">{ueberTotal > 0
+              ? modus === 'regie'
+                ? 'War es Zusatzarbeit für den Kunden? Dann unten «zusätzlich gearbeitet» antippen — die Überstunden werden übernommen.'
+                : 'Der Bauführer sieht die Überstunden mit deiner Notiz und gibt sie frei.'
+              : 'Der Bauführer liest die Notiz in der Wochenübersicht — z. B. Material fehlt, Kunde war da, früher Schluss.'}</p>
         </section>
 
         <FotoLeiste text="Foto vom Stand heute — freiwillig, hilft dem Bauführer." />
@@ -1153,11 +1413,25 @@ export function Erfassung() {
         )}
 
         <button type="button" disabled={speichert} onClick={() => void speichern()} className="cta cta-good py-5 text-[17px] disabled:opacity-70">
-          <span className="inline-flex items-center gap-2">{gespeichert ? gespeichert : <><CheckCircle2 size={22} strokeWidth={2.2} aria-hidden="true" /> Tag melden</>}</span>
+          <span className="inline-flex items-center gap-2">{gespeichert ? gespeichert : <><CheckCircle2 size={22} strokeWidth={2.2} aria-hidden="true" /> {modus === 'regie' ? 'Alles wie geplant' : 'Tag melden'}</>}</span>
         </button>
         {hinweis && <p className="text-sm font-semibold text-accent-deep">{hinweis}</p>}
 
-
+        {/* Nur im Regie-Modus: der zweite Weg. Im Wochenblatt gibt es ihn nicht — dort entscheidet der Bauführer. */}
+        {modus === 'regie' && (
+          <div>
+            <p className="mb-2 text-center text-sm text-ink3">War etwas anders?</p>
+            <div className="grid grid-cols-3 gap-2">
+              {SYMBOLE.map((x) => (
+                <button key={x.typ} type="button" onClick={() => abweichungStarten(x.typ)} className="chip flex flex-col items-center gap-1.5 py-3 text-ink2">
+                  {x.svg}
+                  <span className="text-[11px] leading-tight">{KURZ_LABEL[x.typ]}</span>
+                </button>
+              ))}
+            </div>
+            <p className="mt-2 text-center text-xs text-ink3">Abweichung melden speichert den normalen Tag mit. Die Stunden der Zusatzarbeit zählen als Mehrzeit — nicht nochmals bei Überstunden eintragen.</p>
+          </div>
+        )}
       </div>
     </Shell>
   );

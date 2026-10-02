@@ -68,6 +68,7 @@ async function belegHochladen(client: SupabaseClient, pfad: string, blob: Blob, 
 }
 
 export type LokaleMeldung = QueueEintrag;
+export type LokalerAuftrag = QueueEintrag;
 
 export interface LokalesAudio {
   client_uuid: string;
@@ -117,6 +118,8 @@ class LokaleDb extends Dexie {
   meldungen!: Table<LokaleMeldung, string>;
   audio!: Table<LokalesAudio, string>;
   fotos!: Table<LokalesFoto, string>;
+  /** Zusatzaufträge — nur im Regie-Modus benutzt, die Tabelle existiert aber immer (ein Code, zwei Modi). */
+  auftraege!: Table<LokalerAuftrag, string>;
 
   constructor() {
     super('geruest-rapport');
@@ -142,6 +145,14 @@ class LokaleDb extends Dexie {
       auftraege: null,
       fotos: 'id, client_uuid',
     });
+    // 02.10.: Regie ist pro Firma zuschaltbar (MODUS_ERFASSUNG) — die Warteschlange kommt zurück.
+    // Im Modus «wochenblatt» bleibt sie einfach leer.
+    this.version(5).stores({
+      meldungen: 'client_uuid, status, erstellt',
+      audio: 'client_uuid',
+      auftraege: 'client_uuid, status, erstellt',
+      fotos: 'id, client_uuid',
+    });
   }
 }
 
@@ -161,7 +172,23 @@ export async function enqueueMeldung(payload: MeldungPayload, audio?: Blob, foto
 }
 
 export async function offeneAnzahl(): Promise<number> {
-  return db.meldungen.where('status').equals('lokal').count();
+  const [m, a] = await Promise.all([
+    db.meldungen.where('status').equals('lokal').count(),
+    db.auftraege.where('status').equals('lokal').count(),
+  ]);
+  return m + a;
+}
+
+/** Zusatzauftrag lokal ablegen (Bauführer am Telefon — muss auch ohne Netz klappen). Nur Regie-Modus. */
+export async function enqueueZusatzauftrag(payload: Record<string, unknown>): Promise<string> {
+  const e = neuerEintrag(payload);
+  await db.auftraege.add(e);
+  return e.client_uuid;
+}
+
+/** Noch nicht gesendete Zusatzaufträge — für die «wird gesendet…»-Anzeige in der Liste. */
+export async function offeneAuftraege(): Promise<LokalerAuftrag[]> {
+  return db.auftraege.where('status').equals('lokal').sortBy('erstellt');
 }
 
 /** Noch nicht gesendete Tagesmeldungen (lokal). */
@@ -258,12 +285,47 @@ export async function lokaleMeldungEntfernen(clientUuid: string): Promise<void> 
 
 /** Lokale Warteschlange komplett leeren — nach Demo-Neustart zeigen alte Einträge ins Leere. */
 export async function lokaleWarteschlangeLeeren(): Promise<void> {
-  await Promise.all([db.meldungen.clear(), db.audio.clear(), db.fotos.clear()]);
+  await Promise.all([db.meldungen.clear(), db.audio.clear(), db.auftraege.clear(), db.fotos.clear()]);
+}
+
+/** Zusatzaufträge senden — im Wochenblatt-Modus ist die Warteschlange leer, die Schleife läuft nicht. */
+async function flushAuftraege(client: SupabaseClient): Promise<FlushErgebnis> {
+  const offene = await db.auftraege.where('status').equals('lokal').sortBy('erstellt');
+  let gesendet = 0;
+  let fehler = 0;
+  let verworfen = 0;
+  let fehlerText: string | undefined;
+  for (const e of offene) {
+    try {
+      const { error } = await client
+        .from('zusatzauftrag')
+        .upsert({ ...e.payload, client_uuid: e.client_uuid }, { onConflict: 'client_uuid', ignoreDuplicates: true });
+      if (error) {
+        const d = fehlerDeuten(error);
+        fehlerText = d.text;
+        if (d.endgueltig) { await db.auftraege.update(e.client_uuid, { status: 'verworfen' }); verworfen += 1; } else fehler += 1;
+        continue;
+      }
+      await db.auftraege.update(e.client_uuid, { status: 'gesendet' });
+      gesendet += 1;
+    } catch (err) {
+      fehler += 1;
+      fehlerText = err instanceof Error ? err.message : String(err);
+    }
+  }
+  return { gesendet, fehler, verworfen, fehlerText };
 }
 
 /** Alle lokalen Einträge zum Server schieben. */
 export async function flushNachSupabase(client: SupabaseClient): Promise<FlushErgebnis> {
-  return flushMeldungen(client);
+  const m = await flushMeldungen(client);
+  const a = await flushAuftraege(client);
+  return {
+    gesendet: m.gesendet + a.gesendet,
+    fehler: m.fehler + a.fehler,
+    verworfen: m.verworfen + a.verworfen,
+    fehlerText: m.fehlerText ?? a.fehlerText,
+  };
 }
 
 /** Beim App-Start registrieren: sendet bei Netz-Rückkehr automatisch. */

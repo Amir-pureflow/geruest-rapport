@@ -1,0 +1,597 @@
+import { useEffect, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
+import { Shell } from '../ui/Shell';
+import { supabase } from '../lib/supabase';
+import { einstellungen } from '../lib/einstellungen';
+import { ausIso, kurz } from '../lib/datum';
+import { TAETIGKEITEN, TAETIGKEIT_LABEL } from '../lib/zusatzauftrag';
+import {
+  enqueueZusatzauftrag,
+  flushNachSupabase,
+  offeneAuftraege,
+  type FlushErgebnis,
+  type LokalerAuftrag,
+} from '../lib/db';
+
+/**
+ * Stufe 1 — der Geldwert: Die Kundenbestellung wird eingetippt,
+ * während der Bauleiter noch am Telefon ist. Vier Angaben, 20 Sekunden.
+ * Schreibt in die Offline-Queue (CLAUDE.md #4) und sendet sofort, wenn Netz da ist.
+ */
+
+interface Baustelle {
+  id: string;
+  konto_nr: string;
+  bezeichnung: string | null;
+  /** Bauleitung des Kunden — Vorschlag fürs Feld «Wer verlangt es?» */
+  kunde: { name: string | null; ansprechperson: string | null; email: string | null } | null;
+}
+
+/** Was auf dem Gerät wartet — dieselben Felder, die enqueueZusatzauftrag bekommt */
+interface LokalPayload {
+  baustelle_id?: string;
+  besteller_name?: string;
+  taetigkeit?: string;
+}
+
+/** Zeile aus der Sicht zusatzauftrag_stand — der Stand ist abgeleitet, nicht geklickt. */
+interface Auftrag {
+  id: string;
+  besteller_name: string;
+  kanal: string;
+  taetigkeit: string;
+  geplant_fuer: string | null;
+  bestellt_am: string;
+  status: 'offen' | 'erledigt_ohne_regie';
+  notiz: string | null;
+  konto_nr: string;
+  baustelle_id?: string | null;
+  baustelle_bezeichnung: string | null;
+  stand: 'bestellt' | 'gemeldet' | 'im_regierapport' | 'beim_kunden' | 'bestaetigt' | 'erledigt_ohne_regie';
+  gemeldet_am: string | null;
+  gemeldet_von_team: string | null;
+  regierapport_id: string | null;
+  regierapport_nummer: string | null;
+  regierapport_status: string | null;
+  ohne_meldung: boolean;
+  erledigt_grund: string | null;
+  erledigt_am: string | null;
+  /** 0011: Kunde und Mehrkostenanzeige */
+  kunde_name: string | null;
+  kunde_email: string | null;
+  kunde_ansprechperson: string | null;
+  anzeige_noetig: boolean;
+  angezeigt_am: string | null;
+  angezeigt_an: string | null;
+}
+
+
+const KANAELE = [
+  ['telefon', 'Telefon'],
+  ['mail', 'Mail'],
+  ['vor_ort', 'vor Ort'],
+] as const;
+
+// Stand kommt aus Meldung und Regierapport (Sicht zusatzauftrag_stand). Einziger Handgriff: «erledigt ohne Regie».
+const STAND_LABEL: Record<Auftrag['stand'], string> = {
+  bestellt: 'bestellt',
+  gemeldet: 'gemeldet',
+  im_regierapport: 'im Regierapport',
+  beim_kunden: 'beim Kunden',
+  bestaetigt: 'bestätigt',
+  erledigt_ohne_regie: 'erledigt ohne Regie',
+};
+
+// Bernstein = Hinweis, Rot bleibt dem Speichern-Knopf vorbehalten.
+const STAND_STIL: Record<Auftrag['stand'], string> = {
+  bestellt: 'bg-amber-soft text-amber-deep',
+  gemeldet: 'bg-amber-soft text-amber-deep',
+  im_regierapport: 'bg-steel-soft text-steel',
+  beim_kunden: 'bg-steel-soft text-steel',
+  bestaetigt: 'bg-good-soft text-good-deep',
+  erledigt_ohne_regie: 'bg-ground text-ink3',
+};
+
+const GRUENDE = [
+  ['abgesagt', 'Kunde hat abgesagt'],
+  ['pauschale', 'war in der Pauschale'],
+  ['kulanz', 'kulant, ohne Rechnung'],
+  ['doppelt', 'doppelt erfasst'],
+] as const;
+
+const GRUND_LABEL: Record<string, string> = Object.fromEntries(GRUENDE);
+
+// Baustellenliste lokal vorhalten, damit das Formular auch ohne Netz aufgeht.
+// Kommt Netz zurück, wird der Cache beim nächsten Laden erneuert. v2: mit Kunde.
+const CACHE_KEY = 'baustellen-cache-v2';
+
+type Rueckmeldung = { art: 'gesendet' | 'wartet'; text: string };
+
+/**
+ * Mehrkostenanzeige an die Bauleitung (Bausitzungsprotokoll 7.1): vor der Arbeit anzeigen, sonst zahlt
+ * die Bauleitung nicht. Ob eine Firma das über die App macht, sagt der Schalter `MODUS_MEHRKOSTENANZEIGE`
+ * (Verwaltung → Einstellungen, 02.10.2026). Bei der Gerüst GmbH ist er aus — dort ist nicht geklärt,
+ * wie sie es heute machen (15.09.).
+ */
+const MEHRKOSTENANZEIGE_AKTIV = einstellungen().mehrkostenanzeige;
+
+export function Zusatzauftrag() {
+  const [baustellen, setBaustellen] = useState<Baustelle[]>([]);
+  const [suche, setSuche] = useState('');
+  const [gewaehlt, setGewaehlt] = useState<Baustelle | null>(null);
+  const [besteller, setBesteller] = useState('');
+  const [kanal, setKanal] = useState<string>('telefon');
+  const [taetigkeit, setTaetigkeit] = useState<string>('versetzen');
+  const [geplant, setGeplant] = useState('');
+  const [notiz, setNotiz] = useState('');
+  const [rueckmeldung, setRueckmeldung] = useState<Rueckmeldung | null>(null);
+  const [fehler, setFehler] = useState('');
+  const [liste, setListe] = useState<Auftrag[]>([]);
+  // Offen zuerst (nach geplantem Tag), Erledigtes eingeklappt — sonst ist die Seite nach zwei Wochen eine Wand
+  const [zeigeErledigte, setZeigeErledigte] = useState(false);
+  const offene = useMemo(
+    () => liste.filter((a) => a.stand === 'bestellt' || a.stand === 'gemeldet').sort((a, b) => (a.geplant_fuer ?? '9999').localeCompare(b.geplant_fuer ?? '9999')),
+    [liste],
+  );
+  const erledigte = useMemo(
+    () => liste.filter((a) => a.stand !== 'bestellt' && a.stand !== 'gemeldet').sort((a, b) => b.bestellt_am.localeCompare(a.bestellt_am)),
+    [liste],
+  );
+  const [lokal, setLokal] = useState<LokalerAuftrag[]>([]);
+  const [erledigen, setErledigen] = useState<string | null>(null); // Auftrag, für den gerade der Grund gewählt wird
+  const [userId, setUserId] = useState<string | null>(null);
+
+  // Für «gemeldet»: die Meldung des Teams in der Wochenübersicht öffnen (Sicht liefert nur Datum + Teamname)
+  const [meldungLinks, setMeldungLinks] = useState<Record<string, string>>({});
+  async function meldungLinksLaden(auftraege: Auftrag[]) {
+    if (!supabase) return;
+    const gemeldet = auftraege.filter((a) => a.stand === 'gemeldet' && a.gemeldet_am && a.baustelle_id);
+    if (gemeldet.length === 0) { setMeldungLinks({}); return; }
+    const { data } = await supabase
+      .from('tagesmeldung')
+      .select('id,team_id,datum,baustelle_id')
+      .in('baustelle_id', [...new Set(gemeldet.map((a) => a.baustelle_id as string))])
+      .in('datum', [...new Set(gemeldet.map((a) => a.gemeldet_am as string))]);
+    const links: Record<string, string> = {};
+    for (const a of gemeldet) {
+      const m = (data ?? []).find((x) => x.baustelle_id === a.baustelle_id && x.datum === a.gemeldet_am);
+      if (m) links[a.id] = `/cockpit?woche=${m.datum}&tag=${m.datum}&team=${m.team_id}&meldung=${m.id}`;
+    }
+    setMeldungLinks(links);
+  }
+
+  async function ladeListe() {
+    void offeneAuftraege().then(setLokal);
+    if (!supabase) return;
+    const { data } = await supabase
+      .from('zusatzauftrag_stand')
+      .select(
+        'id,besteller_name,kanal,taetigkeit,geplant_fuer,bestellt_am,status,notiz,konto_nr,baustelle_id,baustelle_bezeichnung,stand,gemeldet_am,gemeldet_von_team,regierapport_id,regierapport_nummer,regierapport_status,ohne_meldung,erledigt_grund,erledigt_am,kunde_name,kunde_email,kunde_ansprechperson,anzeige_noetig,angezeigt_am,angezeigt_an',
+      )
+      .order('bestellt_am', { ascending: false })
+      .limit(50);
+    if (data) { setListe(data as unknown as Auftrag[]); void meldungLinksLaden(data as unknown as Auftrag[]); }
+    else {
+      // Sicht noch ohne 0011? Dann ohne die Kundenspalten laden, statt gar nicht.
+      const alt = await supabase
+        .from('zusatzauftrag_stand')
+        .select('id,besteller_name,kanal,taetigkeit,geplant_fuer,bestellt_am,status,notiz,konto_nr,baustelle_bezeichnung,stand,gemeldet_am,gemeldet_von_team,regierapport_id,regierapport_nummer,regierapport_status,ohne_meldung,erledigt_grund,erledigt_am')
+        .order('bestellt_am', { ascending: false })
+        .limit(50);
+      if (alt.data) setListe((alt.data as unknown as Auftrag[]).map((a) => ({ ...a, anzeige_noetig: false, angezeigt_am: null, angezeigt_an: null, kunde_email: null, kunde_name: null, kunde_ansprechperson: null })));
+    }
+  }
+
+  useEffect(() => {
+    try {
+      const c = localStorage.getItem(CACHE_KEY);
+      if (c) setBaustellen(JSON.parse(c) as Baustelle[]);
+    } catch {
+      /* Cache nicht verfügbar — dann eben nur online */
+    }
+    if (supabase) {
+      void supabase
+        .from('baustelle')
+        .select('id,konto_nr,bezeichnung,kunde:kunde_id(name,ansprechperson,email)')
+        .order('bezeichnung')
+        .then(({ data }) => {
+          if (data) {
+            setBaustellen(data as unknown as Baustelle[]);
+            try {
+              localStorage.setItem(CACHE_KEY, JSON.stringify(data));
+            } catch {
+              /* voll oder blockiert — unkritisch */
+            }
+          }
+        });
+    }
+    void ladeListe();
+    if (supabase) void supabase.auth.getUser().then(({ data }) => setUserId(data.user?.id ?? null));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const treffer = useMemo(() => {
+    const q = suche.trim().toLowerCase();
+    if (!q) return [];
+    return baustellen
+      .filter(
+        (b) =>
+          (b.bezeichnung ?? '').toLowerCase().includes(q) || b.konto_nr.includes(q),
+      )
+      .slice(0, 8);
+  }, [suche, baustellen]);
+
+  async function speichern() {
+    setFehler('');
+    if (!gewaehlt) {
+      setFehler('Zuerst die Baustelle wählen.');
+      return;
+    }
+    if (!besteller.trim()) {
+      setFehler('Wer hat die Arbeit verlangt? Name eintragen.');
+      return;
+    }
+    const clientUuid = await enqueueZusatzauftrag({
+      baustelle_id: gewaehlt.id,
+      besteller_name: besteller.trim(),
+      kanal,
+      taetigkeit,
+      geplant_fuer: geplant || null,
+      notiz: notiz.trim() || null,
+      status: 'offen',
+    });
+    // Erst lokal, dann senden — und ehrlich sagen, ob es angekommen ist (nie «Gespeichert ✓» bei gescheitertem Versand).
+    let erg: FlushErgebnis | null = null;
+    if (supabase && navigator.onLine) {
+      try { erg = await flushNachSupabase(supabase); } catch (e) { erg = { gesendet: 0, fehler: 1, verworfen: 0, fehlerText: e instanceof Error ? e.message : String(e) }; }
+    }
+    const nochLokal = (await offeneAuftraege()).some((a) => a.client_uuid === clientUuid);
+    if (!nochLokal && erg && erg.gesendet > 0) {
+      setRueckmeldung({ art: 'gesendet', text: 'Gespeichert ✓ und gesendet' });
+    } else {
+      const grund = erg?.fehlerText ?? (!supabase ? 'keine Datenbank eingerichtet' : !navigator.onLine ? 'kein Netz' : 'wird beim nächsten Netz gesendet');
+      setRueckmeldung({ art: 'wartet', text: `Auf dem Gerät gespeichert, noch nicht gesendet: ${grund}` });
+    }
+    setTimeout(() => setRueckmeldung(null), 6000);
+    setGewaehlt(null);
+    setSuche('');
+    setBesteller('');
+    setGeplant('');
+    setNotiz('');
+    setTaetigkeit('versetzen');
+    setKanal('telefon');
+    void ladeListe();
+  }
+
+  /** Der einzige Handgriff: bestellt, aber es gibt keine Regie — mit Pflichtgrund, wer, wann. */
+  // Mehrkostenanzeige: Empfänger vorbelegt aus dem Kunden, Versand über die Edge Function
+  const [anzeige, setAnzeige] = useState<{ id: string; an: string; laeuft: boolean; fehler: string } | null>(null);
+  async function anzeigeSenden(a: Auftrag) {
+    if (!supabase || !anzeige || anzeige.id !== a.id) return;
+    setAnzeige({ ...anzeige, laeuft: true, fehler: '' });
+    const { data, error } = await supabase.functions.invoke('mehrkosten-anzeigen', { body: { zusatzauftrag_id: a.id, empfaenger_email: anzeige.an.trim() } });
+    let text = error?.message ?? '';
+    if (error && 'context' in error) { try { text = ((await (error as { context: Response }).context.json()) as { fehler?: string }).fehler ?? text; } catch { /* Text reicht */ } }
+    if (error || data?.fehler) { setAnzeige({ ...anzeige, laeuft: false, fehler: data?.fehler ?? text ?? 'Versand fehlgeschlagen.' }); return; }
+    setAnzeige(null);
+    void ladeListe();
+  }
+
+  async function ohneRegieErledigen(a: Auftrag, grund: string) {
+    if (!supabase) return;
+    await supabase
+      .from('zusatzauftrag')
+      .update({ status: 'erledigt_ohne_regie', erledigt_grund: grund, erledigt_am: new Date().toISOString(), erledigt_von: userId })
+      .eq('id', a.id);
+    setErledigen(null);
+    void ladeListe();
+  }
+
+  /** Versehentlich erledigt → wieder offen; der Stand ergibt sich dann wieder aus den Daten. */
+  async function wiederOeffnen(a: Auftrag) {
+    if (!supabase) return;
+    await supabase
+      .from('zusatzauftrag')
+      .update({ status: 'offen', erledigt_grund: null, erledigt_am: null, erledigt_von: null })
+      .eq('id', a.id);
+    void ladeListe();
+  }
+
+  return (
+    <Shell zurueck schmal>
+      <div className="space-y-6">
+        <h1 className="font-display text-2xl font-semibold">Zusatzauftrag erfassen</h1>
+
+        <section className="card space-y-4 p-5">
+          <div>
+            <label className="lbl">Baustelle</label>
+            {gewaehlt ? (
+              <button
+                type="button"
+                onClick={() => {
+                  setGewaehlt(null);
+                  setSuche('');
+                }}
+                className="w-full rounded-[10px] border border-accent bg-accent-soft px-3.5 py-2.5 text-left"
+              >
+                <span className="font-display font-semibold">{gewaehlt.bezeichnung}</span>
+                <span className="mt-0.5 flex items-center gap-2 text-xs text-ink3">
+                  <span className="knr">{gewaehlt.konto_nr}</span>
+                  antippen zum Ändern
+                </span>
+              </button>
+            ) : (
+              <>
+                <input
+                  value={suche}
+                  onChange={(e) => setSuche(e.target.value)}
+                  placeholder="Strasse oder Nummer eintippen …"
+                  className="field"
+                />
+                {treffer.length > 0 && (
+                  <div className="mt-1.5 overflow-hidden rounded-[10px] border border-line divide-y divide-line">
+                    {treffer.map((b) => (
+                      <button
+                        key={b.id}
+                        type="button"
+                        onClick={() => setGewaehlt(b)}
+                        className="flex w-full items-center justify-between gap-2 bg-surface px-3.5 py-2.5 text-left text-sm hover:bg-ground"
+                      >
+                        <span className="font-medium">{b.bezeichnung}</span>
+                        <span className="knr">{b.konto_nr}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+
+          <div>
+            <label className="lbl" htmlFor="besteller">Wer verlangt es?</label>
+            {gewaehlt?.kunde?.ansprechperson && (
+              <div className="mb-1.5 flex flex-wrap items-center gap-1.5 text-xs text-ink3">
+                <span>Bauleitung laut Kunde:</span>
+                <button
+                  type="button"
+                  onClick={() => setBesteller(gewaehlt.kunde?.ansprechperson ?? '')}
+                  className={'chip px-3 py-1 text-xs ' + (besteller.trim() === gewaehlt.kunde.ansprechperson.trim() ? 'chip-on' : '')}
+                  title={gewaehlt.kunde.email ?? undefined}
+                >
+                  {gewaehlt.kunde.ansprechperson}{gewaehlt.kunde.name ? ` · ${gewaehlt.kunde.name}` : ''}
+                </button>
+              </div>
+            )}
+            <input
+              id="besteller"
+              value={besteller}
+              onChange={(e) => setBesteller(e.target.value)}
+              placeholder="z. B. M. Huber, Bauleitung"
+              className="field"
+            />
+            <div className="mt-2 flex gap-2">
+              {KANAELE.map(([wert, label]) => (
+                <button
+                  key={wert}
+                  type="button"
+                  onClick={() => setKanal(wert)}
+                  className={'chip px-3.5 ' + (kanal === wert ? 'chip-on' : '')}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <label className="lbl">Was ist zu tun?</label>
+            <div className="grid grid-cols-3 gap-2">
+              {TAETIGKEITEN.map(([wert, label]) => (
+                <button
+                  key={wert}
+                  type="button"
+                  onClick={() => setTaetigkeit(wert)}
+                  className={'chip ' + (taetigkeit === wert ? 'chip-on' : '')}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="lbl">Geplant für</label>
+              <input
+                type="date"
+                value={geplant}
+                onChange={(e) => setGeplant(e.target.value)}
+                className="field"
+              />
+            </div>
+            <div>
+              <label className="lbl">Notiz (optional)</label>
+              <input
+                value={notiz}
+                onChange={(e) => setNotiz(e.target.value)}
+                placeholder="z. B. Maurer blockiert"
+                className="field"
+              />
+            </div>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => void speichern()}
+            className={'cta ' + (rueckmeldung?.art === 'gesendet' ? 'cta-good' : '')}
+          >
+            {rueckmeldung?.art === 'gesendet' ? rueckmeldung.text : 'Speichern'}
+          </button>
+          {rueckmeldung?.art === 'wartet' && (
+            <p role="status" className="rounded-[10px] bg-amber-soft px-3 py-2 text-sm font-semibold text-amber-deep">{rueckmeldung.text}</p>
+          )}
+          {fehler && <p className="text-sm font-semibold text-accent-deep">{fehler}</p>}
+          <p className="text-xs text-ink3">
+            Ohne Netz wird lokal gespeichert und automatisch gesendet, sobald
+            Empfang da ist.
+          </p>
+        </section>
+
+        <section className="space-y-2.5">
+          <div className="flex items-baseline justify-between gap-3">
+            <h2 className="lbl mb-0">Offen · {offene.length + lokal.length}</h2>
+            {erledigte.length > 0 && (
+              <button type="button" className="text-xs font-semibold text-steel" onClick={() => setZeigeErledigte((z) => !z)}>
+                {zeigeErledigte ? 'Erledigte ausblenden' : `${erledigte.length} erledigte anzeigen`}
+              </button>
+            )}
+          </div>
+
+          {lokal.map((e) => {
+            const p = e.payload as LokalPayload;
+            const b = baustellen.find((x) => x.id === p.baustelle_id);
+            return (
+              <div key={e.client_uuid} className="rounded-[14px] border border-dashed border-line-strong bg-surface p-3.5">
+                <div className="flex items-baseline justify-between gap-2">
+                  <span className="font-display text-[15px] font-semibold">{b?.bezeichnung ?? b?.konto_nr ?? 'Baustelle'}</span>
+                  <span className="rounded-md bg-amber-soft px-1.5 py-0.5 font-mono text-[11px] font-semibold text-amber-deep">bestellt</span>
+                </div>
+                <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-ink2">
+                  {b && <span className="knr">{b.konto_nr}</span>}
+                  <span>{TAETIGKEIT_LABEL[p.taetigkeit ?? ''] ?? p.taetigkeit ?? '—'}</span>
+                  <span className="text-ink3">·</span>
+                  <span>{p.besteller_name ?? '—'}</span>
+                </p>
+                <p className="mt-1.5 text-[11px] text-ink3">⏳ wartet auf Netz</p>
+              </div>
+            );
+          })}
+
+          {offene.length === 0 && lokal.length === 0 && (
+            <div className="card text-sm text-ink3">
+              {erledigte.length > 0 ? 'Nichts offen — alles im Regierapport oder beim Kunden.' : 'Noch keine — der nächste Kundenanruf landet hier.'}
+            </div>
+          )}
+
+          {[...offene, ...(zeigeErledigte ? erledigte : [])].map((a) => (
+            <div key={a.id} className={'card ' + (a.ohne_meldung ? 'border-amber/40' : '')}>
+              <div className="flex items-baseline justify-between gap-2">
+                <span className="font-display text-[15px] font-semibold">
+                  {a.baustelle_bezeichnung ?? a.konto_nr}
+                </span>
+                <span
+                  className={
+                    'rounded-md px-1.5 py-0.5 font-mono text-[11px] font-semibold ' +
+                    (STAND_STIL[a.stand] ?? 'bg-ground text-ink3')
+                  }
+                >
+                  {STAND_LABEL[a.stand] ?? a.stand}
+                </span>
+              </div>
+              <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-ink2">
+                <span className="knr">{a.konto_nr}</span>
+                <span>{TAETIGKEIT_LABEL[a.taetigkeit] ?? a.taetigkeit}</span>
+                <span className="text-ink3">·</span>
+                <span>{a.besteller_name}</span>
+                {a.geplant_fuer && (
+                  <>
+                    <span className="text-ink3">·</span>
+                    <span>geplant {kurz(ausIso(a.geplant_fuer))}</span>
+                  </>
+                )}
+                {a.notiz && (
+                  <>
+                    <span className="text-ink3">·</span>
+                    <span className="text-ink3">{a.notiz}</span>
+                  </>
+                )}
+              </p>
+
+              {/* Woher der Stand kommt — benannte Quelle statt Urteil */}
+              <p className="mt-1.5 text-xs text-ink3">
+                {a.stand === 'gemeldet' && a.gemeldet_am && (
+                  <>
+                    gemeldet am {kurz(ausIso(a.gemeldet_am))}{a.gemeldet_von_team ? ` von ${a.gemeldet_von_team}` : ''}
+                    {' · '}
+                    {meldungLinks[a.id]
+                      ? <Link to={meldungLinks[a.id]} className="font-semibold text-steel">Meldung ansehen und Regierapport vorrechnen ›</Link>
+                      : <Link to={`/cockpit?woche=${a.gemeldet_am}&tag=${a.gemeldet_am}`} className="font-semibold text-steel">in der Wochenübersicht ansehen ›</Link>}
+                  </>
+                )}
+                {(a.stand === 'im_regierapport' || a.stand === 'beim_kunden' || a.stand === 'bestaetigt') && a.regierapport_id && (
+                  <Link to={`/regie/${a.regierapport_id}`} className="font-semibold text-steel">
+                    Regierapport {a.regierapport_nummer ?? ''} ›
+                  </Link>
+                )}
+                {a.stand === 'bestellt' && a.ohne_meldung && (
+                  <span className="font-semibold text-amber-deep">geplant {a.geplant_fuer ? kurz(ausIso(a.geplant_fuer)) : ''}, bis jetzt keine Meldung vom Team — nachfragen?</span>
+                )}
+                {a.stand === 'bestellt' && !a.ohne_meldung && <>wartet auf die Meldung des Teams</>}
+                {a.stand === 'erledigt_ohne_regie' && (
+                  <>{GRUND_LABEL[a.erledigt_grund ?? ''] ?? a.erledigt_grund}{a.erledigt_am ? ` · ${kurz(new Date(a.erledigt_am))}` : ''}</>
+                )}
+              </p>
+
+              {/* Mehrkostenanzeige — vor der Arbeit, sonst zahlt die Bauleitung nicht (Protokoll 7.1) */}
+              {MEHRKOSTENANZEIGE_AKTIV && a.anzeige_noetig && (a.stand === 'bestellt' || a.stand === 'gemeldet') && !a.angezeigt_am && anzeige?.id !== a.id && (
+                <div className="mt-2.5 flex flex-wrap items-center justify-between gap-2 rounded-[12px] border border-amber/40 bg-amber-soft px-3 py-2.5">
+                  <span className="text-xs text-amber-deep">
+                    <strong>Bauleitung noch nicht informiert.</strong> Bei diesem Kunden zählt Zusatzarbeit nur, wenn sie vorher schriftlich angezeigt wurde.
+                  </span>
+                  <button type="button" className="btn-ghost shrink-0 border-amber/50 text-amber-deep" onClick={() => setAnzeige({ id: a.id, an: a.kunde_email ?? '', laeuft: false, fehler: '' })}>
+                    Bauleitung informieren
+                  </button>
+                </div>
+              )}
+              {anzeige?.id === a.id && (
+                <div className="mt-2.5 space-y-2 rounded-[12px] bg-ground p-3">
+                  <p className="text-xs font-semibold">Mehrkostenanzeige per Mail an die Bauleitung</p>
+                  <p className="text-xs text-ink2">
+                    Inhalt: Bestellung durch {a.besteller_name} am {kurz(new Date(a.bestellt_am))}, Arbeit «{TAETIGKEIT_LABEL[a.taetigkeit] ?? a.taetigkeit}» auf {a.baustelle_bezeichnung ?? a.konto_nr}
+                    {a.geplant_fuer ? `, geplant ${kurz(ausIso(a.geplant_fuer))}` : ''}, Verrechnung nach Regie-Tarif, Regierapport folgt.
+                  </p>
+                  <input type="email" value={anzeige.an} onChange={(e) => setAnzeige({ ...anzeige, an: e.target.value })} placeholder="E-Mail der Bauleitung" className="field" />
+                  {!a.kunde_email && <p className="text-[11px] text-amber-deep">Beim Kunden ist keine E-Mail hinterlegt — unter Verwaltung › Kunden eintragen, dann ist sie hier vorbelegt.</p>}
+                  {anzeige.fehler && <p className="text-xs font-semibold text-accent-deep">{anzeige.fehler}</p>}
+                  <div className="flex gap-2">
+                    <button type="button" disabled={anzeige.laeuft || !anzeige.an.trim()} className="cta w-auto px-4 py-2 text-sm disabled:opacity-60" onClick={() => void anzeigeSenden(a)}>
+                      {anzeige.laeuft ? 'Sendet …' : 'Anzeige senden'}
+                    </button>
+                    <button type="button" className="btn-ghost" onClick={() => setAnzeige(null)}>Abbrechen</button>
+                  </div>
+                </div>
+              )}
+              {MEHRKOSTENANZEIGE_AKTIV && a.angezeigt_am && (
+                <p className="mt-2 text-xs text-good-deep">✓ Bauleitung informiert am {kurz(new Date(a.angezeigt_am))}{a.angezeigt_an ? ` · ${a.angezeigt_an}` : ''}</p>
+              )}
+
+              {(a.stand === 'bestellt' || a.stand === 'gemeldet') && erledigen !== a.id && (
+                <button type="button" onClick={() => setErledigen(a.id)} className="btn-ghost mt-2.5 text-xs">
+                  erledigt ohne Regie …
+                </button>
+              )}
+              {erledigen === a.id && (
+                <div className="mt-2.5 space-y-2 rounded-[12px] bg-ground p-3">
+                  <p className="text-xs font-semibold">Warum gibt es keine Regie?</p>
+                  <div className="grid grid-cols-2 gap-1.5">
+                    {GRUENDE.map(([code, text]) => (
+                      <button key={code} type="button" onClick={() => void ohneRegieErledigen(a, code)} className="chip text-xs">
+                        {text}
+                      </button>
+                    ))}
+                  </div>
+                  <button type="button" onClick={() => setErledigen(null)} className="text-xs text-ink3">Abbrechen</button>
+                </div>
+              )}
+              {a.stand === 'erledigt_ohne_regie' && (
+                <button type="button" onClick={() => void wiederOeffnen(a)} className="btn-ghost mt-2.5 text-xs">
+                  wieder öffnen
+                </button>
+              )}
+            </div>
+          ))}
+        </section>
+      </div>
+    </Shell>
+  );
+}

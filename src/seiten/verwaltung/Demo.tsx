@@ -100,6 +100,7 @@ export function Demo() {
         {ergebnis && (
           <p className="rounded-[10px] bg-good-soft p-3 text-sm text-good-deep">
             Fertig: {ergebnis.mitarbeiter} Mitarbeitende, {ergebnis.teams} Teams, {ergebnis.kunden} Kunden, {ergebnis.meldungen} Tagesmeldungen mit {ergebnis.eintraege} Zeiteinträgen.
+            {ergebnis.regierapporte !== undefined && ` Dazu ${ergebnis.regierapporte} Regierapporte in allen Stadien.`}
           </p>
         )}
         {protokoll.length > 0 && (

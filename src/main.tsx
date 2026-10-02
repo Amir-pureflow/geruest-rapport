@@ -10,16 +10,27 @@ import { Cockpit } from './seiten/Cockpit';
 import { Tag } from './seiten/Tag';
 import { Export } from './seiten/Export';
 import { Verwaltung } from './seiten/verwaltung/Verwaltung';
+// Regie-Seiten: nur erreichbar, wenn die Firma mit Regie arbeitet (Firmen-Schalter MODUS_ERFASSUNG).
+// Nachladen, damit der Wochenblatt-Modus den Code gar nicht erst holt.
+import { lazy, Suspense } from 'react';
+const Zusatzauftrag = lazy(() => import('./seiten/Zusatzauftrag').then((m) => ({ default: m.Zusatzauftrag })));
+const RegieListe = lazy(() => import('./seiten/RegieListe').then((m) => ({ default: m.RegieListe })));
+const RegieDetail = lazy(() => import('./seiten/RegieDetail').then((m) => ({ default: m.RegieDetail })));
+const RegieVorschau = lazy(() => import('./seiten/RegieVorschau').then((m) => ({ default: m.RegieVorschau })));
+const Auswertung = lazy(() => import('./seiten/Auswertung').then((m) => ({ default: m.Auswertung })));
+const Board = lazy(() => import('./seiten/Board').then((m) => ({ default: m.Board })));
+const Bestaetigung = lazy(() => import('./seiten/Bestaetigung').then((m) => ({ default: m.Bestaetigung })));
 import { Shell } from './ui/Shell';
-import { ANSICHTEN, ANSICHT_LABEL, ansichtSetzen } from './lib/ansicht';
+import { ansichten, ANSICHT_LABEL, ansichtSetzen } from './lib/ansicht';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { startAutoFlush, flushNachSupabase } from './lib/db';
 import { supabase } from './lib/supabase';
 import { seitenFuer, useAnsicht, type Ansicht as AnsichtKey } from './lib/ansicht';
-import { einstellungenLaden } from './lib/einstellungen';
+import { einstellungen, einstellungenLaden } from './lib/einstellungen';
 
-// Regie, Zusatzaufträge, Kundenlink und Board sind seit 20.09.2026 nicht mehr Teil der App (Bauführer: SORBA macht das).
-// Der Code liegt in archiv/regie-und-board/ — siehe dort README.
+// Regie, Zusatzaufträge, Kundenlink und Board waren vom 20.09. bis 02.10.2026 ganz draussen (Bauführer: SORBA macht das).
+// Seit 02.10. gibt es sie wieder, aber nur für Firmen, die das wollen — Firmen-Schalter MODUS_ERFASSUNG (Verwaltung → Einstellungen).
+// Gerüst GmbH (Arbnor) läuft weiterhin ohne. Das Archiv in archiv/regie-und-board/ bleibt als Nachschlagewerk stehen.
 
 if (supabase) {
   const client = supabase;
@@ -40,7 +51,7 @@ function FremdeSeite({ ansicht }: { ansicht: AnsichtKey }) {
   const { pathname, search } = useLocation();
   const navigiere = useNavigate();
   const seite = pathname.split('/')[1];
-  const passende = ANSICHTEN.filter((a) => seitenFuer(a.key).includes(seite));
+  const passende = ansichten().filter((a) => seitenFuer(a.key).includes(seite));
   function wechseln(zu: AnsichtKey) {
     ansichtSetzen(zu);
     navigiere(pathname + search, { replace: true });
@@ -96,6 +107,7 @@ function App() {
   if (!bereit) return null; // kurzer Moment beim Start
 
   const hat = (seite: string) => sitzung && !!ansicht && seitenFuer(ansicht).includes(seite);
+  const regieModus = einstellungen().erfassung === 'regie';
 
   return (
     <BrowserRouter>
@@ -108,6 +120,14 @@ function App() {
         {hat('cockpit') && <Route path="/cockpit" element={<Cockpit />} />}
         {hat('export') && <Route path="/export" element={<Export />} />}
         {hat('verwaltung') && <Route path="/verwaltung" element={<Verwaltung />} />}
+        {/* Regie-Modus: Kundenlink ohne Login, Zusatzauftrag, Regierapporte, Auswertung, Board */}
+        {regieModus && <Route path="/b/:token" element={<Suspense fallback={null}><Bestaetigung /></Suspense>} />}
+        {hat('zusatzauftrag') && <Route path="/zusatzauftrag" element={<Suspense fallback={null}><Zusatzauftrag /></Suspense>} />}
+        {hat('regie') && <Route path="/regie" element={<Suspense fallback={null}><RegieListe /></Suspense>} />}
+        {hat('regie') && <Route path="/regie/neu" element={<Suspense fallback={null}><RegieVorschau /></Suspense>} />}
+        {hat('regie') && <Route path="/regie/:id" element={<Suspense fallback={null}><RegieDetail /></Suspense>} />}
+        {hat('auswertung') && <Route path="/auswertung" element={<Suspense fallback={null}><Auswertung /></Suspense>} />}
+        {hat('board') && <Route path="/board" element={<Suspense fallback={null}><Board /></Suspense>} />}
         {sitzung && ansicht && <Route path="*" element={<FremdeSeite ansicht={ansicht} />} />}
       </Routes>
     </BrowserRouter>

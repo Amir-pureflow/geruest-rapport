@@ -5,14 +5,15 @@
  * Jahresplan, fünf Wochen Tagesmeldungen mit Überstunden und Sprachnotizen.
  * Gleicher Seed = gleiche Daten.
  *
- * Seit 20.09. ohne Zusatzaufträge und Regierapporte (SORBA macht die Regie) —
- * die frühere Fassung liegt in archiv/regie-und-board/.
+ * Zusatzaufträge und Regierapporte stehen in `demo_regie.ts` und werden nur geladen, wenn die Firma
+ * `MODUS_ERFASSUNG = regie` gesetzt hat (02.10.2026). Ohne Regie macht SORBA das.
  *
  * Kunden-Mails enden bewusst auf «.example» (reservierte Domain): Aus einer
  * Demo darf nie eine Mail an eine echte fremde Adresse gehen.
  */
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { addTage, iso, montag, NORMALTAG_MIN } from './datum';
+import { einstellungen } from './einstellungen';
 
 // ── Zufall, reproduzierbar ────────────────────────────────────────────────────
 
@@ -339,7 +340,7 @@ export async function demoZuruecksetzen(client: SupabaseClient, log: Protokoll):
   log('Alles geleert — die 217 Konten bleiben.');
 }
 
-export interface DemoZusammenfassung { mitarbeiter: number; teams: number; kunden: number; meldungen: number; eintraege: number }
+export interface DemoZusammenfassung { mitarbeiter: number; teams: number; kunden: number; meldungen: number; eintraege: number; regierapporte?: number }
 
 export async function demoLaden(client: SupabaseClient, userId: string, log: Protokoll): Promise<DemoZusammenfassung> {
   const { data: bs, error } = await client.from('baustelle').select('id,konto_nr,bezeichnung').order('konto_nr');
@@ -363,5 +364,13 @@ export async function demoLaden(client: SupabaseClient, userId: string, log: Pro
   await inChunks(client, 'zeiteintrag', d.eintraege, log);
   await inChunks(client, 'freigabe_log', d.freigaben, log);
 
-  return { mitarbeiter: d.mitarbeiter.length, teams: d.teams.length, kunden: d.kunden.length, meldungen: d.meldungen.length, eintraege: d.eintraege.length };
+  // Regie nur, wenn die Firma sie führt — sonst bleiben die vier Tabellen leer (Firmen-Schalter 02.10.)
+  let regierapporte: number | undefined;
+  if (einstellungen().erfassung === 'regie') {
+    const { demoRegieLaden } = await import('./demo_regie');
+    const r = await demoRegieLaden(client, d, userId, log);
+    regierapporte = r.rapporte;
+  }
+
+  return { mitarbeiter: d.mitarbeiter.length, teams: d.teams.length, kunden: d.kunden.length, meldungen: d.meldungen.length, eintraege: d.eintraege.length, regierapporte };
 }

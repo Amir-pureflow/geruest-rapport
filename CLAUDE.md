@@ -5,10 +5,11 @@ Digitales Erfassungswerkzeug für eine Gerüstbaufirma im Raum Bern.
 5 Bauführer. 20 Teams à 2–3 Monteure mit je einem Chefmonteur (Telefonat 27.08.2026).
 SORBA wird **gefüttert, nicht ersetzt** — Regierapport und Rechnung entstehen dort.
 
-**Seit 20.09.2026 ohne Regie und Board.** Der Bauführer (Demo durch Erin): «Regierapporte und alles, was damit zu tun
-hat, brauche ich in der App nicht — SORBA macht das, das wäre doppelte Arbeit.» Zusatzauftrag, Regierapporte, Auswertung,
-Kundenlink, Ansicht «Kunde», Tarifrechner, Board sind raus. Der Code liegt in `archiv/regie-und-board/` (README dort) —
-für spätere Kunden. **Nicht wieder einbauen, ohne dass Amir es sagt.**
+**Regie ist pro Firma zuschaltbar (02.10.2026).** Vom 20.09. bis 02.10. war sie ganz draussen — der Bauführer (Demo
+durch Erin): «Regierapporte und alles, was damit zu tun hat, brauche ich in der App nicht — SORBA macht das, das wäre
+doppelte Arbeit.» Amir braucht beides: die Gerüst GmbH (Arbnor) bleibt ohne Regie, einer anderen Firma wird die Fassung
+**mit** Regie vorgestellt. Darum **ein Code mit Schaltern**, keine zwei Zweige (Entscheid «Weg B»).
+Siehe «Firmen-Schalter» unten. `archiv/regie-und-board/` bleibt als Nachschlagewerk stehen, ist aber nicht mehr die Quelle.
 
 Kontext-Dokumente (eine Ebene höher):
 - `../PRODUKTKONZEPT_ZEITERFASSUNG_RAPPORTE_REGIE.md` — Fachkonzept (Regie-Teile historisch)
@@ -81,6 +82,32 @@ Korrekturen in der Wochenübersicht brauchen einen Grund aus vier Vorgaben (Rege
 fehlt die Migration, fällt der Code auf den zweistufigen Weg zurück.
 Farben: Rot nur für Aktion, Auswahl Stahlblau (`chip-on`), Warnung Bernstein (`amber`).
 
+## Firmen-Schalter (02.10.2026) — ein Code, pro Firma anders
+
+Jede Firma hat ihr eigenes Supabase-Projekt. Drei Zeilen in `konfiguration` (Migration `0017`) sagen, wie die App dort
+arbeitet. Gelesen wird **einmal beim Start** (`einstellungenLaden()` in `main.tsx`, vor dem ersten Bild) und danach nur
+noch aus dem Zwischenspeicher (`src/lib/einstellungen.ts`, zusätzlich in `localStorage`) — die Erfassung läuft offline
+und darf auf keine Abfrage warten. Gesetzt werden sie in **Verwaltung → Einstellungen**; danach lädt die App neu.
+
+| Schlüssel | Werte | Standard | Wirkung |
+|---|---|---|---|
+| `MODUS_ERFASSUNG` | `wochenblatt` · `regie` | `wochenblatt` | `regie` bringt Zusatzauftrag, Regierapporte, Auswertung, Board, Kundenlink, Ansicht «Kunde», den Abweichungs-Ablauf im Teamgerät und den Regie-Entscheid in der Wochenübersicht |
+| `MODUS_SEKRETARIAT` | `stunden` · `voll` | `stunden` | `voll` gibt dem Sekretariat dieselben Bereiche wie dem Bauführer (ohne Teamgerät) und, mit Regie, Fristen + Regie je Monat auf der Übersicht |
+| `MODUS_MEHRKOSTENANZEIGE` | `aus` · `an` | `aus` | `an` zeigt «Bauleitung informieren» am Zusatzauftrag (Bausitzungsprotokoll 7.1) und die Anzeigepflicht je Kunde |
+
+**Regeln dazu:**
+- Fehlt die Migration, scheitert die Abfrage oder ist das Gerät offline, bleibt der **letzte bekannte Stand** gültig —
+  nie ein Rückfall auf die Standardwerte. Eine Störung darf einer Regie-Firma nicht die Regie wegnehmen.
+- Die RLS-Policies in `0017` lassen `authenticated` nur Schlüssel lesen und schreiben, die auf `MODUS\_%` passen.
+  Mail- und KI-Schlüssel in derselben Tabelle bleiben allein der Service-Role.
+- Was von den Schaltern abhängt, ist **eine Funktion, keine Konstante** (`ansichten()`, `gruppen()`, `seitenFuer()`,
+  `navFuer()`). Eine Modulkonstante stünde fest, bevor die Schalter geladen sind.
+- Der Standard ist immer der Stand der Gerüst GmbH. Wer einen Schalter einbaut, lässt deren Ansicht unverändert.
+
+Wo die Schalter wirken: `src/lib/ansicht.ts`, `src/ui/Shell.tsx`, `src/main.tsx` (Routen, nachgeladen),
+`src/seiten/Erfassung.tsx`, `Cockpit.tsx`, `Start.tsx`, `StartChef.tsx`, `StartSekretariat.tsx`, `Zusatzauftrag.tsx`,
+`verwaltung/Kunden.tsx`, `src/lib/demo.ts` (lädt `demo_regie.ts` nur im Regie-Modus).
+
 ## Erfassung wie das Wochenblatt (16.09., erweitert 20.09.)
 
 Je Person zwei Werte: **Normal** (Standard 8.4 h = `NORMALTAG_MIN`, Obergrenze) und **Überstunden** (Standard 0),
@@ -143,7 +170,8 @@ kennen heute nur de/ar/pl/en (Check-Constraint). Kommt mit dem Transkriptions-Sp
 ## Nicht bauen
 
 - SORBA ersetzen oder in SORBA schreiben (kein DB-Write, keine UI-Automation)
-- Regie, Zusatzaufträge, Kundenlink, Board — entfernt 20.09., liegt im Archiv
+- Regie, Zusatzaufträge, Kundenlink, Board **ohne Schalter** — sie gehören hinter `MODUS_ERFASSUNG` und dürfen bei
+  der Gerüst GmbH nirgends auftauchen
 - Automatische Freigabe «plausibler» Stunden
 - Mitarbeiter-Scoring oder -Bewertung
 - Laufende Standortverfolgung (GPS nur punktuell, freiwillig, optional)
@@ -167,7 +195,9 @@ src/seiten/Start.tsx              Verteiler je Ansicht; Bauführer-Dashboard: Te
 src/seiten/StartChef.tsx          Chefmonteur: Team, heute, laufende Woche
 src/seiten/StartMonteur.tsx       Monteur: «Meine Woche» — eigene Stunden (mit Zeiten), nur lesen
 src/seiten/StartSekretariat.tsx   Sekretariat: Stunden je Mitarbeiter, Temporärbüros, Export, Verwaltung
-src/lib/ansicht.ts                Ansicht lesen/setzen, Seiten je Ansicht
+src/lib/ansicht.ts                Ansicht lesen/setzen, Seiten je Ansicht (seitenFuer — hängt an den Schaltern)
+src/lib/einstellungen.ts          Firmen-Schalter: lesen, zwischenspeichern, setzen
+src/seiten/verwaltung/Einstellungen.tsx  Die drei Schalter umlegen (lädt die App danach neu)
 src/ui/Karten.tsx                 NavKarte, Kachel, MONATE — gemeinsam für alle Startseiten
 src/seiten/Tag.tsx                Tagesübersicht: welche Teams haben gemeldet, welche nicht
 src/seiten/Erfassung.tsx          Teamgerät: Kacheln, Anwesenheit (+ Gäste), Stundenzahl oder Zeiten von–bis, Sprachnotiz als Bemerkung zum Tag, Fotos
@@ -175,11 +205,22 @@ src/seiten/Cockpit.tsx            Wochenübersicht: Raster Team × Tag (Farbe = 
 src/seiten/Export.tsx             Bauführer: SORBA-Raster. Sekretariat: dazu Lohn, Überstunden, je Temporärbüro eigenes Excel
 src/seiten/verwaltung/*           Mitarbeitende, Teams, Kunden, Baustellen, Demo (auf Amirs PC nur Demo.tsx und Kunden.tsx, Rest nur auf GitHub)
 src/lib/excel.ts                  Excel-Ausgabe mit ExcelJS: Blätter Lohn, Überstunden, je Büro, SORBA-Raster — Layout, Formeln, Druck
-src/lib/db.ts                     Dexie-Queue: Meldungen + Zeiteinträge + Audio + Fotos (Version 4 ohne Zusatzaufträge)
+src/lib/db.ts                     Dexie-Queue: Meldungen + Zeiteinträge + Audio + Fotos + Zusatzaufträge (Version 5)
 src/lib/zeiten.ts                 Zeiten von–bis: Uhrzeit ↔ Minuten, Spannen summieren (ohne Pausenrechnung), Mittag-Hinweis, Normal/Über aufteilen + Tests
 src/lib/lohn.ts                   Lohn-/Temporärbüro-/Überstunden-Aggregation (reine Funktionen) + Tests
 src/lib/kennzahlen.ts             Diagramm «Freigabe Vorwoche» und Team-Board
 src/lib/demo.ts                   Deterministischer Demo-Betrieb (Meldungen mit Überstunden + Notizen) + Tests
+src/lib/demo_regie.ts             Demodaten für den Regie-Modus: Zusatzaufträge, Regierapporte in allen Stadien, Zustellnachweise
+src/lib/regie.ts                  Regierapport: Stand ableiten, Fristen, Nummern + Tests
+src/lib/tarif.ts                  SGUV-Tarife, Materialmiete, Etappenzuschlag + Tests (Modellfall Fr. 955.93)
+src/lib/zusatzauftrag.ts          Tätigkeits- und Grundtexte (nie der DB-Code auf dem Bildschirm)
+src/seiten/Zusatzauftrag.tsx      Regie-Modus: Kundenbestellung am Telefon festhalten
+src/seiten/RegieListe.tsx         Regie-Modus: Entwurf → beim Kunden → bestätigt, offene Rückfragen zuoberst
+src/seiten/RegieVorschau.tsx      Regie-Modus: Rapport vorrechnen (Positionen aus den Stunden)
+src/seiten/RegieDetail.tsx        Regie-Modus: senden, Zustellnachweis, Rückfrage, PDF
+src/seiten/Auswertung.tsx         Regie-Modus: Regie je Baustelle, Kunde, Monat
+src/seiten/Board.tsx              Regie-Modus: Jahresplan Team × KW
+src/seiten/Bestaetigung.tsx       Kundenlink ohne Login (/b/:token) — nur im Regie-Modus
 src/lib/datum.ts                  Wochen-/Datumshelfer, NORMALTAG_MIN
 src/lib/foto.ts                   Fotos verkleinern (1600 px, JPEG) vor Queue/Upload
 src/ui/Diagramm.tsx               DiagrammKarte, WochenTeams — je Tag eine Zeile mit Spur (Flächen, keine Bibliothek, kein SVG)
@@ -188,8 +229,8 @@ src/ui/FotoGalerie.tsx            Vorschau aus dem Bucket «anhaenge» (signiert
 src/ui/Sprachnotiz.tsx            Pegelbalken während der Aufnahme, Text-Enthüllung nach dem Speichern
 src/ui/Shell.tsx                  Rahmen: Büro-Ansichten mit Bereichsleiste (md) / Seitenleiste (lg), Baustellen-Ansichten Handy-Spalte
 supabase/functions/transkribieren Sprachnotiz → Text (Mistral)
-supabase/migrations/              0001–0015 historisch (inkl. Regie-Tabellen, bleiben ungenutzt) · 0016 Zeiten von–bis
-archiv/regie-und-board/           Alles Entfernte vom 20.09. + README zum Wiederherstellen
+supabase/migrations/              0001–0015 historisch (inkl. Regie-Tabellen) · 0016 Zeiten von–bis · 0017 Firmen-Schalter
+archiv/regie-und-board/           Stand vom 20.09. als Nachschlagewerk — nicht mehr die Quelle (Regie ist zurück, hinter Schaltern)
 ```
 
 ## Offene Entscheidungen (nicht raten — nachfragen oder Annahme markieren)

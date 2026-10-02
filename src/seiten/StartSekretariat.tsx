@@ -1,13 +1,20 @@
 /**
  * Startseite Sekretariat: Stunden und Mitarbeitende — das, was ins Lohn-Excel geht.
- * Keine Regie, keine Kundenanrufe (Entscheid 17.09.): das Sekretariat tippt die Stunden ab, prüft, wer
- * gemeldet hat und was der Bauführer schon freigegeben hat, und holt sich den Export.
- * Zeigt nur Zahlen und Stände, nie Urteile (CLAUDE.md #1).
+ * Das Sekretariat tippt die Stunden ab, prüft, wer gemeldet hat und was der Bauführer freigegeben
+ * hat, und holt sich den Export (Entscheid 17.09.). Zeigt nur Zahlen und Stände, nie Urteile (CLAUDE.md #1).
+ *
+ * Firmen-Schalter `MODUS_SEKRETARIAT` (02.10.2026):
+ *   stunden — nur das. Gerüst GmbH (Arbnor) arbeitet so.
+ *   voll    — zusätzlich unten die Regie: was liegt beim Kunden, was wurde je Monat verschickt.
+ * Die Stunden bleiben in beiden Fällen oben — die Lohnabrechnung ist die Hauptarbeit.
  */
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Shell } from '../ui/Shell';
+import { Shell, navFuer } from '../ui/Shell';
 import { Kachel, NavKarte } from '../ui/Karten';
+import { DiagrammKarte, Fristen, RegieMonate } from '../ui/Diagramm';
+import { fristen, regieMonate, type FristEintrag, type RegieMonat } from '../lib/kennzahlen';
+import { einstellungen } from '../lib/einstellungen';
 import { supabase } from '../lib/supabase';
 import { addTage, iso, kurz, kw, lang, montag, stunden } from '../lib/datum';
 
@@ -34,12 +41,41 @@ interface Person {
 
 type Zeitraum = 'diese' | 'vorwoche' | 'monat';
 
+/** Ein Satz pro Bereich fürs Handy-Menü — die Reihenfolge kommt aus der Seitenleiste. */
+const SEKRETARIAT_TEXT: Record<string, string> = {
+  '/export': 'Lohn-Excel, Überstunden, Temporärbüro, SORBA-Raster',
+  '/verwaltung': 'Mitarbeitende, Teams, Kunden, Baustellen',
+  '/zusatzauftrag': 'Kundenbestellung festhalten, bevor gearbeitet wird',
+  '/heute': 'Wer hat heute gemeldet, wer nicht',
+  '/cockpit': 'Die Woche je Team — freigegeben oder offen',
+  '/regie': 'Versand, Zustellnachweis und Fristen',
+  '/auswertung': 'Regie pro Baustelle und Kunde, pro Monat',
+  '/board': 'Jahresplan — welches Team wann wo',
+};
+
 export function StartSekretariat() {
   const heute = new Date();
+  const e = einstellungen();
+  // Regie unten nur, wenn die Firma sie überhaupt führt und das Sekretariat sie sehen soll
+  const mitRegie = e.sekretariat === 'voll' && e.erfassung === 'regie';
   const [zeitraum, setZeitraum] = useState<Zeitraum>(() => (heute.getDay() === 1 || heute.getDay() === 2 ? 'vorwoche' : 'diese'));
   const [zeilen, setZeilen] = useState<Zeile[]>([]);
   const [aktive, setAktive] = useState(0);
   const [laedt, setLaedt] = useState(true);
+  const [beimKunden, setBeimKunden] = useState<FristEintrag[] | null>(null);
+  const [monate, setMonate] = useState<RegieMonat[] | null>(null);
+
+  useEffect(() => {
+    // Einmal, nicht bei jedem Zeitraumwechsel — die Regie hängt nicht an der gewählten Woche
+    if (!supabase || !mitRegie) return;
+    const c = supabase;
+    void (async () => {
+      const [f, m] = await Promise.all([fristen(c), regieMonate(c)]);
+      setBeimKunden(f);
+      setMonate(m);
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mitRegie]);
 
   // Zeitraum → von/bis (ISO) und Titel
   const { von, bis, titel, exportLink } = useMemo(() => {
@@ -222,9 +258,34 @@ export function StartSekretariat() {
           </>
         )}
 
+        {mitRegie && (beimKunden || monate) && (
+          <div className="grid gap-4 lg:grid-cols-2">
+            {beimKunden && (
+              <DiagrammKarte
+                titel="Beim Kunden"
+                unter="Ältestes zuerst — das ist die Nachfassliste"
+                aktion={<Link to="/regie" className="shrink-0 text-xs font-semibold text-steel">Regierapporte ›</Link>}
+              >
+                <Fristen eintraege={beimKunden} />
+              </DiagrammKarte>
+            )}
+            {monate && (
+              <DiagrammKarte
+                titel="Regie je Monat"
+                unter="Verschickt, davon bestätigt — nach Versanddatum"
+                aktion={<Link to="/auswertung" className="shrink-0 text-xs font-semibold text-steel">Auswertung ›</Link>}
+              >
+                <RegieMonate monate={monate} />
+              </DiagrammKarte>
+            )}
+          </div>
+        )}
+
+        {/* Handy: Karten je Bereich. Welche es gibt, sagen die Firmen-Schalter (navFuer). */}
         <nav className="grid gap-3 md:hidden">
-          <NavKarte zu="/export" titel="Export" text="Lohn-Excel, Überstunden, Temporärbüro, SORBA-Raster" />
-          <NavKarte zu="/verwaltung" titel="Verwaltung" text="Mitarbeitende, Teams, Kunden, Baustellen" />
+          {navFuer('sekretariat').flatMap((g) => g.eintraege).filter((x) => x.zu !== '/').map((x) => (
+            <NavKarte key={x.zu} zu={x.zu} titel={x.label} text={SEKRETARIAT_TEXT[x.zu] ?? ''} />
+          ))}
         </nav>
       </div>
     </Shell>

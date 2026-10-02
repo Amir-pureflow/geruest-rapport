@@ -1,7 +1,8 @@
 import type { ReactNode } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { ANSICHT_LABEL, useAnsicht, type Ansicht } from '../lib/ansicht';
-import { ChevronRight, LayoutDashboard, CalendarDays, CalendarRange, Download, Settings, Smartphone, type LucideIcon } from 'lucide-react';
+import { ChevronRight, LayoutDashboard, CalendarDays, CalendarRange, Download, Settings, Smartphone, PhoneCall, FileText, BarChart3, LayoutGrid, type LucideIcon } from 'lucide-react';
+import { einstellungen } from '../lib/einstellungen';
 
 /**
  * Bildmarke: Gerüst als Netz — zwei Stiele, zwei Lagen, eine Strebe, und an den Knoten leuchtende Punkte
@@ -44,10 +45,18 @@ const BUERO: Ansicht[] = ['bauf', 'sekretariat'];
 interface NavEintrag { zu: string; label: string; icon?: LucideIcon }
 interface NavGruppe { titel?: string; eintraege: NavEintrag[] }
 
-/** Gleiche Ordnung für beide Büro-Ansichten: erst das Tägliche, dann die Daten. Regie und Board gibt es seit 20.09. nicht mehr. */
+/**
+ * Gleiche Ordnung für beide Büro-Ansichten: erst das Tägliche, dann die Daten.
+ *
+ * Was zu sehen ist, hängt an den Firmen-Schaltern (`src/lib/einstellungen.ts`, Entscheid 02.10.2026):
+ * `MODUS_ERFASSUNG = regie` bringt Zusatzauftrag, Regierapporte, Auswertung und Board zurück,
+ * `MODUS_SEKRETARIAT = voll` gibt dem Sekretariat dieselben Bereiche wie dem Bauführer.
+ */
 export function navFuer(a: 'bauf' | 'sekretariat'): NavGruppe[] {
-  // Sekretariat: Stunden und Stammdaten (Entscheid 17.09.)
-  if (a === 'sekretariat') {
+  const e = einstellungen();
+  const regie = e.erfassung === 'regie';
+  // Sekretariat im Modus «stunden»: nur Stunden und Stammdaten (Entscheid 17.09.)
+  if (a === 'sekretariat' && e.sekretariat !== 'voll') {
     return [
       { eintraege: [{ zu: '/', label: 'Übersicht', icon: LayoutDashboard }] },
       {
@@ -64,22 +73,36 @@ export function navFuer(a: 'bauf' | 'sekretariat'): NavGruppe[] {
     {
       titel: 'Tagesgeschäft',
       eintraege: [
+        // Zusatzauftrag: der Kunde bestellt am Telefon — nur mit Regie
+        ...(regie ? [{ zu: '/zusatzauftrag', label: 'Zusatzauftrag', icon: PhoneCall }] : []),
         { zu: '/heute', label: 'Tagesübersicht', icon: CalendarDays },
         { zu: '/cockpit', label: 'Wochenübersicht', icon: CalendarRange },
       ],
     },
+    ...(regie
+      ? [{
+          titel: 'Regie',
+          eintraege: [
+            { zu: '/regie', label: 'Regierapporte', icon: FileText },
+            { zu: '/auswertung', label: 'Auswertung', icon: BarChart3 },
+          ],
+        }]
+      : []),
     {
-      titel: 'Daten',
+      titel: 'Planung & Daten',
       eintraege: [
         // Bauführer sieht nur das Raster — Lohn-Export gehört dem Sekretariat (20.09.)
-        { zu: '/export', label: 'SORBA-Raster', icon: Download },
+        { zu: '/export', label: a === 'sekretariat' ? 'Export' : 'SORBA-Raster', icon: Download },
+        ...(regie ? [{ zu: '/board', label: 'Board', icon: LayoutGrid }] : []),
         { zu: '/verwaltung', label: 'Verwaltung', icon: Settings },
       ],
     },
-    {
-      titel: 'Weitere',
-      eintraege: [{ zu: '/erfassung?wahl', label: 'Erfassung (Teamgerät)', icon: Smartphone }],
-    },
+    ...(a === 'bauf'
+      ? [{
+          titel: 'Weitere',
+          eintraege: [{ zu: '/erfassung?wahl', label: 'Erfassung (Teamgerät)', icon: Smartphone }],
+        }]
+      : []),
   ];
 }
 
@@ -108,6 +131,12 @@ const TITEL: Record<string, string> = {
   '/verwaltung': 'Verwaltung',
   '/erfassung': 'Erfassung',
   '/ansicht': 'Ansicht wählen',
+  // nur im Regie-Modus erreichbar, die Brotkrumen brauchen die Namen trotzdem
+  '/zusatzauftrag': 'Zusatzauftrag',
+  '/regie': 'Regierapporte',
+  '/regie/neu': 'Neuer Rapport',
+  '/auswertung': 'Auswertung',
+  '/board': 'Board',
 };
 
 /** Brotkrumen: Übersicht › Wochenübersicht. Jede Stufe ist anklickbar, die letzte nicht. */

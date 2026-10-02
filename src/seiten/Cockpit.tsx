@@ -1,10 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { Shell } from '../ui/Shell';
 import { FotoGalerie } from '../ui/FotoGalerie';
 import { supabase } from '../lib/supabase';
 import { addTage, iso, kurz as ch, kw, montag, stunden, NORMALTAG_MIN } from '../lib/datum';
 import { zeitenText } from '../lib/zeiten';
 import { useAnsicht } from '../lib/ansicht';
+import { einstellungen } from '../lib/einstellungen';
+import { minutenBetrag, formatChf, tarifNachCode, RUECKFALL_ANSATZ_RAPPEN } from '../lib/tarif';
 
 /**
  * Phase 3 — Wochenübersicht des Bauführers.
@@ -14,8 +17,12 @@ import { useAnsicht } from '../lib/ansicht';
  * Personen mit Stunden und Zeiten, Korrektur, Überstunden-Karte mit Sprachnotiz, Bemerkung zum Tag, «Tag freigeben».
  * Dazu «N Tage freigeben» je Team und ein Knopf oben für alle Tage ohne Hinweis. Kein Montag-Zwang.
  *
- * Seit 20.09. ohne Regie: Ob Überstunden dem Kunden verrechnet werden, entscheidet der Bauführer in SORBA —
- * die App zeigt nur, was das Team gemeldet hat (Regie-Code in archiv/regie-und-board/).
+ * Firmen-Schalter `MODUS_ERFASSUNG` (02.10.2026) entscheidet, was mit den Überstunden passiert:
+ *   wochenblatt — die App zeigt nur, was das Team gemeldet hat. Ob dem Kunden etwas verrechnet wird,
+ *                 entscheidet der Bauführer in SORBA (Gerüst GmbH, 20.09.).
+ *   regie       — die Hinweiskarte wird zur Entscheidung: Betrag vorgerechnet, «Regierapport vorrechnen ›»
+ *                 oder «Keine Regie …» mit Grund. Ein Rapport oder ein Entscheid beantwortet den ganzen
+ *                 Tag dieser Baustelle — die Zelle ist dann nicht mehr gelb.
  *
  * Harte Regel #1: Das System sagt NIE «diese Stunden sind falsch».
  * Jede Markierung nennt ihre Quelle («Team meldet 1.5 h Überstunden») — entscheiden tut der Bauführer.
@@ -52,8 +59,23 @@ interface Eintrag {
     team: { id: string; bezeichnung: string } | null;
     baustelle: { id: string; konto_nr: string; bezeichnung: string | null } | null;
     foto: { id: string; pfad: string }[];
+    /** Nur im Regie-Modus geladen: schon ein Regierapport zu dieser Meldung? Dann dorthin, nie einen zweiten anlegen. */
+    regierapport?: { id: string; status: string; nummer: string | null }[];
+    /** Nur im Regie-Modus: der Bauführer hat «keine Regie» entschieden — die Stunden bleiben, die Verrechnung entfällt. */
+    regie_entscheid?: 'keine_regie' | null;
+    regie_grund?: string | null;
   };
 }
+
+/** Warum etwas keine Regie ist — feste Gründe, kein Freitext (wie bei den Korrekturen). */
+const REGIE_GRUND: Record<string, string> = {
+  pauschale: 'in der Offerte / Pauschale drin',
+  kulanz: 'Kulanz — wir verrechnen es nicht',
+  irrtum: 'Team hat sich vertan — war normale Arbeit',
+  doppelt: 'schon in einem anderen Rapport',
+};
+
+const RAPPORT_STAND: Record<string, string> = { entwurf: 'Entwurf', versendet: 'beim Kunden', rueckfrage: 'Rückfrage', frist_abgelaufen: 'Frist abgelaufen', bestaetigt: 'bestätigt' };
 
 interface Team { id: string; bezeichnung: string; chefmonteur: { name: string } | null }
 
@@ -83,8 +105,9 @@ function kurzName(name: string): string {
   return teile.length > 1 ? `${teile[0][0]}. ${teile.slice(1).join(' ')}` : name;
 }
 
-/** Wort zum Stand, direkt in der Zelle. */
-const ZELL_WORT: Record<ZellStatus, string> = { leer: '', gruen: 'offen', frei: 'freigegeben ✓', gelb: 'Überstunden', rot: 'über 10 h' };
+/** Wort zum Stand, direkt in der Zelle. Mit Regie heisst «gelb» eine offene Frage an den Bauführer, nicht nur Überstunden. */
+const zellWort = (st: ZellStatus, regie: boolean): string =>
+  ({ leer: '', gruen: 'offen', frei: 'freigegeben ✓', gelb: regie ? 'Regieverdacht' : 'Überstunden', rot: 'über 10 h' })[st];
 
 /** Tageszelle im Raster: Farbe = Stand. Offen ist weiss mit Rand, damit man sieht, dass da etwas ist. */
 const ZELLE: Record<ZellStatus, string> = {
@@ -99,6 +122,10 @@ export function Cockpit() {
   // Montag/Dienstag prüft der Bauführer die Vorwoche (Arbnor, 27.08.) — dann dort starten, nicht in der leeren neuen Woche
   // Aufruf mit ?woche=JJJJ-MM-TT&team=<id> (z. B. aus der Tagesübersicht) springt direkt dorthin.
   const params = new URLSearchParams(window.location.search);
+  // Firmen-Schalter: mit Regie wird aus dem Hinweis eine Entscheidung
+  const regie = einstellungen().erfassung === 'regie';
+  // Herkunft «aus einem Regierapport» — der Weg zurück muss sichtbar bleiben
+  const herkunftRapport = params.get('rapport');
   const [wochenStart, setWochenStart] = useState<Date>(() => {
     const w = params.get('woche');
     if (w && /^\d{4}-\d{2}-\d{2}$/.test(w)) return montag(new Date(w + 'T12:00:00'));
@@ -164,6 +191,8 @@ export function Cockpit() {
     return t && d ? { team: t, datum: d } : null;
   });
   const [audio, setAudio] = useState<{ meldung: string; url: string } | null>(null);
+  // «Keine Regie»: der Bauführer schliesst einen Hinweis ohne Rapport ab — mit Grund. Die Stunden bleiben.
+  const [keineRegieFrage, setKeineRegieFrage] = useState<string | null>(null);
   // Herkunft «aus der Tagesübersicht»: markierte Meldung, und das Team ins Bild scrollen
   const markierteMeldung = params.get('meldung');
   const zielRef = useRef<HTMLDivElement | null>(null);
@@ -195,7 +224,9 @@ export function Cockpit() {
       'id,normal_min,ueber_min,status,' + (mitZeiten ? 'von_min,bis_min,von2_min,bis2_min,' : '') +
       'freigabe_log(feld,alt,neu,begruendung,wann),mitarbeiter:mitarbeiter_id(id,name,funktion,typ),tagesmeldung:tagesmeldung_id!inner(id,datum,normalfall,abweichung_typ,wer_hats_gewollt,transkript,' +
       (mitTranskript ? 'transkript_quelle,transkript_sprache,transkript_fehler,' : '') +
-      'audio_pfad,audio_sekunden,team:team_id(id,bezeichnung),baustelle:baustelle_id(id,konto_nr,bezeichnung),foto(id,pfad))';
+      'audio_pfad,audio_sekunden,' + (regie ? 'regie_entscheid,regie_grund,' : '') +
+      'team:team_id(id,bezeichnung),baustelle:baustelle_id(id,konto_nr,bezeichnung),foto(id,pfad)' +
+      (regie ? ',regierapport(id,status,nummer)' : '') + ')';
     const eintraegeLaden = async () => {
       const lade = (t: boolean, z: boolean) => c.from('zeiteintrag').select(auswahl(t, z)).gte('tagesmeldung.datum', vonIso).lte('tagesmeldung.datum', bisIso);
       let mitTranskript = true;
@@ -212,7 +243,7 @@ export function Cockpit() {
     if (z.error) setLadeFehler(z.error.message);
     else { setLadeFehler(''); setEintraege((z.data ?? []) as unknown as Eintrag[]); }
     setLaedt(false);
-  }, [vonIso, bisIso]);
+  }, [vonIso, bisIso, regie]);
 
   useEffect(() => {
     void laden();
@@ -247,6 +278,25 @@ export function Cockpit() {
     return [...m.entries()].sort((a, b) => a[1].name.localeCompare(b[1].name));
   }, [eintraege]);
 
+  /**
+   * Team + Tag + Baustelle, für die schon ein Regierapport oder ein «Keine Regie»-Entscheid existiert —
+   * egal an welcher Meldung. Alte Daten haben denselben Tag zweimal (normaler Tag mit Überstunden +
+   * Abweichung mit Rapport); der Rapport gilt für beide (Entscheid 15.09.).
+   */
+  const beantwortet = useMemo(() => {
+    const m = new Set<string>();
+    if (!regie) return m;
+    for (const e of eintraege) {
+      const tm = e.tagesmeldung;
+      if ((tm.regierapport?.length ?? 0) > 0 || tm.regie_entscheid) m.add(`${tm.team?.id}|${tm.datum}|${tm.baustelle?.id}`);
+    }
+    return m;
+  }, [eintraege, regie]);
+  const schluessel = (e: Eintrag) => `${e.tagesmeldung.team?.id}|${e.tagesmeldung.datum}|${e.tagesmeldung.baustelle?.id}`;
+  /** Im Regie-Modus ist ein Hinweis erledigt, sobald ein Rapport oder ein Entscheid dazu existiert. */
+  const regieBeantwortet = (e: Eintrag) =>
+    regie && ((e.tagesmeldung.regierapport?.length ?? 0) > 0 || !!e.tagesmeldung.regie_entscheid || beantwortet.has(schluessel(e)));
+
   function zellStatus(liste: Eintrag[] | undefined): ZellStatus {
     if (!liste || liste.length === 0) return 'leer';
     // Freigegeben = der Bauführer hat es angeschaut — dann ist der Hinweis erledigt,
@@ -256,8 +306,11 @@ export function Cockpit() {
     // Über 10 h ist nur dann ein offener Hinweis, wenn das Team den langen Tag nicht selbst erklärt hat (Überstunden mit Notiz)
     const erklaert = liste.some((e) => e.tagesmeldung.abweichung_typ === 'laenger' || hatUeberstunden(e));
     if (summe > ZEHN_STUNDEN_MIN && !erklaert) return 'rot';
-    // Überstunden (oder eine Abweichung aus alten Daten) = Hinweis: der Bauführer liest die Notiz, prüft die Stunden, gibt frei
-    const hinweis = liste.some((e) => hatUeberstunden(e) || (e.tagesmeldung.abweichung_typ !== null && !laengerOhneKunde(e.tagesmeldung)));
+    // Überstunden (oder eine Abweichung) = Hinweis: der Bauführer liest die Notiz, prüft die Stunden, gibt frei.
+    // Im Regie-Modus fällt der Hinweis weg, sobald ein Rapport oder ein «keine Regie» dazu steht.
+    const hinweis = liste.some(
+      (e) => !regieBeantwortet(e) && (hatUeberstunden(e) || (e.tagesmeldung.abweichung_typ !== null && !laengerOhneKunde(e.tagesmeldung))),
+    );
     if (hinweis) return 'gelb';
     return 'gruen';
   }
@@ -265,7 +318,10 @@ export function Cockpit() {
   // Hinweise: eine Karte pro Tagesmeldung mit Überstunden (oder Abweichung aus alten Daten) — Notiz, Fotos, Stunden
   const verdachtsfaelle = useMemo(() => {
     const gesehen = new Set<string>();
-    const faelle: { meldung: Eintrag['tagesmeldung']; eintraege: Eintrag[]; ausloeser: string[]; geprueft: boolean; info: boolean }[] = [];
+    const faelle: {
+      meldung: Eintrag['tagesmeldung']; eintraege: Eintrag[]; ausloeser: string[]; geprueft: boolean; info: boolean;
+      /** nur Regie-Modus */ rapport: { id: string; status: string; nummer: string | null } | null; keineRegie: string | null;
+    }[] = [];
     for (const e of eintraege) {
       const tm = e.tagesmeldung;
       if (gesehen.has(tm.id)) continue;
@@ -279,6 +335,10 @@ export function Cockpit() {
       if (tm.normalfall && ueberMin > 0) ausloeser.push(`Team meldet ${stunden(ueberMin)} h Überstunden${tm.transkript || tm.audio_pfad ? ' — Sprachnotiz unten' : ''}`);
       if (laengerOhneKunde(tm)) ausloeser.push('Team meldet «länger gearbeitet»', tm.wer_hats_gewollt === 'chef' ? 'unser Chef wollte es' : 'niemand hat es verlangt');
       if (ausloeser.length === 0) continue;
+      // Regie-Modus: hat eine andere Meldung desselben Team-Tags auf derselben Baustelle schon einen Rapport,
+      // braucht dieser normale Tag keine eigene Karte mehr — sonst stünde die Frage zweimal.
+      if (regie && tm.normalfall && ueberMin > 0 && (tm.regierapport?.length ?? 0) === 0 && !tm.regie_entscheid
+          && beantwortet.has(`${tm.team?.id}|${tm.datum}|${tm.baustelle?.id}`)) continue;
       gesehen.add(tm.id);
       faelle.push({
         meldung: tm,
@@ -287,10 +347,12 @@ export function Cockpit() {
         // alle Stunden dieser Meldung freigegeben → der Bauführer hat es angeschaut
         geprueft: meldungEintraege.length > 0 && meldungEintraege.every((x) => x.status === 'freigegeben'),
         info,
+        rapport: tm.regierapport?.[0] ?? null,
+        keineRegie: tm.regie_entscheid === 'keine_regie' ? (REGIE_GRUND[tm.regie_grund ?? ''] ?? 'ohne Grund') : null,
       });
     }
     return faelle;
-  }, [eintraege]);
+  }, [eintraege, regie, beantwortet]);
 
   const wochenTage = useMemo(() => TAGE.map((_, i) => iso(addTage(wochenStart, i))), [wochenStart]);
 
@@ -358,6 +420,43 @@ export function Cockpit() {
 
   // Der eine Knopf gilt für die ganze Woche, nicht nur für die sichtbaren Teams
   const gruene = useMemo(() => teamZeilen.flatMap((z) => z.gruene), [teamZeilen]);
+
+  /** «Keine Regie»: Entscheid mit Grund festhalten. Die Stunden bleiben im Lohn, nur die Verrechnung entfällt. */
+  async function keineRegie(meldungId: string, grund: string) {
+    if (!supabase) return;
+    const { error } = await supabase
+      .from('tagesmeldung')
+      .update({ regie_entscheid: 'keine_regie', regie_grund: grund, regie_entschieden_am: new Date().toISOString(), regie_entschieden_von: userId })
+      .eq('id', meldungId);
+    if (error) { melden('Konnte nicht gespeichert werden: ' + error.message, 'fehler'); return; }
+    setKeineRegieFrage(null);
+    melden('Als «keine Regie» abgeschlossen ✓ — die Stunden bleiben');
+    void laden();
+  }
+  /** Entscheid zurücknehmen — der Hinweis ist wieder offen. */
+  async function dochRegie(meldungId: string) {
+    if (!supabase) return;
+    const { error } = await supabase
+      .from('tagesmeldung')
+      .update({ regie_entscheid: null, regie_grund: null, regie_entschieden_am: null, regie_entschieden_von: null })
+      .eq('id', meldungId);
+    if (error) { melden('Konnte nicht zurückgenommen werden: ' + error.message, 'fehler'); return; }
+    melden('Wieder offen — der Hinweis steht erneut da');
+    void laden();
+  }
+
+  /** Was der Kunde zahlen würde, zum SGUV-Ansatz der Funktion. Nur eine Vorrechnung, nie eine Rechnung. */
+  function betragVorgerechnet(liste: Eintrag[]): number {
+    return liste.reduce((sum, e) => {
+      let ansatz = RUECKFALL_ANSATZ_RAPPEN;
+      try {
+        ansatz = tarifNachCode(e.mitarbeiter.funktion).ansatz_rappen;
+      } catch {
+        /* unbekannte Funktion → Monteursansatz */
+      }
+      return sum + minutenBetrag(e.normal_min + e.ueber_min, ansatz);
+    }, 0);
+  }
 
   function melden(text: string, art: 'ok' | 'fehler' = 'ok') {
     setRueckmeldung({ text, art });
@@ -539,6 +638,13 @@ export function Cockpit() {
             <button type="button" className="btn-ghost shrink-0" onClick={() => void laden()}>Nochmals</button>
           </p>
         )}
+        {regie && herkunftRapport && (
+          <div className="flex items-center justify-between gap-3 rounded-[12px] border border-steel/40 bg-steel-soft px-4 py-2.5 text-sm">
+            <span>Sicht aus dem Regierapport</span>
+            <Link to={`/regie/${herkunftRapport}`} className="shrink-0 font-semibold text-steel">‹ zurück zum Rapport</Link>
+          </div>
+        )}
+
         {/* Stand der Woche in einer Zeile — und der eine Knopf für alles, was keinen Hinweis hat */}
         {!laedt && eintraege.length > 0 && (
           <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 rounded-[14px] border border-line bg-surface px-4 py-3">
@@ -645,8 +751,8 @@ export function Cockpit() {
                               <>
                                 <span className="block">{stunden(t.min)}</span>
                                 {/* Das Wort zum Stand steht in der Zelle; am Handy (schmale Zellen) nur ein Haken für «freigegeben» */}
-                                <span className="hidden font-sans text-[9px] font-medium opacity-80 sm:block">{ZELL_WORT[t.status]}</span>
-                                <span className="block font-sans text-[9px] font-medium opacity-80 sm:hidden">{t.status === 'frei' ? '✓' : t.status === 'gelb' ? 'Über' : t.status === 'rot' ? '>10 h' : 'offen'}</span>
+                                <span className="hidden font-sans text-[9px] font-medium opacity-80 sm:block">{zellWort(t.status, regie)}</span>
+                                <span className="block font-sans text-[9px] font-medium opacity-80 sm:hidden">{t.status === 'frei' ? '✓' : t.status === 'gelb' ? (regie ? 'Regie?' : 'Über') : t.status === 'rot' ? '>10 h' : 'offen'}</span>
                               </>
                             )}
                           </button>
@@ -767,11 +873,15 @@ export function Cockpit() {
                           </div>
                         ))}
 
-                        {faelle.map(({ meldung, eintraege: liste, ausloeser, geprueft, info }) => (
-                          <div key={meldung.id} className={'rounded-[12px] border p-3 ' + (geprueft || info ? 'border-line bg-ground' : 'border-amber/40 bg-amber-soft/60') + (markierteMeldung === meldung.id ? ' ring-2 ring-steel' : '')}>
+                        {faelle.map(({ meldung, eintraege: liste, ausloeser, geprueft, info, rapport, keineRegie: keineRegieGrund }) => (
+                          <div key={meldung.id} className={'rounded-[12px] border p-3 ' + (rapport || keineRegieGrund || geprueft || info ? 'border-line bg-ground' : 'border-amber/40 bg-amber-soft/60') + (markierteMeldung === meldung.id ? ' ring-2 ring-steel' : '')}>
                             <div className="flex items-baseline justify-between gap-2">
                               <span className="font-display text-[14px] font-semibold">
-                                {info ? 'Länger gearbeitet' : geprueft ? 'Überstunden geprüft ✓' : 'Überstunden — Notiz lesen'}
+                                {rapport ? 'Regierapport angelegt ✓'
+                                  : keineRegieGrund ? 'Keine Regie ✓'
+                                  : info ? 'Länger gearbeitet'
+                                  : geprueft ? (regie ? 'Regieverdacht geprüft ✓' : 'Überstunden geprüft ✓')
+                                  : regie ? 'Regieverdacht' : 'Überstunden — Notiz lesen'}
                                 {mehrereBaustellen && <span className="font-body text-xs font-normal text-ink3"> · {meldung.baustelle?.bezeichnung ?? '—'}</span>}
                               </span>
                             </div>
@@ -820,9 +930,53 @@ export function Cockpit() {
                               {meldung.normalfall
                                 ? <>{stunden(liste.reduce((s, e) => s + e.ueber_min, 0))} h Überstunden</>
                                 : <>{stunden(liste.reduce((s, e) => s + e.normal_min + e.ueber_min, 0))} h {meldung.abweichung_typ === 'laenger' ? 'länger' : 'Zusatzarbeit'}</>}
+                              {regie && !info && (
+                                <> ·{' '}
+                                  <span className="font-mono font-semibold text-accent-deep">
+                                    {formatChf(betragVorgerechnet(meldung.normalfall ? liste.map((e) => ({ ...e, normal_min: e.ueber_min, ueber_min: 0 })) : liste))}
+                                  </span>
+                                  <span className="text-xs text-ink3"> vorgerechnet</span>
+                                </>
+                              )}
+                              {regie && info && <span className="text-xs text-ink3"> · geht in den Lohn, nicht an den Kunden</span>}
                               <span className="text-xs text-ink3"> · {liste.map((e) => `${e.mitarbeiter.name.split(' ').pop()} ${stunden(meldung.normalfall ? e.ueber_min : e.normal_min + e.ueber_min)}`).join(' · ')}</span>
                             </p>
-                            {/* Ob das dem Kunden verrechnet wird, entscheidet der Bauführer in SORBA (20.09.) — die App zeigt nur, was das Team gemeldet hat. */}
+                            {/* Ohne Regie entscheidet der Bauführer in SORBA (20.09.) — die App zeigt nur, was das Team gemeldet hat. */}
+                            {regie && (
+                              <div className="mt-2 flex flex-wrap items-center justify-end gap-2">
+                                {rapport ? (
+                                  <Link to={`/regie/${rapport.id}`} className="btn-ghost shrink-0 border-steel text-steel">
+                                    {rapport.nummer ?? 'Regierapport'} · {RAPPORT_STAND[rapport.status] ?? rapport.status} ›
+                                  </Link>
+                                ) : keineRegieGrund ? (
+                                  <span className="flex items-center gap-2 text-xs text-ink2">
+                                    <span>keine Regie · {keineRegieGrund}</span>
+                                    {darfFreigeben && <button type="button" className="font-semibold text-steel" onClick={() => void dochRegie(meldung.id)}>doch Regie</button>}
+                                  </span>
+                                ) : info ? (
+                                  <Link to={`/regie/neu?meldung=${meldung.id}${meldung.normalfall ? '&nur=ueber' : ''}`} className="shrink-0 text-xs font-semibold text-steel">Doch Regie? Vorrechnen ›</Link>
+                                ) : (
+                                  <>
+                                    {darfFreigeben && (
+                                      <button type="button" className="btn-ghost" onClick={() => setKeineRegieFrage(keineRegieFrage === meldung.id ? null : meldung.id)}>Keine Regie …</button>
+                                    )}
+                                    <Link to={`/regie/neu?meldung=${meldung.id}${meldung.normalfall ? '&nur=ueber' : ''}`} className="btn-ghost border-accent text-accent-deep">
+                                      Regierapport vorrechnen ›
+                                    </Link>
+                                  </>
+                                )}
+                              </div>
+                            )}
+                            {regie && keineRegieFrage === meldung.id && !rapport && !keineRegieGrund && (
+                              <div className="mt-2 space-y-1.5 rounded-[10px] bg-surface p-3">
+                                <p className="text-xs text-ink2">Warum keine Regie? Die Stunden bleiben im Lohn — nur die Verrechnung an den Kunden entfällt.</p>
+                                <div className="flex flex-wrap gap-1.5">
+                                  {Object.entries(REGIE_GRUND).map(([k, text]) => (
+                                    <button key={k} type="button" className="chip px-3 py-1.5 text-xs" onClick={() => void keineRegie(meldung.id, k)}>{text}</button>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
                           </div>
                         ))}
 
@@ -863,7 +1017,7 @@ export function Cockpit() {
           <p className="flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-ink3">
             <span><span className="mr-1 inline-block h-2 w-2 rounded-sm bg-surface ring-1 ring-line-strong" />offen</span>
             <span><span className="mr-1 inline-block h-2 w-2 rounded-sm bg-good-soft ring-1 ring-good/40" />freigegeben</span>
-            <span><span className="mr-1 inline-block h-2 w-2 rounded-sm bg-amber-soft ring-1 ring-amber/40" />Überstunden — Notiz lesen</span>
+            <span><span className="mr-1 inline-block h-2 w-2 rounded-sm bg-amber-soft ring-1 ring-amber/40" />{regie ? 'Regieverdacht — entscheiden' : 'Überstunden — Notiz lesen'}</span>
             <span><span className="mr-1 inline-block h-2 w-2 rounded-sm bg-accent-soft ring-1 ring-accent/40" />über 10 h</span>
             <span>Zelle antippen = Tag öffnen</span>
           </p>
