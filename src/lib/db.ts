@@ -72,16 +72,35 @@ async function belegHochladen(client: SupabaseClient, pfad: string, blob: Blob, 
 export type LokaleMeldung = QueueEintrag;
 export type LokalerAuftrag = QueueEintrag;
 
+/**
+ * Belege liegen als rohe Bytes im Gerätespeicher, nicht als Blob: Safari (iPhone) wirft beim
+ * Ablegen von Blobs in IndexedDB zeitweise «Error preparing Blob/File data to be stored in
+ * object store» (WebKit-Fehler, 04.10.2026 auf der Baustelle passiert). Bytes verträgt es.
+ * Alte Zeilen von früheren App-Fassungen tragen noch `blob` — beim Lesen zählt beides.
+ */
 export interface LokalesAudio {
   client_uuid: string;
-  blob: Blob;
+  bytes?: ArrayBuffer;
+  typ?: string;
+  blob?: Blob;
 }
 
 /** Foto zu einer Meldung — id ist die spätere Zeile in `foto`, client_uuid die Meldung. */
 export interface LokalesFoto {
   id: string;
   client_uuid: string;
-  blob: Blob;
+  bytes?: ArrayBuffer;
+  typ?: string;
+  blob?: Blob;
+}
+
+/** Blob → speicherbare Bytes (Safari-sicher) … */
+async function alsBytes(b: Blob): Promise<{ bytes: ArrayBuffer; typ: string }> {
+  return { bytes: await b.arrayBuffer(), typ: b.type };
+}
+/** … und beim Lesen wieder ein Blob, egal in welcher Form die Zeile liegt. */
+function alsBlob(r: { bytes?: ArrayBuffer; typ?: string; blob?: Blob }): Blob {
+  return r.blob ?? new Blob([r.bytes ?? new ArrayBuffer(0)], { type: r.typ ?? '' });
 }
 
 /** Eine Tagesmeldung samt Zeiteinträgen — ids werden auf dem Gerät vergeben. */
@@ -176,14 +195,14 @@ function neuerEintrag(payload: Record<string, unknown>): QueueEintrag {
 async function belegeAblegen(clientUuid: string, audio?: Blob, fotos: Blob[] = []): Promise<string | undefined> {
   const grund = (e: unknown) => (e instanceof Error ? e.message : String(e));
   try {
-    if (audio) await db.audio.add({ client_uuid: clientUuid, blob: audio });
+    if (audio) await db.audio.add({ client_uuid: clientUuid, ...(await alsBytes(audio)) });
   } catch (e) {
-    return `Die Sprachnotiz liess sich auf diesem Gerät nicht ablegen (${grund(e)}). Die Stunden sind gespeichert und gehen raus.`;
+    return `Die Sprachnotiz liess sich auf diesem Gerät nicht ablegen (${grund(e)}). Die Meldung selbst ist gespeichert und geht raus.`;
   }
   try {
-    for (const blob of fotos) await db.fotos.add({ id: crypto.randomUUID(), client_uuid: clientUuid, blob });
+    for (const blob of fotos) await db.fotos.add({ id: crypto.randomUUID(), client_uuid: clientUuid, ...(await alsBytes(blob)) });
   } catch (e) {
-    return `Die Fotos liessen sich auf diesem Gerät nicht ablegen (${grund(e)}). Die Stunden sind gespeichert und gehen raus.`;
+    return `Die Fotos liessen sich auf diesem Gerät nicht ablegen (${grund(e)}). Die Meldung selbst ist gespeichert und geht raus.`;
   }
   return undefined;
 }
@@ -303,11 +322,12 @@ async function flushMeldungen(client: SupabaseClient): Promise<FlushErgebnis> {
 
       const audio = await db.audio.get(e.client_uuid);
       if (audio) {
+        const ton = alsBlob(audio);
         // Endung nach echtem Typ: iPhone liefert AAC/M4A, Android WebM. Die Speicher-Regel und
         // die Transkription schneiden die Endung ab bzw. lesen sie — beides verträgt .m4a.
-        const endung = audio.blob.type.includes('mp4') ? 'm4a' : audio.blob.type.includes('ogg') ? 'ogg' : 'webm';
+        const endung = ton.type.includes('mp4') ? 'm4a' : ton.type.includes('ogg') ? 'ogg' : 'webm';
         const pfad = `audio/${e.client_uuid}.${endung}`;
-        const e3 = await belegHochladen(client, pfad, audio.blob, audio.blob.type || 'audio/webm');
+        const e3 = await belegHochladen(client, pfad, ton, ton.type || 'audio/webm');
         if (e3) { fehler += 1; fehlerText = 'Sprachnotiz konnte nicht hochgeladen werden: ' + e3; continue; }
         // Der lokale Blob geht erst weg, wenn der Pfad an der Meldung steht — sonst wäre der Beleg verwaist.
         const { error: e3b } = await client.from('tagesmeldung').update({ audio_pfad: pfad }).eq('client_uuid', e.client_uuid);
@@ -325,7 +345,7 @@ async function flushMeldungen(client: SupabaseClient): Promise<FlushErgebnis> {
       let fotoFehler: string | null = null;
       for (const f of fotos) {
         const pfad = `fotos/${e.client_uuid}/${f.id}.jpg`;
-        const e4 = await belegHochladen(client, pfad, f.blob, 'image/jpeg');
+        const e4 = await belegHochladen(client, pfad, alsBlob(f), 'image/jpeg');
         if (e4) { fotoFehler = 'Foto konnte nicht hochgeladen werden: ' + e4; break; }
         const { error: e5 } = await client.from('foto').upsert({ id: f.id, tagesmeldung_id: p.id, pfad, erstellt_von: p.erfasst_von }, { onConflict: 'id', ignoreDuplicates: true });
         if (e5) { fotoFehler = 'Foto: ' + e5.message; break; }
