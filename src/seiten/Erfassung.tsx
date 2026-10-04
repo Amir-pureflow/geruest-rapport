@@ -4,7 +4,7 @@ import { Link } from 'react-router-dom';
 import { Shell } from '../ui/Shell';
 import { Pegel, TranskriptLive } from '../ui/Sprachnotiz';
 import { supabase } from '../lib/supabase';
-import { enqueueMeldung, flushNachSupabase, offeneMeldungen, offeneAnzahl, lokaleMeldungEntfernen, type MeldungPayload } from '../lib/db';
+import { enqueueMeldung, aktualisiereMeldung, belegFehlerVon, flushNachSupabase, offeneMeldungen, offeneAnzahl, lokaleMeldungEntfernen, type MeldungPayload } from '../lib/db';
 import { addTage, iso, lang, stunden, NORMALTAG_MIN } from '../lib/datum';
 import { fotoVerkleinern } from '../lib/foto';
 import { kennzeichen } from '../lib/fahrzeug';
@@ -204,6 +204,45 @@ function SpannenEditor({ spannen, setSpannen, klein = false }: { spannen: Spanne
 }
 
 /** Kleiner −/+ Knopf in Zeilen: 40 px Tippfläche, damit man mit Handschuhen trifft. */
+/**
+ * Kamera-Knopf und Vorschau der angehängten Bilder.
+ *
+ * Steht bewusst ausserhalb von `Erfassung`: als verschachtelte Funktion war es bei jedem
+ * Tastendruck eine neue Komponente, React baute das `<input type="file">` jedes Mal neu auf —
+ * und auf dem iPhone kam die gewählte Datei dann nie an (Fehler vom 03.10.2026).
+ *
+ * Ohne `capture`: so lässt iOS die Wahl zwischen Kamera und Fotomediathek. Mit `capture` öffnet
+ * sich sofort die Kamera, und ein vorhandenes Bild liess sich gar nicht hochladen.
+ */
+function FotoLeiste({
+  text, fotos, laedt, hinzufuegen, entfernen,
+}: {
+  text: string;
+  fotos: { id: string; url: string }[];
+  laedt: boolean;
+  hinzufuegen: (l: FileList | null) => void;
+  entfernen: (id: string) => void;
+}) {
+  return (
+    <div className="rounded-[14px] border border-line bg-surface p-3">
+      <div className="flex flex-wrap items-center gap-2">
+        {fotos.map((f) => (
+          <span key={f.id} className="relative h-16 w-16 overflow-hidden rounded-[8px] border border-line">
+            <img src={f.url} alt="" className="h-full w-full object-cover" />
+            <button type="button" onClick={() => entfernen(f.id)} aria-label="Foto entfernen" className="absolute right-0.5 top-0.5 h-5 w-5 rounded-full bg-ink/80 text-[11px] font-semibold leading-5 text-white">×</button>
+          </span>
+        ))}
+        <label className={'flex h-16 min-w-16 cursor-pointer items-center justify-center gap-2 rounded-[8px] border-2 border-dashed px-3 text-sm font-semibold ' + (fotos.length === 0 ? 'border-steel bg-steel-soft text-steel' : 'border-line-strong text-ink2')}>
+          <svg viewBox="0 0 24 24" className="h-6 w-6" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><path d="M4 8h3l2-3h6l2 3h3v11H4z" /><circle cx="12" cy="13" r="3.5" /></svg>
+          {laedt ? '…' : fotos.length === 0 ? 'Foto' : '+'}
+          <input type="file" accept="image/*" multiple className="hidden" onChange={(e) => { hinzufuegen(e.target.files); e.target.value = ''; }} />
+        </label>
+      </div>
+      <p className="mt-1.5 text-[11px] text-ink3">{text}</p>
+    </div>
+  );
+}
+
 function MiniKnopf({ art, onClick, klein = false }: { art: 'minus' | 'plus'; onClick: () => void; klein?: boolean }) {
   return (
     <button type="button" onClick={onClick} aria-label={art === 'minus' ? 'weniger' : 'mehr'} className={'grid h-10 place-items-center rounded-[10px] border border-line bg-surface text-ink2 active:scale-95 active:bg-surface-2 ' + (klein ? 'w-9' : 'w-10')}>
@@ -222,7 +261,7 @@ export function Erfassung() {
   const [alleGeplanten, setAlleGeplanten] = useState<Baustelle[]>([]);
   // /erfassung?baustelle=wahl öffnet direkt «andere Baustelle …» (Sprung von der Chefmonteur-Startseite)
   const [zeigeAndere, setZeigeAndere] = useState(() => new URLSearchParams(window.location.search).get('baustelle') === 'wahl');
-  // Baustellensuche ohne Tastatur (Regel 2): Konto-Nr. über den Ziffernblock, ab 3 Ziffern wird gesucht
+  // Baustellensuche: Konto-Nr. über den Ziffernblock (Regel 2, Handschuhe) oder Name über die Tastatur
   const [ziffern, setZiffern] = useState('');
   const [suchTreffer, setSuchTreffer] = useState<Baustelle[]>([]);
   const [laedtTeam, setLaedtTeam] = useState(false);
@@ -300,33 +339,43 @@ export function Erfassung() {
     setFotos((f) => { const x = f.find((y) => y.id === id); if (x) URL.revokeObjectURL(x.url); return f.filter((y) => y.id !== id); });
   }
 
-  /** Kamera-Knopf + Vorschau. Ein Element für Normalfall und Abweichung. */
-  function FotoLeiste({ text }: { text: string }) {
-    return (
-      <div className="rounded-[14px] border border-line bg-surface p-3">
-        <div className="flex flex-wrap items-center gap-2">
-          {fotos.map((f) => (
-            <span key={f.id} className="relative h-16 w-16 overflow-hidden rounded-[8px] border border-line">
-              <img src={f.url} alt="" className="h-full w-full object-cover" />
-              <button type="button" onClick={() => fotoEntfernen(f.id)} aria-label="Foto entfernen" className="absolute right-0.5 top-0.5 h-5 w-5 rounded-full bg-ink/80 text-[11px] font-semibold leading-5 text-white">×</button>
-            </span>
-          ))}
-          <label className={'flex h-16 min-w-16 cursor-pointer items-center justify-center gap-2 rounded-[8px] border-2 border-dashed px-3 text-sm font-semibold ' + (fotos.length === 0 ? 'border-steel bg-steel-soft text-steel' : 'border-line-strong text-ink2')}>
-            <svg viewBox="0 0 24 24" className="h-6 w-6" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><path d="M4 8h3l2-3h6l2 3h3v11H4z" /><circle cx="12" cy="13" r="3.5" /></svg>
-            {fotoLaedt ? '…' : fotos.length === 0 ? 'Foto' : '+'}
-            <input type="file" accept="image/*" capture="environment" multiple className="hidden" onChange={(e) => { void fotosHinzufuegen(e.target.files); e.target.value = ''; }} />
-          </label>
-        </div>
-        <p className="mt-1.5 text-[11px] text-ink3">{text}</p>
-      </div>
-    );
-  }
+  /** Was die Bildleiste braucht — die Komponente steht oben, ausserhalb dieser Funktion. */
+  const fotoLeiste = (text: string) => (
+    <FotoLeiste text={text} fotos={fotos} laedt={fotoLaedt} hinzufuegen={(l) => void fotosHinzufuegen(l)} entfernen={fotoEntfernen} />
+  );
   const [nimmtAuf, setNimmtAuf] = useState(false);
   const [sekunden, setSekunden] = useState(0);
   const [gespeichert, setGespeichert] = useState<string | null>(null);
   // Sperre gegen Doppeltippen: das Beenden der Aufnahme dauert eine Sekunde, ein zweiter Tipp darf nichts auslösen
   const [speichert, setSpeichert] = useState(false);
   const speichertRef = useRef(false);
+  /**
+   * Die Meldung, die gerade in der Warteschlange liegt (Fehler vom 03.10.2026).
+   *
+   * Ging das Senden schief, legte jeder weitere Druck auf «Tag melden» eine neue Meldung an —
+   * am Ende standen fünf gleiche Tage mit 95 Stunden beim Bauführer. Jetzt merkt sich das Gerät
+   * den Entwurf und versucht ihn nochmals, statt einen zweiten anzulegen.
+   */
+  const entwurfRef = useRef<string | null>(null);
+  const entwurfAbRef = useRef<string | null>(null);
+
+  /** In die Warteschlange legen — oder den wartenden Entwurf überschreiben und nochmals versuchen. */
+  async function inWarteschlange(
+    merker: React.MutableRefObject<string | null>,
+    payload: MeldungPayload,
+    audio?: Blob,
+    bilder: Blob[] = [],
+  ): Promise<string> {
+    const offen = merker.current;
+    const uuid = offen && (await aktualisiereMeldung(offen, payload, audio, bilder))
+      ? offen
+      : await enqueueMeldung(payload, audio, bilder);
+    merker.current = uuid;
+    // Beleg konnte nicht abgelegt werden? Sagen, aber die Stunden gehen trotzdem raus.
+    const belegFehler = await belegFehlerVon(uuid);
+    if (belegFehler) setHinweis(belegFehler);
+    return uuid;
+  }
   // Längere Rückmeldung nach dem Speichern (z. B. «normaler Tag 8.0 h + 1.0 h zusätzlich») — eigene Zeile, nicht im Knopf
   const [bestaetigung, setBestaetigung] = useState<string | null>(null);
   // Abschluss-Seite nach dem Speichern: was steht jetzt für den Tag, und wohin jetzt?
@@ -485,19 +534,32 @@ export function Erfassung() {
     setSuchTreffer([]);
   }
 
-  // Ausnahme für den Chefmonteur: Konto-Nr. über den Ziffernblock, falls die Kacheln nicht reichen (ab 3 Ziffern, max. 5 Treffer).
+  // Anderer Tag, anderes Team, andere Baustelle = eine andere Meldung. Der wartende Entwurf
+  // gehört dann nicht mehr dazu und darf nicht überschrieben werden.
+  useEffect(() => {
+    entwurfRef.current = null;
+    entwurfAbRef.current = null;
+  }, [teamId, tagIso, baustelle?.id]);
+
+  // Ausnahme für den Chefmonteur: Konto-Nr. oder Name, falls die Kacheln nicht reichen (ab 2 Zeichen, max. 5 Treffer).
   // Volle Nummer mit genau einem Treffer → direkt übernehmen, ohne zweiten Tipp.
   useEffect(() => {
-    if (!supabase || ziffern.length < 3) { setSuchTreffer([]); return; }
+    const q = ziffern.trim();
+    // Nummern ab 3 Zeichen (sonst passt die halbe Liste), Namen ab 2 — «Aarstrasse» tippt niemand ganz
+    const nurZiffern = /^\d+$/.test(q);
+    if (!supabase || q.length < (nurZiffern ? 3 : 2)) { setSuchTreffer([]); return; }
     const client = supabase;
-    const q = ziffern;
     const t = setTimeout(() => {
-      void client.from('baustelle').select('id,konto_nr,bezeichnung').like('konto_nr', `${q}%`).order('konto_nr').limit(5).then(({ data }) => {
+      // Nummer von vorne, Name irgendwo im Text. Komma trennt die beiden Bedingungen (ODER).
+      const muster = q.replace(/[,()*]/g, ' ');
+      const filter = nurZiffern ? `konto_nr.like.${muster}%` : `konto_nr.like.${muster}%,bezeichnung.ilike.%${muster}%`;
+      void client.from('baustelle').select('id,konto_nr,bezeichnung').or(filter).order('konto_nr').limit(5).then(({ data }) => {
         if (!data) return;
-        if (q.length >= 6 && data.length === 1 && data[0].konto_nr === q) { andereWaehlen(data[0]); return; }
+        // Volle Nummer mit genau einem Treffer → direkt übernehmen, ohne zweiten Tipp
+        if (nurZiffern && q.length >= 6 && data.length === 1 && data[0].konto_nr === q) { andereWaehlen(data[0]); return; }
         setSuchTreffer(data);
       });
-    }, 150);
+    }, 200);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ziffern]);
@@ -713,11 +775,11 @@ export function Erfassung() {
         // der Abweichung) — sonst stünde derselbe Text zweimal beim Bauführer.
         const restUeber = dabei.some((p) => !abLeute.has(p.id) && wirksam(anw[p.id]).ueber > 0);
         const fuerNormal = restUeber ? ueberAufnahme : null;
-        clientUuids.push(await enqueueMeldung(meldungBauen(baustelle, fuerNormal, 'normal', abLeute), fuerNormal?.blob));
+        clientUuids.push(await inWarteschlange(entwurfRef, meldungBauen(baustelle, fuerNormal, 'normal', abLeute), fuerNormal?.blob));
         normalMitgespeichert = true;
       }
       const notiz = await aufnahmeAbschliessen();
-      const uuid = await enqueueMeldung(meldungBauen(baustelle, notiz, 'abweichung'), notiz?.blob, fotos.map((f) => f.blob));
+      const uuid = await inWarteschlange(entwurfAbRef, meldungBauen(baustelle, notiz, 'abweichung'), notiz?.blob, fotos.map((f) => f.blob));
       clientUuids.push(uuid);
       if (notiz) notizUuid = uuid;
     } else {
@@ -742,7 +804,7 @@ export function Erfassung() {
       if (modus === 'ersetzen') await fruehereEntfernen(bisher);
       // Sprachnotiz geht immer mit, wenn eine da ist — Bemerkung zum Tag (Bauführer 20.09.)
       const notiz = await aufnahmeAbschliessen();
-      const uuidNormal = await enqueueMeldung(meldungBauen(baustelle, notiz), notiz?.blob, fotos.map((f) => f.blob));
+      const uuidNormal = await inWarteschlange(entwurfRef, meldungBauen(baustelle, notiz), notiz?.blob, fotos.map((f) => f.blob));
       clientUuids.push(uuidNormal);
       if (notiz) notizUuid = uuidNormal;
     }
@@ -758,6 +820,9 @@ export function Erfassung() {
       const offen = await offeneMeldungen();
       const alleDurch = clientUuids.every((u) => offen.every((m) => m.client_uuid !== u));
       if (alleDurch) {
+        // Durch: der nächste Druck meint eine neue Meldung
+        entwurfRef.current = null;
+        entwurfAbRef.current = null;
         setGespeichert(art === 'normal' ? 'Gespeichert ✓' : 'Abweichung gespeichert ✓');
         setBestaetigung(zusammenfassung + ' ✓');
         setFertig({ text: zusammenfassung, stand: 'gesendet', notizUuid });
@@ -947,7 +1012,7 @@ export function Erfassung() {
             </div>
           </div>
 
-          <FotoLeiste text="Bitte Fotos machen — der Bauführer braucht Bilder bei Zusatzarbeit." />
+          {fotoLeiste('Bitte Fotos machen — der Bauführer braucht Bilder bei Zusatzarbeit.')}
 
           {/* Dieselbe Sprachnotiz wie am Tag: wurde beim Tag schon aufgenommen, ist sie hier schon da */}
           <div className={'rounded-[14px] border-2 border-dashed p-5 text-center ' + (nimmtAuf ? 'border-accent bg-accent-soft' : ueberAufnahme ? 'border-good/50 bg-good-soft/40' : 'border-steel bg-steel-soft')}>
@@ -1126,19 +1191,20 @@ export function Erfassung() {
               ))}
               {/* Ziffernblock statt Tastatur (Regel 2): Konto-Nr. tippen, ab 3 Ziffern kommen bis zu 5 Treffer */}
               <div className="border-t border-line pt-3">
-                <p className="lbl">Konto-Nr. eintippen (nur Chefmonteur)</p>
+                <p className="lbl">Nummer oder Name eintippen</p>
                 {/* Echtes Feld: tippen, einfügen, Tastatur — der Ziffernblock darunter bleibt für Handschuhe */}
                 <input
                   type="text"
-                  inputMode="numeric"
+                  inputMode="text"
                   autoComplete="off"
+                  autoCapitalize="off"
                   autoFocus
                   value={ziffern}
-                  onChange={(e) => setZiffern(e.target.value.replace(/\D/g, '').slice(0, 6))}
-                  onPaste={(e) => { e.preventDefault(); setZiffern(e.clipboardData.getData('text').replace(/\D/g, '').slice(0, 6)); }}
-                  placeholder="z. B. 903221"
-                  aria-label="Konto-Nr."
-                  className="field mb-2 text-center font-mono text-xl font-semibold tabular-nums tracking-[0.2em] placeholder:tracking-normal placeholder:font-sans placeholder:text-base placeholder:font-normal"
+                  onChange={(e) => setZiffern(e.target.value.slice(0, 40))}
+                  onPaste={(e) => { e.preventDefault(); setZiffern(e.clipboardData.getData('text').trim().slice(0, 40)); }}
+                  placeholder="903221 oder Aarstrasse"
+                  aria-label="Konto-Nr. oder Name der Baustelle"
+                  className={'field mb-2 text-center text-xl font-semibold ' + (/^\d*$/.test(ziffern) ? 'font-mono tabular-nums tracking-[0.2em] placeholder:tracking-normal placeholder:font-sans placeholder:text-base placeholder:font-normal' : 'placeholder:text-base placeholder:font-normal')}
                 />
                 <div className="grid grid-cols-3 gap-2">
                   {['1', '2', '3', '4', '5', '6', '7', '8', '9'].map((z) => (
@@ -1148,9 +1214,9 @@ export function Erfassung() {
                   <button type="button" onClick={() => setZiffern((s) => (s.length < 6 ? s + '0' : s))} className="chip py-3 font-mono text-xl">0</button>
                   <button type="button" onClick={() => setZiffern((s) => s.slice(0, -1))} disabled={ziffern.length === 0} aria-label="letzte Ziffer löschen" className="chip py-3 font-mono text-xl disabled:opacity-40">←</button>
                 </div>
-                {ziffern.length < 3
-                  ? <p className="mt-2 text-[11px] text-ink3">Ab 3 Ziffern werden Baustellen gezeigt.</p>
-                  : suchTreffer.length === 0 && <p className="mt-2 text-[11px] text-ink3">Keine Baustelle mit {ziffern}… gefunden.</p>}
+                {ziffern.trim().length < (/^\d+$/.test(ziffern.trim()) ? 3 : 2)
+                  ? <p className="mt-2 text-[11px] text-ink3">Nummer ab 3 Ziffern, Name ab 2 Buchstaben.</p>
+                  : suchTreffer.length === 0 && <p className="mt-2 text-[11px] text-ink3">Keine Baustelle für «{ziffern.trim()}» gefunden.</p>}
                 {suchTreffer.length > 0 && (
                   <div className="mt-2 grid gap-2">
                     {suchTreffer.map((b) => (
@@ -1381,7 +1447,7 @@ export function Erfassung() {
               : 'Der Bauführer liest die Notiz in der Wochenübersicht — z. B. Material fehlt, Kunde war da, früher Schluss.'}</p>
         </section>
 
-        <FotoLeiste text="Foto vom Stand heute — freiwillig, hilft dem Bauführer." />
+        {fotoLeiste('Foto vom Stand heute — freiwillig, hilft dem Bauführer.')}
 
         {doppelt && (
           <section className="card space-y-3 border-amber/40 bg-amber-soft">

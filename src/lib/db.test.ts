@@ -5,7 +5,7 @@
 import 'fake-indexeddb/auto';
 import { describe, it, expect, beforeEach } from 'vitest';
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { db, enqueueMeldung, flushNachSupabase, lokaleWarteschlangeLeeren, offeneMeldungen, type MeldungPayload } from './db';
+import { db, enqueueMeldung, aktualisiereMeldung, flushNachSupabase, lokaleWarteschlangeLeeren, offeneMeldungen, type MeldungPayload } from './db';
 
 type DbFehler = { code?: string; message: string } | null;
 interface Aufruf { tabelle: string; op: string; rows: unknown }
@@ -190,5 +190,42 @@ describe('flushNachSupabase — Sprachnotiz (Beleg)', () => {
     expect(erg).toMatchObject({ gesendet: 0, fehler: 1 });
     expect(erg.fehlerText).toContain('Sprachnotiz konnte nicht hochgeladen werden');
     expect(await db.audio.get(cu)).toBeDefined();
+  });
+});
+
+describe('aktualisiereMeldung — Wiederholung legt keine zweite Meldung an (Fehler 03.10.2026)', () => {
+  it('überschreibt den wartenden Entwurf und behält Kopf- und Eintrags-Kennungen', async () => {
+    const cu = await enqueueMeldung(meldung(1));
+    const original = (await db.meldungen.get(cu))!.payload as unknown as MeldungPayload;
+
+    // Zweiter Druck: andere Stunden, aber dieselbe Meldung
+    const zweiterVersuch: MeldungPayload = {
+      ...meldung(1),
+      id: 'ganz-neue-id',
+      eintraege: original.eintraege.map((z) => ({ ...z, id: 'neue-' + z.id, normal_min: 300 })),
+    };
+    expect(await aktualisiereMeldung(cu, zweiterVersuch)).toBe(true);
+
+    expect(await offeneMeldungen()).toHaveLength(1); // keine Dublette
+    const jetzt = (await db.meldungen.get(cu))!.payload as unknown as MeldungPayload;
+    expect(jetzt.id).toBe(original.id);                               // Kopf behält seine Kennung
+    expect(jetzt.eintraege.map((z) => z.id)).toEqual(original.eintraege.map((z) => z.id));
+    expect(jetzt.eintraege[0].normal_min).toBe(300);                  // die neuen Stunden gelten
+  });
+
+  it('gesendete Meldungen werden nicht angefasst — dann gehört der nächste Druck zu einer neuen', async () => {
+    const cu = await enqueueMeldung(meldung(1));
+    await db.meldungen.update(cu, { status: 'gesendet' });
+    expect(await aktualisiereMeldung(cu, meldung(1))).toBe(false);
+  });
+});
+
+describe('Belege: ein Blob, der sich nicht ablegen lässt, reisst die Stunden nicht mit', () => {
+  it('Meldung bleibt in der Warteschlange, der Grund steht am Eintrag', async () => {
+    const kaputt = { get type() { throw new Error('QuotaExceededError'); } } as unknown as Blob;
+    const cu = await enqueueMeldung(meldung(1), undefined, [kaputt]);
+    expect(await offeneMeldungen()).toHaveLength(1);
+    const eintrag = await db.meldungen.get(cu);
+    expect(eintrag?.belegFehler).toContain('Fotos');
   });
 });

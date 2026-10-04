@@ -16,6 +16,8 @@ interface QueueEintrag {
   payload: Record<string, unknown>;
   erstellt: number;
   status: 'lokal' | 'gesendet' | 'verworfen';
+  /** Sprachnotiz oder Fotos liessen sich auf diesem Gerät nicht ablegen — Grund für den Bildschirm. */
+  belegFehler?: string;
 }
 
 export interface FlushErgebnis {
@@ -163,12 +165,72 @@ function neuerEintrag(payload: Record<string, unknown>): QueueEintrag {
 }
 
 /** Tagesmeldung lokal ablegen. Gibt die client_uuid zurück. */
+/**
+ * Sprachnotiz und Fotos ablegen. Schlägt das fehl, ist das ärgerlich, aber kein Grund, die
+ * Stunden zu verlieren (Fehler vom 03.10.2026): auf dem iPhone im privaten Modus und bei vollem
+ * Speicher wirft IndexedDB beim Ablegen eines Blobs. Vorher riss das die ganze Meldung mit, der
+ * Chefmonteur sah «Speichern fehlgeschlagen» und tippte nochmals — fünf Meldungen später.
+ *
+ * Gibt den Grund als Satz zurück, wenn etwas nicht abgelegt werden konnte.
+ */
+async function belegeAblegen(clientUuid: string, audio?: Blob, fotos: Blob[] = []): Promise<string | undefined> {
+  const grund = (e: unknown) => (e instanceof Error ? e.message : String(e));
+  try {
+    if (audio) await db.audio.add({ client_uuid: clientUuid, blob: audio });
+  } catch (e) {
+    return `Die Sprachnotiz liess sich auf diesem Gerät nicht ablegen (${grund(e)}). Die Stunden sind gespeichert und gehen raus.`;
+  }
+  try {
+    for (const blob of fotos) await db.fotos.add({ id: crypto.randomUUID(), client_uuid: clientUuid, blob });
+  } catch (e) {
+    return `Die Fotos liessen sich auf diesem Gerät nicht ablegen (${grund(e)}). Die Stunden sind gespeichert und gehen raus.`;
+  }
+  return undefined;
+}
+
 export async function enqueueMeldung(payload: MeldungPayload, audio?: Blob, fotos: Blob[] = []): Promise<string> {
   const e = neuerEintrag(payload as unknown as Record<string, unknown>);
   await db.meldungen.add(e);
-  if (audio) await db.audio.add({ client_uuid: e.client_uuid, blob: audio });
-  for (const blob of fotos) await db.fotos.add({ id: crypto.randomUUID(), client_uuid: e.client_uuid, blob });
+  const belegFehler = await belegeAblegen(e.client_uuid, audio, fotos);
+  if (belegFehler) await db.meldungen.update(e.client_uuid, { belegFehler });
   return e.client_uuid;
+}
+
+/** Konnte ein Beleg nicht abgelegt werden? Der Satz dazu, für den Bildschirm. */
+export async function belegFehlerVon(clientUuid: string): Promise<string | undefined> {
+  return (await db.meldungen.get(clientUuid))?.belegFehler;
+}
+
+/**
+  * Eine wartende Meldung nochmals versuchen, statt eine zweite anzulegen (Fehler vom 03.10.2026).
+  *
+  * Am Handy kam beim Senden ein Fehler. Jeder weitere Druck auf «Tag melden» legte eine neue
+  * Meldung an — am Ende standen fünf gleiche Tage mit 95 Stunden beim Bauführer. Jetzt bekommt
+  * der zweite Druck dieselbe Zeile: der Kopf behält seine `id`, jede Person ihre Eintrags-`id`.
+  * Nur so bleibt der Upsert auf dem Server idempotent, und es entsteht nie eine Dublette.
+  *
+  * Gibt false zurück, wenn die Meldung inzwischen gesendet oder verworfen wurde — dann ist sie
+  * durch und der Aufrufer legt eine neue an.
+  */
+export async function aktualisiereMeldung(clientUuid: string, payload: MeldungPayload, audio?: Blob, fotos: Blob[] = []): Promise<boolean> {
+  const alt = await db.meldungen.get(clientUuid);
+  if (!alt || alt.status !== 'lokal') return false;
+
+  const altP = alt.payload as unknown as MeldungPayload;
+  // Die Kennungen der ersten Fassung behalten; neue Personen bekommen ihre eigene
+  const idFuer = new Map((altP.eintraege ?? []).map((z) => [z.mitarbeiter_id, z.id]));
+  const neu: MeldungPayload = {
+    ...payload,
+    id: altP.id,
+    eintraege: payload.eintraege.map((z) => ({ ...z, id: idFuer.get(z.mitarbeiter_id) ?? z.id })),
+  };
+  await db.meldungen.update(clientUuid, { payload: neu as unknown as Record<string, unknown> });
+
+  await db.audio.delete(clientUuid);
+  await db.fotos.where('client_uuid').equals(clientUuid).delete();
+  const belegFehler = await belegeAblegen(clientUuid, audio, fotos);
+  await db.meldungen.update(clientUuid, { belegFehler });
+  return true;
 }
 
 export async function offeneAnzahl(): Promise<number> {
