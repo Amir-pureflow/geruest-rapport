@@ -87,6 +87,8 @@ function StartBauf() {
   const [stand, setStand] = useState<TeamStand[] | null>(null);
   const heute = new Date();
   const vorwoche = iso(addTage(montag(heute), -7));
+  // Montag der Woche, die in der Freigabe-Karte steht — automatisch die älteste mit offenen Freigaben
+  const [freigabeMo, setFreigabeMo] = useState<Date>(() => addTage(montag(new Date()), -7));
 
   useEffect(() => {
     if (!supabase) return;
@@ -125,8 +127,20 @@ function StartBauf() {
         ueberOffen: uo.count ?? 0,
       });
       // Diagramm und Board danach — die Kacheln sollen nicht darauf warten
-      // Die Vorwoche ist die, die zur Freigabe ansteht (Mo/Di prüft der Bauführer) — die laufende wäre halb leer
-      const [w, ts] = await Promise.all([wochenTeams(c, addTage(montag(heute), -7)), teamStand(c, heute)]);
+      // Die Karte springt auf die älteste Woche mit offenen Freigaben (Amir, 04.10.2026) —
+      // bis 6 Wochen zurück, auch die laufende. Ist nichts offen, zeigt sie die Vorwoche.
+      let freigabeBezug = addTage(montag(heute), -7);
+      const { data: aelteste } = await c
+        .from('tagesmeldung')
+        .select('datum, zeiteintrag!inner(id)')
+        .eq('zeiteintrag.status', 'offen')
+        .lte('datum', heuteIso)
+        .gte('datum', iso(addTage(montag(heute), -42)))
+        .order('datum', { ascending: true })
+        .limit(1);
+      if (aelteste?.[0]?.datum) freigabeBezug = new Date(aelteste[0].datum + 'T12:00:00');
+      setFreigabeMo(montag(freigabeBezug));
+      const [w, ts] = await Promise.all([wochenTeams(c, freigabeBezug), teamStand(c, heute)]);
       setWoche(w);
       setStand(ts);
 
@@ -295,9 +309,9 @@ function StartBauf() {
         <div className={'grid gap-4 ' + (tr ? 'lg:grid-cols-2' : '')}>
           {woche && (
             <DiagrammKarte
-              titel="Freigabe Vorwoche"
-              unter={`${kurz(addTage(montag(heute), -7))} bis ${kurz(addTage(montag(heute), -1))} · je Tag die Teams, die gemeldet haben`}
-              aktion={<Link to={`/cockpit?woche=${vorwoche}`} className="shrink-0 text-xs font-semibold text-steel">Wochenübersicht ›</Link>}
+              titel={iso(freigabeMo) === iso(montag(heute)) ? 'Freigabe diese Woche' : iso(freigabeMo) === vorwoche ? 'Freigabe Vorwoche' : `Freigabe Woche ${kw(freigabeMo)}`}
+              unter={`${kurz(freigabeMo)} bis ${kurz(addTage(freigabeMo, 6))} · je Tag die Teams, die gemeldet haben`}
+              aktion={<Link to={`/cockpit?woche=${iso(freigabeMo)}`} className="shrink-0 text-xs font-semibold text-steel">Wochenübersicht ›</Link>}
             >
               <WochenTeams tage={woche} gesamt={k?.teams ?? 0} />
             </DiagrammKarte>
