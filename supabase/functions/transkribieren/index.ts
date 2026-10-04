@@ -23,7 +23,7 @@ function antwort(status: number, body: unknown): Response {
   return new Response(JSON.stringify(body), { status, headers: { ...cors, 'Content-Type': 'application/json' } });
 }
 
-const SPRACHEN: Record<string, string> = { de: 'Deutsch', ar: 'Arabisch', pl: 'Polnisch', en: 'Englisch' };
+const SPRACHEN: Record<string, string> = { de: 'Deutsch', sq: 'Albanisch', pt: 'Portugiesisch', ar: 'Arabisch', pl: 'Polnisch', en: 'Englisch' };
 
 const ANWEISUNG =
   'Du bereinigst gesprochene Notizen von einer Gerüstbau-Baustelle zu klarem Schweizer Hochdeutsch («ss» statt «ß»). ' +

@@ -7,7 +7,7 @@ interface Person {
   name: string;
   typ: 'intern' | 'extern' | 'temporaer';
   funktion: string;
-  sprache: 'de' | 'ar' | 'pl' | 'en';
+  sprache: 'de' | 'sq' | 'pt' | 'ar' | 'pl' | 'en';
   temporaerbuero: string | null;
   aktiv: boolean;
   oev_standard: boolean;
@@ -17,7 +17,18 @@ interface Person {
 }
 
 const LEER: Person = { name: '', typ: 'intern', funktion: 'monteur', sprache: 'de', temporaerbuero: null, aktiv: true, oev_standard: false, km_standard: 0, telefon: null };
-const SPRACHEN: [Person['sprache'], string][] = [['de', 'Deutsch'], ['ar', 'Arabisch'], ['pl', 'Polnisch'], ['en', 'Englisch']];
+/**
+ * Sprache für die Sprachnotiz: in ihr spricht der Chefmonteur, daraus entsteht der deutsche Text.
+ * Reihenfolge nach Häufigkeit im Betrieb — Albanisch und Portugiesisch kamen am 04.10.2026 dazu.
+ */
+const SPRACHEN: [Person['sprache'], string][] = [
+  ['de', 'Deutsch'],
+  ['sq', 'Albanisch'],
+  ['pt', 'Portugiesisch'],
+  ['ar', 'Arabisch'],
+  ['pl', 'Polnisch'],
+  ['en', 'Englisch'],
+];
 const BASIS_SPALTEN = 'id,name,typ,funktion,sprache,temporaerbuero,aktiv,oev_standard,km_standard';
 
 const spalteFehlt = (msg: string, spalte: string) => new RegExp(`column .*${spalte}.* does not exist`).test(msg) || (msg.includes(spalte) && /does not exist|schema cache/.test(msg));
