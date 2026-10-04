@@ -83,6 +83,7 @@ async function sttAzure(k: Record<string, string>, datei: Blob, dateiname: strin
   }
 
   let letzter = '';
+  let holprig: string | null = null;
   for (const quelle of ressourcen) {
     for (let versuch = 0; versuch < 2; versuch++) {
       if (versuch > 0) await new Promise((w) => setTimeout(w, 2500));
@@ -100,12 +101,37 @@ async function sttAzure(k: Record<string, string>, datei: Blob, dateiname: strin
       const j = (await r.json()) as { combinedPhrases?: { text?: string }[] };
       const text = (j.combinedPhrases ?? []).map((p) => p.text ?? '').join(' ').trim();
       if (!text) throw new Error('Erkennung lieferte keinen Text');
+      // Lall-Schleife («hëhhhh hëhhh …», 04.10.2026 bei Albanisch passiert): nochmal versuchen,
+      // notfalls über die Ausweichregion — die verhält sich oft anders. Bleibt es dabei,
+      // geht der holprige Text trotzdem raus: der Sprecher sieht ihn im Prüfschritt.
+      if (istLallSchleife(text)) { holprig = text; letzter = 'stottern'; continue; }
       return text;
     }
   }
+  if (holprig) return holprig;
   throw new Error(letzter === 'überlastet'
     ? 'Die Erkennung ist gerade überlastet — einen Moment warten und nochmals antippen.'
     : 'Erkennung nicht erreichbar');
+}
+
+/**
+ * Entgleiste Erkennung: das Modell verhakt sich bei Atmen/Wind/Pausen und lallt («hëhhhhhh»).
+ * Kennzeichen: «Wörter» ab 6 Zeichen aus höchstens 2 verschiedenen Buchstaben, oder dasselbe
+ * Wort viermal hintereinander. Keine unserer Sprachen schreibt so.
+ */
+function istLallSchleife(text: string): boolean {
+  const woerter = text.toLowerCase().split(/\s+/).filter(Boolean);
+  const lall = woerter.filter((w) => {
+    const buchstaben = w.replace(/[^\p{L}]/gu, '');
+    return buchstaben.length >= 6 && new Set(buchstaben).size <= 2;
+  }).length;
+  if (lall >= 2 || lall / Math.max(1, woerter.length) > 0.2) return true;
+  let gleich = 1;
+  for (let i = 1; i < woerter.length; i++) {
+    gleich = woerter[i] === woerter[i - 1] && woerter[i].length >= 2 ? gleich + 1 : 1;
+    if (gleich >= 4) return true;
+  }
+  return false;
 }
 
 /** Schritt 1 — das Ohr: Aufnahme → Text in der Sprache des Sprechers (roh, so wie gesprochen). */
