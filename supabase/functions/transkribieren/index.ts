@@ -17,11 +17,19 @@
 // `transkript` (deutsch), `transkript_quelle` (bestätigtes Original, nur wenn abweichend),
 // `transkript_sprache`. Das Transkript ist Arbeitshilfe, die Aufnahme bleibt der Beleg (Regel #8).
 //
-// Anbieter Mistral (Paris, EU-Verarbeitung). Schlüssel `MISTRAL_API_KEY` in `konfiguration`.
+// Das Ohr (Erkennung, 04.10.2026): **Azure AI Speech, schnelle Transkription**, sobald
+// `AZURE_SPEECH_KEY` in `konfiguration` liegt — sonst Mistral Voxtral wie bisher. Azure kann
+// alle Sprachen des Betriebs (Albanisch sq-AL, Arabisch ar-SY, Polnisch, Portugiesisch, dazu
+// Schweizer Hochdeutsch de-CH), Voxtral kann kein Albanisch. Region über `AZURE_SPEECH_REGION`
+// (Standard germanywestcentral = Frankfurt — die schnelle Transkription gibt es laut
+// Regionen-Tabelle vom 30.09.2026 NICHT in switzerlandnorth; Frankfurt ist die nächste,
+// Daten bleiben in der Region der Ressource). Formate: WebM (Android) und AAC/M4A (iPhone)
+// nimmt sie direkt, bis 500 MB.
+//
+// Die Übersetzung macht Mistral (Paris, EU). Schlüssel `MISTRAL_API_KEY` in `konfiguration`.
 // Optional: `TRANSKRIPT_MODELL` (Standard voxtral-mini-latest), `UEBERSETZUNG_MODELL`
-// (Standard mistral-small-latest). Grenze von Voxtral: Albanisch kann es nicht, Arabisch und
-// Polnisch nur schwach — der geplante Wechsel des Ohrs auf Azure AI Speech (Region Schweiz Nord)
-// betrifft NUR die Funktion `stt()` unten, der Rest bleibt.
+// (Standard mistral-small-latest), `AZURE_SPEECH_ENDPOINT` (falls die Ressource einen eigenen
+// Endpunkt hat, sonst wird er aus der Region gebaut).
 // Deploy: verify_jwt true — Aufruf mit der angemeldeten Sitzung der App.
 import { createClient } from 'npm:@supabase/supabase-js@2';
 
@@ -47,8 +55,32 @@ const ANWEISUNG =
   'Kurz und sachlich, wie ein Eintrag im Rapport. Nur den bereinigten Text ausgeben, ohne Anführungszeichen, ohne Erklärung. ' +
   'Ist die Notiz nicht auf Deutsch, zuerst sinngemäss übersetzen, dann bereinigen.';
 
+/** Sprachcode aus dem Profil → Azure-Gebietsschema. Deutsch als de-CH: Hochdeutsch mit Schweizer Zunge. */
+const AZURE_GEBIET: Record<string, string> = { de: 'de-CH', sq: 'sq-AL', pt: 'pt-PT', ar: 'ar-SY', pl: 'pl-PL', en: 'en-US' };
+
+/** Das Ohr, Fassung Azure: schnelle Transkription, ein Aufruf, Antwort in Sekunden. */
+async function sttAzure(k: Record<string, string>, datei: Blob, dateiname: string, sprache: string): Promise<string> {
+  const region = k.AZURE_SPEECH_REGION || 'germanywestcentral';
+  const basis = (k.AZURE_SPEECH_ENDPOINT || `https://${region}.api.cognitive.microsoft.com`).replace(/\/$/, '');
+  const form = new FormData();
+  form.append('audio', datei, dateiname);
+  // Kein Fluchwort-Filter: es gilt, was der Sprecher sagt (Regel: nichts umdeuten) — bereinigt wird später
+  form.append('definition', JSON.stringify({ locales: [AZURE_GEBIET[sprache] ?? 'de-CH'], profanityFilterMode: 'None' }));
+  const r = await fetch(`${basis}/speechtotext/transcriptions:transcribe?api-version=2024-11-15`, {
+    method: 'POST',
+    headers: { 'Ocp-Apim-Subscription-Key': k.AZURE_SPEECH_KEY },
+    body: form,
+  });
+  if (!r.ok) throw new Error(`Azure-Erkennung ${r.status}: ${(await r.text()).slice(0, 300)}`);
+  const j = (await r.json()) as { combinedPhrases?: { text?: string }[] };
+  const text = (j.combinedPhrases ?? []).map((p) => p.text ?? '').join(' ').trim();
+  if (!text) throw new Error('Erkennung lieferte keinen Text');
+  return text;
+}
+
 /** Schritt 1 — das Ohr: Aufnahme → Text in der Sprache des Sprechers (roh, so wie gesprochen). */
 async function stt(k: Record<string, string>, datei: Blob, dateiname: string, sprache: string): Promise<string> {
+  if (k.AZURE_SPEECH_KEY) return sttAzure(k, datei, dateiname, sprache);
   const modell = k.TRANSKRIPT_MODELL || 'voxtral-mini-latest';
   const form = new FormData();
   form.append('file', datei, dateiname);
