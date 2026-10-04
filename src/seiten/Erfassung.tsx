@@ -346,6 +346,9 @@ export function Erfassung() {
   // Baustellensuche: Konto-Nr. über den Ziffernblock (Regel 2, Handschuhe) oder Name über die Tastatur
   const [ziffern, setZiffern] = useState('');
   const [suchTreffer, setSuchTreffer] = useState<Baustelle[]>([]);
+  // Alle aktiven Baustellen zum Durchblättern — ersetzt den Papierzettel, wenn Nummer UND Name entfallen sind
+  const [alleBaustellen, setAlleBaustellen] = useState<Baustelle[] | null>(null);
+  const [zeigeListe, setZeigeListe] = useState(false);
   const [laedtTeam, setLaedtTeam] = useState(false);
   const [zuletzt, setZuletzt] = useState<string[]>(zuletztLesen);
   const [weitereTeams, setWeitereTeams] = useState(0);
@@ -539,7 +542,7 @@ export function Erfassung() {
   /** Lädt, was für Team + Tag schon gemeldet ist (lokal + Server), setzt den Zustand und gibt die Liste zurück (für Prüfungen vor dem Speichern). */
   const heutigeLaden = useCallback(async (): Promise<Gemeldet[]> => {
     if (!teamId) return [];
-    const bekannt = kacheln.concat(alleGeplanten, suchTreffer);
+    const bekannt = kacheln.concat(alleGeplanten, suchTreffer, alleBaustellen ?? []);
     const lokal = (await offeneMeldungen()).filter((m) => (m.payload as unknown as MeldungPayload).team_id === teamId && (m.payload as unknown as MeldungPayload).datum === tagIso);
     const liste: Gemeldet[] = lokal.map((m) => {
       const p = m.payload as unknown as MeldungPayload;
@@ -571,7 +574,7 @@ export function Erfassung() {
     }
     setHeuteGemeldet(liste);
     return liste;
-  }, [teamId, tagIso, kacheln, alleGeplanten, suchTreffer]);
+  }, [teamId, tagIso, kacheln, alleGeplanten, suchTreffer, alleBaustellen]);
 
   // Team gewählt → Leute, Kacheln (Plan + zuletzt), Vorbelegung
   useEffect(() => {
@@ -632,6 +635,15 @@ export function Erfassung() {
 
   /** Baustelle aus «andere Baustelle …» übernehmen: wird die erste Kachel oben (markiert), das Suchfeld geht zu. */
   const [gesuchtId, setGesuchtId] = useState<string | null>(null);
+  /** Alle aktiven Baustellen zum Durchblättern — geladen erst beim Aufklappen, alphabetisch. */
+  async function listeUmschalten() {
+    setZeigeListe((v) => !v);
+    if (alleBaustellen !== null) return;
+    if (!supabase || !navigator.onLine) { setAlleBaustellen([]); return; }
+    const { data } = await supabase.from('baustelle').select('id,konto_nr,bezeichnung').eq('status', 'aktiv').order('bezeichnung');
+    setAlleBaustellen((data ?? []) as Baustelle[]);
+  }
+
   function andereWaehlen(b: Baustelle) {
     setGesuchtId(b.id);
     setBaustelle(b);
@@ -1306,10 +1318,10 @@ export function Erfassung() {
                   <button type="button" onClick={() => setZiffern((s) => (s.length < 6 ? s + '0' : s))} className="chip py-3 font-mono text-xl">0</button>
                   <button type="button" onClick={() => setZiffern((s) => s.slice(0, -1))} disabled={ziffern.length === 0} aria-label="letzte Ziffer löschen" className="chip py-3 font-mono text-xl disabled:opacity-40">←</button>
                 </div>
-                {ziffern.trim().length < (/^\d+$/.test(ziffern.trim()) ? 3 : 2)
+                {!zeigeListe && (ziffern.trim().length < (/^\d+$/.test(ziffern.trim()) ? 3 : 2)
                   ? <p className="mt-2 text-[11px] text-ink3">Nummer ab 3 Ziffern, Name ab 2 Buchstaben.</p>
-                  : suchTreffer.length === 0 && <p className="mt-2 text-[11px] text-ink3">Keine Baustelle für «{ziffern.trim()}» gefunden.</p>}
-                {suchTreffer.length > 0 && (
+                  : suchTreffer.length === 0 && <p className="mt-2 text-[11px] text-ink3">Keine Baustelle für «{ziffern.trim()}» gefunden.</p>)}
+                {!zeigeListe && suchTreffer.length > 0 && (
                   <div className="mt-2 grid gap-2">
                     {suchTreffer.map((b) => (
                       <button key={b.id} type="button" onClick={() => andereWaehlen(b)} className={'chip flex items-center justify-between py-2.5 text-left ' + (baustelle?.id === b.id ? 'chip-on' : '')}>
@@ -1317,6 +1329,34 @@ export function Erfassung() {
                       </button>
                     ))}
                   </div>
+                )}
+              </div>
+              {/* Zum Nachschauen wie auf dem Papierzettel: alle aktiven Baustellen, das Suchfeld oben filtert mit */}
+              <div className="border-t border-line pt-3">
+                <button type="button" onClick={() => void listeUmschalten()} className="text-xs font-semibold text-steel">
+                  {zeigeListe ? 'Liste zuklappen' : 'Alle Baustellen zeigen — zum Nachschauen'}
+                </button>
+                {zeigeListe && (alleBaustellen === null
+                  ? <p className="mt-2 text-sm text-ink3">Lädt …</p>
+                  : (() => {
+                      const q = ziffern.trim().toLowerCase();
+                      const liste = alleBaustellen.filter((b) => !q || (b.bezeichnung ?? '').toLowerCase().includes(q) || b.konto_nr.includes(q));
+                      return (
+                        <div className="mt-2 max-h-80 divide-y divide-line overflow-y-auto rounded-[10px] border border-line bg-surface">
+                          {liste.map((b) => (
+                            <button key={b.id} type="button" onClick={() => andereWaehlen(b)} className="flex w-full items-center justify-between gap-2 px-3 py-2.5 text-left hover:bg-ground">
+                              <span className="min-w-0 truncate text-sm">{b.bezeichnung ? anzeigeName(b.bezeichnung) : 'Baustelle'}</span>
+                              <span className="knr shrink-0">{b.konto_nr}</span>
+                            </button>
+                          ))}
+                          {liste.length === 0 && (
+                            <p className="p-3 text-sm text-ink3">{alleBaustellen.length === 0 ? 'Liste konnte nicht geladen werden — dafür braucht es Netz.' : `Nichts gefunden für «${ziffern.trim()}».`}</p>
+                          )}
+                        </div>
+                      );
+                    })())}
+                {zeigeListe && alleBaustellen !== null && alleBaustellen.length > 0 && (
+                  <p className="mt-1.5 text-[11px] text-ink3">{alleBaustellen.length} aktive Baustellen, alphabetisch — oben tippen zum Filtern.</p>
                 )}
               </div>
             </div>
