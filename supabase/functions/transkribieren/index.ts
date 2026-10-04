@@ -50,6 +50,7 @@ const ANWEISUNG =
   'Regeln: Grammatik und Wortstellung korrigieren. Füllwörter, Wiederholungen und Versprecher entfernen. ' +
   'Selbstkorrekturen auflösen: es gilt die zuletzt genannte Fassung (z. B. «der Chefmonteur … ah, der Bauführer meine ich» → Bauführer). ' +
   'Zahlen, Uhrzeiten, Stunden, Namen, Baustellen und Mengenangaben wörtlich übernehmen — «ein Feld mehr» bleibt «ein Feld mehr», nicht umdeuten. ' +
+  'Eigennamen (Personen, Firmen, Baustellen) unverändert lassen. Ist ein Wort kein bekanntes Wort der Ausgangssprache (Hörfehler der Erkennung), dann NICHT raten, was gemeint sein könnte: das Wort unübersetzt in «…» übernehmen. Beispiel: «Unë çuhem amir» → «Ich "çuhem" Amir» (çuhem gibt es nicht, also stehen lassen). ' +
   'Fachbegriffe des Gerüstbaus beibehalten (Feld, Lage, Treppenturm, Konsole, versetzen). ' +
   'Nichts hinzufügen, nichts Wichtiges weglassen, nichts bewerten. Bei Unklarheit die Worte des Sprechers lassen. ' +
   'Kurz und sachlich, wie ein Eintrag im Rapport. Nur den bereinigten Text ausgeben, ohne Anführungszeichen, ohne Erklärung. ' +

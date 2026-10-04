@@ -154,6 +154,22 @@ function MittagHinweis({ spannen }: { spannen: Spanne[] }) {
 }
 
 /**
+ * Uhrzeit-Feld: tippen öffnet weiterhin die native Uhrzeit-Wahl (Regel 2, keine Tastatur),
+ * aber die Anzeige malt die App selbst — native Felder zeigen je nach Handysprache
+ * «7:00 AM», im schmalen Feld abgeschnitten als «Al»/«Pl» (Amir, 04.10.2026).
+ */
+function ZeitFeld({ wert, aendern, label, klein, klasse, leer = false }: { wert: string; aendern: (text: string) => void; label: string; klein: boolean; klasse: string; leer?: boolean }) {
+  return (
+    <span className="zeitfeld relative inline-block">
+      <input type="time" step={300} value={wert} onChange={(e) => aendern(e.target.value)} aria-label={label} className={klasse} />
+      <span aria-hidden="true" className={'pointer-events-none absolute inset-0 grid place-items-center font-mono font-semibold tabular-nums ' + (klein ? 'text-[14px] ' : 'text-lg ') + (leer ? 'text-ink3' : 'text-ink')}>
+        {wert || '--:--'}
+      </span>
+    </span>
+  );
+}
+
+/**
  * Zeiten von–bis: eine oder zwei Spannen (Vormittag, Nachmittag). Native Uhrzeit-Wahl statt Tastatur (Regel 2).
  * Kein Pausenabzug — die App zählt, was dasteht; der Mittag 12–13 (unbezahlt) ist als Lücke vorgegeben.
  */
@@ -168,9 +184,9 @@ function SpannenEditor({ spannen, setSpannen, klein = false }: { spannen: Spanne
       {spannen.map((s, i) => (
         <div key={i} className="flex items-center gap-1.5">
           {spannen.length > 1 && <span className={'shrink-0 text-[10px] leading-tight text-ink3 ' + (klein ? 'w-9' : 'w-14')}>{i === 0 ? 'Vormittag' : 'Nachmittag'}</span>}
-          <input type="time" step={300} value={uhrzeitFeld(s.von)} onChange={(e) => aendern(i, 'von', e.target.value)} aria-label="von" className={feld + ' border-line'} />
+          <ZeitFeld wert={uhrzeitFeld(s.von)} aendern={(t) => aendern(i, 'von', t)} label="von" klein={klein} klasse={feld + ' border-line'} />
           <span className="text-ink3">–</span>
-          <input type="time" step={300} value={uhrzeitFeld(s.bis)} onChange={(e) => aendern(i, 'bis', e.target.value)} aria-label="bis" className={feld + (s.bis === null ? ' border-amber/70' : ' border-line')} />
+          <ZeitFeld wert={uhrzeitFeld(s.bis)} aendern={(t) => aendern(i, 'bis', t)} label="bis" klein={klein} klasse={feld + (s.bis === null ? ' border-amber/70' : ' border-line')} leer={s.bis === null} />
           {i > 0 && <button type="button" onClick={() => setSpannen(spannen.filter((_, j) => j !== i))} aria-label="Zeit entfernen" className="grid h-9 w-9 shrink-0 place-items-center rounded-[10px] text-ink3 active:bg-surface-2"><X size={16} /></button>}
         </div>
       ))}

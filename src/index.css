@@ -422,6 +422,16 @@
     padding: 1.125rem 1.25rem;
   }
 
+  /* Zeitfelder: die native Anzeige ist unsichtbar (zeigt je nach Gerätesprache AM/PM),
+     die App malt den 24-h-Text selbst darüber (ZeitFeld in Erfassung.tsx) */
+  .zeitfeld input {
+    color: transparent;
+    caret-color: transparent;
+  }
+  .zeitfeld input::-webkit-calendar-picker-indicator {
+    opacity: 0;
+  }
+
   /* Kontonummer: leise Pille, gleich breite Ziffern */
   .knr {
     display: inline-block;
