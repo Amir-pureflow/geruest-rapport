@@ -558,6 +558,9 @@ export function Cockpit() {
 
   function tagUmschalten(team: string, datum: string) {
     setKorrektur(null);
+    // Player zurücksetzen — sonst spielt die zuletzt gehörte Notiz beim Zurückwechseln
+    // auf ihren Tag ungefragt wieder los (autoPlay gilt nur für den Klick auf ▶)
+    setAudio(null);
     setOffen((o) => (o && o.team === team && o.datum === datum ? null : { team, datum }));
   }
 
