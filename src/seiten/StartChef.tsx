@@ -347,7 +347,8 @@ export function StartChef() {
                       {ms.length > 0
                         ? lokal ? <span className="text-amber-deep">wartet auf Netz</span>
                           : ms.some((m) => m.zeiteintrag.some((z) => z.status === 'freigegeben')) ? <span className="text-good-deep">freigegeben</span>
-                            : ms.every((m) => m.normalfall) ? <span className="text-good-deep">gemeldet</span> : <span className="text-amber-deep">Abweichung</span>
+                            // gemeldet = liegt beim Bauführer (blau wie «beim Kunden»); grün erst, wenn freigegeben
+                          : ms.every((m) => m.normalfall) ? <span className="text-steel">gemeldet</span> : <span className="text-amber-deep">Abweichung</span>
                         : zukunft ? '' : i >= 5 ? '' : <Link to={`/erfassung?tag=${dIso}`} className="font-semibold text-steel">nachtragen ›</Link>}
                     </span>
                   </div>
