@@ -720,7 +720,8 @@ export function Cockpit() {
                         {z.team.chefmonteur && <span className="ml-1.5 text-xs text-ink3">{kurzName(z.team.chefmonteur.name)}</span>}
                       </span>
                       <span className="flex shrink-0 items-center gap-3 text-xs">
-                        {z.totalMin > 0 && <span className="font-mono tabular-nums text-ink2">{stunden(z.totalMin)} h</span>}
+                        {/* «Woche» davor, sonst liest man das Total als Wert des letzten Tags darunter (Amir, 04.10.2026) */}
+                        {z.totalMin > 0 && <span className="font-mono tabular-nums text-ink2"><span className="mr-1 font-sans text-[10px] text-ink3">Woche</span>{stunden(z.totalMin)} h</span>}
                         {z.alle.length === 0 ? (
                           <span className="text-ink3">keine Meldung</span>
                         ) : darfFreigeben && z.gruene.length > 0 ? (
