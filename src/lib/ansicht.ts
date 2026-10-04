@@ -35,7 +35,7 @@ export function gruppen() {
 }
 
 const ANSICHTEN_ALLE: { key: Ansicht; titel: string; text: string; gruppe: Gruppe }[] = [
-  { key: 'bauf', titel: 'Bauführer', text: 'Prüfen, freigeben, Stunden übertragen', gruppe: 'buero' },
+  { key: 'bauf', titel: 'Bauführer', text: 'Prüfen, freigeben, Rapporte im Blick', gruppe: 'buero' },
   { key: 'sekretariat', titel: 'Sekretariat', text: 'Stunden, Lohn-Export, Temporärbüros, Mitarbeitende', gruppe: 'buero' },
   { key: 'chef', titel: 'Chefmonteur', text: 'Tagesmeldung fürs Team, ein Knopf am Abend', gruppe: 'baustelle' },
   { key: 'monteur', titel: 'Monteur', text: 'Meine Stunden, wie auf dem Wochenblatt', gruppe: 'baustelle' },
@@ -52,7 +52,8 @@ export const ANSICHT_LABEL: Record<Ansicht, string> = Object.fromEntries(ANSICHT
 
 /** Welche Seiten jede Ansicht ohne Regie hat. «/» gibt es immer. */
 const SEITEN_BASIS: Record<Ansicht, string[]> = {
-  bauf: ['erfassung', 'heute', 'cockpit', 'export', 'verwaltung'],
+  // Export (Stundenraster) beim Bauführer entfernt (04.10.2026, Amir) — Exporte liegen beim Sekretariat.
+  bauf: ['erfassung', 'heute', 'cockpit', 'verwaltung'],
   // Sekretariat (Entscheid 17.09.): nur Stunden, Export, Stammdaten
   sekretariat: ['export', 'verwaltung'],
   chef: ['erfassung'],
@@ -68,7 +69,7 @@ const SEITEN_BASIS: Record<Ansicht, string[]> = {
 export function seitenFuer(a: Ansicht): string[] {
   const e = einstellungen();
   const regie = e.erfassung === 'regie';
-  if (a === 'bauf') return regie ? ['zusatzauftrag', 'erfassung', 'heute', 'cockpit', 'regie', 'auswertung', 'export', 'board', 'verwaltung'] : SEITEN_BASIS.bauf;
+  if (a === 'bauf') return regie ? ['zusatzauftrag', 'erfassung', 'heute', 'cockpit', 'regie', 'auswertung', 'board', 'verwaltung'] : SEITEN_BASIS.bauf;
   if (a === 'sekretariat') {
     if (e.sekretariat !== 'voll') return SEITEN_BASIS.sekretariat;
     return regie ? ['zusatzauftrag', 'heute', 'cockpit', 'regie', 'auswertung', 'export', 'board', 'verwaltung'] : ['heute', 'cockpit', 'export', 'verwaltung'];

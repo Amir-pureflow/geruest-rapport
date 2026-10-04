@@ -78,7 +78,8 @@ function dateiName(text: string): string {
 }
 
 export function Export() {
-  // Bauführer: nur SORBA-Raster. Sekretariat: Lohn, Überstunden, Temporärbüros dazu (Rechte in der Oberfläche, s. CLAUDE.md «Ansichten statt Login»).
+  // Seit 04.10.2026 nur noch fürs Sekretariat erreichbar (Bauführer hat die Seite nicht mehr);
+  // die lohnSichtbar-Weiche bleibt als Sicherheitsnetz, falls der Zugang je zurückkommt.
   const lohnSichtbar = useAnsicht() === 'sekretariat';
   const [anfang] = useState(startAusUrl);
   const [wochenStart, setWochenStart] = useState<Date>(anfang.wochenStart);

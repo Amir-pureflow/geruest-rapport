@@ -309,24 +309,20 @@
   .chip:active {
     transform: scale(0.97);
   }
-  /* Gewählt = dunkel und ruhig (04.10.2026): das rote Auswahl-Kärtchen las sich auf dem
-     Handy wie eine Fehlermeldung — Rot bleibt der einen Hauptaktion pro Seite vorbehalten. */
+  /* Gewählt = Hauch Firmenrot mit dunkler Schrift (04.10.2026, dritter Anlauf):
+     Vollrot las sich wie ein Fehler, Schwarz passte nicht zur warmen Palette. */
   .chip-on {
-    background: var(--color-ink);
-    color: #fff;
-    border-color: transparent;
-    box-shadow: 0 4px 12px -8px rgb(0 0 0 / 0.55), inset 0 1px 0 rgb(255 255 255 / 0.08);
+    background: var(--color-accent-soft);
+    color: var(--color-ink);
+    border-color: rgb(224 48 30 / 0.4);
   }
   .chip-on:hover {
-    background: #2c2a27;
+    background: #fbe2de;
   }
-  /* Innenleben des gewählten Chips auf dunklem Grund lesbar halten */
+  /* Kontonummern-Pille auf dem roten Hauch: weiss, damit sie sich abhebt */
   .chip-on .knr {
-    background: rgb(255 255 255 / 0.16);
-    color: #fff;
-  }
-  .chip-on .text-ink3 {
-    color: rgb(255 255 255 / 0.65);
+    background: #ffffff;
+    color: var(--color-ink2);
   }
 
   .field {
