@@ -258,7 +258,8 @@ const PRUEF_TEXTE: Record<string, { frage: string; knopf: string; name: string }
   de: { frage: 'Stimmt das so? Sonst hier korrigieren.', knopf: 'Stimmt so ✓', name: 'Deutsch' },
   sq: { frage: 'A është shkruar saktë? Përndryshe korrigjoje këtu.', knopf: 'Po, në rregull ✓', name: 'Albanisch' },
   pt: { frage: 'Está correto? Se não, corrija aqui.', knopf: 'Está certo ✓', name: 'Portugiesisch' },
-  ar: { frage: 'هل النص صحيح؟ إن لم يكن، صحِّحه هنا.', knopf: 'صحيح ✓', name: 'Arabisch' },
+  it: { frage: 'È scritto correttamente? Altrimenti correggilo qui.', knopf: 'Va bene ✓', name: 'Italienisch' },
+  ar:{ frage: 'هل النص صحيح؟ إن لم يكن، صحِّحه هنا.', knopf: 'صحيح ✓', name: 'Arabisch' },
   pl: { frage: 'Czy tekst się zgadza? Jeśli nie, popraw go tutaj.', knopf: 'Zgadza się ✓', name: 'Polnisch' },
   en: { frage: 'Is this correct? If not, fix it here.', knopf: 'Looks right ✓', name: 'Englisch' },
 };

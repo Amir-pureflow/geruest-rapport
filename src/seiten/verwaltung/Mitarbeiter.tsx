@@ -7,7 +7,7 @@ interface Person {
   name: string;
   typ: 'intern' | 'extern' | 'temporaer';
   funktion: string;
-  sprache: 'de' | 'sq' | 'pt' | 'ar' | 'pl' | 'en';
+  sprache: 'de' | 'sq' | 'pt' | 'it' | 'ar' | 'pl' | 'en';
   temporaerbuero: string | null;
   aktiv: boolean;
   oev_standard: boolean;
@@ -19,12 +19,13 @@ interface Person {
 const LEER: Person = { name: '', typ: 'intern', funktion: 'monteur', sprache: 'de', temporaerbuero: null, aktiv: true, oev_standard: false, km_standard: 0, telefon: null };
 /**
  * Sprache für die Sprachnotiz: in ihr spricht der Chefmonteur, daraus entsteht der deutsche Text.
- * Reihenfolge nach Häufigkeit im Betrieb — Albanisch und Portugiesisch kamen am 04.10.2026 dazu.
+ * Reihenfolge nach Häufigkeit im Betrieb — Albanisch, Portugiesisch und Italienisch kamen am 04.10.2026 dazu.
  */
 const SPRACHEN: [Person['sprache'], string][] = [
   ['de', 'Deutsch'],
   ['sq', 'Albanisch'],
   ['pt', 'Portugiesisch'],
+  ['it', 'Italienisch'],
   ['ar', 'Arabisch'],
   ['pl', 'Polnisch'],
   ['en', 'Englisch'],

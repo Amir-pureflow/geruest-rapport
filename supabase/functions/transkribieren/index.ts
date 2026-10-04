@@ -19,7 +19,7 @@
 //
 // Das Ohr (Erkennung, 04.10.2026): **Azure AI Speech, schnelle Transkription**, sobald
 // `AZURE_SPEECH_KEY` in `konfiguration` liegt — sonst Mistral Voxtral wie bisher. Azure kann
-// alle Sprachen des Betriebs (Albanisch sq-AL, Arabisch ar-SY, Polnisch, Portugiesisch, dazu
+// alle Sprachen des Betriebs (Albanisch sq-AL, Arabisch ar-SY, Polnisch, Portugiesisch, Italienisch, dazu
 // Schweizer Hochdeutsch de-CH), Voxtral kann kein Albanisch. Region über `AZURE_SPEECH_REGION`
 // (Standard germanywestcentral = Frankfurt — die schnelle Transkription gibt es laut
 // Regionen-Tabelle vom 30.09.2026 NICHT in switzerlandnorth; Frankfurt ist die nächste,
@@ -43,7 +43,7 @@ function antwort(status: number, body: unknown): Response {
   return new Response(JSON.stringify(body), { status, headers: { ...cors, 'Content-Type': 'application/json' } });
 }
 
-const SPRACHEN: Record<string, string> = { de: 'Deutsch', sq: 'Albanisch', pt: 'Portugiesisch', ar: 'Arabisch', pl: 'Polnisch', en: 'Englisch' };
+const SPRACHEN: Record<string, string> = { de: 'Deutsch', sq: 'Albanisch', pt: 'Portugiesisch', it: 'Italienisch', ar: 'Arabisch', pl: 'Polnisch', en: 'Englisch' };
 
 const ANWEISUNG =
   'Du bereinigst gesprochene Notizen von einer Gerüstbau-Baustelle zu klarem Schweizer Hochdeutsch («ss» statt «ß»). ' +
@@ -56,7 +56,7 @@ const ANWEISUNG =
   'Ist die Notiz nicht auf Deutsch, zuerst sinngemäss übersetzen, dann bereinigen.';
 
 /** Sprachcode aus dem Profil → Azure-Gebietsschema. Deutsch als de-CH: Hochdeutsch mit Schweizer Zunge. */
-const AZURE_GEBIET: Record<string, string> = { de: 'de-CH', sq: 'sq-AL', pt: 'pt-PT', ar: 'ar-SY', pl: 'pl-PL', en: 'en-US' };
+const AZURE_GEBIET: Record<string, string> = { de: 'de-CH', sq: 'sq-AL', pt: 'pt-PT', it: 'it-IT', ar: 'ar-SY', pl: 'pl-PL', en: 'en-US' };
 
 /**
  * Das Ohr, Fassung Azure: schnelle Transkription, ein Aufruf, Antwort in Sekunden.

@@ -91,7 +91,7 @@ const ABWEICHUNG_KURZ: Record<string, string> = { zusaetzlich: 'zusätzlich gear
 const laengerOhneKunde = (tm: { abweichung_typ: string | null; wer_hats_gewollt: string | null }) => tm.abweichung_typ === 'laenger' && tm.wer_hats_gewollt !== 'kunde';
 /** Überstunden sind der Hinweis: der Bauführer liest die Sprachnotiz und gibt frei. Ob etwas verrechnet wird, entscheidet er in SORBA (20.09.). */
 const hatUeberstunden = (e: { ueber_min: number; tagesmeldung: { normalfall: boolean } }) => e.tagesmeldung.normalfall && e.ueber_min > 0;
-const SPRACHE: Record<string, string> = { de: 'Deutsch', sq: 'Albanisch', pt: 'Portugiesisch', ar: 'Arabisch', pl: 'Polnisch', en: 'Englisch' };
+const SPRACHE: Record<string, string> = { de: 'Deutsch', sq: 'Albanisch', pt: 'Portugiesisch', it: 'Italienisch', ar: 'Arabisch', pl: 'Polnisch', en: 'Englisch' };
 /** Normaler Tag + Abweichung sind zwei Meldungen und richtig so. Verdächtig ist nur: der normale Tag mehrfach. */
 function doppelteNormalmeldungen(liste: Eintrag[]): number {
   return new Set(liste.filter((e) => e.tagesmeldung.normalfall).map((e) => e.tagesmeldung.id)).size;
