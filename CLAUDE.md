@@ -176,12 +176,26 @@ gibt frei. Ob etwas dem Kunden verrechnet wird, entscheidet er in SORBA — die 
 **Nur Auto** (20.09.): `OEV_AKTIV = false` in Erfassung.tsx — öV-Chip ausgeblendet, `oev` bleibt im Datenmodell.
 Ob öV ganz weg soll: klären, dann Spalte und `oev_standard` aufräumen.
 
-## Sprachnotiz: Text vor dem Speichern (15.09.)
+## Sprachnotiz: prüfen in der eigenen Sprache, dann Deutsch (15.09., umgebaut 04.10.)
 
-Nach der Aufnahme schickt die Erfassung das Audio an `transkribieren` (Weg «Vorschau», `audio_base64` + `team_id`),
-zeigt den Text, der Chefmonteur prüft/korrigiert ihn und speichert dann (`transkript/transkript_quelle/transkript_sprache`
-in der Warteschlange). `db.ts` stösst die nachträgliche Transkription nur an, wenn kein Text mitkam. Die Aufnahme bleibt
-der Beleg (Regel #8). Cockpit: Notizen ohne Überstunden erscheinen als Karte «Bemerkung zum Tag».
+Der Sprecher kann Deutsch nicht beurteilen — sein Albanisch/Polnisch/Arabisch/Portugiesisch schon (Entscheid Amir,
+04.10.2026). Darum drei Schritte:
+
+1. **Erkennen** — die Erfassung schickt das Audio an `transkribieren` (`schritt: 'erkennen'`, `audio_base64` +
+   `team_id`). Zurück kommt der Text in der **Sprache des Sprechers** (aus dem Profil, Regel #9: nie raten).
+2. **Prüfen** — der Sprecher sieht sein Original, korrigiert es und bestätigt (Frage und Knopf in seiner Sprache,
+   `PRUEF_TEXTE` in Erfassung.tsx, `dir="auto"` wegen Arabisch). Spricht er Deutsch, entfällt dieser Schritt.
+3. **Übersetzen** — erst der **bestätigte** Text geht an `transkribieren` (`schritt: 'uebersetzen'`) und wird zu
+   Schweizer Hochdeutsch. Gespeichert: `transkript` (deutsch), `transkript_quelle` (bestätigtes Original),
+   `transkript_sprache`.
+
+Offline oder nicht bestätigt: `db.ts` stösst die nachträgliche Transkription an (beide Schritte automatisch, ohne
+Prüfung — der Monteur ist dann nicht mehr da). Die Aufnahme bleibt der Beleg (Regel #8). Cockpit: Notizen ohne
+Überstunden erscheinen als Karte «Bemerkung zum Tag».
+
+Das Ohr ist austauschbar: nur `stt()` in `supabase/functions/transkribieren/index.ts`. Heute Mistral Voxtral
+(kann kein Albanisch, Arabisch/Polnisch schwach); geplant Azure AI Speech, Region Schweiz Nord — siehe
+«Offene Entscheidungen». Die Übersetzung aus bestätigtem Text ist geprüft für sq/pl/pt/ar (04.10.).
 
 ## Export (20.09.)
 

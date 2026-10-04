@@ -243,6 +243,74 @@ function FotoLeiste({
   );
 }
 
+/**
+ * Stand der Sprachnotiz-Vorschau:
+ *   laeuft     — die Erkennung hört zu
+ *   pruefen    — Text in der SPRACHE DES SPRECHERS, er prüft und bestätigt ihn (04.10.2026):
+ *                Deutsch kann er nicht beurteilen, sein Albanisch/Polnisch/… schon
+ *   uebersetze — der bestätigte Text wird ins Deutsche übertragen
+ *   fertig     — deutscher Text, korrigierbar; das bestätigte Original bleibt daneben
+ */
+type Vorschau = { status: 'laeuft' | 'pruefen' | 'uebersetze' | 'fertig' | 'fehler'; text: string; quelle: string | null; sprache: string; grund?: string };
+
+/** Frage und Bestätigungsknopf in der Sprache des Sprechers, dazu der deutsche Name der Sprache. */
+const PRUEF_TEXTE: Record<string, { frage: string; knopf: string; name: string }> = {
+  de: { frage: 'Stimmt das so? Sonst hier korrigieren.', knopf: 'Stimmt so ✓', name: 'Deutsch' },
+  sq: { frage: 'A është shkruar saktë? Përndryshe korrigjoje këtu.', knopf: 'Po, në rregull ✓', name: 'Albanisch' },
+  pt: { frage: 'Está correto? Se não, corrija aqui.', knopf: 'Está certo ✓', name: 'Portugiesisch' },
+  ar: { frage: 'هل النص صحيح؟ إن لم يكن، صحِّحه هنا.', knopf: 'صحيح ✓', name: 'Arabisch' },
+  pl: { frage: 'Czy tekst się zgadza? Jeśli nie, popraw go tutaj.', knopf: 'Zgadza się ✓', name: 'Polnisch' },
+  en: { frage: 'Is this correct? If not, fix it here.', knopf: 'Looks right ✓', name: 'Englisch' },
+};
+
+/**
+ * Vorschau und Prüfung der Sprachnotiz — ein Element für den Tag-Schritt und die Abweichung.
+ *
+ * Der Weg (Entscheid Amir, 04.10.2026): erst sieht der Sprecher den Text in seiner eigenen
+ * Sprache und bestätigt ihn. Dann überträgt die App den BESTÄTIGTEN Text ins Deutsche für den
+ * Bauführer — nicht das, was die Erkennung zufällig verstanden hat. `dir="auto"` wegen Arabisch.
+ */
+function TranskriptPruefung({
+  vorschau, aendern, bestaetigen,
+}: {
+  vorschau: Vorschau | null;
+  aendern: (text: string) => void;
+  bestaetigen: () => void;
+}) {
+  if (!vorschau) return null;
+  if (vorschau.status === 'laeuft' || vorschau.status === 'uebersetze') {
+    return (
+      <div className="space-y-1.5 rounded-[10px] bg-surface p-3 text-left" aria-live="polite">
+        <p className="text-xs font-medium text-ink2">{vorschau.status === 'laeuft' ? 'Die App schreibt mit …' : 'Wird für den Bauführer ins Deutsche übertragen …'}</p>
+        <div className="ki-schimmer h-3 w-11/12 rounded" /><div className="ki-schimmer h-3 w-3/4 rounded" />
+      </div>
+    );
+  }
+  if (vorschau.status === 'fehler') return <p className="text-xs text-ink3">{vorschau.grund}</p>;
+  if (vorschau.status === 'pruefen') {
+    const t = PRUEF_TEXTE[vorschau.sprache] ?? PRUEF_TEXTE.de;
+    return (
+      <div className="space-y-2 rounded-[10px] bg-surface p-3 text-left">
+        <p className="text-sm font-semibold text-ink" dir="auto">{t.frage}</p>
+        <textarea value={vorschau.text} onChange={(e) => aendern(e.target.value)} rows={3} dir="auto" className="field text-base" />
+        {vorschau.grund && <p className="text-xs font-semibold text-amber-deep">{vorschau.grund}</p>}
+        <button type="button" onClick={bestaetigen} className="cta cta-good py-2.5 text-[15px]" dir="auto">{t.knopf}</button>
+        <p className="text-[11px] text-ink3">Nach der Bestätigung überträgt die App den Text für den Bauführer ins Deutsche. Die Aufnahme bleibt als Beleg.</p>
+      </div>
+    );
+  }
+  // fertig: der deutsche Text, wie ihn der Bauführer liest — korrigierbar
+  return (
+    <div className="space-y-1.5 rounded-[10px] bg-surface p-3 text-left">
+      <p className="text-xs font-medium text-ink2">{vorschau.quelle ? 'So liest es der Bauführer auf Deutsch — hier korrigierbar.' : 'Stimmt das so? Sonst hier korrigieren.'}</p>
+      <textarea value={vorschau.text} onChange={(e) => aendern(e.target.value)} rows={3} className="field text-sm" />
+      {vorschau.quelle && (
+        <p className="text-[11px] text-ink3" dir="auto">Bestätigt auf {PRUEF_TEXTE[vorschau.sprache]?.name ?? 'der eigenen Sprache'}: «{vorschau.quelle}»</p>
+      )}
+    </div>
+  );
+}
+
 function MiniKnopf({ art, onClick, klein = false }: { art: 'minus' | 'plus'; onClick: () => void; klein?: boolean }) {
   return (
     <button type="button" onClick={onClick} aria-label={art === 'minus' ? 'weniger' : 'mehr'} className={'grid h-10 place-items-center rounded-[10px] border border-line bg-surface text-ink2 active:scale-95 active:bg-surface-2 ' + (klein ? 'w-9' : 'w-10')}>
@@ -295,8 +363,7 @@ export function Erfassung() {
   // Überstunden: Sprachnotiz als Warum (Pflicht, ausser das Mikrofon fehlt) — hängt an der Tagesmeldung
   const [mikroFehlt, setMikroFehlt] = useState(false);
   const [ueberAufnahme, setUeberAufnahme] = useState<{ blob: Blob; sekunden: number } | null>(null);
-  type Vorschau = { status: 'laeuft' | 'fertig' | 'fehler'; text: string; quelle: string | null; sprache: string; grund?: string };
-  // Text der Sprachnotiz — entsteht sofort nach der Aufnahme, der Chefmonteur prüft ihn VOR dem Speichern
+  // Text der Sprachnotiz — entsteht sofort nach der Aufnahme; der Sprecher prüft ihn VOR dem Speichern
   const [ueberVorschau, setUeberVorschau] = useState<Vorschau | null>(null);
   async function textVorschau(blob: Blob) {
     const setV = setUeberVorschau;
@@ -309,11 +376,37 @@ export function Erfassung() {
         fr.onerror = () => reject(fr.error);
         fr.readAsDataURL(blob);
       });
-      const { data, error } = await supabase.functions.invoke('transkribieren', { body: { audio_base64: b64, mime: blob.type || 'audio/webm', team_id: teamId } });
-      if (error || !data?.transkript) throw new Error(data?.fehler ?? error?.message ?? 'kein Text');
-      setV({ status: 'fertig', text: data.transkript, quelle: data.quelle ?? null, sprache: data.sprache ?? 'de' });
+      const { data, error } = await supabase.functions.invoke('transkribieren', { body: { audio_base64: b64, mime: blob.type || 'audio/webm', team_id: teamId, schritt: 'erkennen' } });
+      if (error || data?.fehler) throw new Error(data?.fehler ?? error?.message ?? 'kein Text');
+      if (data?.transkript) {
+        // Deutsch gesprochen: der bereinigte Text kommt direkt, kein Prüfschritt nötig
+        setV({ status: 'fertig', text: data.transkript, quelle: data.quelle ?? null, sprache: data.sprache ?? 'de' });
+      } else if (data?.original) {
+        // Andere Sprache: der Sprecher prüft zuerst sein Original — Deutsch entsteht nach der Bestätigung
+        setV({ status: 'pruefen', text: data.original, quelle: null, sprache: data.sprache ?? 'de' });
+      } else {
+        throw new Error('kein Text');
+      }
     } catch (e) {
       setV({ status: 'fehler', text: '', quelle: null, sprache: 'de', grund: 'Text konnte jetzt nicht erstellt werden — er kommt nach dem Senden. ' + (e instanceof Error ? e.message : '') });
+    }
+  }
+
+  /** Der Sprecher hat sein Original gutgeheissen — jetzt entsteht daraus das Deutsche für den Bauführer. */
+  async function originalBestaetigen() {
+    const v = ueberVorschau;
+    if (!v || v.status !== 'pruefen' || !supabase) return;
+    const original = v.text.trim();
+    if (!original) return;
+    setUeberVorschau({ ...v, status: 'uebersetze', text: original, grund: undefined });
+    try {
+      const { data, error } = await supabase.functions.invoke('transkribieren', { body: { schritt: 'uebersetzen', text: original, sprache: v.sprache } });
+      if (error || data?.fehler || !data?.transkript) throw new Error(data?.fehler ?? error?.message ?? 'keine Übersetzung');
+      setUeberVorschau({ status: 'fertig', text: data.transkript, quelle: original, sprache: v.sprache });
+    } catch (e) {
+      // Zurück zum Prüfschritt. Speichern geht trotzdem: dann überträgt der Server nach dem Upload
+      // aus der Aufnahme — die Korrekturen von hier gehen dabei allerdings verloren.
+      setUeberVorschau({ ...v, status: 'pruefen', text: original, grund: 'Übersetzung gerade nicht möglich, nochmals antippen. ' + (e instanceof Error ? e.message : '') });
     }
   }
   // Fotos zur Meldung — der Bauführer will Bilder bei Zusatzarbeit; hier ohne Umweg über die Galerie
@@ -1020,19 +1113,11 @@ export function Erfassung() {
               <div className="space-y-2">
                 <p className="font-display font-semibold">Sprachnotiz · {ueberAufnahme.sekunden} Sek. ✓</p>
                 <audio controls src={URL.createObjectURL(ueberAufnahme.blob)} className="mx-auto h-9 w-full max-w-xs" />
-                {ueberVorschau?.status === 'laeuft' && (
-                  <div className="space-y-1.5 rounded-[10px] bg-surface p-3 text-left" aria-live="polite">
-                    <p className="text-xs font-medium text-ink2">Die App schreibt mit …</p>
-                    <div className="ki-schimmer h-3 w-11/12 rounded" /><div className="ki-schimmer h-3 w-3/4 rounded" />
-                  </div>
-                )}
-                {ueberVorschau?.status === 'fertig' && (
-                  <div className="space-y-1.5 rounded-[10px] bg-surface p-3 text-left">
-                    <p className="text-xs font-medium text-ink2">Stimmt das so? Sonst hier korrigieren.</p>
-                    <textarea value={ueberVorschau.text} onChange={(e) => setUeberVorschau({ ...ueberVorschau, text: e.target.value })} rows={3} className="field text-sm" />
-                  </div>
-                )}
-                {ueberVorschau?.status === 'fehler' && <p className="text-xs text-ink3">{ueberVorschau.grund}</p>}
+                <TranskriptPruefung
+                  vorschau={ueberVorschau}
+                  aendern={(t) => setUeberVorschau((v) => (v ? { ...v, text: t } : v))}
+                  bestaetigen={() => void originalBestaetigen()}
+                />
                 <button type="button" onClick={() => { setUeberAufnahme(null); setUeberVorschau(null); }} className="btn-ghost">nochmal aufnehmen</button>
               </div>
             ) : (
@@ -1410,19 +1495,11 @@ export function Erfassung() {
                 <div className="space-y-2">
                   <p className="text-sm font-semibold">Sprachnotiz · {ueberAufnahme.sekunden} Sek. ✓</p>
                   <audio controls src={URL.createObjectURL(ueberAufnahme.blob)} className="mx-auto h-9 w-full max-w-xs" />
-                  {ueberVorschau?.status === 'laeuft' && (
-                    <div className="space-y-1.5 rounded-[10px] bg-surface p-3 text-left" aria-live="polite">
-                      <p className="text-xs font-medium text-ink2">Die App schreibt mit …</p>
-                      <div className="ki-schimmer h-3 w-11/12 rounded" /><div className="ki-schimmer h-3 w-3/4 rounded" />
-                    </div>
-                  )}
-                  {ueberVorschau?.status === 'fertig' && (
-                    <div className="space-y-1.5 rounded-[10px] bg-surface p-3 text-left">
-                      <p className="text-xs font-medium text-ink2">Stimmt das so? Sonst hier korrigieren.</p>
-                      <textarea value={ueberVorschau.text} onChange={(e) => setUeberVorschau({ ...ueberVorschau, text: e.target.value })} rows={2} className="field text-sm" />
-                    </div>
-                  )}
-                  {ueberVorschau?.status === 'fehler' && <p className="text-xs text-ink3">{ueberVorschau.grund}</p>}
+                  <TranskriptPruefung
+                    vorschau={ueberVorschau}
+                    aendern={(t) => setUeberVorschau((v) => (v ? { ...v, text: t } : v))}
+                    bestaetigen={() => void originalBestaetigen()}
+                  />
                   <button type="button" onClick={() => { setUeberAufnahme(null); setUeberVorschau(null); }} className="btn-ghost">nochmal aufnehmen</button>
                 </div>
               ) : (
