@@ -28,7 +28,7 @@ import { MAX_SPANNEN, NACHMITTAG_MIN, ausUhrzeit, aufteilen, mittagMinuten, span
  * Sprachnotiz immer als Bemerkung zum Tag, Personen von ausserhalb des Teams hinzufügen, nur Auto (kein öV).
  */
 
-interface Team { id: string; bezeichnung: string; fahrzeug: string | null }
+interface Team { id: string; bezeichnung: string; fahrzeug: string | null; /** Sprache des Chefmonteurs — in ihr hört die Sprachnotiz zu */ chefmonteur?: { sprache?: string | null } | null }
 interface Person { id: string; name: string; typ: string; funktion: string; oev_standard: boolean; km_standard: number; /** heute dabei, aber nicht fest im Team */ gast?: boolean }
 interface Baustelle { id: string; konto_nr: string; bezeichnung: string | null }
 /** Stundenzahl (wie auf dem Wochenblatt) oder Zeiten von–bis — je Person umschaltbar. */
@@ -251,7 +251,7 @@ function FotoLeiste({
  *   uebersetze — der bestätigte Text wird ins Deutsche übertragen
  *   fertig     — deutscher Text, korrigierbar; das bestätigte Original bleibt daneben
  */
-type Vorschau = { status: 'laeuft' | 'pruefen' | 'uebersetze' | 'fertig' | 'fehler'; text: string; quelle: string | null; sprache: string; grund?: string };
+type Vorschau = { status: 'laeuft' | 'pruefen' | 'uebersetze' | 'fertig' | 'fehler'; text: string; quelle: string | null; sprache: string; grund?: string; bestaetigt?: boolean };
 
 /** SORBA-Namen kommen teils mit Unterstrichen («Aarstrasse_Hängegerüst») — fürs Auge mit Leerzeichen. */
 const anzeigeName = (s: string | null | undefined) => (s ?? '').replace(/_/g, ' ');
@@ -294,23 +294,37 @@ function TranskriptPruefung({
   if (vorschau.status === 'pruefen') {
     const t = PRUEF_TEXTE[vorschau.sprache] ?? PRUEF_TEXTE.de;
     return (
-      <div className="space-y-2 rounded-[10px] bg-surface p-3 text-left">
+      <div className="space-y-2 rounded-[12px] bg-surface p-3 text-left">
+        <p className="text-[10px] font-semibold uppercase tracking-wider text-ink3">{t.name}</p>
         <p className="text-sm font-semibold text-ink" dir="auto">{t.frage}</p>
         <textarea value={vorschau.text} onChange={(e) => aendern(e.target.value)} rows={3} dir="auto" className="field text-base" />
         {vorschau.grund && <p className="text-xs font-semibold text-amber-deep">{vorschau.grund}</p>}
         <button type="button" onClick={bestaetigen} className="cta cta-good py-2.5 text-[15px]" dir="auto">{t.knopf}</button>
-        <p className="text-[11px] text-ink3">Nach der Bestätigung überträgt die App den Text für den Bauführer ins Deutsche. Die Aufnahme bleibt als Beleg.</p>
+        <p className="text-[11px] text-ink3">Nach der Bestätigung übersetzt die App den Text für den Bauführer auf Deutsch. Die Aufnahme bleibt als Beleg.</p>
       </div>
     );
   }
-  // fertig: der deutsche Text, wie ihn der Bauführer liest — korrigierbar
+  // fertig: Übersetzungskarte — oben das Original mit Sprachlabel, darunter das Deutsche, korrigierbar.
+  // Bei Deutsch gibt es keine Übersetzung, dann steht nur der bereinigte Text.
+  const vonSprache = vorschau.quelle && vorschau.sprache !== 'de' ? (PRUEF_TEXTE[vorschau.sprache]?.name ?? 'Eigene Sprache') : null;
   return (
-    <div className="space-y-1.5 rounded-[10px] bg-surface p-3 text-left">
-      <p className="text-xs font-medium text-ink2">{vorschau.quelle ? 'So liest es der Bauführer auf Deutsch — hier korrigierbar.' : 'Stimmt das so? Sonst hier korrigieren.'}</p>
-      <textarea value={vorschau.text} onChange={(e) => aendern(e.target.value)} rows={3} className="field text-sm" />
-      {vorschau.quelle && (
-        <p className="text-[11px] text-ink3" dir="auto">Bestätigt auf {PRUEF_TEXTE[vorschau.sprache]?.name ?? 'der eigenen Sprache'}: «{vorschau.quelle}»</p>
+    <div className="space-y-2 rounded-[12px] bg-surface p-3 text-left">
+      {vonSprache ? (
+        <>
+          <div className="rounded-[10px] bg-ground px-3 py-2.5">
+            <p className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-ink3">
+              {vonSprache}
+              {vorschau.bestaetigt && <span className="ml-1.5 normal-case tracking-normal text-good-deep">bestätigt ✓</span>}
+            </p>
+            <p className="text-sm leading-snug text-ink2" dir="auto">{vorschau.quelle}</p>
+          </div>
+          <p className="text-[10px] font-semibold uppercase tracking-wider text-ink3"><span aria-hidden="true">↓ </span>Deutsch · liest der Bauführer</p>
+        </>
+      ) : (
+        <p className="text-xs font-medium text-ink2">So liest es der Bauführer — hier korrigierbar.</p>
       )}
+      <textarea value={vorschau.text} onChange={(e) => aendern(e.target.value)} rows={3} className="field text-sm" />
+      {vonSprache && <p className="text-[11px] text-ink3">Hier korrigierbar — gespeichert wird der deutsche Text, die Aufnahme bleibt als Beleg.</p>}
     </div>
   );
 }
@@ -384,7 +398,7 @@ export function Erfassung() {
       if (error || data?.fehler) throw new Error(data?.fehler ?? error?.message ?? 'kein Text');
       if (data?.transkript) {
         // Deutsch gesprochen: der bereinigte Text kommt direkt, kein Prüfschritt nötig
-        setV({ status: 'fertig', text: data.transkript, quelle: data.quelle ?? null, sprache: data.sprache ?? 'de' });
+        setV({ status: 'fertig', text: data.transkript, quelle: data.quelle ?? null, sprache: data.sprache ?? 'de', bestaetigt: false });
       } else if (data?.original) {
         // Andere Sprache: der Sprecher prüft zuerst sein Original — Deutsch entsteht nach der Bestätigung
         setV({ status: 'pruefen', text: data.original, quelle: null, sprache: data.sprache ?? 'de' });
@@ -406,7 +420,7 @@ export function Erfassung() {
     try {
       const { data, error } = await supabase.functions.invoke('transkribieren', { body: { schritt: 'uebersetzen', text: original, sprache: v.sprache } });
       if (error || data?.fehler || !data?.transkript) throw new Error(data?.fehler ?? error?.message ?? 'keine Übersetzung');
-      setUeberVorschau({ status: 'fertig', text: data.transkript, quelle: original, sprache: v.sprache });
+      setUeberVorschau({ status: 'fertig', text: data.transkript, quelle: original, sprache: v.sprache, bestaetigt: true });
     } catch (e) {
       // Zurück zum Prüfschritt. Speichern geht trotzdem: dann überträgt der Server nach dem Upload
       // aus der Aufnahme — die Korrekturen von hier gehen dabei allerdings verloren.
@@ -507,12 +521,15 @@ export function Erfassung() {
   const istHeute = tagIso === heuteIso;
   const fruehesterIso = iso(addTage(heute, -7));
   const team = teams.find((t) => t.id === teamId) ?? null;
+  // In welcher Sprache die Sprachnotiz zuhört: Profil des Chefmonteurs (Verwaltung → Mitarbeitende)
+  const sprachName = (PRUEF_TEXTE[team?.chefmonteur?.sprache ?? 'de'] ?? PRUEF_TEXTE.de).name;
 
   useEffect(() => {
     if (!supabase) return;
-    void supabase.from('team').select('id,bezeichnung,fahrzeug').eq('aktiv', true).order('bezeichnung').then(({ data }) => {
+    void supabase.from('team').select('id,bezeichnung,fahrzeug,chefmonteur:chefmonteur_id(sprache)').eq('aktiv', true).order('bezeichnung').then(({ data }) => {
       if (!data) return;
-      setTeams(data);
+      // Der Chefmonteur kommt als einzelnes Objekt (FK) — die generierten Typen behaupten eine Liste
+      setTeams(data as unknown as Team[]);
       // Gespeichertes Team gibt es nicht mehr (z. B. nach Demo-Neustart) → Team neu wählen lassen
       const gespeichert = localStorage.getItem(TEAM_KEY);
       if (gespeichert && !data.some((t) => t.id === gespeichert)) {
@@ -1143,7 +1160,7 @@ export function Erfassung() {
                 </span>
                 {nimmtAuf && <span className="mt-3 block"><Pegel stream={mikroStream} /></span>}
                 <span className="mt-2 block font-display font-semibold">{nimmtAuf ? `${sekunden} Sek. — antippen zum Stoppen` : 'Antippen und kurz erzählen, was war'}</span>
-                <span className="mt-1 block text-xs text-ink3">{nimmtAuf ? 'Die App hört zu und schreibt danach mit.' : 'In deiner Sprache. Freiwillig — die Meldung geht auch ohne.'}</span>
+                <span className="mt-1 block text-xs text-ink3">{nimmtAuf ? 'Die App hört zu und schreibt danach mit.' : `Auf ${sprachName} sprechen. Freiwillig — die Meldung geht auch ohne.`}</span>
               </button>
             )}
           </div>
@@ -1525,7 +1542,7 @@ export function Erfassung() {
                   </span>
                   {nimmtAuf && <span className="mt-2 block"><Pegel stream={mikroStream} /></span>}
                   <span className="mt-2 block text-sm font-semibold">{nimmtAuf ? `${sekunden} Sek. — antippen zum Stoppen` : ueberTotal > 0 ? 'Antippen und kurz erzählen, warum' : 'Antippen und kurz erzählen, was heute war'}</span>
-                  <span className="mt-0.5 block text-xs text-ink3">{mikroFehlt ? 'Mikrofon nicht verfügbar — Speichern geht trotzdem.' : 'In deiner Sprache, 10 Sekunden reichen. Der Bauführer liest es.'}</span>
+                  <span className="mt-0.5 block text-xs text-ink3">{mikroFehlt ? 'Mikrofon nicht verfügbar — Speichern geht trotzdem.' : `Auf ${sprachName} sprechen, 10 Sekunden reichen — der Bauführer liest es auf Deutsch.`}</span>
                 </button>
               )}
             </div>
