@@ -226,7 +226,7 @@ export function Export() {
           }
           : null,
         raster,
-        dateiname: `${lohnSichtbar ? 'Rapport' : 'SORBA-Raster'}_${dateiTeil}.xlsx`,
+        dateiname: `${lohnSichtbar ? 'Rapport' : 'Stundenraster'}_${dateiTeil}.xlsx`,
       });
     } catch (e) {
       setFehler('Excel: ' + (e instanceof Error ? e.message : String(e)));
@@ -247,7 +247,7 @@ export function Export() {
     <Shell zurueck>
       <div className="space-y-4">
         <header className="flex flex-wrap items-center justify-between gap-2">
-          <h1 className="font-display text-2xl font-semibold">{lohnSichtbar ? 'Export' : 'SORBA-Raster'}</h1>
+          <h1 className="font-display text-2xl font-semibold">{lohnSichtbar ? 'Export' : 'Stundenraster'}</h1>
           <div className="flex items-center gap-2">
             <button type="button" className="btn-ghost" onClick={() => blaettern(-1)} aria-label={zeitraum === 'monat' ? 'Monat zurück' : 'Woche zurück'}>‹</button>
             <span className="font-mono text-xs text-ink2">{titel}</span>
@@ -285,7 +285,7 @@ export function Export() {
         {fehler && <p className="text-sm font-semibold text-accent-deep">{fehler}</p>}
 
         <section className="card overflow-x-auto p-0">
-          <p className="lbl px-3 pt-3">SORBA-Raster — so tippt der Bauführer</p>
+          <p className="lbl px-3 pt-3">Stundenraster — Zeile Baustelle, Spalte Person</p>
           {raster.vorgaenge.length === 0 ? (
             <p className="p-3 text-sm text-ink3">{laedt ? 'Lädt …' : `Keine ${nurFrei ? 'freigegebenen ' : ''}Einträge ${zeitraumText} (${teamName(teamId)}).`}</p>
           ) : (
@@ -382,7 +382,7 @@ export function Export() {
 
         <p className="text-[11px] text-ink3">
           {lohnSichtbar
-            ? <>Das Excel enthält: Lohn, Überstunden, je Temporärbüro ein Blatt (Person × Tag × Konto-Nr.){bueros.length > 0 ? ` — ${bueros.map((b) => b.buero).join(', ')}` : ''}, SORBA-Raster.</>
+            ? <>Das Excel enthält: Lohn, Überstunden, je Temporärbüro ein Blatt (Person × Tag × Konto-Nr.){bueros.length > 0 ? ` — ${bueros.map((b) => b.buero).join(', ')}` : ''}, Stundenraster.</>
             : <>Lohnstunden und Temporärbüro-Abrechnung liegen beim Sekretariat.</>}
         </p>
       </div>

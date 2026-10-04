@@ -253,6 +253,9 @@ function FotoLeiste({
  */
 type Vorschau = { status: 'laeuft' | 'pruefen' | 'uebersetze' | 'fertig' | 'fehler'; text: string; quelle: string | null; sprache: string; grund?: string };
 
+/** SORBA-Namen kommen teils mit Unterstrichen («Aarstrasse_Hängegerüst») — fürs Auge mit Leerzeichen. */
+const anzeigeName = (s: string | null | undefined) => (s ?? '').replace(/_/g, ' ');
+
 /** Frage und Bestätigungsknopf in der Sprache des Sprechers, dazu der deutsche Name der Sprache. */
 const PRUEF_TEXTE: Record<string, { frage: string; knopf: string; name: string }> = {
   de: { frage: 'Stimmt das so? Sonst hier korrigieren.', knopf: 'Stimmt so ✓', name: 'Deutsch' },
@@ -949,15 +952,19 @@ export function Erfassung() {
   async function aufnahmeStart() {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      setMikroFehlt(false);
       setMikroStream(stream);
-      const mime = MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm' : '';
+      // Safari (iPhone) kann kein WebM — dort entsteht AAC in MP4. Das Etikett muss zum Inhalt
+      // passen, sonst liest Azure die Datei als WebM und die Erkennung scheitert.
+      const mime = MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm' : MediaRecorder.isTypeSupported('audio/mp4') ? 'audio/mp4' : '';
       const rec = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
       const teile: BlobPart[] = [];
       rec.ondataavailable = (ev) => teile.push(ev.data);
       rec.onstop = () => {
         stream.getTracks().forEach((t) => t.stop());
         setMikroStream(null);
-        const fertig = { blob: new Blob(teile, { type: mime || 'audio/webm' }), sekunden: Math.max(1, Math.round((Date.now() - start) / 1000)) };
+        const typ = (rec.mimeType || mime || 'audio/mp4').split(';')[0];
+        const fertig = { blob: new Blob(teile, { type: typ }), sekunden: Math.max(1, Math.round((Date.now() - start) / 1000)) };
         setUeberAufnahme(fertig);
         setNimmtAuf(false);
         void textVorschau(fertig.blob);
@@ -971,9 +978,13 @@ export function Erfassung() {
       setNimmtAuf(true);
       setSekunden(0);
       ticker.current = window.setInterval(() => setSekunden(Math.round((Date.now() - start) / 1000)), 250);
-    } catch {
+    } catch (e) {
       setMikroFehlt(true);
-      setHinweis('Mikrofon nicht verfügbar — die Meldung geht auch ohne Sprachnotiz.');
+      // Verweigert ≠ kaputt: bei «blockiert» hilft nur der Weg über die Handy-Einstellungen.
+      const verweigert = e instanceof DOMException && (e.name === 'NotAllowedError' || e.name === 'SecurityError');
+      setHinweis(verweigert
+        ? 'Das Mikrofon ist für Rapporto gesperrt. In den Einstellungen des Handys das Mikrofon für diese App erlauben, dann nochmals antippen.'
+        : 'Mikrofon nicht verfügbar — die Meldung geht auch ohne Sprachnotiz.');
     }
   }
   /** Laufende Aufnahme beenden und auf die Datei warten — sonst geht sie beim Speichern verloren. */
@@ -1166,7 +1177,7 @@ export function Erfassung() {
               {heuteGemeldet.map((m, i) => (
                 <li key={i} className="flex items-start justify-between gap-2 py-1.5">
                   <span className="min-w-0">
-                    <span className="flex items-center gap-1.5">{m.normalfall ? <CheckCircle2 size={16} className="shrink-0 text-good" /> : <Flag size={16} className="shrink-0 text-amber-deep" />} <span>{m.bezeichnung}</span>{!m.normalfall && <span className="ml-1 text-xs text-amber-deep">{m.abweichung_typ ? AB_KURZ[m.abweichung_typ] : 'Abweichung'}</span>}</span>
+                    <span className="flex items-center gap-1.5">{m.normalfall ? <CheckCircle2 size={16} className="shrink-0 text-good" /> : <Flag size={16} className="shrink-0 text-amber-deep" />} <span>{anzeigeName(m.bezeichnung)}</span>{!m.normalfall && <span className="ml-1 text-xs text-amber-deep">{m.abweichung_typ ? AB_KURZ[m.abweichung_typ] : 'Abweichung'}</span>}</span>
                     <span className="block text-[11px] text-ink3">{m.lokal ? 'wartet auf Netz' : 'gesendet'}</span>
                   </span>
                   <span className="shrink-0 text-right font-mono tabular-nums">
@@ -1230,7 +1241,7 @@ export function Erfassung() {
                 <li key={i} className="flex items-start justify-between gap-2">
                   <span className="min-w-0">
                     <span className="flex items-center gap-1.5">
-                      {m.normalfall ? <CheckCircle2 size={16} className="shrink-0 text-good" /> : <Flag size={16} className="shrink-0 text-amber-deep" />} <span>{m.bezeichnung}</span>
+                      {m.normalfall ? <CheckCircle2 size={16} className="shrink-0 text-good" /> : <Flag size={16} className="shrink-0 text-amber-deep" />} <span>{anzeigeName(m.bezeichnung)}</span>
                       {!m.normalfall && <span className="ml-1 text-xs text-amber-deep">{m.abweichung_typ ? AB_KURZ[m.abweichung_typ] : 'Abweichung'}</span>}
                     </span>
                     <span className="block text-[11px] text-ink3">
@@ -1261,7 +1272,7 @@ export function Erfassung() {
           <div className="grid grid-cols-2 gap-2">
             {kacheln.map((b, i) => (
               <button key={b.id} type="button" onClick={() => setBaustelle(b)} className={'chip flex min-h-[4.5rem] flex-col items-start justify-center py-2.5 text-left ' + (baustelle?.id === b.id ? 'chip-on' : '')}>
-                <span className="text-sm font-semibold leading-tight">{b.bezeichnung}</span>
+                <span className="break-words text-sm font-semibold leading-tight">{anzeigeName(b.bezeichnung)}</span>
                 <span className="mt-1 flex items-center gap-1.5"><span className="knr">{b.konto_nr}</span>{i === 0 && <span className="text-[10px] text-ink3">{b.id === gesuchtId ? 'eingegeben' : 'zuletzt'}</span>}</span>
               </button>
             ))}
@@ -1272,7 +1283,7 @@ export function Erfassung() {
             <div className="card mt-2 space-y-2 p-3">
               {alleGeplanten.filter((b) => !kacheln.some((k) => k.id === b.id)).slice(0, 5).map((b) => (
                 <button key={b.id} type="button" onClick={() => andereWaehlen(b)} className="flex w-full items-center justify-between rounded-lg px-2 py-2 text-left text-sm hover:bg-ground">
-                  <span>{b.bezeichnung}</span><span className="knr">{b.konto_nr}</span>
+                  <span>{anzeigeName(b.bezeichnung)}</span><span className="knr">{b.konto_nr}</span>
                 </button>
               ))}
               {/* Ziffernblock statt Tastatur (Regel 2): Konto-Nr. tippen, ab 3 Ziffern kommen bis zu 5 Treffer */}
@@ -1307,7 +1318,7 @@ export function Erfassung() {
                   <div className="mt-2 grid gap-2">
                     {suchTreffer.map((b) => (
                       <button key={b.id} type="button" onClick={() => andereWaehlen(b)} className={'chip flex items-center justify-between py-2.5 text-left ' + (baustelle?.id === b.id ? 'chip-on' : '')}>
-                        <span className="text-sm font-semibold">{b.bezeichnung ?? 'Baustelle'}</span><span className="knr">{b.konto_nr}</span>
+                        <span className="text-sm font-semibold">{b.bezeichnung ? anzeigeName(b.bezeichnung) : 'Baustelle'}</span><span className="knr">{b.konto_nr}</span>
                       </button>
                     ))}
                   </div>
@@ -1530,7 +1541,7 @@ export function Erfassung() {
         {doppelt && (
           <section className="card space-y-3 border-amber/40 bg-amber-soft">
             <p className="text-sm">
-              <strong>{istHeute ? 'Heute' : 'An diesem Tag'} habt ihr schon gemeldet: {doppelt.baustellen.join(', ')}</strong>
+              <strong>{istHeute ? 'Heute' : 'An diesem Tag'} habt ihr schon gemeldet: {doppelt.baustellen.map(anzeigeName).join(', ')}</strong>
               {' '}— {stunden(doppelt.bisherMin)} h für das Team zusammen.
             </p>
             {doppelt.ersetzbar > 0 ? (

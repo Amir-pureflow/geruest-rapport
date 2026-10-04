@@ -55,7 +55,7 @@ const GRUPPE_VON: Record<string, Gruppe> = {
 const GRUPPEN: { key: Gruppe; titel: string; text: string; icon: typeof FileText; kopf: string; leer: string }[] = [
   { key: 'entwurf', titel: 'Entwürfe', text: 'noch nicht verschickt', icon: FileText, kopf: 'bg-amber', leer: 'Keine Entwürfe — Regierapporte entstehen aus der Wochenübersicht.' },
   { key: 'kunde', titel: 'Beim Kunden', text: 'warten auf die Unterschrift', icon: Send, kopf: 'bg-steel', leer: 'Nichts beim Kunden.' },
-  { key: 'bestaetigt', titel: 'Bestätigt', text: 'bereit für SORBA', icon: CheckCircle2, kopf: 'bg-good', leer: 'Noch nichts bestätigt.' },
+  { key: 'bestaetigt', titel: 'Bestätigt', text: 'bereit zum Verrechnen', icon: CheckCircle2, kopf: 'bg-good', leer: 'Noch nichts bestätigt.' },
 ];
 
 function kurz(ts: string): string {

@@ -304,13 +304,13 @@ function blattBuero(wb: Workbook, vergeben: Set<string>, unter: Untertitel, b: B
   b.personen.forEach((p, i) => { zeile(ws, nr, [p.name, '', '', '', h(p.normal_min), h(p.ueber_min), h(p.total_min)], uebersicht, { zebra: i % 2 === 1 }); nr += 1; });
   summe(ws, nr, `Total ${b.buero}`, pVon, nr - 1, uebersicht, [null, null, null, null, h(b.personen.reduce((s, p) => s + p.normal_min, 0)), h(b.personen.reduce((s, p) => s + p.ueber_min, 0)), h(b.total_min)], F.akzentSoft);
   nr += 2;
-  fuss(ws, nr, 'Stunden dezimal: 0.25 = 15 Minuten. Konto-Nr. = Baustelle laut SORBA. Nur freigegebene Einträge, sofern nicht anders vermerkt.');
+  fuss(ws, nr, 'Stunden dezimal: 0.25 = 15 Minuten. Konto-Nr. = Baustelle. Nur freigegebene Einträge, sofern nicht anders vermerkt.');
   druck(ws, `${b.buero} ${unter.zeitraum}`);
 }
 
-/** SORBA-Raster: Zeile = Konto (Zusatzarbeit alter Meldungen getrennt), Spalte = Person, Personen senkrecht. */
+/** Stundenraster: Zeile = Konto (Zusatzarbeit alter Meldungen getrennt), Spalte = Person, Personen senkrecht. */
 function blattRaster(wb: Workbook, vergeben: Set<string>, unter: Untertitel, r: RasterExport): void {
-  const ws = neuesBlatt(wb, 'SORBA-Raster', vergeben, F.tinte2);
+  const ws = neuesBlatt(wb, 'Stundenraster', vergeben, F.tinte2);
   const spalten: Spalte[] = [
     { titel: 'Konto', breite: 10 },
     { titel: 'Baustelle', breite: 32 },
@@ -318,7 +318,7 @@ function blattRaster(wb: Workbook, vergeben: Set<string>, unter: Untertitel, r: 
     ...r.personen.map((p) => ({ titel: p.name, breite: 6.5, art: 'h' as const, senkrecht: true })),
     { titel: 'Total h', breite: 10, art: 'h', fett: true },
   ];
-  kopf(ws, 'SORBA-Raster', unter, spalten, 3);
+  kopf(ws, 'Stundenraster', unter, spalten, 3);
   const von = KOPF + 1;
   r.vorgaenge.forEach((v, i) => {
     const werte = r.personen.map((p) => h(v.min.get(p.id) ?? 0));
@@ -334,8 +334,8 @@ function blattRaster(wb: Workbook, vergeben: Set<string>, unter: Untertitel, r: 
   const proPerson = r.personen.map((p) => h(r.vorgaenge.reduce((s, v) => s + (v.min.get(p.id) ?? 0), 0)));
   summe(ws, bis + 1, 'Total', von, bis, spalten, [null, null, null, ...proPerson, h(r.vorgaenge.reduce((s, v) => s + [...v.min.values()].reduce((a, m) => a + m, 0), 0))]);
   if (r.vorgaenge.length > 0) ws.autoFilter = { from: { row: KOPF, column: 1 }, to: { row: bis, column: 3 } };
-  fuss(ws, bis + 3, 'Zeile = Konto (Baustelle), Spalte = Person, Wert = Stunden (normal + über). Rot: Zusatzarbeit aus älteren Meldungen, in SORBA separat erfassen.');
-  druck(ws, `SORBA-Raster ${unter.zeitraum}`);
+  fuss(ws, bis + 3, 'Zeile = Konto (Baustelle), Spalte = Person, Wert = Stunden (normal + über). Rot: Zusatzarbeit aus älteren Meldungen, separat erfassen.');
+  druck(ws, `Stundenraster ${unter.zeitraum}`);
 }
 
 // ── Öffentliche Funktionen ─────────────────────────────────────────────────
@@ -370,7 +370,7 @@ export interface RapportExport {
   dateiname: string;
 }
 
-/** Das Gesamt-Excel: Lohn, Überstunden, je Büro ein Blatt, SORBA-Raster — bzw. nur das Raster für den Bauführer. */
+/** Das Gesamt-Excel: Lohn, Überstunden, je Büro ein Blatt, Stundenraster — bzw. nur das Raster für den Bauführer. */
 export async function rapportExcel(d: RapportExport): Promise<void> {
   const E = await lade();
   const wb = neuesBuch(E);

@@ -184,7 +184,7 @@ export function navFuer(a: 'bauf' | 'sekretariat'): NavGruppe[] {
       titel: 'Planung & Daten',
       eintraege: [
         // Bauführer sieht nur das Raster — Lohn-Export gehört dem Sekretariat (20.09.)
-        { zu: '/export', label: a === 'sekretariat' ? 'Export' : 'SORBA-Raster', icon: Download },
+        { zu: '/export', label: a === 'sekretariat' ? 'Export' : 'Stundenraster', icon: Download },
         ...(regie ? [{ zu: '/board', label: 'Board', icon: LayoutGrid }] : []),
         { zu: '/verwaltung', label: 'Verwaltung', icon: Settings },
       ],

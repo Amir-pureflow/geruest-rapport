@@ -56,7 +56,7 @@ const BEREICH_TEXT: Record<string, string> = {
   '/board': 'Jahresplan — welches Team wann wo',
   '/heute': 'Wer hat heute gemeldet, wer nicht',
   '/cockpit': 'Prüfen und freigeben, statt telefonieren',
-  '/export': 'Freigegebene Stunden im Raster des Tagesrapports — zum Abtippen in SORBA',
+  '/export': 'Freigegebene Stunden im Raster des Tagesrapports — zum Abtippen ins Büro-Programm',
   '/verwaltung': 'Mitarbeitende, Teams, Kunden, Baustellen',
   '/erfassung?wahl': 'Teamgerät — ein Knopf für den normalen Tag',
 };

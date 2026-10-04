@@ -629,7 +629,7 @@ export function RegieDetail() {
             </span>
           </div>
           <p className="mt-1 text-[11px] text-ink3">
-            Vorgerechnet als Entscheidungshilfe — der verbindliche Beleg ist das SORBA-Dokument im Anhang.
+            Vorgerechnet als Entscheidungshilfe — der verbindliche Beleg ist das Dokument im Anhang.
             {entwurf && ' Mit − / + nur die Stunden stehen lassen, die wirklich Zusatzarbeit waren.'}
           </p>
         </section>
@@ -637,7 +637,7 @@ export function RegieDetail() {
         {/* Leistungsbeschrieb: der Text, den der Bauführer in SORBA tippt — vorgeschlagen, nie ungeprüft */}
         <section className="card space-y-2">
           <div className="flex items-baseline justify-between gap-3">
-            <p className="lbl mb-0">Was gemacht wurde · Text für SORBA und Kunde</p>
+            <p className="lbl mb-0">Was gemacht wurde · Text für Rapport und Kunde</p>
             {rapport.beschrieb && <span className="text-[11px] text-ink3">{rapport.beschrieb_quelle === 'ki' ? 'Vorschlag, geprüft' : 'von Hand'}</span>}
           </div>
           <textarea
@@ -655,7 +655,7 @@ export function RegieDetail() {
               Speichern
             </button>
             <button type="button" className="btn-ghost" disabled={!beschrieb.trim()} onClick={beschriebKopieren}>
-              {beschriebKopiert ? 'Kopiert ✓' : 'Für SORBA kopieren'}
+              {beschriebKopiert ? 'Kopiert ✓' : 'Text kopieren'}
             </button>
           </div>
           {beschriebInfo && <p className={'text-xs ' + (beschriebInfo.includes('fehlgeschlagen') || beschriebInfo.includes('nicht möglich') ? 'font-semibold text-accent-deep' : 'text-ink2')}>{beschriebInfo}</p>}
@@ -670,10 +670,10 @@ export function RegieDetail() {
             <p className="text-[15px] font-semibold">An die Bauleitung senden</p>
             <div>
               <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-[12px] bg-ground px-3.5 py-3">
-                <span className="text-sm text-ink2">Die Mail nimmt automatisch ein PDF mit, im Aufbau des SORBA-Ausdrucks.</span>
+                <span className="text-sm text-ink2">Die Mail nimmt automatisch ein PDF des Rapports mit.</span>
                 <button type="button" className="btn-ghost shrink-0" disabled={pdfLaeuft} onClick={() => void pdfAnsehen()}>{pdfLaeuft ? 'Erstellt …' : 'PDF ansehen'}</button>
               </div>
-              <label className="lbl">Eigenes Dokument statt PDF (optional, z. B. aus SORBA)</label>
+              <label className="lbl">Eigenes Dokument statt PDF (optional)</label>
               {rapport.anhang_pfad ? (
                 <p className="text-sm">
                   📎 {rapport.anhang_pfad.split('/').pop()}{' '}
@@ -684,7 +684,7 @@ export function RegieDetail() {
                 </p>
               ) : (
                 <label className="block cursor-pointer rounded-[10px] border border-dashed border-line-strong px-3.5 py-3 text-center text-sm text-ink3 hover:border-ink3">
-                  Datei wählen — aus SORBA gespeichert
+                  Datei wählen
                   <input type="file" className="hidden" onChange={(e) => void anhangWaehlen(e)} />
                 </label>
               )}

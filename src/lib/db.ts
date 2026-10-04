@@ -303,7 +303,10 @@ async function flushMeldungen(client: SupabaseClient): Promise<FlushErgebnis> {
 
       const audio = await db.audio.get(e.client_uuid);
       if (audio) {
-        const pfad = `audio/${e.client_uuid}.webm`;
+        // Endung nach echtem Typ: iPhone liefert AAC/M4A, Android WebM. Die Speicher-Regel und
+        // die Transkription schneiden die Endung ab bzw. lesen sie — beides verträgt .m4a.
+        const endung = audio.blob.type.includes('mp4') ? 'm4a' : audio.blob.type.includes('ogg') ? 'ogg' : 'webm';
+        const pfad = `audio/${e.client_uuid}.${endung}`;
         const e3 = await belegHochladen(client, pfad, audio.blob, audio.blob.type || 'audio/webm');
         if (e3) { fehler += 1; fehlerText = 'Sprachnotiz konnte nicht hochgeladen werden: ' + e3; continue; }
         // Der lokale Blob geht erst weg, wenn der Pfad an der Meldung steht — sonst wäre der Beleg verwaist.

@@ -35,7 +35,7 @@ export function gruppen() {
 }
 
 const ANSICHTEN_ALLE: { key: Ansicht; titel: string; text: string; gruppe: Gruppe }[] = [
-  { key: 'bauf', titel: 'Bauführer', text: 'Prüfen, freigeben, in SORBA übertragen', gruppe: 'buero' },
+  { key: 'bauf', titel: 'Bauführer', text: 'Prüfen, freigeben, Stunden übertragen', gruppe: 'buero' },
   { key: 'sekretariat', titel: 'Sekretariat', text: 'Stunden, Lohn-Export, Temporärbüros, Mitarbeitende', gruppe: 'buero' },
   { key: 'chef', titel: 'Chefmonteur', text: 'Tagesmeldung fürs Team, ein Knopf am Abend', gruppe: 'baustelle' },
   { key: 'monteur', titel: 'Monteur', text: 'Meine Stunden, wie auf dem Wochenblatt', gruppe: 'baustelle' },

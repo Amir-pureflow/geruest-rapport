@@ -43,7 +43,7 @@ type Zeitraum = 'diese' | 'vorwoche' | 'monat';
 
 /** Ein Satz pro Bereich fürs Handy-Menü — die Reihenfolge kommt aus der Seitenleiste. */
 const SEKRETARIAT_TEXT: Record<string, string> = {
-  '/export': 'Lohn-Excel, Überstunden, Temporärbüro, SORBA-Raster',
+  '/export': 'Lohn-Excel, Überstunden, Temporärbüro, Stundenraster',
   '/verwaltung': 'Mitarbeitende, Teams, Kunden, Baustellen',
   '/zusatzauftrag': 'Kundenbestellung festhalten, bevor gearbeitet wird',
   '/heute': 'Wer hat heute gemeldet, wer nicht',

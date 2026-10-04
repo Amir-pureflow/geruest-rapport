@@ -998,7 +998,7 @@ export function Cockpit() {
                               {speichert ? 'Speichert …' : `${tagName(tag.datum)} freigeben · ${personenN} Pers.`}
                             </button>
                             {(tag.status === 'gelb' || tag.status === 'rot') && (
-                              <p className="text-center text-[11px] text-ink3">Freigeben heisst: angeschaut — Notiz gelesen, Stunden geprüft. Verrechnen an den Kunden läuft in SORBA.</p>
+                              <p className="text-center text-[11px] text-ink3">Freigeben heisst: angeschaut — Notiz gelesen, Stunden geprüft. Verrechnen an den Kunden macht das Büro.</p>
                             )}
                           </div>
                         ) : tag.offen.length === 0 ? (
