@@ -17,16 +17,19 @@ import { blattName, type BueroBlatt } from './lohn';
 type Worksheet = Excel.Worksheet;
 type Workbook = Excel.Workbook;
 
-/** Farben der App (src/index.css), ARGB. */
+/** Farben der App (src/index.css, warme Palette vom 11.09.2026), ARGB. */
 const F = {
-  tinte: 'FF17242A',
-  tinte2: 'FF46565D',
-  grau: 'FF6C7B81',
-  linie: 'FFDFE5E4',
-  zebra: 'FFF5F7F7',
-  summe: 'FFE9EEEE',
-  akzent: 'FFD82816',
-  akzentSoft: 'FFFBEAE7',
+  tinte: 'FF1A1917',
+  tinte2: 'FF4D4A45',
+  grau: 'FF8A867E',
+  linie: 'FFE9E6E0',
+  zebra: 'FFFAF9F6',
+  kopfzeile: 'FFF1EFEA',
+  summe: 'FFF1EFEA',
+  akzent: 'FFE0301E',
+  akzentSoft: 'FFFDECEA',
+  bernstein: 'FFD9930F',
+  stahl: 'FF2B6CB0',
   weiss: 'FFFFFFFF',
 };
 const SCHRIFT = 'Arial';
@@ -120,12 +123,13 @@ function kopf(ws: Worksheet, titel: string, unter: Untertitel, spalten: Spalte[]
   spalten.forEach((s, i) => {
     const c = r.getCell(i + 1);
     c.value = s.titel;
-    c.font = { name: SCHRIFT, size: 10, bold: true, color: { argb: F.weiss } };
-    c.fill = fuellung(F.tinte);
+    // Kopfzeile wie die App: helle warme Fläche, dunkle Schrift, rote Linie darunter (statt schwarzem Balken)
+    c.font = { name: SCHRIFT, size: 10, bold: true, color: { argb: F.tinte } };
+    c.fill = fuellung(F.kopfzeile);
     c.alignment = s.senkrecht
       ? { vertical: 'bottom', horizontal: 'center', textRotation: 90 }
       : { vertical: 'middle', horizontal: s.art && s.art !== 'text' && s.art !== 'datum' ? 'right' : 'left', wrapText: true };
-    c.border = rand(F.tinte);
+    c.border = { ...rand(), bottom: { style: 'medium', color: { argb: F.akzent } } };
     ws.getColumn(i + 1).width = s.breite;
     if (s.senkrecht) senkrecht = true;
   });
@@ -200,7 +204,7 @@ function neuesBlatt(wb: Workbook, name: string, vergeben: Set<string>, tab: stri
 // ── Blätter ────────────────────────────────────────────────────────────────
 
 function blattLohn(wb: Workbook, vergeben: Set<string>, unter: Untertitel, spaltenTitel: string[], monat: boolean, zeilen: LohnExportZeile[]): void {
-  const ws = neuesBlatt(wb, 'Lohn', vergeben, F.tinte);
+  const ws = neuesBlatt(wb, 'Lohn', vergeben, F.akzent);
   const spalten: Spalte[] = [
     { titel: 'Name', breite: 26 },
     { titel: 'Anstellung', breite: 11 },
@@ -225,13 +229,14 @@ function blattLohn(wb: Workbook, vergeben: Set<string>, unter: Untertitel, spalt
     zeilen.reduce((s, l) => s + l.oevTage, 0),
     zeilen.reduce((s, l) => s + l.km, 0),
   ]);
-  if (zeilen.length > 0) ws.autoFilter = { from: { row: KOPF, column: 1 }, to: { row: bis, column: spalten.length } };
+  // Filter nur auf den Textspalten — Filterpfeile auf den schmalen Tagesspalten verdecken die Wochentage
+  if (zeilen.length > 0) ws.autoFilter = { from: { row: KOPF, column: 1 }, to: { row: bis, column: 3 } };
   fuss(ws, bis + 3, 'Stunden dezimal: 0.25 = 15 Minuten. Normal- und Überstunden zusammen; Überstunden separat in «davon Über h» und auf dem Blatt «Überstunden».');
   druck(ws, `Lohnstunden ${unter.zeitraum}`);
 }
 
 function blattUeberstunden(wb: Workbook, vergeben: Set<string>, unter: Untertitel, monat: boolean, jahr: string, zeilen: UeberExportZeile[]): void {
-  const ws = neuesBlatt(wb, 'Überstunden', vergeben, F.akzent);
+  const ws = neuesBlatt(wb, 'Überstunden', vergeben, F.bernstein);
   const spalten: Spalte[] = [
     { titel: 'Name', breite: 26 },
     { titel: 'Anstellung', breite: 11 },
@@ -243,7 +248,7 @@ function blattUeberstunden(wb: Workbook, vergeben: Set<string>, unter: Untertite
   zeilen.forEach((u, i) => zeile(ws, von + i, [u.name, anstellung(u.typ), h(u.zeitraum_min), h(u.jahr_min)], spalten, { zebra: i % 2 === 1 }));
   const bis = von + zeilen.length - 1;
   summe(ws, bis + 1, 'Total', von, bis, spalten, [null, null, h(zeilen.reduce((s, u) => s + u.zeitraum_min, 0)), h(zeilen.reduce((s, u) => s + u.jahr_min, 0))]);
-  if (zeilen.length > 0) ws.autoFilter = { from: { row: KOPF, column: 1 }, to: { row: bis, column: spalten.length } };
+  if (zeilen.length > 0) ws.autoFilter = { from: { row: KOPF, column: 1 }, to: { row: bis, column: 2 } };
   fuss(ws, bis + 3, 'Seit Jahresbeginn: alle Überstunden der Person, unabhängig vom gewählten Team.');
   druck(ws, `Überstunden ${unter.zeitraum}`);
 }
@@ -253,7 +258,7 @@ function blattUeberstunden(wb: Workbook, vergeben: Set<string>, unter: Untertite
  * seine Rechnung Zeile für Zeile. Darunter die Summe je Person als Übersicht und das Total fürs Büro.
  */
 function blattBuero(wb: Workbook, vergeben: Set<string>, unter: Untertitel, b: BueroBlatt): void {
-  const ws = neuesBlatt(wb, b.buero, vergeben, F.grau);
+  const ws = neuesBlatt(wb, b.buero, vergeben, F.stahl);
   const spalten: Spalte[] = [
     { titel: 'Name', breite: 26 },
     { titel: 'Tag', breite: 5 },
@@ -294,10 +299,10 @@ function blattBuero(wb: Workbook, vergeben: Set<string>, unter: Untertitel, b: B
   uebersicht.forEach((s, i) => {
     const c = k.getCell(i + 1);
     c.value = s.titel || null;
-    c.font = { name: SCHRIFT, size: 10, bold: true, color: { argb: F.weiss } };
-    c.fill = fuellung(F.tinte2);
+    c.font = { name: SCHRIFT, size: 10, bold: true, color: { argb: F.tinte } };
+    c.fill = fuellung(F.kopfzeile);
     c.alignment = { horizontal: s.art === 'h' ? 'right' : 'left', vertical: 'middle' };
-    c.border = rand(F.tinte2);
+    c.border = { ...rand(), bottom: { style: 'medium', color: { argb: F.akzent } } };
   });
   nr += 1;
   const pVon = nr;
