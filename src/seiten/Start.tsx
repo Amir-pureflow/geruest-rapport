@@ -21,7 +21,7 @@ import { StartKunde } from './StartKunde';
 interface Kennzahlen {
   teamsGemeldet: number;
   teams: number;
-  /** offene Zeiteinträge vor dieser Woche — die Vorwoche steht zur Freigabe an */
+  /** offene Team-Tage vor dieser Woche — der Bauführer denkt in Tagen, nicht in Zeiteinträgen (05.10.2026) */
   zuPruefen: number;
   /** offene Zeiteinträge der Vorwoche mit Überstunden — da liest der Bauführer die Notiz */
   ueberOffen: number;
@@ -113,7 +113,7 @@ function StartBauf() {
       const [tm, teams, zp, uo] = await Promise.all([
         c.from('tagesmeldung').select('team_id').eq('datum', heuteIso),
         c.from('team').select('id', { count: 'exact', head: true }).eq('aktiv', true),
-        c.from('zeiteintrag').select('id,tagesmeldung!inner(datum)', { count: 'exact', head: true }).eq('status', 'offen').lt('tagesmeldung.datum', wochenStart),
+        c.from('tagesmeldung').select('datum,team_id,zeiteintrag!inner(id)').eq('zeiteintrag.status', 'offen').lt('datum', wochenStart),
         c.from('zeiteintrag').select('id,tagesmeldung!inner(datum)', { count: 'exact', head: true }).eq('status', 'offen').gt('ueber_min', 0).gte('tagesmeldung.datum', vorwoche).lt('tagesmeldung.datum', wochenStart),
       ]);
       const erster = [tm, teams, zp, uo].find((r) => r.error);
@@ -123,7 +123,7 @@ function StartBauf() {
       setK({
         teamsGemeldet: gemeldet.size,
         teams: teams.count ?? 0,
-        zuPruefen: zp.count ?? 0,
+        zuPruefen: new Set(((zp.data ?? []) as unknown as { datum: string; team_id: string }[]).map((r) => r.team_id + r.datum)).size,
         ueberOffen: uo.count ?? 0,
       });
       // Diagramm und Board danach — die Kacheln sollen nicht darauf warten
@@ -255,7 +255,7 @@ function StartBauf() {
               <Kachel
                 zu={`/cockpit?woche=${vorwoche}`}
                 wert={String(k.zuPruefen)}
-                label={k.zuPruefen > 0 ? 'Zeiteinträge der Vorwoche warten auf Freigabe' : 'Vorwoche ist freigegeben'}
+                label={k.zuPruefen === 1 ? 'Tag wartet auf Freigabe' : k.zuPruefen > 1 ? 'Tage warten auf Freigabe' : 'Vorwoche ist freigegeben'}
                 farbe={k.zuPruefen > 0 ? 'gelb' : 'gruen'}
               />
               <Kachel
