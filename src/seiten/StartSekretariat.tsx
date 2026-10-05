@@ -10,6 +10,7 @@
  */
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
+import { AlarmClock, CheckCircle2, Clock, Hourglass } from 'lucide-react';
 import { Shell, navFuer } from '../ui/Shell';
 import { Kachel, NavKarte } from '../ui/Karten';
 import { DiagrammKarte, Fristen, RegieMonate } from '../ui/Diagramm';
@@ -169,10 +170,10 @@ export function StartSekretariat() {
         ) : (
           <>
             <div className="grid grid-cols-2 gap-2.5 md:grid-cols-4 md:gap-4">
-              <Kachel zu={exportLink} wert={`${stunden(total)} h`} label={`Stunden ${zeitraum === 'monat' ? 'im Monat' : 'in der Woche'} · ${personen.length} von ${aktive} Mitarbeitenden`} />
-              <Kachel zu={exportLink} wert={`${stunden(ueber)} h`} label="Überstunden" farbe={ueber > 0 ? 'gelb' : 'neutral'} />
-              <Kachel zu={exportLink} wert={`${stunden(frei)} h`} label="vom Bauführer freigegeben — bereit für den Lohn" farbe="gruen" />
-              <Kachel zu={exportLink} wert={`${stunden(offen)} h`} label={offen > 0 ? 'noch nicht freigegeben — der Bauführer prüft' : 'alles freigegeben'} farbe={offen > 0 ? 'gelb' : 'gruen'} />
+              <Kachel zu={exportLink} icon={Clock} wert={`${stunden(total)} h`} label={`Stunden ${zeitraum === 'monat' ? 'im Monat' : 'in der Woche'} · ${personen.length} von ${aktive} Mitarbeitenden`} />
+              <Kachel zu={exportLink} icon={AlarmClock} wert={`${stunden(ueber)} h`} label="Überstunden" farbe={ueber > 0 ? 'gelb' : 'neutral'} />
+              <Kachel zu={exportLink} icon={CheckCircle2} wert={`${stunden(frei)} h`} label="vom Bauführer freigegeben — bereit für den Lohn" farbe="gruen" />
+              <Kachel zu={exportLink} icon={Hourglass} wert={`${stunden(offen)} h`} label={offen > 0 ? 'noch nicht freigegeben — der Bauführer prüft' : 'alles freigegeben'} farbe={offen > 0 ? 'gelb' : 'gruen'} />
             </div>
 
             {offen > 0 && (

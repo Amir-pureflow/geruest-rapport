@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
+import { AlarmClock, Banknote, CalendarCheck, PhoneCall, Send, Users } from 'lucide-react';
 import { Shell } from '../ui/Shell';
 import { supabase } from '../lib/supabase';
 import { addTage, iso, kurz, kw, lang, montag } from '../lib/datum';
@@ -242,6 +243,7 @@ function StartBauf() {
                   zu="/heute"
                   wert={`${k.teamsGemeldet} von ${k.teams}`}
                   label="Teams haben heute gemeldet"
+                  icon={Users}
                   fortschritt={{ von: k.teamsGemeldet, bis: k.teams }}
                   farbe={
                     k.teams > 0 && k.teamsGemeldet === k.teams
@@ -256,12 +258,14 @@ function StartBauf() {
                 zu={`/cockpit?woche=${vorwoche}`}
                 wert={String(k.zuPruefen)}
                 label={k.zuPruefen === 1 ? 'Tag wartet auf Freigabe' : k.zuPruefen > 1 ? 'Tage warten auf Freigabe' : 'Vorwoche ist freigegeben'}
+                icon={CalendarCheck}
                 farbe={k.zuPruefen > 0 ? 'gelb' : 'gruen'}
               />
               <Kachel
                 zu={`/cockpit?woche=${vorwoche}`}
                 wert={String(k.ueberOffen)}
                 label={k.ueberOffen > 0 ? 'Überstunden der Vorwoche — Notiz lesen' : 'Überstunden der Vorwoche offen'}
+                icon={AlarmClock}
                 farbe={k.ueberOffen > 0 ? 'gelb' : 'neutral'}
               />
             </div>
@@ -271,6 +275,7 @@ function StartBauf() {
               <div className="grid grid-cols-2 gap-2.5 md:grid-cols-4 md:gap-4">
                 <Kachel
                   zu="/zusatzauftrag"
+                  icon={PhoneCall}
                   wert={String(rz.offeneAuftraege)}
                   label={
                     rz.ohneMeldung > 0
@@ -283,6 +288,7 @@ function StartBauf() {
                 />
                 <Kachel
                   zu="/regie"
+                  icon={Banknote}
                   wert={formatChf(rz.inArbeitRappen)}
                   label={
                     rz.inArbeitAltRappen > 0
@@ -291,8 +297,8 @@ function StartBauf() {
                   }
                   warn={rz.inArbeitAltRappen > 0}
                 />
-                <Kachel zu="/regie" wert={String(rz.ueberfaellig)} label="Frist abgelaufen — nachfassen" farbe={rz.ueberfaellig > 0 ? 'rot' : 'neutral'} />
-                <Kachel zu="/auswertung" wert={formatChf(rz.monatRappen)} label={`Regie verschickt im ${MONATE[heute.getMonth()]}`} farbe="gruen" />
+                <Kachel zu="/regie" icon={AlarmClock} wert={String(rz.ueberfaellig)} label="Frist abgelaufen — nachfassen" farbe={rz.ueberfaellig > 0 ? 'rot' : 'neutral'} />
+                <Kachel zu="/auswertung" icon={Send} wert={formatChf(rz.monatRappen)} label={`Regie verschickt im ${MONATE[heute.getMonth()]}`} farbe="gruen" />
               </div>
             )}
 

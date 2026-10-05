@@ -1,4 +1,5 @@
 import { Link } from 'react-router-dom';
+import type { LucideIcon } from 'lucide-react';
 
 /** Navigationskarte: Titel, ein Satz, Pfeil. Gleich auf allen Startseiten. */
 export function NavKarte({ zu, titel, text }: { zu: string; titel: string; text: string }) {
@@ -15,13 +16,17 @@ export function NavKarte({ zu, titel, text }: { zu: string; titel: string; text:
 
 export type KachelFarbe = 'neutral' | 'gruen' | 'gelb' | 'blau' | 'rot';
 
-/** Getönte Fläche + Zahl in der Farbe — die Farbe sagt, was die Zahl bedeutet (grün gut, gelb wartet, blau unterwegs, rot dringend). */
-const KACHEL_STIL: Record<KachelFarbe, { karte: string; zahl: string; text: string }> = {
-  neutral: { karte: 'bg-surface', zahl: 'text-ink', text: 'text-ink3' },
-  gruen: { karte: 'bg-good-soft', zahl: 'text-good-deep', text: 'text-good-deep/70' },
-  gelb: { karte: 'bg-amber-soft', zahl: 'text-amber-deep', text: 'text-amber-deep/70' },
-  blau: { karte: 'bg-steel-soft', zahl: 'text-steel', text: 'text-steel/70' },
-  rot: { karte: 'bg-accent-soft', zahl: 'text-accent-deep', text: 'text-accent-deep/70' },
+/**
+ * Sanfter Verlauf + Icon-Chip in Vollfarbe (Vorbild 05.10.2026: Kennzahl-Karten moderner SaaS-Dashboards).
+ * Die Farbe sagt, was die Zahl bedeutet (grün gut, gelb wartet, blau unterwegs, rot dringend);
+ * die Zahl selbst bleibt dunkel — der Chip und die Fläche tragen die Bedeutung.
+ */
+const KACHEL_STIL: Record<KachelFarbe, { karte: string; chip: string }> = {
+  neutral: { karte: 'border-transparent bg-surface', chip: 'bg-ink2' },
+  gruen: { karte: 'border-good/15 bg-gradient-to-br from-[#effaf4] to-[#dcf2e6]', chip: 'bg-good' },
+  gelb: { karte: 'border-amber/20 bg-gradient-to-br from-[#fff8e6] to-[#fcedcb]', chip: 'bg-amber' },
+  blau: { karte: 'border-steel/15 bg-gradient-to-br from-[#eff5fd] to-[#deeaf9]', chip: 'bg-steel' },
+  rot: { karte: 'border-accent/15 bg-gradient-to-br from-[#fdefed] to-[#fbddd8]', chip: 'bg-accent' },
 };
 
 /** Farbe des Fortschrittsbalkens — dieselbe Familie wie Zahl und Text der Kachel. */
@@ -45,6 +50,7 @@ export function Kachel({
   warn,
   farbe,
   fortschritt,
+  icon: Icon,
 }: {
   zu: string;
   wert: string;
@@ -52,25 +58,34 @@ export function Kachel({
   warn?: boolean;
   farbe?: KachelFarbe;
   fortschritt?: { von: number; bis: number };
+  icon?: LucideIcon;
 }) {
   const gewaehlt = farbe ?? (warn ? 'gelb' : 'neutral');
   const f = KACHEL_STIL[gewaehlt];
   const anteil = fortschritt && fortschritt.bis > 0 ? fortschritt.von / fortschritt.bis : 0;
   return (
-    <Link to={zu} className={'card flex flex-col justify-between gap-2 ' + f.karte}>
-      <span className={'block text-[26px] font-semibold leading-none tabular-nums tracking-tight lg:text-[30px] ' + f.zahl}>
-        {wert}
-      </span>
+    <Link to={zu} className={'card group flex flex-col justify-between gap-3 rounded-[20px] border ' + f.karte}>
+      {Icon && (
+        <span className="flex items-center justify-between">
+          <span className={'grid h-9 w-9 place-items-center rounded-[12px] text-white shadow-[0_4px_10px_-4px_rgb(17_17_19/0.35)] ' + f.chip} aria-hidden="true">
+            <Icon size={18} strokeWidth={2.2} />
+          </span>
+          <span className="text-ink3 transition-transform duration-150 group-hover:translate-x-0.5" aria-hidden="true">→</span>
+        </span>
+      )}
       <span className="block">
+        <span className="block text-[26px] font-semibold leading-none tabular-nums tracking-tight text-ink lg:text-[30px]">
+          {wert}
+        </span>
         {fortschritt && (
-          <span className="mb-2 block h-1 w-full overflow-hidden rounded-full bg-ink/10" aria-hidden="true">
+          <span className="mt-2.5 block h-1 w-full overflow-hidden rounded-full bg-ink/10" aria-hidden="true">
             <span
               className={'block h-full rounded-full transition-[width] duration-500 ' + BALKEN[gewaehlt]}
               style={{ width: `${Math.max(anteil * 100, fortschritt.von > 0 ? 3 : 0)}%` }}
             />
           </span>
         )}
-        <span className={'block text-xs leading-snug lg:text-[13px] ' + f.text}>{label}</span>
+        <span className="mt-1.5 block text-xs leading-snug text-ink2 lg:text-[13px]">{label}</span>
       </span>
     </Link>
   );

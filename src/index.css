@@ -39,7 +39,12 @@
     color-scheme: light;
   }
   body {
-    background: var(--color-ground);
+    /* Warmer Schleier oben (05.10.2026, Vorbild moderner Dashboards): Hauch Firmenrot und
+       Bernstein, der in den Seitengrund ausläuft — dezent, kein Farbteppich */
+    background:
+      radial-gradient(1100px 440px at 75% -12%, rgb(224 48 30 / 0.06), transparent 62%),
+      radial-gradient(850px 380px at 8% -8%, rgb(217 147 15 / 0.05), transparent 58%),
+      var(--color-ground);
     color: var(--color-ink);
     font-family: var(--font-sans);
     font-size: 15px;
