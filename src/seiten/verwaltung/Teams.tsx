@@ -56,6 +56,31 @@ export function Teams() {
     if (team.chefmonteur_id === m.mitarbeiter_id) await supabase.from('team').update({ chefmonteur_id: null }).eq('id', team.id);
     void laden();
   }
+  /** Löschen nur, wenn keine Historie dranhängt — Meldungen und Planungen gehen nie verloren. */
+  async function loeschen() {
+    if (!supabase || !team) return;
+    if (!window.confirm(`Team «${team.bezeichnung}» wirklich löschen?`)) return;
+    setFehler('');
+    const [tm, plan] = await Promise.all([
+      supabase.from('tagesmeldung').select('id', { count: 'exact', head: true }).eq('team_id', team.id),
+      supabase.from('jahresplan').select('id', { count: 'exact', head: true }).eq('team_id', team.id),
+    ]);
+    if ((tm.count ?? 0) > 0 || (plan.count ?? 0) > 0) {
+      setFehler(`«${team.bezeichnung}» hat schon Meldungen oder Planungen — löschen würde Historie zerstören. Stattdessen den Haken «aktiv» entfernen, dann verschwindet das Team aus der Erfassung.`);
+      return;
+    }
+    const { error: e1 } = await supabase.from('team_mitglied').delete().eq('team_id', team.id);
+    if (e1) { setFehler(e1.message); return; }
+    const { error } = await supabase.from('team').delete().eq('id', team.id);
+    if (error) {
+      setFehler(/foreign key|verlet|violat/i.test(error.message)
+        ? `«${team.bezeichnung}» wird noch irgendwo verwendet — stattdessen den Haken «aktiv» entfernen.`
+        : error.message);
+      return;
+    }
+    setGewaehlt(null);
+    void laden();
+  }
 
   return (
     <div className="space-y-3">
@@ -79,9 +104,18 @@ export function Teams() {
 
       {team && (
         <section className="card space-y-3 p-4">
-          <div className="flex items-baseline justify-between">
-            <p className="font-display text-lg font-semibold">{team.bezeichnung}</p>
-            <label className="flex items-center gap-1.5 text-xs"><input type="checkbox" checked={team.aktiv} onChange={(e) => void aendern({ aktiv: e.target.checked })} /> aktiv</label>
+          <div className="flex items-baseline justify-between gap-2">
+            {/* Name direkt im Titel umbenennbar — antippen, tippen, Feld verlassen */}
+            <input
+              key={team.id}
+              defaultValue={team.bezeichnung}
+              onBlur={(e) => { const v = e.target.value.trim(); if (v && v !== team.bezeichnung) void aendern({ bezeichnung: v }); else e.target.value = team.bezeichnung; }}
+              onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
+              aria-label="Teamname — antippen zum Umbenennen"
+              title="Antippen zum Umbenennen"
+              className="min-w-0 flex-1 rounded-[8px] border border-transparent bg-transparent px-1 font-display text-lg font-semibold focus:border-line-strong focus:bg-surface focus:outline-none"
+            />
+            <label className="flex shrink-0 items-center gap-1.5 text-xs"><input type="checkbox" checked={team.aktiv} onChange={(e) => void aendern({ aktiv: e.target.checked })} /> aktiv</label>
           </div>
           <div>
             <label className="lbl">Fahrzeug</label>
@@ -112,6 +146,10 @@ export function Teams() {
               {frei.map((p) => <option key={p.id} value={p.id}>{p.name}{p.typ === 'temporaer' ? ' (temp)' : ''}</option>)}
             </select>
             <p className="mt-1 text-[11px] text-ink3">{frei.length} Personen ohne Team</p>
+          </div>
+          <div className="border-t border-line pt-3">
+            <button type="button" onClick={() => void loeschen()} className="text-xs font-semibold text-accent-deep">Team löschen …</button>
+            <p className="mt-1 text-[11px] text-ink3">Geht nur, solange das Team keine Meldungen oder Planungen hat — sonst «aktiv» abwählen.</p>
           </div>
         </section>
       )}
