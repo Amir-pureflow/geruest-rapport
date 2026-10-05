@@ -158,19 +158,39 @@ function MittagHinweis({ spannen }: { spannen: Spanne[] }) {
  * aber die Anzeige malt die App selbst — native Felder zeigen je nach Handysprache
  * «7:00 AM», im schmalen Feld abgeschnitten als «Al»/«Pl» (Amir, 04.10.2026).
  */
-function ZeitFeld({ wert, aendern, label, klein, klasse, leer = false }: { wert: string; aendern: (text: string) => void; label: string; klein: boolean; klasse: string; leer?: boolean }) {
-  // Beim Tippen zeigt das Feld die native Eingabe, die 24-h-Überdeckung ist weg — über
-  // React-Zustand statt CSS, weil Tailwinds `grid` ein `display: none` aus der Base-Schicht schlägt.
+function ZeitFeld({ wert, aendern, label, klasse }: { wert: string; aendern: (text: string) => void; label: string; klasse: string }) {
+  // Eigenes Feld statt <input type="time">: immer 24 h, nie AM/PM — auch beim Tippen
+  // (Entscheid Amir, 05.10.2026; native Felder richten sich nach der Gerätesprache).
+  // Ziffern reichen: «730» wird 07:30, «17» wird 17:00, leer löscht die Zeit.
   const [tippt, setTippt] = useState(false);
+  const [text, setText] = useState(wert);
+  useEffect(() => { if (!tippt) setText(wert); }, [wert, tippt]);
+  const formatieren = (roh: string) => {
+    const z = roh.replace(/\D/g, '').slice(0, 4);
+    return z.length <= 2 ? z : z.slice(0, 2) + ':' + z.slice(2);
+  };
+  const abschliessen = () => {
+    setTippt(false);
+    const z = text.replace(/\D/g, '');
+    if (z.length === 0) { setText(''); aendern(''); return; }
+    const h = Math.min(23, Number(z.length === 3 ? z[0] : z.slice(0, 2)));
+    const m = Math.min(59, z.length <= 2 ? 0 : Number(z.length === 3 ? z.slice(1) : z.slice(2)));
+    const fertig = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+    setText(fertig);
+    aendern(fertig);
+  };
   return (
-    <span className={'relative inline-block' + (tippt ? '' : ' zeitfeld')}>
-      <input type="time" step={300} value={wert} onChange={(e) => aendern(e.target.value)} onFocus={() => setTippt(true)} onBlur={() => setTippt(false)} aria-label={label} className={klasse} />
-      {!tippt && (
-        <span aria-hidden="true" className={'pointer-events-none absolute inset-0 grid place-items-center font-mono font-semibold tabular-nums ' + (klein ? 'text-[14px] ' : 'text-lg ') + (leer ? 'text-ink3' : 'text-ink')}>
-          {wert || '--:--'}
-        </span>
-      )}
-    </span>
+    <input
+      type="text" inputMode="numeric" autoComplete="off" enterKeyHint="done"
+      value={tippt ? text : wert}
+      placeholder="--:--"
+      onFocus={(e) => { setTippt(true); setText(wert); e.target.select(); }}
+      onChange={(e) => setText(formatieren(e.target.value))}
+      onBlur={abschliessen}
+      onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
+      aria-label={label}
+      className={klasse + ' placeholder:font-sans placeholder:text-ink3'}
+    />
   );
 }
 
@@ -189,9 +209,9 @@ function SpannenEditor({ spannen, setSpannen, klein = false }: { spannen: Spanne
       {spannen.map((s, i) => (
         <div key={i} className="flex items-center gap-1.5">
           {spannen.length > 1 && <span className={'shrink-0 text-[10px] leading-tight text-ink3 ' + (klein ? 'w-9' : 'w-14')}>{i === 0 ? 'Vormittag' : 'Nachmittag'}</span>}
-          <ZeitFeld wert={uhrzeitFeld(s.von)} aendern={(t) => aendern(i, 'von', t)} label="von" klein={klein} klasse={feld + ' border-line'} />
+          <ZeitFeld wert={uhrzeitFeld(s.von)} aendern={(t) => aendern(i, 'von', t)} label="von" klasse={feld + ' border-line'} />
           <span className="text-ink3">–</span>
-          <ZeitFeld wert={uhrzeitFeld(s.bis)} aendern={(t) => aendern(i, 'bis', t)} label="bis" klein={klein} klasse={feld + (s.bis === null ? ' border-amber/70' : ' border-line')} leer={s.bis === null} />
+          <ZeitFeld wert={uhrzeitFeld(s.bis)} aendern={(t) => aendern(i, 'bis', t)} label="bis" klasse={feld + (s.bis === null ? ' border-amber/70' : ' border-line')} />
           {i > 0 && <button type="button" onClick={() => setSpannen(spannen.filter((_, j) => j !== i))} aria-label="Zeit entfernen" className="grid h-9 w-9 shrink-0 place-items-center rounded-[10px] text-ink3 active:bg-surface-2"><X size={16} /></button>}
         </div>
       ))}
