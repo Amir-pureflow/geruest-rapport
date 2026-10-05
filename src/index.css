@@ -423,10 +423,19 @@
   }
 
   /* Zeitfelder: die native Anzeige ist unsichtbar (zeigt je nach Gerätesprache AM/PM),
-     die App malt den 24-h-Text selbst darüber (ZeitFeld in Erfassung.tsx) */
+     die App malt den 24-h-Text selbst darüber (ZeitFeld in Erfassung.tsx).
+     Beim Tippen (Fokus) gilt das Umgekehrte: native Eingabe sichtbar, Überdeckung weg —
+     sonst tippt man blind (05.10.2026). */
   .zeitfeld input {
     color: transparent;
     caret-color: transparent;
+  }
+  .zeitfeld input:focus {
+    color: var(--color-ink);
+    caret-color: auto;
+  }
+  .zeitfeld input:focus + span {
+    display: none;
   }
   .zeitfeld input::-webkit-calendar-picker-indicator {
     opacity: 0;
