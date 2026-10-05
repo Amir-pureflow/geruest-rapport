@@ -430,13 +430,6 @@
     color: transparent;
     caret-color: transparent;
   }
-  .zeitfeld input:focus {
-    color: var(--color-ink);
-    caret-color: auto;
-  }
-  .zeitfeld input:focus + span {
-    display: none;
-  }
   .zeitfeld input::-webkit-calendar-picker-indicator {
     opacity: 0;
   }

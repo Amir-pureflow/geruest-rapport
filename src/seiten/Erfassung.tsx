@@ -159,12 +159,17 @@ function MittagHinweis({ spannen }: { spannen: Spanne[] }) {
  * «7:00 AM», im schmalen Feld abgeschnitten als «Al»/«Pl» (Amir, 04.10.2026).
  */
 function ZeitFeld({ wert, aendern, label, klein, klasse, leer = false }: { wert: string; aendern: (text: string) => void; label: string; klein: boolean; klasse: string; leer?: boolean }) {
+  // Beim Tippen zeigt das Feld die native Eingabe, die 24-h-Überdeckung ist weg — über
+  // React-Zustand statt CSS, weil Tailwinds `grid` ein `display: none` aus der Base-Schicht schlägt.
+  const [tippt, setTippt] = useState(false);
   return (
-    <span className="zeitfeld relative inline-block">
-      <input type="time" step={300} value={wert} onChange={(e) => aendern(e.target.value)} aria-label={label} className={klasse} />
-      <span aria-hidden="true" className={'pointer-events-none absolute inset-0 grid place-items-center font-mono font-semibold tabular-nums ' + (klein ? 'text-[14px] ' : 'text-lg ') + (leer ? 'text-ink3' : 'text-ink')}>
-        {wert || '--:--'}
-      </span>
+    <span className={'relative inline-block' + (tippt ? '' : ' zeitfeld')}>
+      <input type="time" step={300} value={wert} onChange={(e) => aendern(e.target.value)} onFocus={() => setTippt(true)} onBlur={() => setTippt(false)} aria-label={label} className={klasse} />
+      {!tippt && (
+        <span aria-hidden="true" className={'pointer-events-none absolute inset-0 grid place-items-center font-mono font-semibold tabular-nums ' + (klein ? 'text-[14px] ' : 'text-lg ') + (leer ? 'text-ink3' : 'text-ink')}>
+          {wert || '--:--'}
+        </span>
+      )}
     </span>
   );
 }
