@@ -28,7 +28,7 @@ import { MAX_SPANNEN, NACHMITTAG_MIN, ausUhrzeit, aufteilen, mittagMinuten, span
  * Sprachnotiz immer als Bemerkung zum Tag, Personen von ausserhalb des Teams hinzufügen, nur Auto (kein öV).
  */
 
-interface Team { id: string; bezeichnung: string; fahrzeug: string | null; /** Sprache des Chefmonteurs — in ihr hört die Sprachnotiz zu */ chefmonteur?: { sprache?: string | null } | null }
+interface Team { id: string; bezeichnung: string; fahrzeug: string | null; /** Chefmonteur — in seiner Sprache hört die Sprachnotiz zu, er kann sie am Mikrofon umstellen */ chefmonteur?: { id: string; sprache?: string | null } | null }
 interface Person { id: string; name: string; typ: string; funktion: string; oev_standard: boolean; km_standard: number; /** heute dabei, aber nicht fest im Team */ gast?: boolean }
 interface Baustelle { id: string; konto_nr: string; bezeichnung: string | null }
 /** Stundenzahl (wie auf dem Wochenblatt) oder Zeiten von–bis — je Person umschaltbar. */
@@ -289,6 +289,31 @@ const PRUEF_TEXTE: Record<string, { frage: string; knopf: string; name: string }
 };
 
 /**
+ * Sprache der Sprachnotiz direkt am Mikrofon umstellen (Entscheid Amir, 05.10.2026).
+ * Die Wahl wird im Profil des Chefmonteurs gespeichert — so hört auch der Server
+ * (Offline-Nachweg) richtig, und die Verwaltung zeigt denselben Stand.
+ */
+function SprachWahl({ sprache, setzen }: { sprache: string; setzen: (code: string) => void }) {
+  const [offen, setOffen] = useState(false);
+  if (!offen) {
+    return (
+      <button type="button" onClick={() => setOffen(true)} className="mt-2 text-xs font-semibold text-steel">
+        Sprache ändern — {(PRUEF_TEXTE[sprache] ?? PRUEF_TEXTE.de).name} ▾
+      </button>
+    );
+  }
+  return (
+    <span className="mt-2 flex flex-wrap justify-center gap-1.5">
+      {Object.entries(PRUEF_TEXTE).map(([code, t]) => (
+        <button key={code} type="button" onClick={() => { setzen(code); setOffen(false); }} className={'chip px-2.5 py-1.5 text-xs ' + (code === sprache ? 'chip-on' : '')}>
+          {t.name}
+        </button>
+      ))}
+    </span>
+  );
+}
+
+/**
  * Vorschau und Prüfung der Sprachnotiz — ein Element für den Tag-Schritt und die Abweichung.
  *
  * Der Weg (Entscheid Amir, 04.10.2026): erst sieht der Sprecher den Text in seiner eigenen
@@ -543,12 +568,20 @@ export function Erfassung() {
   const istHeute = tagIso === heuteIso;
   const fruehesterIso = iso(addTage(heute, -7));
   const team = teams.find((t) => t.id === teamId) ?? null;
-  // In welcher Sprache die Sprachnotiz zuhört: Profil des Chefmonteurs (Verwaltung → Mitarbeitende)
-  const sprachName = (PRUEF_TEXTE[team?.chefmonteur?.sprache ?? 'de'] ?? PRUEF_TEXTE.de).name;
+  // In welcher Sprache die Sprachnotiz zuhört: Profil des Chefmonteurs — am Mikrofon umstellbar
+  const sprecherSprache = team?.chefmonteur?.sprache ?? 'de';
+  const sprachName = (PRUEF_TEXTE[sprecherSprache] ?? PRUEF_TEXTE.de).name;
+  async function sprecherSpracheSetzen(code: string) {
+    const chefId = team?.chefmonteur?.id;
+    if (!supabase || !chefId || !teamId) return;
+    const { error } = await supabase.from('mitarbeiter').update({ sprache: code }).eq('id', chefId);
+    if (error) { setHinweis('Sprache konnte nicht gespeichert werden — ' + error.message); return; }
+    setTeams((alt) => alt.map((t) => (t.id === teamId ? { ...t, chefmonteur: { id: chefId, sprache: code } } : t)));
+  }
 
   useEffect(() => {
     if (!supabase) return;
-    void supabase.from('team').select('id,bezeichnung,fahrzeug,chefmonteur:chefmonteur_id(sprache)').eq('aktiv', true).order('bezeichnung').then(({ data }) => {
+    void supabase.from('team').select('id,bezeichnung,fahrzeug,chefmonteur:chefmonteur_id(id,sprache)').eq('aktiv', true).order('bezeichnung').then(({ data }) => {
       if (!data) return;
       // Der Chefmonteur kommt als einzelnes Objekt (FK) — die generierten Typen behaupten eine Liste
       setTeams(data as unknown as Team[]);
@@ -1178,6 +1211,7 @@ export function Erfassung() {
                 <span className="mt-1 block text-xs text-ink3">{nimmtAuf ? 'Die App hört zu und schreibt danach mit.' : `Auf ${sprachName} sprechen. Freiwillig — die Meldung geht auch ohne.`}</span>
               </button>
             )}
+            {!ueberAufnahme && !nimmtAuf && team?.chefmonteur?.id && <SprachWahl sprache={sprecherSprache} setzen={(c) => void sprecherSpracheSetzen(c)} />}
           </div>
 
           <button type="button" disabled={speichert} onClick={() => void speichern('normal', 'abweichung')} className="cta disabled:opacity-70">{speichert ? 'Speichert …' : 'Speichern'}</button>
@@ -1538,6 +1572,7 @@ export function Erfassung() {
                   <span className="mt-0.5 block text-xs text-ink3">{mikroFehlt ? 'Mikrofon nicht verfügbar — Speichern geht trotzdem.' : `Auf ${sprachName} sprechen, 10 Sekunden reichen — der Bauführer liest es auf Deutsch.`}</span>
                 </button>
               )}
+              {!ueberAufnahme && !nimmtAuf && team?.chefmonteur?.id && <SprachWahl sprache={sprecherSprache} setzen={(c) => void sprecherSpracheSetzen(c)} />}
             </div>
             <p className="text-xs text-ink3">{ueberTotal > 0
               ? modus === 'regie'
