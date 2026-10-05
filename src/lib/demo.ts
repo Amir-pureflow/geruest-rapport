@@ -96,7 +96,7 @@ const NOTIZ_TEXTE = {
 
 // ── Zeilen (1:1 die Tabellen) ─────────────────────────────────────────────────
 
-export interface MitarbeiterRow { id: string; name: string; typ: 'intern' | 'extern' | 'temporaer'; funktion: string; sprache: 'de' | 'sq' | 'pt' | 'it' | 'ar' | 'pl' | 'en'; temporaerbuero: string | null; aktiv: boolean; oev_standard: boolean; km_standard: number; eintritt: string }
+export interface MitarbeiterRow { id: string; name: string; typ: 'intern' | 'extern' | 'temporaer'; funktion: string; sprache: 'de' | 'sq' | 'pt' | 'it' | 'fr' | 'ar' | 'pl' | 'en'; temporaerbuero: string | null; aktiv: boolean; oev_standard: boolean; km_standard: number; eintritt: string }
 export interface TeamRow { id: string; bezeichnung: string; fahrzeug: string; chefmonteur_id: string; aktiv: boolean }
 export interface TeamMitgliedRow { team_id: string; mitarbeiter_id: string; von: string }
 export interface KundeRow { id: string; name: string; praeferenz: 'einzel' | 'sammel'; ansprechperson: string; email: string; telefon: string }

@@ -7,7 +7,7 @@ interface Person {
   name: string;
   typ: 'intern' | 'extern' | 'temporaer';
   funktion: string;
-  sprache: 'de' | 'sq' | 'pt' | 'it' | 'ar' | 'pl' | 'en';
+  sprache: 'de' | 'sq' | 'pt' | 'it' | 'fr' | 'ar' | 'pl' | 'en';
   temporaerbuero: string | null;
   aktiv: boolean;
   oev_standard: boolean;
@@ -26,6 +26,7 @@ const SPRACHEN: [Person['sprache'], string][] = [
   ['sq', 'Albanisch'],
   ['pt', 'Portugiesisch'],
   ['it', 'Italienisch'],
+  ['fr', 'Französisch'],
   ['ar', 'Arabisch'],
   ['pl', 'Polnisch'],
   ['en', 'Englisch'],

@@ -43,7 +43,7 @@ function antwort(status: number, body: unknown): Response {
   return new Response(JSON.stringify(body), { status, headers: { ...cors, 'Content-Type': 'application/json' } });
 }
 
-const SPRACHEN: Record<string, string> = { de: 'Deutsch', sq: 'Albanisch', pt: 'Portugiesisch', it: 'Italienisch', ar: 'Arabisch', pl: 'Polnisch', en: 'Englisch' };
+const SPRACHEN: Record<string, string> = { de: 'Deutsch', sq: 'Albanisch', pt: 'Portugiesisch', it: 'Italienisch', fr: 'Französisch', ar: 'Arabisch', pl: 'Polnisch', en: 'Englisch' };
 
 const ANWEISUNG =
   'Du bereinigst gesprochene Notizen von einer Gerüstbau-Baustelle zu klarem Schweizer Hochdeutsch («ss» statt «ß»). ' +
@@ -57,7 +57,7 @@ const ANWEISUNG =
   'Ist die Notiz nicht auf Deutsch, zuerst sinngemäss übersetzen, dann bereinigen.';
 
 /** Sprachcode aus dem Profil → Azure-Gebietsschema. Deutsch als de-CH: Hochdeutsch mit Schweizer Zunge. */
-const AZURE_GEBIET: Record<string, string> = { de: 'de-CH', sq: 'sq-AL', pt: 'pt-PT', it: 'it-IT', ar: 'ar-SY', pl: 'pl-PL', en: 'en-US' };
+const AZURE_GEBIET: Record<string, string> = { de: 'de-CH', sq: 'sq-AL', pt: 'pt-PT', it: 'it-IT', fr: 'fr-FR', ar: 'ar-SY', pl: 'pl-PL', en: 'en-US' };
 
 /**
  * Das Ohr, Fassung Azure: schnelle Transkription, ein Aufruf, Antwort in Sekunden.
