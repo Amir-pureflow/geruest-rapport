@@ -39,11 +39,12 @@
     color-scheme: light;
   }
   body {
-    /* Warmer Schleier oben (05.10.2026, Vorbild moderner Dashboards): Hauch Firmenrot und
-       Bernstein, der in den Seitengrund ausläuft — dezent, kein Farbteppich */
+    /* Warmer Schleier oben (05.10.2026, Vorbild moderner Dashboards): Firmenrot und
+       Bernstein, die in den Seitengrund auslaufen */
     background:
-      radial-gradient(1100px 440px at 75% -12%, rgb(224 48 30 / 0.06), transparent 62%),
-      radial-gradient(850px 380px at 8% -8%, rgb(217 147 15 / 0.05), transparent 58%),
+      radial-gradient(1200px 520px at 72% -10%, rgb(224 48 30 / 0.10), transparent 64%),
+      radial-gradient(900px 460px at 6% -6%, rgb(217 147 15 / 0.09), transparent 60%),
+      linear-gradient(to bottom, rgb(224 48 30 / 0.03), transparent 540px),
       var(--color-ground);
     color: var(--color-ink);
     font-family: var(--font-sans);
@@ -51,6 +52,21 @@
     line-height: 1.5;
     -webkit-font-smoothing: antialiased;
     font-feature-settings: 'cv11', 'ss01';
+  }
+  /* Feines Raster im Kopfbereich (wie technisches Millimeterpapier), das nach unten verblasst */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0 0 auto 0;
+    height: 440px;
+    z-index: -1;
+    pointer-events: none;
+    background-image:
+      linear-gradient(rgb(26 25 23 / 0.045) 1px, transparent 1px),
+      linear-gradient(90deg, rgb(26 25 23 / 0.045) 1px, transparent 1px);
+    background-size: 44px 44px;
+    -webkit-mask-image: linear-gradient(to bottom, black 10%, transparent);
+    mask-image: linear-gradient(to bottom, black 10%, transparent);
   }
   h1, h2, h3 {
     letter-spacing: -0.02em;

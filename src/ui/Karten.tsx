@@ -22,11 +22,11 @@ export type KachelFarbe = 'neutral' | 'gruen' | 'gelb' | 'blau' | 'rot';
  * die Zahl selbst bleibt dunkel — der Chip und die Fläche tragen die Bedeutung.
  */
 const KACHEL_STIL: Record<KachelFarbe, { karte: string; chip: string }> = {
-  neutral: { karte: 'border-transparent bg-surface', chip: 'bg-ink2' },
-  gruen: { karte: 'border-good/15 bg-gradient-to-br from-[#effaf4] to-[#dcf2e6]', chip: 'bg-good' },
-  gelb: { karte: 'border-amber/20 bg-gradient-to-br from-[#fff8e6] to-[#fcedcb]', chip: 'bg-amber' },
-  blau: { karte: 'border-steel/15 bg-gradient-to-br from-[#eff5fd] to-[#deeaf9]', chip: 'bg-steel' },
-  rot: { karte: 'border-accent/15 bg-gradient-to-br from-[#fdefed] to-[#fbddd8]', chip: 'bg-accent' },
+  neutral: { karte: 'bg-gradient-to-br from-white to-[#f3f0ea]', chip: 'bg-ink2' },
+  gruen: { karte: 'bg-gradient-to-br from-[#eef9f3] to-[#d5efe0]', chip: 'bg-good' },
+  gelb: { karte: 'bg-gradient-to-br from-[#fff7df] to-[#fbeac0]', chip: 'bg-amber' },
+  blau: { karte: 'bg-gradient-to-br from-[#edf4fd] to-[#d7e6f7]', chip: 'bg-steel' },
+  rot: { karte: 'bg-gradient-to-br from-[#fdedea] to-[#f9d8d1]', chip: 'bg-accent' },
 };
 
 /** Farbe des Fortschrittsbalkens — dieselbe Familie wie Zahl und Text der Kachel. */
@@ -64,7 +64,7 @@ export function Kachel({
   const f = KACHEL_STIL[gewaehlt];
   const anteil = fortschritt && fortschritt.bis > 0 ? fortschritt.von / fortschritt.bis : 0;
   return (
-    <Link to={zu} className={'card group flex flex-col justify-between gap-3 rounded-[20px] border ' + f.karte}>
+    <Link to={zu} className={'card group flex flex-col justify-between gap-3 rounded-[20px] border-2 border-white/70 shadow-[0_1px_2px_rgb(17_17_19/0.04),0_16px_36px_-18px_rgb(17_17_19/0.22)] ' + f.karte}>
       {Icon && (
         <span className="flex items-center justify-between">
           <span className={'grid h-9 w-9 place-items-center rounded-[12px] text-white shadow-[0_4px_10px_-4px_rgb(17_17_19/0.35)] ' + f.chip} aria-hidden="true">
