@@ -19,14 +19,16 @@
  * Hier oben steht darum, was offen ist, nicht dieselbe Zahl zweimal.
  */
 import { Link } from 'react-router-dom';
+import { Check, Minus } from 'lucide-react';
 import type { TeamStand } from '../lib/kennzahlen';
 
 type Zustand = 'gemeldet' | 'ueber' | 'fehlt';
 
-const STIL: Record<Zustand, { kachel: string; punkt: string; zeit: string }> = {
-  gemeldet: { kachel: 'border-line bg-surface', punkt: 'bg-good', zeit: 'text-ink2' },
-  ueber: { kachel: 'border-amber/40 bg-amber-soft', punkt: 'bg-amber', zeit: 'text-amber-deep' },
-  fehlt: { kachel: 'border-line bg-surface-2', punkt: 'border border-line-strong bg-transparent', zeit: 'text-ink3' },
+/** Statuskante links + Abzeichen rechts (05.10.2026: der Mini-Punkt war auf einen Blick nicht lesbar). */
+const STIL: Record<Zustand, { kachel: string; abzeichen: string }> = {
+  gemeldet: { kachel: 'border-line border-l-4 border-l-good bg-surface', abzeichen: 'bg-good-soft text-good-deep' },
+  ueber: { kachel: 'border-amber/40 border-l-4 border-l-amber bg-amber-soft', abzeichen: 'bg-amber text-white' },
+  fehlt: { kachel: 'border-dashed border-line-strong border-l-4 border-l-line-strong bg-surface-2', abzeichen: 'bg-ink/5 text-ink3' },
 };
 
 function Kachel({ t }: { t: TeamStand }) {
@@ -45,11 +47,11 @@ function Kachel({ t }: { t: TeamStand }) {
           : 'noch keine Meldung')
       }
     >
-      <div className="flex items-baseline justify-between gap-2">
+      <div className="flex items-center justify-between gap-2">
         <span className="truncate font-display text-[15px] font-semibold text-ink">{t.bezeichnung}</span>
-        <span className="flex shrink-0 items-center gap-1.5">
-          <span className={'inline-block h-1.5 w-1.5 rounded-full ' + s.punkt} aria-hidden="true" />
-          <span className={'font-mono text-[11px] tabular-nums ' + s.zeit}>{t.gemeldetUm ?? '—'}</span>
+        <span className={'flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 font-mono text-[11px] font-semibold tabular-nums ' + s.abzeichen} aria-hidden="true">
+          {zustand === 'fehlt' ? <Minus size={11} strokeWidth={2.5} /> : <Check size={11} strokeWidth={3} />}
+          {t.gemeldetUm ?? 'offen'}
         </span>
       </div>
       <p className="mt-1 truncate text-[12px] text-ink2">{t.chefmonteur ?? 'kein Chefmonteur hinterlegt'}</p>
