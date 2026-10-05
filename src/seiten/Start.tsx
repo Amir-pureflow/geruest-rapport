@@ -241,8 +241,9 @@ function StartBauf() {
               <div className="col-span-2 md:col-span-1">
                 <Kachel
                   zu="/heute"
+                  titel="Teams heute"
                   wert={`${k.teamsGemeldet} von ${k.teams}`}
-                  label="Teams haben heute gemeldet"
+                  label="haben schon gemeldet"
                   icon={Users}
                   fortschritt={{ von: k.teamsGemeldet, bis: k.teams }}
                   farbe={
@@ -256,6 +257,7 @@ function StartBauf() {
               </div>
               <Kachel
                 zu={`/cockpit?woche=${vorwoche}`}
+                titel="Freigabe"
                 wert={String(k.zuPruefen)}
                 label={k.zuPruefen === 1 ? 'Tag wartet auf Freigabe' : k.zuPruefen > 1 ? 'Tage warten auf Freigabe' : 'Vorwoche ist freigegeben'}
                 icon={CalendarCheck}
@@ -263,8 +265,9 @@ function StartBauf() {
               />
               <Kachel
                 zu={`/cockpit?woche=${vorwoche}`}
+                titel="Überstunden"
                 wert={String(k.ueberOffen)}
-                label={k.ueberOffen > 0 ? 'Überstunden der Vorwoche — Notiz lesen' : 'Überstunden der Vorwoche offen'}
+                label={k.ueberOffen > 0 ? 'aus der Vorwoche — Notiz lesen' : 'aus der Vorwoche offen'}
                 icon={AlarmClock}
                 farbe={k.ueberOffen > 0 ? 'gelb' : 'neutral'}
               />
@@ -276,29 +279,31 @@ function StartBauf() {
                 <Kachel
                   zu="/zusatzauftrag"
                   icon={PhoneCall}
+                  titel="Zusatzaufträge"
                   wert={String(rz.offeneAuftraege)}
                   label={
                     rz.ohneMeldung > 0
-                      ? `offene Zusatzaufträge · ${rz.ohneMeldung} ohne Meldung vom Team`
+                      ? `offen · ${rz.ohneMeldung} ohne Meldung vom Team`
                       : rz.heuteGeplant > 0
-                        ? `offene Zusatzaufträge · ${rz.heuteGeplant} heute`
-                        : 'offene Zusatzaufträge'
+                        ? `offen · ${rz.heuteGeplant} heute geplant`
+                        : 'offen'
                   }
                   warn={rz.ohneMeldung > 0}
                 />
                 <Kachel
                   zu="/regie"
                   icon={Banknote}
+                  titel="Regie in Arbeit"
                   wert={formatChf(rz.inArbeitRappen)}
                   label={
                     rz.inArbeitAltRappen > 0
-                      ? `Regie in Arbeit · ${formatChf(rz.inArbeitAltRappen)} älter als 30 Tage`
-                      : `Regie in Arbeit · ${rz.beimKunden} beim Kunden`
+                      ? `${formatChf(rz.inArbeitAltRappen)} älter als 30 Tage`
+                      : `${rz.beimKunden} beim Kunden`
                   }
                   warn={rz.inArbeitAltRappen > 0}
                 />
-                <Kachel zu="/regie" icon={AlarmClock} wert={String(rz.ueberfaellig)} label="Frist abgelaufen — nachfassen" farbe={rz.ueberfaellig > 0 ? 'rot' : 'neutral'} />
-                <Kachel zu="/auswertung" icon={Send} wert={formatChf(rz.monatRappen)} label={`Regie verschickt im ${MONATE[heute.getMonth()]}`} farbe="gruen" />
+                <Kachel zu="/regie" icon={AlarmClock} titel="Fristen" wert={String(rz.ueberfaellig)} label="abgelaufen — nachfassen" farbe={rz.ueberfaellig > 0 ? 'rot' : 'neutral'} />
+                <Kachel zu="/auswertung" icon={Send} titel="Verschickt" wert={formatChf(rz.monatRappen)} label={`Regie im ${MONATE[heute.getMonth()]}`} farbe="gruen" />
               </div>
             )}
 

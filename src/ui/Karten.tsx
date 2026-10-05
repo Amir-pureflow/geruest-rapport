@@ -45,6 +45,7 @@ const BALKEN: Record<KachelFarbe, string> = {
  */
 export function Kachel({
   zu,
+  titel,
   wert,
   label,
   warn,
@@ -53,8 +54,10 @@ export function Kachel({
   icon: Icon,
 }: {
   zu: string;
+  /** Kurzer Name der Kennzahl, steht neben dem Icon-Chip (Vorbild-Anatomie, 05.10.2026) */
+  titel?: string;
   wert: string;
-  label: string;
+  label?: string;
   warn?: boolean;
   farbe?: KachelFarbe;
   fortschritt?: { von: number; bis: number };
@@ -64,17 +67,20 @@ export function Kachel({
   const f = KACHEL_STIL[gewaehlt];
   const anteil = fortschritt && fortschritt.bis > 0 ? fortschritt.von / fortschritt.bis : 0;
   return (
-    <Link to={zu} className={'card group flex flex-col justify-between gap-3 rounded-[20px] border-2 border-white/70 shadow-[0_1px_2px_rgb(17_17_19/0.04),0_16px_36px_-18px_rgb(17_17_19/0.22)] ' + f.karte}>
-      {Icon && (
-        <span className="flex items-center justify-between">
-          <span className={'grid h-9 w-9 place-items-center rounded-[12px] text-white shadow-[0_4px_10px_-4px_rgb(17_17_19/0.35)] ' + f.chip} aria-hidden="true">
-            <Icon size={18} strokeWidth={2.2} />
-          </span>
-          <span className="text-ink3 transition-transform duration-150 group-hover:translate-x-0.5" aria-hidden="true">→</span>
+    <Link to={zu} className={'card group flex flex-col justify-between gap-3.5 rounded-[20px] border-2 border-white/70 shadow-[0_1px_2px_rgb(17_17_19/0.04),0_16px_36px_-18px_rgb(17_17_19/0.22)] ' + f.karte}>
+      <span className="flex items-center justify-between gap-2">
+        <span className="flex min-w-0 items-center gap-2.5">
+          {Icon && (
+            <span className={'grid h-9 w-9 flex-none place-items-center rounded-[12px] text-white shadow-[0_4px_10px_-4px_rgb(17_17_19/0.35)] ' + f.chip} aria-hidden="true">
+              <Icon size={18} strokeWidth={2.2} />
+            </span>
+          )}
+          {titel && <span className="truncate text-sm font-semibold text-ink">{titel}</span>}
         </span>
-      )}
+        <span className="text-ink3 transition-transform duration-150 group-hover:translate-x-0.5" aria-hidden="true">→</span>
+      </span>
       <span className="block">
-        <span className="block text-[26px] font-semibold leading-none tabular-nums tracking-tight text-ink lg:text-[30px]">
+        <span className="block text-[28px] font-semibold leading-none tabular-nums tracking-tight text-ink lg:text-[32px]">
           {wert}
         </span>
         {fortschritt && (
@@ -85,7 +91,7 @@ export function Kachel({
             />
           </span>
         )}
-        <span className="mt-1.5 block text-xs leading-snug text-ink2 lg:text-[13px]">{label}</span>
+        {label && <span className="mt-1.5 block text-xs leading-snug text-ink2 lg:text-[13px]">{label}</span>}
       </span>
     </Link>
   );

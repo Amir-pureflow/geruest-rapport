@@ -42,9 +42,9 @@
     /* Warmer Schleier oben (05.10.2026, Vorbild moderner Dashboards): Firmenrot und
        Bernstein, die in den Seitengrund auslaufen */
     background:
-      radial-gradient(1200px 520px at 72% -10%, rgb(224 48 30 / 0.10), transparent 64%),
-      radial-gradient(900px 460px at 6% -6%, rgb(217 147 15 / 0.09), transparent 60%),
-      linear-gradient(to bottom, rgb(224 48 30 / 0.03), transparent 540px),
+      radial-gradient(1400px 680px at 70% -12%, rgb(224 48 30 / 0.17), transparent 70%),
+      radial-gradient(1050px 580px at 4% -8%, rgb(217 147 15 / 0.14), transparent 64%),
+      linear-gradient(to bottom, rgb(224 48 30 / 0.05), transparent 720px),
       var(--color-ground);
     color: var(--color-ink);
     font-family: var(--font-sans);
