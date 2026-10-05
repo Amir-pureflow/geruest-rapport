@@ -291,7 +291,7 @@ export function StartChef() {
           <p className="lbl mb-0">Heute · {lang(heute)}</p>
           {planHeute
             ? <p className="text-sm text-ink2">Laut Plan: <span className="knr">{planHeute.konto_nr}</span> {planHeute.bezeichnung ?? ''}</p>
-            : <p className="text-sm text-ink3">Heute nichts im Jahresplan — in der Erfassung die Baustelle wählen.</p>}
+            : <p className="text-sm text-ink3">Die Baustelle wählst du beim Melden in der Erfassung.</p>}
           {/* Der Plan ist nur ein Vorschlag — wer woanders war, wechselt die Baustelle in der Erfassung */}
           <p className="text-xs text-ink3">
             Woanders gewesen? <Link to="/erfassung?baustelle=wahl" className="font-semibold text-steel">Andere Baustelle wählen ›</Link>

@@ -218,11 +218,12 @@ export function Tag() {
                     <span className="min-w-0">
                       <span className="block text-[15px] font-semibold">{t.bezeichnung}</span>
                       <span className="block truncate text-sm text-ink2">{t.chefmonteur?.name ?? 'kein Chefmonteur'}</span>
-                      <span className="mt-1.5 flex min-w-0 items-center gap-1.5 text-xs text-ink3">
-                        {bs
-                          ? <><span className="knr">{bs.konto_nr}</span><span className="truncate">{bs.bezeichnung ?? ''}</span></>
-                          : <span>nichts im Jahresplan</span>}
-                      </span>
+                      {/* Ohne Plan-Eintrag bleibt die Zeile leer — «nichts im Jahresplan» verwirrte Firmen ohne Board (05.10.2026) */}
+                      {bs && (
+                        <span className="mt-1.5 flex min-w-0 items-center gap-1.5 text-xs text-ink3">
+                          <span className="knr">{bs.konto_nr}</span><span className="truncate">{bs.bezeichnung ?? ''}</span>
+                        </span>
+                      )}
                     </span>
                     <span className="shrink-0 text-xs font-semibold text-steel opacity-0 transition-opacity group-hover:opacity-100">Woche ›</span>
                   </Link>
