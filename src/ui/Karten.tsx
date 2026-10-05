@@ -21,12 +21,13 @@ export type KachelFarbe = 'neutral' | 'gruen' | 'gelb' | 'blau' | 'rot';
  * Die Farbe sagt, was die Zahl bedeutet (grün gut, gelb wartet, blau unterwegs, rot dringend);
  * die Zahl selbst bleibt dunkel — der Chip und die Fläche tragen die Bedeutung.
  */
+// Überwiegend weiss, die Farbe läuft nur sanft in die untere Ecke (Vorbild-Detail, 05.10.2026)
 const KACHEL_STIL: Record<KachelFarbe, { karte: string; chip: string }> = {
-  neutral: { karte: 'bg-gradient-to-br from-white to-[#f1ede5]', chip: 'bg-ink2' },
-  gruen: { karte: 'bg-gradient-to-br from-[#ecf9f2] to-[#cdeedb]', chip: 'bg-good' },
-  gelb: { karte: 'bg-gradient-to-br from-[#fff6da] to-[#fae3a8]', chip: 'bg-amber' },
-  blau: { karte: 'bg-gradient-to-br from-[#ebf3fd] to-[#cfe1f6]', chip: 'bg-steel' },
-  rot: { karte: 'bg-gradient-to-br from-[#fdecea] to-[#f8cfc7]', chip: 'bg-accent' },
+  neutral: { karte: 'bg-gradient-to-br from-white via-white to-[#f1ede5]', chip: 'bg-ink2' },
+  gruen: { karte: 'bg-gradient-to-br from-white via-white to-[#d4f0e0]', chip: 'bg-good' },
+  gelb: { karte: 'bg-gradient-to-br from-white via-white to-[#fbe6ae]', chip: 'bg-amber' },
+  blau: { karte: 'bg-gradient-to-br from-white via-white to-[#d6e6f8]', chip: 'bg-steel' },
+  rot: { karte: 'bg-gradient-to-br from-white via-white to-[#f9d8d1]', chip: 'bg-accent' },
 };
 
 /** Farbe des Fortschrittsbalkens — dieselbe Familie wie Zahl und Text der Kachel. */
