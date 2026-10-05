@@ -170,10 +170,10 @@ export function StartSekretariat() {
         ) : (
           <>
             <div className="grid grid-cols-2 gap-2.5 md:grid-cols-4 md:gap-4">
-              <Kachel zu={exportLink} icon={Clock} titel="Stunden" wert={`${stunden(total)} h`} label={`${zeitraum === 'monat' ? 'im Monat' : 'in der Woche'} · ${personen.length} von ${aktive} Mitarbeitenden`} />
-              <Kachel zu={exportLink} icon={AlarmClock} titel="Überstunden" wert={`${stunden(ueber)} h`} label={zeitraum === 'monat' ? 'im Monat' : 'in der Woche'} farbe={ueber > 0 ? 'gelb' : 'neutral'} />
+              <Kachel zu={exportLink} icon={Clock} titel="Stunden" wert={`${stunden(total)} h`} label={`${zeitraum === 'monat' ? 'im Monat' : 'in der Woche'} · ${personen.length} von ${aktive} Mitarbeitenden`} farbe="blau" />
+              <Kachel zu={exportLink} icon={AlarmClock} titel="Überstunden" wert={`${stunden(ueber)} h`} label={zeitraum === 'monat' ? 'im Monat' : 'in der Woche'} farbe="gelb" />
               <Kachel zu={exportLink} icon={CheckCircle2} titel="Freigegeben" wert={`${stunden(frei)} h`} label="vom Bauführer — bereit für den Lohn" farbe="gruen" />
-              <Kachel zu={exportLink} icon={Hourglass} titel="Offen" wert={`${stunden(offen)} h`} label={offen > 0 ? 'der Bauführer prüft noch' : 'alles freigegeben'} farbe={offen > 0 ? 'gelb' : 'gruen'} />
+              <Kachel zu={exportLink} icon={Hourglass} titel="Offen" wert={`${stunden(offen)} h`} label={offen > 0 ? 'der Bauführer prüft noch' : 'alles freigegeben'} farbe="rot" />
             </div>
 
             {offen > 0 && (

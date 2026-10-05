@@ -246,13 +246,7 @@ function StartBauf() {
                   label="haben schon gemeldet"
                   icon={Users}
                   fortschritt={{ von: k.teamsGemeldet, bis: k.teams }}
-                  farbe={
-                    k.teams > 0 && k.teamsGemeldet === k.teams
-                      ? 'gruen'
-                      : k.teamsGemeldet < k.teams && heute.getDay() >= 1 && heute.getDay() <= 5 && heute.getHours() >= 17
-                        ? 'gelb'
-                        : 'neutral'
-                  }
+                  farbe="blau"
                 />
               </div>
               <Kachel
@@ -261,7 +255,7 @@ function StartBauf() {
                 wert={String(k.zuPruefen)}
                 label={k.zuPruefen === 1 ? 'Tag wartet auf Freigabe' : k.zuPruefen > 1 ? 'Tage warten auf Freigabe' : 'Vorwoche ist freigegeben'}
                 icon={CalendarCheck}
-                farbe={k.zuPruefen > 0 ? 'gelb' : 'gruen'}
+                farbe="gelb"
               />
               <Kachel
                 zu={`/cockpit?woche=${vorwoche}`}
@@ -269,7 +263,7 @@ function StartBauf() {
                 wert={String(k.ueberOffen)}
                 label={k.ueberOffen > 0 ? 'aus der Vorwoche — Notiz lesen' : 'aus der Vorwoche offen'}
                 icon={AlarmClock}
-                farbe={k.ueberOffen > 0 ? 'gelb' : 'neutral'}
+                farbe="rot"
               />
             </div>
 
@@ -288,7 +282,7 @@ function StartBauf() {
                         ? `offen · ${rz.heuteGeplant} heute geplant`
                         : 'offen'
                   }
-                  warn={rz.ohneMeldung > 0}
+                  farbe="blau"
                 />
                 <Kachel
                   zu="/regie"
@@ -300,9 +294,9 @@ function StartBauf() {
                       ? `${formatChf(rz.inArbeitAltRappen)} älter als 30 Tage`
                       : `${rz.beimKunden} beim Kunden`
                   }
-                  warn={rz.inArbeitAltRappen > 0}
+                  farbe="gelb"
                 />
-                <Kachel zu="/regie" icon={AlarmClock} titel="Fristen" wert={String(rz.ueberfaellig)} label="abgelaufen — nachfassen" farbe={rz.ueberfaellig > 0 ? 'rot' : 'neutral'} />
+                <Kachel zu="/regie" icon={AlarmClock} titel="Fristen" wert={String(rz.ueberfaellig)} label="abgelaufen — nachfassen" farbe="rot" />
                 <Kachel zu="/auswertung" icon={Send} titel="Verschickt" wert={formatChf(rz.monatRappen)} label={`Regie im ${MONATE[heute.getMonth()]}`} farbe="gruen" />
               </div>
             )}
