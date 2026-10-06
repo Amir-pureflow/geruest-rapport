@@ -14,7 +14,7 @@
  * nur als bereits verschickt dargestellt.
  */
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { addTage, iso } from './datum';
+import { addTage, iso, montag } from './datum';
 import { tarifNachCode, positionBetrag, materialmiete, ETAPPE_MIN_RAPPEN, RUECKFALL_ANSATZ_RAPPEN } from './tarif';
 import type { DemoBetrieb, Protokoll } from './demo';
 
@@ -102,12 +102,27 @@ export function erzeugeDemoRegie(d: DemoBetrieb, opts: { heute: Date; userId: st
     .filter((m) => m.normalfall && d.eintraege.some((e) => e.tagesmeldung_id === m.id && e.ueber_min > 0))
     .sort((a, b) => a.datum.localeCompare(b.datum));
 
+  // Stand je Fall (06.10.2026, fürs Video): ältere Wochen sind erledigt — fast alles bestätigt, genau
+  // eine Rückfrage und genau eine abgelaufene Frist. In der Vorwoche sind die ersten drei Fälle schon
+  // Rapport (gestern verschickt bzw. Entwurf), die übrigen warten auf den Entscheid des Bauführers.
+  // Diese Woche: noch kein Rapport — nur der Zusatzauftrag.
+  const wochenStart = montag(heute);
+  const vorwoche = iso(addTage(wochenStart, -7));
+  const diese = iso(wochenStart);
+  const aeltere = mitUeber.filter((m) => m.datum < vorwoche);
+  const standAelter = new Map<string, string>();
+  aeltere.forEach((m, i) => standAelter.set(m.id, i === aeltere.length - 1 ? 'rueckfrage' : i === aeltere.length - 3 ? 'frist_abgelaufen' : 'bestaetigt'));
+  const vorwochenFaelle = mitUeber.filter((m) => m.datum >= vorwoche && m.datum < diese);
+  const standVorwoche = new Map<string, string>();
+  vorwochenFaelle.slice(0, 3).forEach((m, i) => standVorwoche.set(m.id, ['versendet', 'entwurf', 'versendet'][i]));
+
   let nummer = 31;
   for (const m of mitUeber) {
     const k = kundeVon(m.baustelle_id);
     if (!k) continue;
     const tag = new Date(m.datum + 'T12:00:00');
     const alterTage = Math.round((heute.getTime() - tag.getTime()) / 86400000);
+    const geplanterStand = standAelter.get(m.id) ?? standVorwoche.get(m.id) ?? null;
 
     // Der Kunde hat am Vortag angerufen — das ist der Zusatzauftrag zur Überstunde
     const za: ZusatzauftragRow = {
@@ -120,7 +135,7 @@ export function erzeugeDemoRegie(d: DemoBetrieb, opts: { heute: Date; userId: st
       status: 'offen',
     };
     zusatzauftraege.push(za);
-    if (alterTage < 1) continue; // ganz frisch: noch kein Rapport
+    if (alterTage < 1 || !geplanterStand) continue; // noch kein Rapport: frisch oder wartet auf den Entscheid
 
     // Positionen: die Überstunden je Funktion, dazu Lieferwagen, Etappenzuschlag, Materialmiete
     const rid = z.uuid();
@@ -147,14 +162,12 @@ export function erzeugeDemoRegie(d: DemoBetrieb, opts: { heute: Date; userId: st
     pos.push({ id: z.uuid(), regierapport_id: rid, tarif_code: 'materialmiete', bezeichnung: 'Materialmiete 9 %', menge_hundertstel: 100, ansatz_rappen: miete, betrag_rappen: miete });
     positionen.push(...pos);
 
-    const erstellt = addTage(tag, 1);
-    const versendet = addTage(tag, z.int(1, 2));
+    const status = geplanterStand;
+    // Vorwoche: gestern vorbereitet und verschickt — die Frist läuft noch, und «Verschickt» im Monat ist nicht leer
+    const ausVorwoche = standVorwoche.has(m.id);
+    const erstellt = ausVorwoche ? addTage(heute, -1) : addTage(tag, 1);
+    const versendet = ausVorwoche ? addTage(heute, -1) : addTage(tag, z.int(1, 2));
     const frist = addTage(versendet, 3);
-    const status = alterTage >= 10
-      ? (z.chance(0.8) ? 'bestaetigt' : 'frist_abgelaufen')
-      : alterTage >= 4
-        ? (z.chance(0.6) ? 'versendet' : z.chance(0.8) ? 'bestaetigt' : 'rueckfrage')
-        : (z.chance(0.7) ? 'versendet' : 'entwurf');
     const bestaetigt = status === 'bestaetigt' ? addTage(versendet, z.int(0, 2)) : null;
 
     regierapporte.push({

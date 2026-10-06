@@ -63,12 +63,13 @@ export function Demo() {
         <p className="font-display text-lg font-semibold">Demo-Betrieb</p>
         <p className="text-sm text-ink2">
           Erzeugt einen vollständigen Gerüstbaubetrieb: <b>75 Mitarbeitende</b> (45 fest, 30 temporär),
-          5 Bauführer, <b>20 Teams</b> mit Chefmonteur, 30 Kunden mit Bauleitung, alle 217 Konten zugeordnet,
-          Jahresplan und <b>fünf Wochen Tagesmeldungen</b>.
+          5 Bauführer, <b>20 Teams</b> mit Vorarbeiter, 30 Kunden mit Bauleitung, erfundene Baustellen,
+          Planung und <b>fünf Wochen Tagesmeldungen</b> mit Sprachnotizen auf Italienisch, Französisch, Polnisch und Portugiesisch.
+          Die Vorwoche bleibt zum Prüfen offen — am besten am Tag der Vorführung laden.
         </p>
         <p className="text-xs text-ink3">
           Kunden-Mails enden auf <span className="font-mono">.example</span> — aus der Demo geht nie eine Mail an eine echte fremde Adresse.
-          Ersetzt alle bisherigen Bewegungsdaten; die 217 Konten bleiben.
+          Ersetzt alle bisherigen Bewegungsdaten; die Kontonummern bleiben, ihre Namen werden durch erfundene ersetzt.
         </p>
         <div className="flex flex-wrap gap-2">
           {bestaetigen === 'laden' ? (

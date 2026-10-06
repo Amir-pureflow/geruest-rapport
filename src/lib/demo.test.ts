@@ -20,7 +20,7 @@ describe('Demo-Betrieb — Struktur wie im Gespräch mit Arbnor', () => {
     expect(new Set(d.mitarbeiter.map((m) => m.name)).size).toBe(75);
   });
 
-  it('20 Teams à 3–4 Personen, je ein Chefmonteur, alle Temporären verteilt', () => {
+  it('20 Teams à 3–4 Personen, je ein Vorarbeiter, alle Temporären verteilt', () => {
     expect(d.teams).toHaveLength(20);
     for (const t of d.teams) {
       const mitglieder = d.teamMitglieder.filter((m) => m.team_id === t.id);
@@ -41,8 +41,8 @@ describe('Demo-Betrieb — Struktur wie im Gespräch mit Arbnor', () => {
     expect(d.baustellen.filter((b) => b.status === 'fertig_gemeldet').every((b) => b.fertigstellung_am)).toBe(true);
   });
 
-  it('Jahresplan: drei Blöcke pro Team, aktueller Block deckt heute', () => {
-    expect(d.jahresplan).toHaveLength(60);
+  it('Planung: mindestens drei Einsätze pro Team, einer deckt heute', () => {
+    expect(d.jahresplan.length).toBeGreaterThanOrEqual(60);
     const heuteIso = '2026-09-03';
     for (const t of d.teams) {
       const bloecke = d.jahresplan.filter((j) => j.team_id === t.id);
@@ -50,12 +50,13 @@ describe('Demo-Betrieb — Struktur wie im Gespräch mit Arbnor', () => {
     }
   });
 
-  it('Fünf Wochen Meldungen: Vergangenes freigegeben, aktuelle Woche offen, Zeit in Integer-Minuten', () => {
+  it('Fünf Wochen Meldungen: ältere Wochen freigegeben, Vorwoche und aktuelle Woche offen, Zeit in Integer-Minuten', () => {
     expect(d.meldungen.length).toBeGreaterThan(350);
     expect(d.eintraege.length).toBeGreaterThan(1000);
     for (const m of d.meldungen) {
       expect(m.datum <= '2026-09-03').toBe(true);
-      const woche = m.datum < '2026-08-31' ? 'freigegeben' : 'offen';
+      // Vorwoche bleibt offen — im Video wird sie geprüft und freigegeben
+      const woche = m.datum < '2026-08-24' ? 'freigegeben' : 'offen';
       expect(m.status).toBe(woche);
     }
     for (const e of d.eintraege) {
@@ -77,7 +78,8 @@ describe('Demo-Betrieb — Struktur wie im Gespräch mit Arbnor', () => {
     expect(nurNotiz.length).toBeGreaterThan(0);
     for (const e of d.eintraege) {
       expect(e.normal_min).toBeLessThanOrEqual(504);
-      expect(e.ueber_min % 30).toBe(0);
+      // Zeiten von–bis und Minuten passen zusammen — wie bei einer echten Meldung
+      expect(e.normal_min + e.ueber_min).toBe((e.bis_min! - e.von_min!) + (e.bis2_min! - e.von2_min!));
     }
   });
 
@@ -85,5 +87,31 @@ describe('Demo-Betrieb — Struktur wie im Gespräch mit Arbnor', () => {
     const d2 = erzeugeDemoBetrieb({ baustellen, heute, userId: 'u1' });
     expect(d2.mitarbeiter.map((m) => m.name)).toEqual(d.mitarbeiter.map((m) => m.name));
     expect(d2.meldungen.length).toBe(d.meldungen.length);
+  });
+
+  it('Baustellen und Kunden sind erfunden — nie die echte Kontenliste', () => {
+    const original = new Set(baustellen.map((b) => b.bezeichnung));
+    for (const b of d.baustellen) expect(original.has(b.bezeichnung ?? '')).toBe(false);
+    expect(d.baustellen.filter((b) => b.status === 'aktiv')).toHaveLength(80);
+    for (const k of d.kunden) expect(k.name).not.toMatch(/SBB|Post |Stadt Bern|Kanton/);
+  });
+
+  it('Notizen stehen im Original und auf Deutsch, Team 3 spricht Italienisch', () => {
+    const team3 = d.teams.find((t) => t.bezeichnung === 'Team 3')!;
+    expect(d.mitarbeiter.find((m) => m.id === team3.chefmonteur_id)?.sprache).toBe('it');
+    const fremd = d.meldungen.filter((m) => m.transkript_sprache && m.transkript_sprache !== 'de');
+    expect(new Set(fremd.map((m) => m.transkript_sprache))).toEqual(new Set(['it', 'fr', 'pl', 'pt']));
+    for (const m of fremd) {
+      expect(m.transkript).toBeTruthy();
+      expect(m.transkript_quelle).toBeTruthy();
+      expect(m.transkript_quelle).not.toBe(m.transkript);
+    }
+  });
+
+  it('heute haben 16 von 20 Teams gemeldet, zwei davon mit Überstunden', () => {
+    const heuteMeldungen = d.meldungen.filter((m) => m.datum === '2026-09-03');
+    expect(heuteMeldungen).toHaveLength(16);
+    const mitUeber = heuteMeldungen.filter((m) => d.eintraege.some((e) => e.tagesmeldung_id === m.id && e.ueber_min > 0));
+    expect(mitUeber).toHaveLength(2);
   });
 });

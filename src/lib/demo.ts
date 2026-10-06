@@ -1,9 +1,16 @@
 /**
  * Demo-Betrieb — ein vollständiger, deterministischer Gerüstbaubetrieb:
  * 75 Mitarbeitende (45 fest + 30 temporär), 5 Bauführer, 20 Teams mit
- * Chefmonteur, 30 Kunden/Bauleitungen, alle 217 Konten zugeordnet,
- * Jahresplan, fünf Wochen Tagesmeldungen mit Überstunden und Sprachnotizen.
- * Gleicher Seed = gleiche Daten.
+ * Vorarbeiter, 30 Kunden/Bauleitungen, alle Konten zugeordnet,
+ * Planung, fünf Wochen Tagesmeldungen mit Überstunden und Sprachnotizen.
+ * Gleicher Seed und gleiches Datum = gleiche Daten.
+ *
+ * Video-tauglich (06.10.2026): Baustellen und Kunden sind erfunden — die Demo-Firma zeigt nie die
+ * echte Kontenliste eines Kunden. Vorarbeiter sprechen Italienisch, Französisch, Polnisch oder
+ * Portugiesisch; ihre Notizen stehen im Original und auf Deutsch. Die Vorwoche ist noch offen
+ * (Prüfen und Freigeben lässt sich zeigen), ältere Wochen sind freigegeben. Jeder Eintrag hat
+ * echte Zeiten von–bis. Was das Video braucht (Team 3 auf Italienisch, Überstunden heute, eine
+ * Vorwoche mit Hinweisen in fünf Sprachen), steht fest; der Rest ist Zufall mit festem Seed.
  *
  * Zusatzaufträge und Regierapporte stehen in `demo_regie.ts` und werden nur geladen, wenn die Firma
  * `MODUS_ERFASSUNG = regie` gesetzt hat (02.10.2026). Ohne Regie macht SORBA das.
@@ -12,8 +19,20 @@
  * Demo darf nie eine Mail an eine echte fremde Adresse gehen.
  */
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { addTage, iso, montag, NORMALTAG_MIN } from './datum';
-import { einstellungen } from './einstellungen';
+import { addTage, iso, montag } from './datum';
+import { aufteilen } from './zeiten';
+import { eigeneFirma, einstellungen } from './einstellungen';
+
+/**
+ * Nur diese Firmen dürfen den Demo-Betrieb laden oder leeren. Er ersetzt ALLE Bewegungsdaten —
+ * in einer echten Firma (Gerüst GmbH) wäre das ein Totalverlust mit zwei Klicks.
+ */
+export const DEMO_FIRMEN = ['We-Plan'];
+
+export function istDemoFirma(): boolean {
+  const f = eigeneFirma();
+  return !!f && DEMO_FIRMEN.includes(f.name);
+}
 
 // ── Zufall, reproduzierbar ────────────────────────────────────────────────────
 
@@ -49,61 +68,172 @@ class Zufall {
 
 // ── Namen ─────────────────────────────────────────────────────────────────────
 
-const VN_DE = ['Marco', 'Reto', 'Stefan', 'Daniel', 'Michael', 'Thomas', 'Patrick', 'Adrian', 'Christian', 'Lukas', 'Simon', 'Fabian', 'Pascal', 'Dominik', 'Sandro', 'Roman', 'Beat', 'Urs', 'Kevin', 'Nicolas', 'Matthias', 'Jonas'];
-const NN_DE = ['Müller', 'Meier', 'Schmid', 'Keller', 'Weber', 'Huber', 'Schneider', 'Steiner', 'Fischer', 'Gerber', 'Brunner', 'Baumann', 'Zimmermann', 'Moser', 'Widmer', 'Wyss', 'Graf', 'Roth', 'Lüthi', 'Bieri', 'Aebi', 'Hofer', 'Jost', 'Zbinden'];
-const VN_ALB = ['Besnik', 'Valon', 'Drilon', 'Fatmir', 'Ilir', 'Blerim', 'Shpend', 'Agron', 'Kushtrim', 'Liridon', 'Burim', 'Ardian', 'Gëzim', 'Mentor', 'Florent', 'Visar', 'Enis', 'Dritan'];
-const NN_ALB = ['Krasniqi', 'Sylaj', 'Berisha', 'Gashi', 'Hoxha', 'Shala', 'Bytyqi', 'Rexhepi', 'Morina', 'Kelmendi', 'Zeqiri', 'Ademi', 'Maliqi', 'Osmani', 'Bajrami'];
-const VN_PL = ['Marek', 'Tomasz', 'Piotr', 'Krzysztof', 'Paweł', 'Łukasz', 'Grzegorz', 'Andrzej', 'Mateusz', 'Jakub', 'Rafał'];
-const NN_PL = ['Nowak', 'Kowalski', 'Wiśniewski', 'Wójcik', 'Kamiński', 'Lewandowski', 'Zieliński', 'Szymański', 'Dąbrowski', 'Mazur'];
-const VN_AR = ['Ahmad', 'Omar', 'Youssef', 'Karim', 'Sami', 'Hassan', 'Bilal', 'Tarek', 'Rami', 'Nabil'];
-const NN_AR = ['Haddad', 'Khalil', 'Nasser', 'Saleh', 'Mansour', 'Aziz', 'Farah', 'Hamdan', 'Karam'];
-const VN_EN = ['Daniel', 'Samuel', 'Emmanuel', 'Joseph', 'Kofi'];
-const NN_EN = ['Okafor', 'Mensah', 'Adeyemi', 'Boateng', 'Asante'];
+type Herkunft = 'ch' | 'alb' | 'it' | 'pt' | 'pl' | 'fr' | 'ar' | 'en';
+type Sprache = 'de' | 'sq' | 'pt' | 'it' | 'fr' | 'ar' | 'pl' | 'en';
+
+const NAMEN: Record<Herkunft, [readonly string[], readonly string[]]> = {
+  ch: [['Marco', 'Reto', 'Stefan', 'Daniel', 'Michael', 'Thomas', 'Patrick', 'Adrian', 'Christian', 'Lukas', 'Simon', 'Fabian', 'Pascal', 'Dominik', 'Sandro', 'Roman', 'Beat', 'Urs', 'Kevin', 'Nicolas', 'Matthias', 'Jonas'],
+    ['Müller', 'Meier', 'Schmid', 'Keller', 'Weber', 'Huber', 'Schneider', 'Steiner', 'Fischer', 'Gerber', 'Brunner', 'Baumann', 'Zimmermann', 'Moser', 'Widmer', 'Wyss', 'Graf', 'Roth', 'Lüthi', 'Bieri', 'Aebi', 'Hofer', 'Jost', 'Zbinden']],
+  alb: [['Besnik', 'Valon', 'Drilon', 'Fatmir', 'Ilir', 'Blerim', 'Shpend', 'Agron', 'Kushtrim', 'Liridon', 'Burim', 'Ardian', 'Gëzim', 'Mentor', 'Florent', 'Visar', 'Enis', 'Dritan'],
+    ['Krasniqi', 'Sylaj', 'Berisha', 'Gashi', 'Hoxha', 'Shala', 'Bytyqi', 'Rexhepi', 'Morina', 'Kelmendi', 'Zeqiri', 'Ademi', 'Maliqi', 'Osmani', 'Bajrami']],
+  it: [['Luca', 'Giuseppe', 'Alessandro', 'Davide', 'Francesco', 'Matteo', 'Salvatore', 'Antonio', 'Vincenzo', 'Lorenzo'],
+    ['Rossi', 'Bianchi', 'Esposito', 'Russo', 'Ferrari', 'Romano', 'Colombo', 'Ricci', 'Marino', 'Greco', 'Lombardi', 'Gallo']],
+  pt: [['João', 'Pedro', 'Rui', 'Tiago', 'Nuno', 'Miguel', 'Paulo', 'Ricardo'],
+    ['Silva', 'Santos', 'Ferreira', 'Pereira', 'Costa', 'Rodrigues', 'Martins', 'Gonçalves', 'Oliveira']],
+  pl: [['Marek', 'Tomasz', 'Piotr', 'Krzysztof', 'Paweł', 'Łukasz', 'Grzegorz', 'Andrzej', 'Mateusz', 'Jakub', 'Rafał'],
+    ['Nowak', 'Kowalski', 'Wiśniewski', 'Wójcik', 'Kamiński', 'Lewandowski', 'Zieliński', 'Szymański', 'Dąbrowski', 'Mazur']],
+  fr: [['Julien', 'Mathieu', 'Olivier', 'Sébastien', 'Yann', 'Cédric', 'Loïc'],
+    ['Rochat', 'Favre', 'Chappuis', 'Bovet', 'Girard', 'Monnier', 'Pittet']],
+  ar: [['Ahmad', 'Omar', 'Youssef', 'Karim', 'Sami', 'Hassan', 'Bilal', 'Tarek', 'Rami', 'Nabil'],
+    ['Haddad', 'Khalil', 'Nasser', 'Saleh', 'Mansour', 'Aziz', 'Farah', 'Hamdan', 'Karam']],
+  en: [['Daniel', 'Samuel', 'Emmanuel', 'Joseph', 'Kofi'], ['Okafor', 'Mensah', 'Adeyemi', 'Boateng', 'Asante']],
+};
+
+/** Vorarbeiter je Team: Herkunft und Sprache der Sprachnotiz. Fest, damit das Video immer gleich aussieht. */
+const VORARBEITER: [Herkunft, Sprache][] = [
+  ['ch', 'de'], ['it', 'it'], ['it', 'it'], ['alb', 'de'], ['pt', 'pt'], ['ch', 'de'], ['pl', 'pl'], ['alb', 'de'], ['fr', 'fr'], ['ch', 'de'],
+  ['it', 'it'], ['alb', 'de'], ['pt', 'pt'], ['ch', 'de'], ['alb', 'de'], ['pl', 'pl'], ['ch', 'de'], ['it', 'it'], ['alb', 'de'], ['fr', 'fr'],
+];
 
 const TEMPORAERBUEROS = ['Adecco', 'Manpower', 'Randstad', 'Interiman', 'Coople'];
 const FAHRZEUGE = ['VW Crafter', 'Mercedes Sprinter', 'Iveco Daily', 'Ford Transit', 'Renault Master'];
 
+/** Erfundene Bauherrschaften und Bauleitungen — keine echten Firmen oder Ämter. */
 const KUNDEN: [string, string][] = [
   ['Aebi Bau AG', 'M. Huber'], ['Gerber & Partner Architekten', 'S. Gerber'], ['Baugeschäft Wyss AG', 'R. Wyss'],
-  ['GU Bernabau AG', 'T. Ammann'], ['Steiner Immobilien AG', 'C. Steiner'], ['Wohnbaugenossenschaft Brünnen', 'K. Lehmann'],
-  ['Stadt Bern, Hochbau', 'B. Schär'], ['Kanton Bern, AGG', 'P. Zaugg'], ['Bieri Holzbau AG', 'A. Bieri'],
+  ['GU Bernabau AG', 'T. Ammann'], ['Steiner Immobilien AG', 'C. Steiner'], ['Wohnbaugenossenschaft Aaretal', 'K. Lehmann'],
+  ['Immobilien Aarehof AG', 'B. Schär'], ['Liegenschaften Gurtenblick AG', 'P. Zaugg'], ['Bieri Holzbau AG', 'A. Bieri'],
   ['Moser Baumeister AG', 'D. Moser'], ['Habitat Generalunternehmung', 'L. Rüfenacht'], ['Architekturbüro Lüthi', 'N. Lüthi'],
   ['Baumann Fassaden AG', 'E. Baumann'], ['Zimmermann Bedachungen', 'F. Zimmermann'], ['Immo Bern West AG', 'G. Roth'],
-  ['Spitalverbund Bern', 'H. Brunner'], ['Burgergemeinde Bern', 'J. von Graffenried'], ['Widmer Sanierungen', 'M. Widmer'],
-  ['Graf Malerei AG', 'O. Graf'], ['Keller & Söhne Bau', 'U. Keller'], ['BLS Immobilien', 'V. Hofer'],
+  ['Stiftung Wohnen im Alter Lindenegg', 'H. Brunner'], ['Verwaltung Schosshalde AG', 'J. von Allmen'], ['Widmer Sanierungen', 'M. Widmer'],
+  ['Graf Malerei AG', 'O. Graf'], ['Keller & Söhne Bau', 'U. Keller'], ['Areal Wankdorf Nord AG', 'V. Hofer'],
   ['Genossenschaft Wabern', 'W. Jost'], ['Schmid Renovationen', 'Y. Schmid'], ['Fischer Dach + Wand', 'Z. Fischer'],
   ['Meier Totalunternehmer AG', 'A. Meier'], ['Schneider Architektur', 'B. Schneider'], ['Zbinden Bau GmbH', 'C. Zbinden'],
-  ['Hochschule Bern, Bauten', 'D. Frey'], ['Post Immobilien', 'E. Lanz'], ['SBB Immobilien Region Mitte', 'F. Kunz'],
+  ['Campus Bauten AG', 'D. Frey'], ['Logistik Immobilien Bern AG', 'E. Lanz'], ['Bahnhof Immobilien Mitte AG', 'F. Kunz'],
 ];
 
-/** Sprachnotizen, wie die Teams sie am Abend hinterlassen — mit Überstunden (warum) oder als Bemerkung zum Tag. */
-const NOTIZ_TEXTE = {
-  ueber: [
-    'Gerüst versetzt, weil der Maurer nicht durchgekommen ist. Bauleitung hat es so verlangt.',
-    'Zusätzliche Konsole beim Eingang montiert, Bauleiter war vor Ort und wollte das.',
-    'Treppenturm um ein Feld verlängert für den Dachdecker, darum länger geblieben.',
-    'Schutznetz am Strassenrand ergänzt, Polizei hat das gefordert.',
-    'Zwei Beläge waren beschädigt, vermutlich vom Dachdecker. Ersetzt, hat eine Stunde gebraucht.',
-    'Ankerpunkt war lose, nachgezogen und drei Rohre getauscht.',
-  ],
-  tag: [
-    'Eine Stunde gewartet, weil der Kran vom Baumeister das Feld blockiert hat.',
-    'Material kam zu spät, wir konnten erst um zehn anfangen.',
-    'Bauleitung war vor Ort, alles in Ordnung. Morgen brauchen wir mehr Beläge.',
-    'Regen ab drei, wir haben früher aufgehört.',
-  ],
-} as const;
+/** Erfundene Baustellen in der Region Bern — die ersten stehen in der aktuellen Planung, also im Video. */
+const BAUSTELLEN_NAMEN = [
+  'Wohnüberbauung Brünnenpark, Haus B', 'Mehrfamilienhaus Lorrainestrasse 18', 'Neubau Wankdorffeld, Baufeld C', 'Dachsanierung Kramgasse 41',
+  'Siedlung Holenacker, Etappe 2', 'Gewerbehaus Liebefeld Süd', 'Fassade Kirchenfeldstrasse 27', 'Alterszentrum Ostermundigen, Anbau',
+  'Fassade Monbijoustrasse 55', 'Reihenhäuser Muri, Thunstrasse', 'Schulanlage Zollikofen, Turnhalle', 'Bürohaus Weltpoststrasse 9',
+  'Brückensanierung Worblaufen', 'Wohnüberbauung Ittigen Talmatt', 'Dachstock Gerechtigkeitsgasse 12', 'Mehrfamilienhaus Wabern, Gurtenweg 6',
+  'Hotel Aarblick, Fassade', 'Pflegeheim Lindenegg, Neubau', 'Lagerhalle Niederwangen', 'Wohnhaus Belp, Aemmenmatt 3',
+  'Sanierung Breitenrainplatz 4', 'Neubau Köniz Zentrum, Haus A', 'Fassade Bollwerk 21', 'Villa Elfenauweg 8',
+  'Schulhaus Steigerhubel, Dach', 'Mehrfamilienhaus Burgdorf, Kirchbühl 7', 'Turmgerüst Kirche Münsingen', 'Wohnüberbauung Thun Lerchenfeld',
+  'Gewerbebau Lyss, Industriering 14', 'Balkonsanierung Bethlehem, Block 4', 'Fassade Schwarztorstrasse 70', 'Wohnhaus Bremgarten, Kalchackerstr. 5',
+  'Neubau Worb, Bahnhofareal', 'Treppenhaus Länggasse, Fabrikstrasse 12', 'Dachsanierung Ostermundigen Rüti', 'Kindergarten Wylerfeld',
+  'Mehrfamilienhaus Spiegel, Föhrenweg 7', 'Lift-Anbau Seftigenstrasse 41', 'Fassade Effingerstrasse 30', 'Reparatur Vordach Bümpliz Nord',
+  'Wohnhaus Hinterkappelen, Aumatt 2', 'Sanierung Schosshalde, Laubeggstrasse 9', 'Dachfenster Marktgasse 16', 'Neubau Gümligen, Feldstrasse 3',
+];
+const STRASSEN = ['Bernstrasse', 'Dorfstrasse', 'Bahnhofstrasse', 'Kirchweg', 'Lindenweg', 'Gartenstrasse', 'Schulhausweg', 'Mühleweg', 'Sonnenweg', 'Birkenweg', 'Waldeggstrasse', 'Hofmattweg', 'Rosenweg', 'Feldweg', 'Aarestrasse', 'Grabenweg'];
+const ORTE = ['Bern', 'Köniz', 'Muri', 'Ittigen', 'Ostermundigen', 'Zollikofen', 'Belp', 'Worb', 'Bolligen', 'Kehrsatz', 'Wohlen', 'Münsingen', 'Lyss', 'Thun', 'Burgdorf'];
+
+/**
+ * Sprachnotizen, wie die Teams sie am Abend sprechen: Original in der Sprache des Vorarbeiters,
+ * dazu der deutsche Text, den der Bauführer liest. `ueber` = Grund für Überstunden.
+ */
+const NOTIZEN: { ueber: boolean; de: string; it: string; fr: string; pl: string; pt: string }[] = [
+  { ueber: true,
+    de: 'Gerüst auf der Nordseite um ein Feld verlängert, die Bauleitung wollte das heute noch. Eine Stunde länger geblieben.',
+    it: 'Abbiamo allungato il ponteggio sul lato nord di una campata, la direzione lavori lo voleva ancora oggi. Siamo rimasti un’ora in più.',
+    fr: 'Nous avons prolongé l’échafaudage d’une travée côté nord, la direction des travaux le voulait encore aujourd’hui. Nous sommes restés une heure de plus.',
+    pl: 'Przedłużyliśmy rusztowanie po stronie północnej o jedno pole, kierownictwo budowy chciało to jeszcze dziś. Zostaliśmy godzinę dłużej.',
+    pt: 'Prolongámos o andaime do lado norte em um vão, a direção da obra queria isso ainda hoje. Ficámos uma hora a mais.' },
+  { ueber: true,
+    de: 'Zusätzliche Konsole beim Eingang montiert, der Bauleiter war vor Ort und hat es angeordnet.',
+    it: 'Abbiamo montato una mensola in più all’ingresso, il direttore dei lavori era sul posto e l’ha ordinato.',
+    fr: 'Nous avons monté une console supplémentaire à l’entrée, le chef de chantier était sur place et l’a demandé.',
+    pl: 'Zamontowaliśmy dodatkową konsolę przy wejściu, kierownik budowy był na miejscu i to zlecił.',
+    pt: 'Montámos uma consola adicional na entrada, o diretor da obra estava no local e mandou fazer.' },
+  { ueber: true,
+    de: 'Treppenturm für den Dachdecker um zwei Lagen erhöht, darum später fertig.',
+    it: 'Abbiamo alzato la torre scala di due piani per il copritetto, per questo abbiamo finito più tardi.',
+    fr: 'Nous avons rehaussé la tour d’escalier de deux niveaux pour le couvreur, c’est pourquoi nous avons fini plus tard.',
+    pl: 'Podnieśliśmy wieżę schodową o dwa poziomy dla dekarza, dlatego skończyliśmy później.',
+    pt: 'Subimos a torre de escadas dois níveis para o telhador, por isso acabámos mais tarde.' },
+  { ueber: true,
+    de: 'Schutznetz an der Strassenseite ergänzt, die Polizei hat das verlangt.',
+    it: 'Abbiamo aggiunto la rete di protezione sul lato strada, la polizia l’ha richiesto.',
+    fr: 'Nous avons complété le filet de protection côté rue, la police l’a exigé.',
+    pl: 'Uzupełniliśmy siatkę ochronną od strony ulicy, policja tego zażądała.',
+    pt: 'Completámos a rede de proteção do lado da rua, a polícia exigiu.' },
+  { ueber: true,
+    de: 'Zwei Beläge waren beschädigt, vermutlich vom Dachdecker. Ersetzt, das hat eine Stunde gebraucht.',
+    it: 'Due tavole erano danneggiate, probabilmente dal copritetto. Le abbiamo sostituite, ci è voluta un’ora.',
+    fr: 'Deux planchers étaient endommagés, probablement par le couvreur. Nous les avons remplacés, ça a pris une heure.',
+    pl: 'Dwa pomosty były uszkodzone, pewnie przez dekarza. Wymieniliśmy je, zajęło to godzinę.',
+    pt: 'Duas pranchas estavam danificadas, provavelmente pelo telhador. Substituímos, demorou uma hora.' },
+  { ueber: true,
+    de: 'Gerüst beim Balkon versetzt, weil der Maurer nicht durchgekommen ist. Die Bauleitung hat es so verlangt.',
+    it: 'Abbiamo spostato il ponteggio vicino al balcone perché il muratore non riusciva a passare. La direzione lavori l’ha chiesto.',
+    fr: 'Nous avons déplacé l’échafaudage près du balcon parce que le maçon ne pouvait pas passer. La direction des travaux l’a demandé.',
+    pl: 'Przestawiliśmy rusztowanie przy balkonie, bo murarz nie mógł przejść. Kierownictwo budowy tak zażądało.',
+    pt: 'Mudámos o andaime junto à varanda porque o pedreiro não conseguia passar. A direção da obra pediu assim.' },
+  { ueber: false,
+    de: 'Eine Stunde gewartet, weil der Kran vom Baumeister das Feld blockiert hat.',
+    it: 'Abbiamo aspettato un’ora perché la gru dell’impresa edile bloccava la zona.',
+    fr: 'Nous avons attendu une heure parce que la grue de l’entreprise de maçonnerie bloquait la zone.',
+    pl: 'Czekaliśmy godzinę, bo dźwig firmy budowlanej blokował pole.',
+    pt: 'Esperámos uma hora porque a grua do construtor bloqueava a zona.' },
+  { ueber: false,
+    de: 'Material kam zu spät, wir konnten erst um neun anfangen.',
+    it: 'Il materiale è arrivato in ritardo, abbiamo potuto iniziare solo alle nove.',
+    fr: 'Le matériel est arrivé en retard, nous n’avons pu commencer qu’à neuf heures.',
+    pl: 'Materiał przyjechał za późno, mogliśmy zacząć dopiero o dziewiątej.',
+    pt: 'O material chegou tarde, só conseguimos começar às nove.' },
+  { ueber: false,
+    de: 'Bauleitung war vor Ort, alles in Ordnung. Morgen brauchen wir mehr Beläge.',
+    it: 'La direzione lavori era sul posto, tutto in ordine. Domani ci servono più tavole.',
+    fr: 'La direction des travaux était sur place, tout est en ordre. Demain, il nous faut plus de planchers.',
+    pl: 'Kierownictwo budowy było na miejscu, wszystko w porządku. Jutro potrzebujemy więcej pomostów.',
+    pt: 'A direção da obra esteve no local, tudo em ordem. Amanhã precisamos de mais pranchas.' },
+  { ueber: false,
+    de: 'Ab drei Uhr Regen, wir haben früher aufgehört.',
+    it: 'Dalle tre ha piovuto, abbiamo smesso prima.',
+    fr: 'Pluie dès trois heures, nous avons arrêté plus tôt.',
+    pl: 'Od trzeciej padał deszcz, skończyliśmy wcześniej.',
+    pt: 'A partir das três choveu, parámos mais cedo.' },
+];
+const NOTIZ_SPAET = 7; // «erst um neun angefangen»
+const NOTIZ_REGEN = 9; // «früher aufgehört»
+
+/**
+ * Feste Notizen fürs Video. `woche` relativ zur laufenden (−1 = Vorwoche), `tag` 0 = Montag;
+ * `vorTagen` statt `woche`/`tag` = relativ zu heute (0 = heute). `ende` = Feierabend der zwei,
+ * die länger geblieben sind (Minuten seit Mitternacht).
+ */
+const FESTE_NOTIZEN: { team: number; notiz: number; ende?: number; woche?: number; tag?: number; vorTagen?: number }[] = [
+  // Vorwoche: sechs Überstunden-Tage in fünf Sprachen und zwei Bemerkungen — das füllt «Zum Anschauen»
+  { woche: -1, tag: 0, team: 1, notiz: 0, ende: 18 * 60 },        // Team 2 · Italienisch
+  { woche: -1, tag: 1, team: 4, notiz: 1, ende: 17 * 60 + 30 },   // Team 5 · Portugiesisch
+  { woche: -1, tag: 1, team: 6, notiz: 2, ende: 18 * 60 + 30 },   // Team 7 · Polnisch
+  { woche: -1, tag: 2, team: 8, notiz: 3, ende: 18 * 60 },        // Team 9 · Französisch
+  { woche: -1, tag: 3, team: 10, notiz: 4, ende: 17 * 60 + 30 },  // Team 11 · Italienisch
+  { woche: -1, tag: 4, team: 13, notiz: 5, ende: 18 * 60 },       // Team 14 · Deutsch
+  { woche: -1, tag: 2, team: 3, notiz: 6 },                       // Team 4 · Bemerkung (Kran)
+  { woche: -1, tag: 3, team: 15, notiz: NOTIZ_REGEN },            // Team 16 · Polnisch, Regen
+  // Diese Woche, relativ zu heute — nur Werktage, die schon vorbei sind
+  { vorTagen: 1, team: 2, notiz: 5, ende: 18 * 60 },              // Team 3 · Italienisch, gestern
+  { vorTagen: 2, team: 12, notiz: NOTIZ_SPAET },                  // Team 13 · Portugiesisch
+  // Heute: zwei Teams mit Überstunden — im Team-Board bernstein
+  { vorTagen: 0, team: 17, notiz: 2, ende: 17 * 60 + 30 },        // Team 18 · Italienisch
+  { vorTagen: 0, team: 15, notiz: 0, ende: 18 * 60 },             // Team 16 · Polnisch
+];
+
+/** Diese Teams haben heute noch nicht gemeldet (Team 6, 10, 15, 19) — so sieht das Team-Board am Abend aus. */
+const HEUTE_OFFEN = new Set([5, 9, 14, 18]);
 
 // ── Zeilen (1:1 die Tabellen) ─────────────────────────────────────────────────
 
-export interface MitarbeiterRow { id: string; name: string; typ: 'intern' | 'extern' | 'temporaer'; funktion: string; sprache: 'de' | 'sq' | 'pt' | 'it' | 'fr' | 'ar' | 'pl' | 'en'; temporaerbuero: string | null; aktiv: boolean; oev_standard: boolean; km_standard: number; eintritt: string }
+export interface MitarbeiterRow { id: string; name: string; typ: 'intern' | 'extern' | 'temporaer'; funktion: string; sprache: Sprache; temporaerbuero: string | null; aktiv: boolean; oev_standard: boolean; km_standard: number; eintritt: string }
 export interface TeamRow { id: string; bezeichnung: string; fahrzeug: string; chefmonteur_id: string; aktiv: boolean }
 export interface TeamMitgliedRow { team_id: string; mitarbeiter_id: string; von: string }
 export interface KundeRow { id: string; name: string; praeferenz: 'einzel' | 'sammel'; ansprechperson: string; email: string; telefon: string }
 export interface BaustelleUpdate { id: string; konto_nr: string; bezeichnung: string | null; kunde_id: string; status: 'aktiv' | 'fertig_gemeldet' | 'abgeschlossen'; fertigstellung_am: string | null }
 export interface JahresplanRow { id: string; baustelle_id: string; team_id: string; von: string; bis: string }
-export interface TagesmeldungRow { id: string; client_uuid: string; team_id: string; datum: string; baustelle_id: string; normalfall: boolean; abweichung_typ: string | null; wer_hats_gewollt: string | null; transkript: string | null; audio_sekunden: number | null; erfasst_von: string; erfasst_am: string; status: 'offen' | 'freigegeben' }
-export interface ZeiteintragRow { id: string; tagesmeldung_id: string; mitarbeiter_id: string; normal_min: number; ueber_min: number; oev: boolean; km: number; baustelle_id: string; konto_nr: string; status: 'offen' | 'freigegeben' }
+export interface TagesmeldungRow { id: string; client_uuid: string; team_id: string; datum: string; baustelle_id: string; normalfall: boolean; abweichung_typ: string | null; wer_hats_gewollt: string | null; transkript: string | null; transkript_quelle: string | null; transkript_sprache: string | null; audio_sekunden: number | null; erfasst_von: string; erfasst_am: string; status: 'offen' | 'freigegeben' }
+export interface ZeiteintragRow { id: string; tagesmeldung_id: string; mitarbeiter_id: string; normal_min: number; ueber_min: number; oev: boolean; km: number; baustelle_id: string; konto_nr: string; status: 'offen' | 'freigegeben'; von_min: number | null; bis_min: number | null; von2_min: number | null; bis2_min: number | null }
 export interface FreigabeLogRow { id: string; zeiteintrag_id: string; wer: string; wann: string; feld: string; alt: string; neu: string }
 
 export interface DemoBetrieb {
@@ -130,10 +260,16 @@ function slug(s: string): string {
   return s.toLowerCase().replace(/[äöü]/g, (c) => ({ ä: 'ae', ö: 'oe', ü: 'ue' })[c] ?? c).replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
 }
 
+/** Mo = 0 … So = 6 */
+function wochentag(d: Date): number {
+  return (d.getDay() + 6) % 7;
+}
+
 // ── Generator ────────────────────────────────────────────────────────────────
 
 export function erzeugeDemoBetrieb(opts: { baustellen: BaustelleQuelle[]; heute: Date; userId: string; seed?: number }): DemoBetrieb {
-  const z = new Zufall(opts.seed ?? 20260903);
+  const z = new Zufall(opts.seed ?? 20261006);
+  const jetzt = new Date(opts.heute);
   const heute = new Date(opts.heute);
   heute.setHours(12, 0, 0, 0);
   const heuteIso = iso(heute);
@@ -141,8 +277,9 @@ export function erzeugeDemoBetrieb(opts: { baustellen: BaustelleQuelle[]; heute:
 
   // Mitarbeitende ---------------------------------------------------------
   const vergeben = new Set<string>();
-  function name(vn: readonly string[], nn: readonly string[]): string {
-    for (let i = 0; i < 50; i++) {
+  function name(h: Herkunft): string {
+    const [vn, nn] = NAMEN[h];
+    for (let i = 0; i < 80; i++) {
       const n = `${z.pick(vn)} ${z.pick(nn)}`;
       if (!vergeben.has(n)) {
         vergeben.add(n);
@@ -165,31 +302,26 @@ export function erzeugeDemoBetrieb(opts: { baustellen: BaustelleQuelle[]; heute:
     return row;
   };
 
-  const bauf: MitarbeiterRow[] = [];
-  for (let i = 0; i < 5; i++) bauf.push(person({ name: name(VN_DE, NN_DE), typ: 'intern', funktion: 'bauf', sprache: 'de', temporaerbuero: null, oev_standard: false, km_standard: z.int(15, 40), jahre: 15 }));
+  for (let i = 0; i < 5; i++) person({ name: name('ch'), typ: 'intern', funktion: 'bauf', sprache: 'de', temporaerbuero: null, oev_standard: false, km_standard: z.int(15, 40), jahre: 15 });
 
-  const chefs: MitarbeiterRow[] = [];
-  for (let i = 0; i < 20; i++) {
-    const alb = z.chance(0.55);
-    chefs.push(person({ name: alb ? name(VN_ALB, NN_ALB) : name(VN_DE, NN_DE), typ: 'intern', funktion: 'gruppe', sprache: 'de', temporaerbuero: null, oev_standard: false, km_standard: z.int(10, 45), jahre: 12 }));
-  }
+  const chefs = VORARBEITER.map(([h, sp]) =>
+    person({ name: name(h), typ: 'intern', funktion: 'gruppe', sprache: sp, temporaerbuero: null, oev_standard: false, km_standard: z.int(10, 45), jahre: 12 }),
+  );
 
   const interne: MitarbeiterRow[] = [];
   for (let i = 0; i < 20; i++) {
     const r = z.next();
-    const [vn, nn, sp]: [readonly string[], readonly string[], MitarbeiterRow['sprache']] =
-      r < 0.5 ? [VN_ALB, NN_ALB, 'de'] : r < 0.75 ? [VN_DE, NN_DE, 'de'] : [VN_PL, NN_PL, 'pl'];
+    const [h, sp]: [Herkunft, Sprache] = r < 0.3 ? ['alb', 'de'] : r < 0.5 ? ['ch', 'de'] : r < 0.65 ? ['it', 'it'] : r < 0.8 ? ['pt', 'pt'] : ['pl', 'pl'];
     const oev = z.chance(0.3);
-    interne.push(person({ name: name(vn, nn), typ: 'intern', funktion: z.chance(0.7) ? 'monteur' : 'mitarbeiter', sprache: sp, temporaerbuero: null, oev_standard: oev, km_standard: oev ? 0 : z.chance(0.25) ? z.int(8, 30) : 0, jahre: 8 }));
+    interne.push(person({ name: name(h), typ: 'intern', funktion: z.chance(0.7) ? 'monteur' : 'mitarbeiter', sprache: sp, temporaerbuero: null, oev_standard: oev, km_standard: oev ? 0 : z.chance(0.25) ? z.int(8, 30) : 0, jahre: 8 }));
   }
 
   const temps: MitarbeiterRow[] = [];
   for (let i = 0; i < 30; i++) {
     const r = z.next();
-    const [vn, nn, sp]: [readonly string[], readonly string[], MitarbeiterRow['sprache']] =
-      r < 0.3 ? [VN_AR, NN_AR, 'ar'] : r < 0.6 ? [VN_PL, NN_PL, 'pl'] : r < 0.72 ? [VN_EN, NN_EN, 'en'] : r < 0.88 ? [VN_ALB, NN_ALB, 'de'] : [VN_DE, NN_DE, 'de'];
+    const [h, sp]: [Herkunft, Sprache] = r < 0.25 ? ['ar', 'ar'] : r < 0.5 ? ['pl', 'pl'] : r < 0.6 ? ['en', 'en'] : r < 0.75 ? ['pt', 'pt'] : r < 0.88 ? ['alb', 'de'] : ['ch', 'de'];
     const oev = z.chance(0.5);
-    temps.push(person({ name: name(vn, nn), typ: 'temporaer', funktion: z.chance(0.4) ? 'monteur' : 'mitarbeiter', sprache: sp, temporaerbuero: z.pick(TEMPORAERBUEROS), oev_standard: oev, km_standard: 0, jahre: 1 }));
+    temps.push(person({ name: name(h), typ: 'temporaer', funktion: z.chance(0.4) ? 'monteur' : 'mitarbeiter', sprache: sp, temporaerbuero: z.pick(TEMPORAERBUEROS), oev_standard: oev, km_standard: 0, jahre: 1 }));
   }
 
   // Teams -------------------------------------------------------------------
@@ -219,90 +351,160 @@ export function erzeugeDemoBetrieb(opts: { baustellen: BaustelleQuelle[]; heute:
     telefon: `031 ${z.int(300, 999)} ${z.int(10, 99)} ${z.int(10, 99)}`,
   }));
 
-  // Baustellen zuordnen -----------------------------------------------------
-  const baustellen: BaustelleUpdate[] = opts.baustellen.map((b) => {
-    const r = z.next();
-    const status: BaustelleUpdate['status'] = r < 0.6 ? 'aktiv' : r < 0.82 ? 'fertig_gemeldet' : 'abgeschlossen';
+  // Baustellen: erfundene Namen, die ersten 80 aktiv ------------------------------
+  const vorhanden = new Set(opts.baustellen.map((b) => (b.bezeichnung ?? '').toLowerCase()));
+  const namenGesehen = new Set<string>();
+  const ersatzName = (i: number): string => {
+    if (i < BAUSTELLEN_NAMEN.length) return BAUSTELLEN_NAMEN[i];
+    for (let k = 0; k < 50; k++) {
+      const ort = z.pick(ORTE);
+      const n = `${ort === 'Bern' ? '' : ort + ', '}${z.pick(STRASSEN)} ${z.int(1, 120)}`;
+      // Nie zufällig den Namen einer echten Baustelle aus der ursprünglichen Liste treffen
+      if (!namenGesehen.has(n) && !vorhanden.has(n.toLowerCase())) { namenGesehen.add(n); return n; }
+    }
+    return `Baustelle ${i + 1}`;
+  };
+  const baustellen: BaustelleUpdate[] = opts.baustellen.map((b, i) => {
+    const status: BaustelleUpdate['status'] = i < 80 ? 'aktiv' : i < 140 ? 'fertig_gemeldet' : 'abgeschlossen';
     return {
-      id: b.id, konto_nr: b.konto_nr, bezeichnung: b.bezeichnung,
+      id: b.id, konto_nr: b.konto_nr, bezeichnung: ersatzName(i),
       kunde_id: z.pick(kunden).id, status,
       fertigstellung_am: status === 'aktiv' ? null : iso(addTage(heute, status === 'fertig_gemeldet' ? -z.int(3, 45) : -z.int(60, 300))),
     };
   });
   const aktive = baustellen.filter((b) => b.status === 'aktiv');
-  const grosse = aktive.slice(0, 16); // Grossbaustellen: mehrere Teams gleichzeitig möglich
 
-  // Jahresplan --------------------------------------------------------------
+  // Planung -----------------------------------------------------------------
+  // Jetzt: Vorwoche bis Ende nächster Woche, danach die nächste Baustelle. Abwechslung fürs Video:
+  // zwei Teams wechseln mitten in der Woche, zwei haben einen Reparatur-Tag dazwischen, zwei sind
+  // nächste Woche noch frei. Die ersten Namen der Liste stehen damit in der Planung von heute.
   const jahresplan: JahresplanRow[] = [];
-  const aktuelleBaustelle = new Map<string, BaustelleUpdate>();
-  const fruehereBaustelle = new Map<string, BaustelleUpdate>();
-  const pool = aktive.slice(16);
+  const plan = (team: TeamRow, b: BaustelleUpdate, von: Date, bis: Date) => jahresplan.push({ id: z.uuid(), baustelle_id: b.id, team_id: team.id, von: iso(von), bis: iso(bis) });
+  const mo = (w: number) => addTage(wochenStart, 7 * w);
+  const fr = (w: number) => addTage(wochenStart, 7 * w + 4);
+  const wechsel = new Set([4, 10]); // Team 5, 11: ab Donnerstag woanders
+  const reparatur = new Set([3, 13]); // Team 4, 14: Mittwoch ein Reparatur-Tag
+  const frei = new Set([8, 16]); // Team 9, 17: nächste Woche noch nichts geplant
+  let naechste = 20;
+  const neueBaustelle = () => aktive[naechste++ % aktive.length];
   for (const [i, team] of teams.entries()) {
-    const frueher = pool[(i * 2) % pool.length];
-    const jetzt = grosse[i % grosse.length];
-    const spaeter = pool[(i * 2 + 1) % pool.length];
-    fruehereBaustelle.set(team.id, frueher);
-    aktuelleBaustelle.set(team.id, jetzt);
-    jahresplan.push(
-      { id: z.uuid(), baustelle_id: frueher.id, team_id: team.id, von: iso(addTage(wochenStart, -42)), bis: iso(addTage(wochenStart, -15)) },
-      { id: z.uuid(), baustelle_id: jetzt.id, team_id: team.id, von: iso(addTage(wochenStart, -14)), bis: iso(addTage(wochenStart, 13)) },
-      { id: z.uuid(), baustelle_id: spaeter.id, team_id: team.id, von: iso(addTage(wochenStart, 14)), bis: iso(addTage(wochenStart, 14 + z.int(20, 50))) },
-    );
+    const jetzt1 = aktive[i];
+    plan(team, neueBaustelle(), mo(-4), fr(-2));
+    if (wechsel.has(i)) {
+      plan(team, jetzt1, mo(-1), addTage(mo(0), 2));
+      plan(team, neueBaustelle(), addTage(mo(0), 3), fr(1));
+    } else if (frei.has(i)) {
+      plan(team, jetzt1, mo(-1), fr(0));
+    } else {
+      plan(team, jetzt1, mo(-1), fr(1));
+    }
+    if (reparatur.has(i)) { const d = addTage(mo(0), 2); plan(team, neueBaustelle(), d, d); }
+    plan(team, neueBaustelle(), mo(2), fr(2 + z.int(1, 3)));
   }
+  /** Hauptbaustelle eines Teams an einem Tag: der früheste Einsatz, der den Tag deckt (Reparatur-Tage zählen nicht). */
+  const baustelleAm = (teamId: string, tagIso: string): BaustelleUpdate => {
+    const treffer = jahresplan.filter((j) => j.team_id === teamId && j.von <= tagIso && j.bis >= tagIso && j.von !== j.bis);
+    const id = treffer.sort((a, b) => a.von.localeCompare(b.von))[0]?.baustelle_id;
+    return baustellen.find((b) => b.id === id) ?? aktive[0];
+  };
 
   // Tagesmeldungen ----------------------------------------------------------
-  // Wie das Wochenblatt: Normal (bis 8.4 h) + Überstunden je Person. An manchen Tagen eine Sprachnotiz —
-  // mit Überstunden ist sie das Warum, sonst eine Bemerkung zum Tag (Bauführer 20.09.).
+  // Je Person echte Zeiten: 7:00–12:00 · 13:00–16:00. Wer länger bleibt, hat einen späteren Feierabend;
+  // daraus rechnet die App Normal (bis 8.4 h) und Überstunden — genau wie bei einer echten Meldung.
   const meldungen: TagesmeldungRow[] = [];
   const eintraege: ZeiteintragRow[] = [];
   const freigaben: FreigabeLogRow[] = [];
 
-  for (const team of teams) {
+  const festAm = (teamIdx: number, tag: Date) => {
+    const tagIso = iso(tag);
+    const w = Math.round((montag(tag).getTime() - wochenStart.getTime()) / (7 * 86400000));
+    return FESTE_NOTIZEN.find((n) =>
+      n.team === teamIdx && (n.vorTagen !== undefined ? iso(addTage(heute, -n.vorTagen)) === tagIso : n.woche === w && n.tag === wochentag(tag)),
+    );
+  };
+
+  for (const [teamIdx, team] of teams.entries()) {
     const leute = mitgliederVon.get(team.id)!;
+    const chef = leute[0];
+    // Ältere Wochen: zufällig ein Notiz-Tag pro Woche (Überstunden oder Bemerkung) — daraus entsteht Regie-Geschichte
     for (let w = -4; w <= 0; w++) {
       const wStart = addTage(wochenStart, w * 7);
-      const vergangen = w < 0;
-      const bs = w <= -2 ? fruehereBaustelle.get(team.id)! : aktuelleBaustelle.get(team.id)!;
-      const notizTag = z.chance(0.35) ? z.int(0, 4) : -1;
+      const freigegeben = w <= -2;
+      const zufallsNotiz = w <= -2 && z.chance(0.4) ? { tag: z.int(0, 4), ueber: z.chance(0.75) } : null;
       for (let t = 0; t < 6; t++) {
-        if (t === 5 && !z.chance(0.08)) continue; // Samstag selten
         const tag = addTage(wStart, t);
         const tagIso = iso(tag);
         if (tagIso > heuteIso) continue;
-        if (tagIso === heuteIso && !z.chance(0.35)) continue; // heute: nur ein Teil hat schon gemeldet
-        const status: 'offen' | 'freigegeben' = vergangen ? 'freigegeben' : 'offen';
+        // Samstag nur ausnahmsweise und nur in alten Wochen
+        if (t === 5 && !(freigegeben && teamIdx === 11 && w === -3)) continue;
+        if (tagIso === heuteIso && HEUTE_OFFEN.has(teamIdx)) continue;
+        const status: 'offen' | 'freigegeben' = freigegeben ? 'freigegeben' : 'offen';
+        const bs = baustelleAm(team.id, tagIso);
 
+        // Welche Notiz gilt heute für dieses Team?
+        const fest = festAm(teamIdx, tag);
+        let notiz: (typeof NOTIZEN)[number] | null = null;
+        let notizIdx = -1;
+        let ende = 16 * 60;
+        if (fest) {
+          notizIdx = fest.notiz;
+          notiz = NOTIZEN[notizIdx];
+          if (fest.ende) ende = fest.ende;
+        } else if (zufallsNotiz && zufallsNotiz.tag === t) {
+          const pool = NOTIZEN.map((n, k) => ({ n, k })).filter((x) => x.n.ueber === zufallsNotiz.ueber);
+          const wahl = z.pick(pool);
+          notiz = wahl.n;
+          notizIdx = wahl.k;
+          if (notiz.ueber) ende = z.pick([17 * 60 + 30, 18 * 60, 18 * 60 + 30]);
+        }
+
+        const sprache = chef.sprache;
         const meldung: TagesmeldungRow = {
           id: z.uuid(), client_uuid: z.uuid(), team_id: team.id, datum: tagIso, baustelle_id: bs.id,
-          normalfall: true, abweichung_typ: null, wer_hats_gewollt: null, transkript: null, audio_sekunden: null,
-          erfasst_von: opts.userId, erfasst_am: ts(tag, 16, z.int(30, 59)), status,
+          normalfall: true, abweichung_typ: null, wer_hats_gewollt: null,
+          transkript: notiz ? notiz.de : null,
+          transkript_quelle: notiz && sprache !== 'de' && sprache in notiz ? notiz[sprache as 'it' | 'fr' | 'pl' | 'pt'] : null,
+          transkript_sprache: notiz ? (sprache in notiz ? sprache : 'de') : null,
+          audio_sekunden: notiz ? z.int(9, 24) : null,
+          erfasst_von: opts.userId, erfasst_am: '', status,
         };
+        // Heute gemeldet: am Abend — wird die Demo tagsüber geladen, liegt die Meldung kurz vor jetzt statt in der Zukunft
+        const abends = new Date(ts(tag, 16, 5 + teamIdx * 4));
+        meldung.erfasst_am = (tagIso === heuteIso && abends > jetzt ? new Date(jetzt.getTime() - (20 - teamIdx) * 3 * 60000) : abends).toISOString();
         meldungen.push(meldung);
-        // Freitag oft kürzer, sonst der normale Tag
-        const basis = t === 4 && z.chance(0.3) ? 420 : NORMALTAG_MIN;
-        const tagesEintraege: ZeiteintragRow[] = [];
+
+        // Freitag manchmal um drei fertig
+        const kurzerFreitag = t === 4 && !notiz && z.chance(0.3);
+        let tagesBeginn = 7 * 60;
+        let tagesEnde = kurzerFreitag ? 15 * 60 : 16 * 60;
+        if (notizIdx === NOTIZ_SPAET) tagesBeginn = 9 * 60;
+        if (notizIdx === NOTIZ_REGEN) tagesEnde = 15 * 60;
+
+        let ueberstuendler = 0;
         for (const m of leute) {
-          const istChef = m.id === team.chefmonteur_id;
-          const anwesend = istChef ? z.chance(0.97) : m.typ === 'temporaer' ? z.chance(0.88) : z.chance(0.93);
+          const istChef = m.id === chef.id;
+          // In der Vorwoche und heute sind alle da — die Zahlen im Video sollen ruhig sein
+          const anwesend = istChef || w >= -1 || (m.typ === 'temporaer' ? z.chance(0.9) : z.chance(0.95));
           if (!anwesend) continue;
-          const e: ZeiteintragRow = {
+          // Überstunden für den Vorarbeiter und einen zweiten — die zwei sind länger geblieben
+          const bleibtLaenger = !!notiz?.ueber && ueberstuendler < 2;
+          if (bleibtLaenger) ueberstuendler++;
+          const bis2 = bleibtLaenger ? ende : tagesEnde;
+          const total = (12 * 60 - tagesBeginn) + (bis2 - 13 * 60);
+          const { normal_min, ueber_min } = aufteilen(total);
+          eintraege.push({
             id: z.uuid(), tagesmeldung_id: meldung.id, mitarbeiter_id: m.id,
-            normal_min: basis, ueber_min: 0,
+            normal_min, ueber_min,
             oev: false, km: m.km_standard,
             baustelle_id: bs.id, konto_nr: bs.konto_nr, status,
-          };
-          eintraege.push(e);
-          tagesEintraege.push(e);
+            von_min: tagesBeginn, bis_min: 12 * 60, von2_min: 13 * 60, bis2_min: bis2,
+          });
         }
-
-        if (t === notizTag && tagesEintraege.length > 0) {
-          const mitUeber = z.chance(0.7);
-          meldung.transkript = z.pick(mitUeber ? NOTIZ_TEXTE.ueber : NOTIZ_TEXTE.tag);
-          meldung.audio_sekunden = z.int(8, 25);
-          // Überstunden für die ersten zwei Anwesenden (Chefmonteur + einer), in halben Stunden
-          if (mitUeber) for (const e of tagesEintraege.slice(0, 2)) e.ueber_min = z.int(2, 5) * 30;
+        if (freigegeben) {
+          for (const e of eintraege.filter((x) => x.tagesmeldung_id === meldung.id)) {
+            freigaben.push({ id: z.uuid(), zeiteintrag_id: e.id, wer: opts.userId, wann: ts(addTage(wStart, 7), 8, z.int(5, 55)), feld: 'status', alt: 'offen', neu: 'freigegeben' });
+          }
         }
-        if (vergangen) for (const e of tagesEintraege) freigaben.push({ id: z.uuid(), zeiteintrag_id: e.id, wer: opts.userId, wann: ts(addTage(wStart, 7), 8, z.int(5, 55)), feld: 'status', alt: 'offen', neu: 'freigegeben' });
       }
     }
   }
@@ -322,29 +524,37 @@ async function inChunks(client: SupabaseClient, tabelle: string, rows: object[],
   log(`${tabelle}: ${rows.length}`);
 }
 
+function nurDemoFirma(): void {
+  if (!istDemoFirma()) throw new Error('Der Demo-Betrieb lässt sich nur in einer Demo-Firma laden — hier würde er echte Daten löschen.');
+}
+
 /** Löscht alle Bewegungs- und Stammdaten (nicht die Baustellen) — in FK-Reihenfolge.
  *  Die Regie-Tabellen (zustellung_log, regie_position, regierapport, zusatzauftrag) bleiben in der Datenbank
- *  und werden hier mitgeleert, damit alte Demo-Daten nicht im Weg stehen. */
+ *  und werden hier mitgeleert, damit alte Demo-Daten nicht im Weg stehen. Fotos hängen an Meldungen und
+ *  Rapporten — sie gehen zuerst. */
 export async function demoZuruecksetzen(client: SupabaseClient, log: Protokoll): Promise<void> {
+  nurDemoFirma();
   const alles = async (tabelle: string, spalte = 'id') => {
     const { error } = await client.from(tabelle).delete().not(spalte, 'is', null);
     if (error) throw new Error(`${tabelle} löschen: ${error.message}`);
   };
-  for (const t of ['freigabe_log', 'zeiteintrag', 'zustellung_log', 'regie_position', 'regierapport', 'tagesmeldung', 'zusatzauftrag', 'planaenderung', 'jahresplan']) await alles(t);
+  for (const t of ['foto', 'freigabe_log', 'zeiteintrag', 'zustellung_log', 'regie_position', 'regierapport', 'tagesmeldung', 'zusatzauftrag', 'planaenderung', 'jahresplan']) await alles(t);
   await alles('team_mitglied', 'team_id');
   await alles('team');
   await alles('mitarbeiter');
-  await alles('kunde');
+  // Baustellen zeigen auf Kunden — erst lösen, dann die Kunden löschen
   const { error } = await client.from('baustelle').update({ kunde_id: null, status: 'aktiv', fertigstellung_am: null }).not('id', 'is', null);
   if (error) throw new Error('baustelle zurücksetzen: ' + error.message);
-  log('Alles geleert — die 217 Konten bleiben.');
+  await alles('kunde');
+  log('Alles geleert — die Konten bleiben.');
 }
 
 export interface DemoZusammenfassung { mitarbeiter: number; teams: number; kunden: number; meldungen: number; eintraege: number; regierapporte?: number }
 
 export async function demoLaden(client: SupabaseClient, userId: string, log: Protokoll): Promise<DemoZusammenfassung> {
+  nurDemoFirma();
   const { data: bs, error } = await client.from('baustelle').select('id,konto_nr,bezeichnung').order('konto_nr');
-  if (error || !bs || bs.length === 0) throw new Error('Keine Baustellen gefunden — zuerst die 217er-Liste importieren.');
+  if (error || !bs || bs.length === 0) throw new Error('Keine Baustellen gefunden — zuerst die Kontenliste importieren.');
   log(`${bs.length} Baustellen gefunden`);
 
   await demoZuruecksetzen(client, log);
