@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
+import { ClipboardPlus, CloudOff, Ellipsis, TriangleAlert, Mail, MapPin, MoveHorizontal, Phone, Search, Sparkles, SquareMinus, SquarePlus, Wrench, type LucideIcon } from 'lucide-react';
 import { Shell } from '../ui/Shell';
 import { supabase } from '../lib/supabase';
 import { einstellungen } from '../lib/einstellungen';
-import { ausIso, kurz } from '../lib/datum';
+import { ausIso, iso as isoDatum, kurz } from '../lib/datum';
 import { TAETIGKEITEN, TAETIGKEIT_LABEL } from '../lib/zusatzauftrag';
 import {
   enqueueZusatzauftrag,
@@ -297,301 +298,341 @@ export function Zusatzauftrag() {
     void ladeListe();
   }
 
+  const heuteIso = isoDatum(new Date());
+  const heuteGeplant = offene.filter((a) => a.geplant_fuer === heuteIso).length;
+  const ohneMeldung = offene.filter((a) => a.ohne_meldung).length;
+  const sichtbar = zeigeErledigte ? erledigte : offene;
+
   return (
-    <Shell zurueck schmal>
+    <Shell zurueck>
       <div className="space-y-6">
-        <h1 className="font-display text-2xl font-semibold">Zusatzauftrag erfassen</h1>
-
-        <section className="card space-y-4 p-5">
+        <header className="flex flex-wrap items-end justify-between gap-4">
           <div>
-            <label className="lbl">Baustelle</label>
-            {gewaehlt ? (
-              <button
-                type="button"
-                onClick={() => {
-                  setGewaehlt(null);
-                  setSuche('');
-                }}
-                className="w-full rounded-[10px] border border-accent bg-accent-soft px-3.5 py-2.5 text-left"
-              >
-                <span className="font-display font-semibold">{gewaehlt.bezeichnung}</span>
-                <span className="mt-0.5 flex items-center gap-2 text-xs text-ink3">
-                  <span className="knr">{gewaehlt.konto_nr}</span>
-                  antippen zum Ändern
-                </span>
-              </button>
-            ) : (
-              <>
-                <input
-                  value={suche}
-                  onChange={(e) => setSuche(e.target.value)}
-                  placeholder="Strasse oder Nummer eintippen …"
-                  className="field"
-                />
-                {treffer.length > 0 && (
-                  <div className="mt-1.5 overflow-hidden rounded-[10px] border border-line divide-y divide-line">
-                    {treffer.map((b) => (
-                      <button
-                        key={b.id}
-                        type="button"
-                        onClick={() => setGewaehlt(b)}
-                        className="flex w-full items-center justify-between gap-2 bg-surface px-3.5 py-2.5 text-left text-sm hover:bg-ground"
-                      >
-                        <span className="font-medium">{b.bezeichnung}</span>
-                        <span className="knr">{b.konto_nr}</span>
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </>
-            )}
+            <p className="lbl mb-0.5">Tagesgeschäft</p>
+            <h1 className="font-display text-2xl font-semibold">Zusatzaufträge</h1>
+            <p className="mt-1 text-sm text-ink3">Was der Kunde zusätzlich bestellt — erfassen, solange er noch am Telefon ist.</p>
           </div>
+          <div className="flex flex-wrap gap-2">
+            <Kennzahl wert={offene.length + lokal.length} text="offen" />
+            <Kennzahl wert={heuteGeplant} text="heute geplant" farbe="text-steel" />
+            {ohneMeldung > 0 && <Kennzahl wert={ohneMeldung} text="ohne Meldung" farbe="text-amber-deep" />}
+          </div>
+        </header>
 
-          <div>
-            <label className="lbl" htmlFor="besteller">Wer verlangt es?</label>
-            {gewaehlt?.kunde?.ansprechperson && (
-              <div className="mb-1.5 flex flex-wrap items-center gap-1.5 text-xs text-ink3">
-                <span>Bauleitung laut Kunde:</span>
+        <div className="grid gap-6 lg:grid-cols-12 lg:items-start">
+          {/* ── Neuer Auftrag ─────────────────────────────────────────────── */}
+          <section className="card space-y-5 p-5 lg:sticky lg:top-6 lg:col-span-5 lg:p-6">
+            <div className="flex items-center gap-3">
+              <span className="grid h-10 w-10 place-items-center rounded-[12px] bg-accent text-white shadow-[0_4px_10px_-4px_rgb(224_48_30/0.6)]">
+                <ClipboardPlus size={19} strokeWidth={2.2} aria-hidden="true" />
+              </span>
+              <span>
+                <span className="block font-display text-lg font-semibold">Neuer Auftrag</span>
+                <span className="block text-xs text-ink3">Vier Angaben, zwanzig Sekunden</span>
+              </span>
+            </div>
+
+            <Schritt nr={1} titel="Baustelle">
+              {gewaehlt ? (
+                <button
+                  type="button"
+                  onClick={() => { setGewaehlt(null); setSuche(''); }}
+                  className="flex w-full items-center justify-between gap-3 rounded-[14px] border border-accent/40 bg-gradient-to-br from-white to-accent-soft px-3.5 py-3 text-left"
+                >
+                  <span className="min-w-0">
+                    <span className="block truncate font-display text-[15px] font-semibold">{gewaehlt.bezeichnung}</span>
+                    <span className="mt-0.5 flex items-center gap-2 text-xs text-ink3"><span className="knr">{gewaehlt.konto_nr}</span>{gewaehlt.kunde?.name}</span>
+                  </span>
+                  <span className="shrink-0 text-xs font-semibold text-steel">ändern</span>
+                </button>
+              ) : (
+                <div className="relative">
+                  <Search size={16} className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-ink3" aria-hidden="true" />
+                  <input value={suche} onChange={(e) => setSuche(e.target.value)} placeholder="Strasse, Name oder Kontonummer …" className="field pl-10" />
+                  {treffer.length > 0 && (
+                    <div className="absolute inset-x-0 top-full z-20 mt-1.5 overflow-hidden rounded-[14px] border border-line bg-white shadow-[0_16px_40px_-12px_rgb(17_17_19/0.25)]">
+                      {treffer.map((b) => (
+                        <button key={b.id} type="button" onClick={() => setGewaehlt(b)} className="flex w-full items-center gap-2.5 px-3.5 py-2.5 text-left text-sm hover:bg-ground">
+                          <span className="knr">{b.konto_nr}</span>
+                          <span className="truncate font-medium">{b.bezeichnung}</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </Schritt>
+
+            <Schritt nr={2} titel="Wer verlangt es?">
+              {gewaehlt?.kunde?.ansprechperson && (
                 <button
                   type="button"
                   onClick={() => setBesteller(gewaehlt.kunde?.ansprechperson ?? '')}
-                  className={'chip px-3 py-1 text-xs ' + (besteller.trim() === gewaehlt.kunde.ansprechperson.trim() ? 'chip-on' : '')}
+                  className={'chip mb-2 rounded-full px-3 py-1 text-xs font-semibold ' + (besteller.trim() === gewaehlt.kunde.ansprechperson.trim() ? 'chip-on' : '')}
                   title={gewaehlt.kunde.email ?? undefined}
                 >
-                  {gewaehlt.kunde.ansprechperson}{gewaehlt.kunde.name ? ` · ${gewaehlt.kunde.name}` : ''}
+                  Bauleitung: {gewaehlt.kunde.ansprechperson}
                 </button>
-              </div>
-            )}
-            <input
-              id="besteller"
-              value={besteller}
-              onChange={(e) => setBesteller(e.target.value)}
-              placeholder="z. B. M. Huber, Bauleitung"
-              className="field"
-            />
-            <div className="mt-2 flex gap-2">
-              {KANAELE.map(([wert, label]) => (
-                <button
-                  key={wert}
-                  type="button"
-                  onClick={() => setKanal(wert)}
-                  className={'chip px-3.5 ' + (kanal === wert ? 'chip-on' : '')}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div>
-            <label className="lbl">Was ist zu tun?</label>
-            <div className="grid grid-cols-3 gap-2">
-              {TAETIGKEITEN.map(([wert, label]) => (
-                <button
-                  key={wert}
-                  type="button"
-                  onClick={() => setTaetigkeit(wert)}
-                  className={'chip ' + (taetigkeit === wert ? 'chip-on' : '')}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="lbl">Geplant für</label>
-              <input
-                type="date"
-                value={geplant}
-                onChange={(e) => setGeplant(e.target.value)}
-                className="field"
-              />
-            </div>
-            <div>
-              <label className="lbl">Notiz (optional)</label>
-              <input
-                value={notiz}
-                onChange={(e) => setNotiz(e.target.value)}
-                placeholder="z. B. Maurer blockiert"
-                className="field"
-              />
-            </div>
-          </div>
-
-          <button
-            type="button"
-            onClick={() => void speichern()}
-            className={'cta ' + (rueckmeldung?.art === 'gesendet' ? 'cta-good' : '')}
-          >
-            {rueckmeldung?.art === 'gesendet' ? rueckmeldung.text : 'Speichern'}
-          </button>
-          {rueckmeldung?.art === 'wartet' && (
-            <p role="status" className="rounded-[10px] bg-amber-soft px-3 py-2 text-sm font-semibold text-amber-deep">{rueckmeldung.text}</p>
-          )}
-          {fehler && <p className="text-sm font-semibold text-accent-deep">{fehler}</p>}
-          <p className="text-xs text-ink3">
-            Ohne Netz wird lokal gespeichert und automatisch gesendet, sobald
-            Empfang da ist.
-          </p>
-        </section>
-
-        <section className="space-y-2.5">
-          <div className="flex items-baseline justify-between gap-3">
-            <h2 className="lbl mb-0">Offen · {offene.length + lokal.length}</h2>
-            {erledigte.length > 0 && (
-              <button type="button" className="text-xs font-semibold text-steel" onClick={() => setZeigeErledigte((z) => !z)}>
-                {zeigeErledigte ? 'Erledigte ausblenden' : `${erledigte.length} erledigte anzeigen`}
-              </button>
-            )}
-          </div>
-
-          {lokal.map((e) => {
-            const p = e.payload as LokalPayload;
-            const b = baustellen.find((x) => x.id === p.baustelle_id);
-            return (
-              <div key={e.client_uuid} className="rounded-[14px] border border-dashed border-line-strong bg-surface p-3.5">
-                <div className="flex items-baseline justify-between gap-2">
-                  <span className="font-display text-[15px] font-semibold">{b?.bezeichnung ?? b?.konto_nr ?? 'Baustelle'}</span>
-                  <span className="rounded-md bg-amber-soft px-1.5 py-0.5 font-mono text-[11px] font-semibold text-amber-deep">bestellt</span>
-                </div>
-                <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-ink2">
-                  {b && <span className="knr">{b.konto_nr}</span>}
-                  <span>{TAETIGKEIT_LABEL[p.taetigkeit ?? ''] ?? p.taetigkeit ?? '—'}</span>
-                  <span className="text-ink3">·</span>
-                  <span>{p.besteller_name ?? '—'}</span>
-                </p>
-                <p className="mt-1.5 text-[11px] text-ink3">⏳ wartet auf Netz</p>
-              </div>
-            );
-          })}
-
-          {offene.length === 0 && lokal.length === 0 && (
-            <div className="card text-sm text-ink3">
-              {erledigte.length > 0 ? 'Nichts offen — alles im Regierapport oder beim Kunden.' : 'Noch keine — der nächste Kundenanruf landet hier.'}
-            </div>
-          )}
-
-          {[...offene, ...(zeigeErledigte ? erledigte : [])].map((a) => (
-            <div key={a.id} className={'card ' + (a.ohne_meldung ? 'border-amber/40' : '')}>
-              <div className="flex items-baseline justify-between gap-2">
-                <span className="font-display text-[15px] font-semibold">
-                  {a.baustelle_bezeichnung ?? a.konto_nr}
-                </span>
-                <span
-                  className={
-                    'rounded-md px-1.5 py-0.5 font-mono text-[11px] font-semibold ' +
-                    (STAND_STIL[a.stand] ?? 'bg-ground text-ink3')
-                  }
-                >
-                  {STAND_LABEL[a.stand] ?? a.stand}
-                </span>
-              </div>
-              <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-ink2">
-                <span className="knr">{a.konto_nr}</span>
-                <span>{TAETIGKEIT_LABEL[a.taetigkeit] ?? a.taetigkeit}</span>
-                <span className="text-ink3">·</span>
-                <span>{a.besteller_name}</span>
-                {a.geplant_fuer && (
-                  <>
-                    <span className="text-ink3">·</span>
-                    <span>geplant {kurz(ausIso(a.geplant_fuer))}</span>
-                  </>
-                )}
-                {a.notiz && (
-                  <>
-                    <span className="text-ink3">·</span>
-                    <span className="text-ink3">{a.notiz}</span>
-                  </>
-                )}
-              </p>
-
-              {/* Woher der Stand kommt — benannte Quelle statt Urteil */}
-              <p className="mt-1.5 text-xs text-ink3">
-                {a.stand === 'gemeldet' && a.gemeldet_am && (
-                  <>
-                    gemeldet am {kurz(ausIso(a.gemeldet_am))}{a.gemeldet_von_team ? ` von ${a.gemeldet_von_team}` : ''}
-                    {' · '}
-                    {meldungLinks[a.id]
-                      ? <Link to={meldungLinks[a.id]} className="font-semibold text-steel">Meldung ansehen und Regierapport vorrechnen ›</Link>
-                      : <Link to={`/cockpit?woche=${a.gemeldet_am}&tag=${a.gemeldet_am}`} className="font-semibold text-steel">in der Wochenübersicht ansehen ›</Link>}
-                  </>
-                )}
-                {(a.stand === 'im_regierapport' || a.stand === 'beim_kunden' || a.stand === 'bestaetigt') && a.regierapport_id && (
-                  <Link to={`/regie/${a.regierapport_id}`} className="font-semibold text-steel">
-                    Regierapport {a.regierapport_nummer ?? ''} ›
-                  </Link>
-                )}
-                {a.stand === 'bestellt' && a.ohne_meldung && (
-                  <span className="font-semibold text-amber-deep">geplant {a.geplant_fuer ? kurz(ausIso(a.geplant_fuer)) : ''}, bis jetzt keine Meldung vom Team — nachfragen?</span>
-                )}
-                {a.stand === 'bestellt' && !a.ohne_meldung && <>wartet auf die Meldung des Teams</>}
-                {a.stand === 'erledigt_ohne_regie' && (
-                  <>{GRUND_LABEL[a.erledigt_grund ?? ''] ?? a.erledigt_grund}{a.erledigt_am ? ` · ${kurz(new Date(a.erledigt_am))}` : ''}</>
-                )}
-              </p>
-
-              {/* Mehrkostenanzeige — vor der Arbeit, sonst zahlt die Bauleitung nicht (Protokoll 7.1) */}
-              {MEHRKOSTENANZEIGE_AKTIV && a.anzeige_noetig && (a.stand === 'bestellt' || a.stand === 'gemeldet') && !a.angezeigt_am && anzeige?.id !== a.id && (
-                <div className="mt-2.5 flex flex-wrap items-center justify-between gap-2 rounded-[12px] border border-amber/40 bg-amber-soft px-3 py-2.5">
-                  <span className="text-xs text-amber-deep">
-                    <strong>Bauleitung noch nicht informiert.</strong> Bei diesem Kunden zählt Zusatzarbeit nur, wenn sie vorher schriftlich angezeigt wurde.
-                  </span>
-                  <button type="button" className="btn-ghost shrink-0 border-amber/50 text-amber-deep" onClick={() => setAnzeige({ id: a.id, an: a.kunde_email ?? '', laeuft: false, fehler: '' })}>
-                    Bauleitung informieren
-                  </button>
-                </div>
               )}
-              {anzeige?.id === a.id && (
-                <div className="mt-2.5 space-y-2 rounded-[12px] bg-ground p-3">
-                  <p className="text-xs font-semibold">Mehrkostenanzeige per Mail an die Bauleitung</p>
-                  <p className="text-xs text-ink2">
-                    Inhalt: Bestellung durch {a.besteller_name} am {kurz(new Date(a.bestellt_am))}, Arbeit «{TAETIGKEIT_LABEL[a.taetigkeit] ?? a.taetigkeit}» auf {a.baustelle_bezeichnung ?? a.konto_nr}
-                    {a.geplant_fuer ? `, geplant ${kurz(ausIso(a.geplant_fuer))}` : ''}, Verrechnung nach Regie-Tarif, Regierapport folgt.
-                  </p>
-                  <input type="email" value={anzeige.an} onChange={(e) => setAnzeige({ ...anzeige, an: e.target.value })} placeholder="E-Mail der Bauleitung" className="field" />
-                  {!a.kunde_email && <p className="text-[11px] text-amber-deep">Beim Kunden ist keine E-Mail hinterlegt — unter Verwaltung › Kunden eintragen, dann ist sie hier vorbelegt.</p>}
-                  {anzeige.fehler && <p className="text-xs font-semibold text-accent-deep">{anzeige.fehler}</p>}
-                  <div className="flex gap-2">
-                    <button type="button" disabled={anzeige.laeuft || !anzeige.an.trim()} className="cta w-auto px-4 py-2 text-sm disabled:opacity-60" onClick={() => void anzeigeSenden(a)}>
-                      {anzeige.laeuft ? 'Sendet …' : 'Anzeige senden'}
+              <input id="besteller" value={besteller} onChange={(e) => setBesteller(e.target.value)} placeholder="z. B. M. Huber, Bauleitung" className="field" />
+              <div className="mt-2 grid grid-cols-3 gap-1.5 rounded-[14px] bg-surface-2 p-1" role="group" aria-label="Wie bestellt">
+                {KANAELE.map(([wert, label]) => {
+                  const Icon = KANAL_ICON[wert];
+                  const an = kanal === wert;
+                  return (
+                    <button key={wert} type="button" onClick={() => setKanal(wert)} aria-pressed={an}
+                      className={'flex items-center justify-center gap-1.5 rounded-[11px] py-2 text-xs font-semibold transition ' + (an ? 'bg-white text-ink shadow-[0_1px_2px_rgb(17_17_19/0.08),0_4px_10px_-6px_rgb(17_17_19/0.3)]' : 'text-ink3 hover:text-ink')}>
+                      <Icon size={14} aria-hidden="true" />{label}
                     </button>
-                    <button type="button" className="btn-ghost" onClick={() => setAnzeige(null)}>Abbrechen</button>
-                  </div>
-                </div>
-              )}
-              {MEHRKOSTENANZEIGE_AKTIV && a.angezeigt_am && (
-                <p className="mt-2 text-xs text-good-deep">✓ Bauleitung informiert am {kurz(new Date(a.angezeigt_am))}{a.angezeigt_an ? ` · ${a.angezeigt_an}` : ''}</p>
-              )}
+                  );
+                })}
+              </div>
+            </Schritt>
 
-              {(a.stand === 'bestellt' || a.stand === 'gemeldet') && erledigen !== a.id && (
-                <button type="button" onClick={() => setErledigen(a.id)} className="btn-ghost mt-2.5 text-xs">
-                  erledigt ohne Regie …
-                </button>
+            <Schritt nr={3} titel="Was ist zu tun?">
+              <div className="grid grid-cols-3 gap-2">
+                {TAETIGKEITEN.map(([wert, label]) => {
+                  const Icon = TAETIGKEIT_ICON[wert] ?? Ellipsis;
+                  const an = taetigkeit === wert;
+                  return (
+                    <button key={wert} type="button" onClick={() => setTaetigkeit(wert)} aria-pressed={an}
+                      className={'chip flex flex-col items-center gap-1.5 py-3 text-xs font-semibold ' + (an ? 'chip-on' : '')}>
+                      <Icon size={18} strokeWidth={2} className={an ? 'text-accent' : 'text-ink3'} aria-hidden="true" />
+                      {label}
+                    </button>
+                  );
+                })}
+              </div>
+            </Schritt>
+
+            <Schritt nr={4} titel="Wann?">
+              <div className="grid grid-cols-2 gap-3">
+                <input type="date" value={geplant} onChange={(e) => setGeplant(e.target.value)} className="field" aria-label="Geplant für" />
+                <input value={notiz} onChange={(e) => setNotiz(e.target.value)} placeholder="Notiz (freiwillig)" className="field" aria-label="Notiz (optional)" />
+              </div>
+            </Schritt>
+
+            <div className="space-y-2 pt-1">
+              <button type="button" onClick={() => void speichern()} className={'cta ' + (rueckmeldung?.art === 'gesendet' ? 'cta-good' : '')}>
+                {rueckmeldung?.art === 'gesendet' ? rueckmeldung.text : 'Auftrag speichern'}
+              </button>
+              {rueckmeldung?.art === 'wartet' && (
+                <p role="status" className="rounded-[12px] bg-amber-soft px-3 py-2 text-sm font-semibold text-amber-deep">{rueckmeldung.text}</p>
               )}
-              {erledigen === a.id && (
-                <div className="mt-2.5 space-y-2 rounded-[12px] bg-ground p-3">
-                  <p className="text-xs font-semibold">Warum gibt es keine Regie?</p>
-                  <div className="grid grid-cols-2 gap-1.5">
-                    {GRUENDE.map(([code, text]) => (
-                      <button key={code} type="button" onClick={() => void ohneRegieErledigen(a, code)} className="chip text-xs">
-                        {text}
-                      </button>
-                    ))}
-                  </div>
-                  <button type="button" onClick={() => setErledigen(null)} className="text-xs text-ink3">Abbrechen</button>
-                </div>
-              )}
-              {a.stand === 'erledigt_ohne_regie' && (
-                <button type="button" onClick={() => void wiederOeffnen(a)} className="btn-ghost mt-2.5 text-xs">
-                  wieder öffnen
-                </button>
-              )}
+              {fehler && <p className="text-sm font-semibold text-accent-deep">{fehler}</p>}
+              <p className="flex items-center gap-1.5 text-xs text-ink3"><CloudOff size={13} aria-hidden="true" />Ohne Netz wird lokal gespeichert und gesendet, sobald Empfang da ist.</p>
             </div>
-          ))}
-        </section>
+          </section>
+
+          {/* ── Aufträge ──────────────────────────────────────────────────── */}
+          <section className="space-y-3 lg:col-span-7">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="flex rounded-full border border-ink/10 bg-white p-1 shadow-[0_1px_2px_rgb(17_17_19/0.06)]" role="group" aria-label="Auswahl">
+                {([[false, `Offen · ${offene.length + lokal.length}`], [true, `Erledigt · ${erledigte.length}`]] as const).map(([erl, label]) => (
+                  <button key={label} type="button" onClick={() => setZeigeErledigte(erl)} aria-pressed={zeigeErledigte === erl}
+                    className={'rounded-full px-3.5 py-1.5 text-xs font-semibold transition ' + (zeigeErledigte === erl ? 'bg-ink text-white shadow-sm' : 'text-ink2 hover:text-ink')}>
+                    {label}
+                  </button>
+                ))}
+              </div>
+              <p className="text-xs text-ink3">Der Stand ergibt sich aus Meldung und Regierapport.</p>
+            </div>
+
+            {!zeigeErledigte && lokal.map((e) => {
+              const p = e.payload as LokalPayload;
+              const b = baustellen.find((x) => x.id === p.baustelle_id);
+              return (
+                <div key={e.client_uuid} className="rounded-[18px] border border-dashed border-amber/50 bg-white p-4">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="font-display text-[15px] font-semibold">{b?.bezeichnung ?? b?.konto_nr ?? 'Baustelle'}</span>
+                    <span className="flex items-center gap-1.5 text-xs font-semibold text-amber-deep"><CloudOff size={13} aria-hidden="true" />wartet auf Netz</span>
+                  </div>
+                  <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-ink2">
+                    {b && <span className="knr">{b.konto_nr}</span>}
+                    <span>{TAETIGKEIT_LABEL[p.taetigkeit ?? ''] ?? p.taetigkeit ?? '—'}</span>
+                    <span className="text-ink3">·</span>
+                    <span>{p.besteller_name ?? '—'}</span>
+                  </p>
+                </div>
+              );
+            })}
+
+            {sichtbar.length === 0 && (zeigeErledigte || lokal.length === 0) && (
+              <div className="card text-sm text-ink3">
+                {zeigeErledigte ? 'Noch nichts erledigt.' : erledigte.length > 0 ? 'Nichts offen — alles im Regierapport oder beim Kunden.' : 'Noch keine — der nächste Kundenanruf landet hier.'}
+              </div>
+            )}
+
+            {sichtbar.map((a) => {
+              const KanalIcon = KANAL_ICON[a.kanal] ?? Phone;
+              const offen = a.stand === 'bestellt' || a.stand === 'gemeldet';
+              return (
+                <article key={a.id} className={'overflow-hidden rounded-[18px] border bg-white shadow-[0_1px_2px_rgb(17_17_19/0.04),0_10px_28px_-18px_rgb(17_17_19/0.28)] ' + (a.ohne_meldung ? 'border-amber/50' : 'border-ink/[0.06]')}>
+                  <div className="flex gap-4 p-4">
+                    <DatumKachel iso={a.geplant_fuer} heuteIso={heuteIso} warn={a.ohne_meldung} />
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-start justify-between gap-3">
+                        <h3 className="min-w-0 truncate font-display text-[15px] font-semibold">{a.baustelle_bezeichnung ?? a.konto_nr}</h3>
+                        <span className={'inline-flex shrink-0 items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-semibold ' + (STAND_STIL[a.stand] ?? 'bg-ground text-ink3')}>
+                          <span className="h-1.5 w-1.5 rounded-full bg-current" aria-hidden="true" />
+                          {STAND_LABEL[a.stand] ?? a.stand}
+                        </span>
+                      </div>
+                      <p className="mt-1.5 flex flex-wrap items-center gap-x-2.5 gap-y-1 text-xs text-ink2">
+                        <span className="knr">{a.konto_nr}</span>
+                        <span className="font-semibold text-ink">{TAETIGKEIT_LABEL[a.taetigkeit] ?? a.taetigkeit}</span>
+                        <span className="inline-flex items-center gap-1"><KanalIcon size={12} className="text-ink3" aria-hidden="true" />{a.besteller_name}</span>
+                        {a.notiz && <span className="text-ink3">«{a.notiz}»</span>}
+                        {MEHRKOSTENANZEIGE_AKTIV && a.angezeigt_am && (
+                          <span className="text-good-deep" title={`Bauleitung informiert am ${kurz(new Date(a.angezeigt_am))}${a.angezeigt_an ? ' · ' + a.angezeigt_an : ''}`}>✓ angezeigt {kurz(new Date(a.angezeigt_am))}</span>
+                        )}
+                      </p>
+                      {a.stand !== 'erledigt_ohne_regie' && <Fortschritt stand={a.stand} />}
+                    </div>
+                  </div>
+
+                  {anzeige?.id === a.id && (
+                    <div className="mx-4 mb-3 space-y-2 rounded-[12px] bg-ground p-3">
+                      <p className="text-xs font-semibold">Mehrkostenanzeige per Mail an die Bauleitung</p>
+                      <p className="text-xs text-ink2">
+                        Inhalt: Bestellung durch {a.besteller_name} am {kurz(new Date(a.bestellt_am))}, Arbeit «{TAETIGKEIT_LABEL[a.taetigkeit] ?? a.taetigkeit}» auf {a.baustelle_bezeichnung ?? a.konto_nr}
+                        {a.geplant_fuer ? `, geplant ${kurz(ausIso(a.geplant_fuer))}` : ''}, Verrechnung nach Regie-Tarif, Regierapport folgt.
+                      </p>
+                      <input type="email" value={anzeige.an} onChange={(e) => setAnzeige({ ...anzeige, an: e.target.value })} placeholder="E-Mail der Bauleitung" className="field" />
+                      {!a.kunde_email && <p className="text-[11px] text-amber-deep">Beim Kunden ist keine E-Mail hinterlegt — unter Verwaltung › Kunden eintragen, dann ist sie hier vorbelegt.</p>}
+                      {anzeige.fehler && <p className="text-xs font-semibold text-accent-deep">{anzeige.fehler}</p>}
+                      <div className="flex gap-2">
+                        <button type="button" disabled={anzeige.laeuft || !anzeige.an.trim()} className="cta w-auto px-4 py-2 text-sm disabled:opacity-60" onClick={() => void anzeigeSenden(a)}>
+                          {anzeige.laeuft ? 'Sendet …' : 'Anzeige senden'}
+                        </button>
+                        <button type="button" className="btn-ghost" onClick={() => setAnzeige(null)}>Abbrechen</button>
+                      </div>
+                    </div>
+                  )}
+
+                  {erledigen === a.id && (
+                    <div className="mx-4 mb-3 space-y-2 rounded-[12px] bg-ground p-3">
+                      <p className="text-xs font-semibold">Warum gibt es keine Regie?</p>
+                      <div className="grid grid-cols-2 gap-1.5">
+                        {GRUENDE.map(([code, text]) => (
+                          <button key={code} type="button" onClick={() => void ohneRegieErledigen(a, code)} className="chip text-xs">{text}</button>
+                        ))}
+                      </div>
+                      <button type="button" onClick={() => setErledigen(null)} className="text-xs text-ink3">Abbrechen</button>
+                    </div>
+                  )}
+
+                  {/* Fusszeile: woher der Stand kommt (benannte Quelle statt Urteil) und der eine Handgriff */}
+                  <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 border-t border-line bg-surface-2/40 px-4 py-2.5 text-xs">
+                    <span className="min-w-0 text-ink3">
+                      {a.stand === 'gemeldet' && a.gemeldet_am && (
+                        <>
+                          gemeldet am {kurz(ausIso(a.gemeldet_am))}{a.gemeldet_von_team ? ` von ${a.gemeldet_von_team}` : ''} ·{' '}
+                          {meldungLinks[a.id]
+                            ? <Link to={meldungLinks[a.id]} className="font-semibold text-steel" title="Meldung ansehen und Regierapport vorrechnen">Meldung ansehen ›</Link>
+                            : <Link to={`/cockpit?woche=${a.gemeldet_am}&tag=${a.gemeldet_am}`} className="font-semibold text-steel">in der Wochenübersicht ansehen ›</Link>}
+                        </>
+                      )}
+                      {(a.stand === 'im_regierapport' || a.stand === 'beim_kunden' || a.stand === 'bestaetigt') && a.regierapport_id && (
+                        <Link to={`/regie/${a.regierapport_id}`} className="font-semibold text-steel">Regierapport {a.regierapport_nummer ?? ''} ›</Link>
+                      )}
+                      {a.stand === 'bestellt' && a.ohne_meldung && (
+                        <span className="font-semibold text-amber-deep">Geplanter Tag vorbei, noch keine Meldung vom Team — nachfragen?</span>
+                      )}
+                      {a.stand === 'bestellt' && !a.ohne_meldung && <>wartet auf die Meldung des Teams</>}
+                      {a.stand === 'erledigt_ohne_regie' && (
+                        <>{GRUND_LABEL[a.erledigt_grund ?? ''] ?? a.erledigt_grund}{a.erledigt_am ? ` · ${kurz(new Date(a.erledigt_am))}` : ''}</>
+                      )}
+                    </span>
+                    <span className="flex shrink-0 items-center gap-3">
+                      {/* Mehrkostenanzeige — vor der Arbeit, sonst zahlt die Bauleitung nicht (Protokoll 7.1) */}
+                      {MEHRKOSTENANZEIGE_AKTIV && a.anzeige_noetig && offen && !a.angezeigt_am && anzeige?.id !== a.id && (
+                        <button type="button" title="Bei diesem Kunden zählt Zusatzarbeit nur, wenn sie vorher schriftlich angezeigt wurde." onClick={() => setAnzeige({ id: a.id, an: a.kunde_email ?? '', laeuft: false, fehler: '' })}
+                          className="inline-flex items-center gap-1.5 rounded-full bg-amber px-3 py-1 font-semibold text-white shadow-[0_3px_8px_-3px_rgb(217_147_15/0.6)] hover:bg-amber-deep">
+                          <TriangleAlert size={12} strokeWidth={2.5} aria-hidden="true" />Bauleitung informieren
+                        </button>
+                      )}
+                      {offen && erledigen !== a.id && (
+                        <button type="button" onClick={() => setErledigen(a.id)} className="font-semibold text-ink3 hover:text-ink">erledigt ohne Regie …</button>
+                      )}
+                    </span>
+                    {a.stand === 'erledigt_ohne_regie' && (
+                      <button type="button" onClick={() => void wiederOeffnen(a)} className="shrink-0 font-semibold text-steel">wieder öffnen</button>
+                    )}
+                  </div>
+                </article>
+              );
+            })}
+          </section>
+        </div>
       </div>
     </Shell>
+  );
+}
+
+const KANAL_ICON: Record<string, LucideIcon> = { telefon: Phone, mail: Mail, vor_ort: MapPin };
+const TAETIGKEIT_ICON: Record<string, LucideIcon> = {
+  versetzen: MoveHorizontal, ergaenzen: SquarePlus, reparieren: Wrench, teilabbau: SquareMinus, reinigen: Sparkles, anderes: Ellipsis,
+};
+
+/** Kleine Kennzahl im Seitenkopf. */
+function Kennzahl({ wert, text, farbe = 'text-ink' }: { wert: number; text: string; farbe?: string }) {
+  return (
+    <span className="inline-flex items-baseline gap-1.5 rounded-full border border-ink/10 bg-white px-3.5 py-1.5 text-xs text-ink2 shadow-[0_1px_2px_rgb(17_17_19/0.05)]">
+      <b className={'text-sm tabular-nums ' + farbe}>{wert}</b>{text}
+    </span>
+  );
+}
+
+/** Nummerierter Formularschritt. */
+function Schritt({ nr, titel, children }: { nr: number; titel: string; children: ReactNode }) {
+  return (
+    <div>
+      <p className="mb-2 flex items-center gap-2 text-[13px] font-semibold text-ink">
+        <span className="grid h-5 w-5 place-items-center rounded-full bg-ink text-[11px] font-bold text-white">{nr}</span>
+        {titel}
+      </p>
+      {children}
+    </div>
+  );
+}
+
+/** Geplanter Tag als kleines Kalenderblatt — heute rot, verpasst bernstein, ohne Datum ein Strich. */
+function DatumKachel({ iso, heuteIso, warn }: { iso: string | null; heuteIso: string; warn: boolean }) {
+  if (!iso) {
+    return <span className="grid h-14 w-14 shrink-0 place-items-center rounded-[14px] bg-surface-2 text-xs text-ink3" aria-label="ohne Datum">—</span>;
+  }
+  const d = ausIso(iso);
+  const tage = ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa'];
+  const heute = iso === heuteIso;
+  const stil = warn ? 'bg-amber-soft text-amber-deep ring-amber/40' : heute ? 'bg-accent-soft text-accent-deep ring-accent/30' : 'bg-white text-ink ring-ink/10';
+  return (
+    <span className={'flex h-14 w-14 shrink-0 flex-col items-center justify-center rounded-[14px] ring-1 ' + stil}>
+      <span className="text-[10px] font-semibold uppercase tracking-wide opacity-80">{heute ? 'heute' : tage[d.getDay()]}</span>
+      <span className="font-display text-[17px] font-semibold leading-tight tabular-nums">{d.getDate()}.{d.getMonth() + 1}.</span>
+    </span>
+  );
+}
+
+const STUFEN: { stand: Auftrag['stand']; label: string }[] = [
+  { stand: 'bestellt', label: 'Bestellt' },
+  { stand: 'gemeldet', label: 'Gemeldet' },
+  { stand: 'im_regierapport', label: 'Rapport' },
+  { stand: 'beim_kunden', label: 'Kunde' },
+  { stand: 'bestaetigt', label: 'Bestätigt' },
+];
+
+/** Wo der Auftrag steht — fünf Stufen, die erreichten ausgefüllt. */
+function Fortschritt({ stand }: { stand: Auftrag['stand'] }) {
+  const erreicht = STUFEN.findIndex((s) => s.stand === stand);
+  return (
+    <ol className="mt-3 flex items-center gap-1" aria-label={`Stand: ${STAND_LABEL[stand]}`}>
+      {STUFEN.map((s, i) => (
+        <li key={s.stand} className="flex min-w-0 flex-1 flex-col gap-1">
+          <span className={'h-1.5 rounded-full ' + (i <= erreicht ? (stand === 'bestaetigt' ? 'bg-good' : 'bg-steel') : 'bg-ink/10')} />
+          <span className={'truncate text-[10px] ' + (i === erreicht ? 'font-semibold text-ink' : 'text-ink3')}>{s.label}</span>
+        </li>
+      ))}
+    </ol>
   );
 }
