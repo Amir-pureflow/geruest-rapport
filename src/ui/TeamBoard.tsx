@@ -12,23 +12,27 @@
  *
  * Farbe umgedreht (20.09.): Vorher war jede gemeldete Kachel grün getönt — bei
  * 17 von 20 eine grüne Wand, in der ausgerechnet das Fehlende still blieb. Jetzt
- * ist der Normalfall weiss und ruhig; grau sind die Lücken, bernstein die Tage
- * mit Überstunden. Was Arbeit macht, sticht heraus — der Rest ist nur Bestätigung.
+ * ist der Normalfall weiss und ruhig; bernstein sind die Tage mit Überstunden.
+ * Was Arbeit macht, sticht heraus — der Rest ist nur Bestätigung.
+ *
+ * 06.10.2026: Kacheln wie die Dashboard-Kacheln — weiss, Farbe nur in der Ecke.
+ * Offene Teams sind schlicht weiss statt grau gestrichelt: tagsüber ist fast jedes
+ * Team offen, und eine graue Wand wirkte wie ein leeres Formular.
  *
  * Die Zahl «x von 20 gemeldet» steht als Kachel schon zuoberst auf der Seite.
  * Hier oben steht darum, was offen ist, nicht dieselbe Zahl zweimal.
  */
 import { Link } from 'react-router-dom';
-import { Check, Minus } from 'lucide-react';
+import { Check, CircleDashed } from 'lucide-react';
 import type { TeamStand } from '../lib/kennzahlen';
 
 type Zustand = 'gemeldet' | 'ueber' | 'fehlt';
 
-/** Statuskante links + Abzeichen rechts (05.10.2026: der Mini-Punkt war auf einen Blick nicht lesbar). */
+/** Abzeichen rechts trägt Wort oder Uhrzeit (05.10.2026: der Mini-Punkt war auf einen Blick nicht lesbar). */
 const STIL: Record<Zustand, { kachel: string; abzeichen: string }> = {
-  gemeldet: { kachel: 'border-line border-l-4 border-l-good bg-surface', abzeichen: 'bg-good-soft text-good-deep' },
-  ueber: { kachel: 'border-amber/40 border-l-4 border-l-amber bg-amber-soft', abzeichen: 'bg-amber text-white' },
-  fehlt: { kachel: 'border-dashed border-line-strong border-l-4 border-l-line-strong bg-surface-2', abzeichen: 'bg-ink/5 text-ink3' },
+  gemeldet: { kachel: 'border-white/80 bg-gradient-to-br from-white via-white to-[#dcf2e5]', abzeichen: 'bg-good-soft text-good-deep ring-1 ring-good/20' },
+  ueber: { kachel: 'border-amber/30 bg-gradient-to-br from-white via-white to-[#fbe3a6]', abzeichen: 'bg-amber text-white shadow-[0_3px_8px_-3px_rgb(217_147_15/0.6)]' },
+  fehlt: { kachel: 'border-line bg-white', abzeichen: 'bg-white text-ink3 ring-1 ring-line-strong' },
 };
 
 function Kachel({ t }: { t: TeamStand }) {
@@ -38,7 +42,7 @@ function Kachel({ t }: { t: TeamStand }) {
 
   return (
     <li
-      className={'rounded-[12px] border px-3 py-2.5 ' + s.kachel}
+      className={'rounded-[14px] border px-3.5 py-3 shadow-[0_1px_2px_rgb(17_17_19/0.04),0_10px_24px_-18px_rgb(17_17_19/0.28)] ' + s.kachel}
       /* Zustand auch für Vorlesegeräte — nicht nur über die Farbe */
       aria-label={
         `${t.bezeichnung}, ${t.chefmonteur ?? 'kein Chefmonteur'}: ` +
@@ -50,7 +54,7 @@ function Kachel({ t }: { t: TeamStand }) {
       <div className="flex items-center justify-between gap-2">
         <span className="truncate font-display text-[15px] font-semibold text-ink">{t.bezeichnung}</span>
         <span className={'flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 font-mono text-[11px] font-semibold tabular-nums ' + s.abzeichen} aria-hidden="true">
-          {zustand === 'fehlt' ? <Minus size={11} strokeWidth={2.5} /> : <Check size={11} strokeWidth={3} />}
+          {zustand === 'fehlt' ? <CircleDashed size={11} strokeWidth={2.5} /> : <Check size={11} strokeWidth={3} />}
           {t.gemeldetUm ?? 'offen'}
         </span>
       </div>
@@ -103,16 +107,16 @@ export function TeamBoard({ teams }: { teams: TeamStand[] }) {
 
       <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-line pt-3 text-[11px] text-ink3">
         <span className="flex items-center gap-1.5">
-          <span className="inline-block h-2.5 w-2.5 rounded-[3px] bg-good" />gemeldet
+          <span className="inline-block h-2.5 w-2.5 rounded-full bg-good" />gemeldet
         </span>
         <span className="flex items-center gap-1.5">
-          <span className="inline-block h-2.5 w-2.5 rounded-[3px] bg-amber" />Überstunden — Notiz lesen
+          <span className="inline-block h-2.5 w-2.5 rounded-full bg-amber" />Überstunden — Notiz lesen
         </span>
         <span className="flex items-center gap-1.5">
-          <span className="inline-block h-2.5 w-2.5 rounded-[3px] border border-line-strong bg-surface-2" />
+          <CircleDashed size={11} strokeWidth={2.5} aria-hidden="true" />
           noch keine Meldung
         </span>
-        <span className="sm:ml-auto">Das Teamgerät meldet am Abend — vorher sind viele Kacheln grau.</span>
+        <span className="sm:ml-auto">Das Teamgerät meldet am Abend — vorher sind viele Teams noch offen.</span>
       </div>
     </section>
   );
