@@ -13,6 +13,7 @@ import { Link } from 'react-router-dom';
 import { AlarmClock, CheckCircle2, Clock, Hourglass } from 'lucide-react';
 import { Shell, navFuer } from '../ui/Shell';
 import { Kachel, NavKarte } from '../ui/Karten';
+import { Segment } from '../ui/Segment';
 import { DiagrammKarte, Fristen, RegieMonate } from '../ui/Diagramm';
 import { fristen, regieMonate, type FristEintrag, type RegieMonat } from '../lib/kennzahlen';
 import { einstellungen } from '../lib/einstellungen';
@@ -158,11 +159,7 @@ export function StartSekretariat() {
             <p className="lbl mb-0.5">Sekretariat · {lang(heute)}</p>
             <h1 className="font-display text-2xl font-semibold md:text-3xl">Stunden {titel}</h1>
           </div>
-          <div className="flex gap-1.5">
-            {zeitraeume.map((z) => (
-              <button key={z.key} type="button" onClick={() => setZeitraum(z.key)} className={'chip px-3 py-1.5 text-xs ' + (zeitraum === z.key ? 'chip-on' : '')}>{z.label}</button>
-            ))}
-          </div>
+          <Segment label="Zeitraum" wert={zeitraum} aendern={setZeitraum} optionen={zeitraeume.map((z) => ({ wert: z.key, text: z.label }))} />
         </header>
 
         {laedt ? (

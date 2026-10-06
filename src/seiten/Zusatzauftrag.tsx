@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
-import { ClipboardPlus, CloudOff, Ellipsis, Mail, MapPin, MoveHorizontal, Phone, Search, Sparkles, SquareMinus, SquarePlus, Wrench, type LucideIcon } from 'lucide-react';
+import { CalendarCheck, ClipboardList, ClipboardPlus, CloudOff, Ellipsis, Mail, MapPin, MoveHorizontal, Phone, Search, Sparkles, SquareMinus, SquarePlus, TriangleAlert, Wrench, type LucideIcon } from 'lucide-react';
 import { Shell } from '../ui/Shell';
+import { KennzahlPille } from '../ui/Karten';
 import { supabase } from '../lib/supabase';
 import { ausIso, iso as isoDatum, kurz } from '../lib/datum';
 import { TAETIGKEITEN, TAETIGKEIT_LABEL } from '../lib/zusatzauftrag';
@@ -290,9 +291,9 @@ export function Zusatzauftrag() {
             <p className="mt-1 text-sm text-ink3">Was der Kunde zusätzlich bestellt — erfassen, solange er noch am Telefon ist.</p>
           </div>
           <div className="flex flex-wrap gap-2">
-            <Kennzahl wert={offene.length + lokal.length} text="offen" />
-            <Kennzahl wert={heuteGeplant} text="heute geplant" farbe="text-steel" />
-            {ohneMeldung > 0 && <Kennzahl wert={ohneMeldung} text="ohne Meldung" farbe="text-amber-deep" />}
+            <KennzahlPille wert={String(offene.length + lokal.length)} text="offen" icon={ClipboardList} />
+            <KennzahlPille wert={String(heuteGeplant)} text="heute geplant" icon={CalendarCheck} farbe="blau" />
+            {ohneMeldung > 0 && <KennzahlPille wert={String(ohneMeldung)} text="ohne Meldung" icon={TriangleAlert} farbe="gelb" />}
           </div>
         </header>
 
@@ -522,15 +523,6 @@ const KANAL_ICON: Record<string, LucideIcon> = { telefon: Phone, mail: Mail, vor
 const TAETIGKEIT_ICON: Record<string, LucideIcon> = {
   versetzen: MoveHorizontal, ergaenzen: SquarePlus, reparieren: Wrench, teilabbau: SquareMinus, reinigen: Sparkles, anderes: Ellipsis,
 };
-
-/** Kleine Kennzahl im Seitenkopf. */
-function Kennzahl({ wert, text, farbe = 'text-ink' }: { wert: number; text: string; farbe?: string }) {
-  return (
-    <span className="inline-flex items-baseline gap-1.5 rounded-full border border-ink/10 bg-white px-3.5 py-1.5 text-xs text-ink2 shadow-[0_1px_2px_rgb(17_17_19/0.05)]">
-      <b className={'text-sm tabular-nums ' + farbe}>{wert}</b>{text}
-    </span>
-  );
-}
 
 /** Nummerierter Formularschritt. */
 function Schritt({ nr, titel, children }: { nr: number; titel: string; children: ReactNode }) {

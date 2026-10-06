@@ -131,4 +131,35 @@ export function ZahlKarte({
   );
 }
 
+/**
+ * Kennzahl im Seitenkopf (06.10.2026, ersetzt die flachen weissen Pillen): kleine Karte mit farbigem
+ * Icon-Chip, Zahl über dem Text — dieselbe Sprache wie die Kacheln der Übersicht, nur kompakt.
+ */
+export function KennzahlPille({
+  wert,
+  text,
+  farbe = 'neutral',
+  icon: Icon,
+}: {
+  wert?: string;
+  text: string;
+  farbe?: KachelFarbe;
+  icon?: LucideIcon;
+}) {
+  const f = KACHEL_STIL[farbe];
+  return (
+    <span className={'inline-flex items-center gap-2.5 rounded-[16px] border border-white/80 py-1.5 pl-1.5 pr-4 shadow-[0_1px_2px_rgb(17_17_19/0.05),0_10px_24px_-16px_rgb(17_17_19/0.3)] ' + f.karte}>
+      {Icon && (
+        <span className={'grid h-8 w-8 flex-none place-items-center rounded-[11px] text-white shadow-[0_4px_10px_-4px_rgb(17_17_19/0.35)] ' + f.chip} aria-hidden="true">
+          <Icon size={16} strokeWidth={2.3} />
+        </span>
+      )}
+      <span className="flex flex-col leading-tight">
+        {wert && <span className="text-[15px] font-semibold tabular-nums tracking-tight text-ink">{wert}</span>}
+        <span className={wert ? 'text-[11.5px] text-ink3' : 'text-[13px] font-semibold text-ink2'}>{text}</span>
+      </span>
+    </span>
+  );
+}
+
 export const MONATE = ['Januar', 'Februar', 'März', 'April', 'Mai', 'Juni', 'Juli', 'August', 'September', 'Oktober', 'November', 'Dezember'];

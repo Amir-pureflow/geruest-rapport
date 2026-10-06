@@ -10,6 +10,7 @@ import { supabase } from '../lib/supabase';
 import { formatChf } from '../lib/tarif';
 import { Banknote, CircleCheck, PencilLine, Send } from 'lucide-react';
 import { MONATE, ZahlKarte } from '../ui/Karten';
+import { Segment } from '../ui/Segment';
 
 interface Zeile {
   monat: string; // JJJJ-MM-TT (Monatsanfang)
@@ -122,11 +123,7 @@ export function Auswertung() {
           {proBaustelle.length > 0 && <button type="button" className="btn-ghost" onClick={csv}>CSV herunterladen</button>}
         </header>
 
-        <div className="flex flex-wrap gap-1.5">
-          {monate.map((m) => (
-            <button key={m} type="button" onClick={() => setMonat(m)} className={'px-3 py-1.5 text-xs ' + (m === monat ? 'chip chip-on' : 'chip')}>{monatsName(m)}</button>
-          ))}
-        </div>
+        <Segment label="Monat" wert={monat} aendern={setMonat} optionen={monate.map((m) => ({ wert: m, text: monatsName(m) }))} />
 
         {fehler && <p className="rounded-[12px] border border-accent/40 bg-accent-soft px-4 py-3 text-sm text-accent-deep">{fehler}</p>}
         {laedt && !fehler && <p className="card text-sm text-ink3">Lädt …</p>}

@@ -7,8 +7,9 @@
  */
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Camera, Check, ChevronLeft, ChevronRight, CircleDashed, Languages } from 'lucide-react';
+import { AlarmClock, Camera, Check, ChevronLeft, ChevronRight, CircleDashed, Clock, Coffee, Languages, TriangleAlert, Users } from 'lucide-react';
 import { Shell } from '../ui/Shell';
+import { KennzahlPille } from '../ui/Karten';
 import { supabase } from '../lib/supabase';
 import { addTage, iso, kurz, lang, stunden, WOCHENTAGE } from '../lib/datum';
 
@@ -129,11 +130,11 @@ export function Tag() {
             <div className="mt-2.5 flex flex-wrap gap-2">
               {laedt ? <span className="text-sm text-ink3">lädt …</span> : (
                 <>
-                  <Kennzahl wert={`${gemeldet.length}/${teams.length}`} text="Teams gemeldet" />
-                  {totalTag > 0 && <Kennzahl wert={`${stunden(totalTag)} h`} text="total" />}
-                  {anzHinweis > 0 && <Kennzahl wert={String(anzHinweis)} text={anzHinweis === 1 ? 'mit Überstunden' : 'mit Überstunden'} farbe="text-amber-deep" />}
-                  {abweichungenTag > 0 && <Kennzahl wert={String(abweichungenTag)} text={abweichungenTag === 1 ? 'Abweichung' : 'Abweichungen'} farbe="text-amber-deep" />}
-                  {wochenende && <Kennzahl wert="" text="Wochenende" />}
+                  <KennzahlPille wert={`${gemeldet.length}/${teams.length}`} text="Teams gemeldet" icon={Users} farbe={teams.length > 0 && gemeldet.length === teams.length ? 'gruen' : 'blau'} />
+                  {totalTag > 0 && <KennzahlPille wert={`${stunden(totalTag)} h`} text="total" icon={Clock} />}
+                  {anzHinweis > 0 && <KennzahlPille wert={String(anzHinweis)} text="mit Überstunden" icon={AlarmClock} farbe="gelb" />}
+                  {abweichungenTag > 0 && <KennzahlPille wert={String(abweichungenTag)} text={abweichungenTag === 1 ? 'Abweichung' : 'Abweichungen'} icon={TriangleAlert} farbe="gelb" />}
+                  {wochenende && <KennzahlPille text="Wochenende" icon={Coffee} />}
                 </>
               )}
             </div>
@@ -262,10 +263,3 @@ export function Tag() {
 
 const SPRACHE_ADJ: Record<string, string> = { it: 'Italienischen', fr: 'Französischen', pl: 'Polnischen', pt: 'Portugiesischen', sq: 'Albanischen', ar: 'Arabischen', en: 'Englischen' };
 
-function Kennzahl({ wert, text, farbe = 'text-ink' }: { wert: string; text: string; farbe?: string }) {
-  return (
-    <span className="inline-flex items-baseline gap-1.5 rounded-full border border-ink/10 bg-white px-3.5 py-1.5 text-xs text-ink2 shadow-[0_1px_2px_rgb(17_17_19/0.05)]">
-      {wert && <b className={'text-sm tabular-nums ' + farbe}>{wert}</b>}{text}
-    </span>
-  );
-}
