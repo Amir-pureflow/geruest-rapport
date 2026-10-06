@@ -184,6 +184,9 @@ export function Planung() {
               {!laedt && teams.map((team) => {
                 const balken = proTeam.get(team.id) ?? [];
                 const anzSpuren = Math.max(1, ...balken.map((b) => b.spur + 1));
+                // Freie Felder je Spur und Tag — das «+» erscheint nur dort, nie unter einem Balken
+                const belegt = (spur: number, tag: number) => balken.some((b) => b.spur === spur && b.ab <= tag && b.bis >= tag);
+                const freieFelder = Array.from({ length: anzSpuren }, (_, spur) => tage.map((d, i) => ({ d, i, spur }))).flat().filter((x) => !belegt(x.spur, x.i));
                 return (
                   <div key={team.id} className="grid border-b border-line last:border-b-0" style={{ gridTemplateColumns: '200px minmax(0,1fr)' }}>
                     <div className="flex min-w-0 flex-col justify-center px-4 py-2.5">
@@ -191,15 +194,15 @@ export function Planung() {
                       {team.chefmonteur && <span className="truncate text-xs text-ink3">{kurzName(team.chefmonteur.name)}</span>}
                     </div>
                     <div className="grid py-2" style={{ gridTemplateColumns: tagSpalten, gridTemplateRows: `repeat(${anzSpuren}, ${SPUR_HOEHE}px)`, rowGap: 6 }}>
-                      {/* Freie Tage: antippen = an diesem Tag planen */}
-                      {tage.map((d, i) => {
+                      {/* Freie Felder: antippen = an diesem Tag planen */}
+                      {freieFelder.map(({ d, i, spur }) => {
                         return (
                           <button
-                            key={iso(d)}
+                            key={iso(d) + '-' + spur}
                             type="button"
                             onClick={() => neu(team.id, d)}
                             aria-label={`${team.bezeichnung} am ${lang(d)} planen`}
-                            style={{ gridColumn: i + 1, gridRow: '1 / -1' }}
+                            style={{ gridColumn: i + 1, gridRow: spur + 1 }}
                             className="group/tag mx-0.5 grid place-items-center rounded-[10px] transition hover:bg-accent-soft/60"
                           >
                             <Plus size={15} className="text-accent opacity-0 transition group-hover/tag:opacity-100" aria-hidden="true" />
@@ -223,10 +226,11 @@ export function Planung() {
                             }
                           >
                             {links && <span className="-ml-1 text-xs opacity-60" aria-hidden="true">‹</span>}
-                            <span className={'h-2 w-2 shrink-0 rounded-full ' + f.punkt} aria-hidden="true" />
-                            <span className="min-w-0 truncate text-[12.5px] font-semibold">{name}</span>
-                            {/* Kontonummer nur, wo Platz ist — bei einem Tag ginge sonst der Name unter */}
-                            {bis > ab && <span className="ml-auto hidden shrink-0 font-mono text-[11px] opacity-70 lg:inline">{plan.baustelle?.konto_nr}</span>}
+                            {bis > ab && <span className={'h-2 w-2 shrink-0 rounded-full ' + f.punkt} aria-hidden="true" />}
+                            {/* Eintägige Einsätze: Name auf zwei Zeilen statt «Wohnüber…» */}
+                            <span className={'min-w-0 font-semibold ' + (bis > ab ? 'truncate text-[12.5px]' : 'line-clamp-2 text-[11px] leading-[1.15] [overflow-wrap:anywhere]')}>{name}</span>
+                            {/* Kontonummer erst ab drei Tagen — bei kürzeren Balken ginge sonst der Name unter */}
+                            {bis - ab >= 2 && <span className="ml-auto hidden shrink-0 font-mono text-[11px] opacity-70 lg:inline">{plan.baustelle?.konto_nr}</span>}
                             {rechts && <span className="-mr-1 text-xs opacity-60" aria-hidden="true">›</span>}
                           </button>
                         );

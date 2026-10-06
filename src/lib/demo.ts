@@ -379,8 +379,9 @@ export function erzeugeDemoBetrieb(opts: { baustellen: BaustelleQuelle[]; heute:
 
   // Planung -----------------------------------------------------------------
   // Jetzt: Vorwoche bis Ende nächster Woche, danach die nächste Baustelle. Abwechslung fürs Video:
-  // zwei Teams wechseln mitten in der Woche, zwei haben einen Reparatur-Tag dazwischen, zwei sind
-  // nächste Woche noch frei. Die ersten Namen der Liste stehen damit in der Planung von heute.
+  // zwei Teams wechseln mitten in der Woche, zwei sind am Mittwoch für eine Reparatur anderswo und danach
+  // zurück (kein Team steht je auf zwei Baustellen gleichzeitig), zwei sind nächste Woche noch frei.
+  // Die ersten Namen der Liste stehen damit in der Planung von heute.
   const jahresplan: JahresplanRow[] = [];
   const plan = (team: TeamRow, b: BaustelleUpdate, von: Date, bis: Date) => jahresplan.push({ id: z.uuid(), baustelle_id: b.id, team_id: team.id, von: iso(von), bis: iso(bis) });
   const mo = (w: number) => addTage(wochenStart, 7 * w);
@@ -396,17 +397,21 @@ export function erzeugeDemoBetrieb(opts: { baustellen: BaustelleQuelle[]; heute:
     if (wechsel.has(i)) {
       plan(team, jetzt1, mo(-1), addTage(mo(0), 2));
       plan(team, neueBaustelle(), addTage(mo(0), 3), fr(1));
+    } else if (reparatur.has(i)) {
+      const mi = addTage(mo(0), 2);
+      plan(team, jetzt1, mo(-1), addTage(mo(0), 1));
+      plan(team, neueBaustelle(), mi, mi);
+      plan(team, jetzt1, addTage(mo(0), 3), fr(1));
     } else if (frei.has(i)) {
       plan(team, jetzt1, mo(-1), fr(0));
     } else {
       plan(team, jetzt1, mo(-1), fr(1));
     }
-    if (reparatur.has(i)) { const d = addTage(mo(0), 2); plan(team, neueBaustelle(), d, d); }
     plan(team, neueBaustelle(), mo(2), fr(2 + z.int(1, 3)));
   }
-  /** Hauptbaustelle eines Teams an einem Tag: der früheste Einsatz, der den Tag deckt (Reparatur-Tage zählen nicht). */
+  /** Baustelle eines Teams an einem Tag laut Planung — Einsätze überschneiden sich in der Demo nie. */
   const baustelleAm = (teamId: string, tagIso: string): BaustelleUpdate => {
-    const treffer = jahresplan.filter((j) => j.team_id === teamId && j.von <= tagIso && j.bis >= tagIso && j.von !== j.bis);
+    const treffer = jahresplan.filter((j) => j.team_id === teamId && j.von <= tagIso && j.bis >= tagIso);
     const id = treffer.sort((a, b) => a.von.localeCompare(b.von))[0]?.baustelle_id;
     return baustellen.find((b) => b.id === id) ?? aktive[0];
   };

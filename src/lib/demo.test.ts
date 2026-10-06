@@ -41,6 +41,13 @@ describe('Demo-Betrieb — Struktur wie im Gespräch mit Arbnor', () => {
     expect(d.baustellen.filter((b) => b.status === 'fertig_gemeldet').every((b) => b.fertigstellung_am)).toBe(true);
   });
 
+  it('Planung: kein Team steht je auf zwei Baustellen gleichzeitig', () => {
+    for (const t of d.teams) {
+      const e = d.jahresplan.filter((j) => j.team_id === t.id).sort((a, b) => a.von.localeCompare(b.von));
+      for (let i = 1; i < e.length; i++) expect(e[i].von > e[i - 1].bis).toBe(true);
+    }
+  });
+
   it('Planung: mindestens drei Einsätze pro Team, einer deckt heute', () => {
     expect(d.jahresplan.length).toBeGreaterThanOrEqual(60);
     const heuteIso = '2026-09-03';
