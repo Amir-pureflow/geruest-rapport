@@ -929,7 +929,7 @@ export function Cockpit() {
                                 )}
                               </p>
                             )}
-                            {(meldung.audio_pfad || meldung.audio_sekunden) && (
+                            {meldung.audio_pfad && (
                               <div className="mt-2 flex items-center gap-2">
                                 {meldung.audio_pfad ? (
                                   <button type="button" onClick={() => void anhoeren(meldung.id, meldung.audio_pfad!)} className="btn-ghost">▶ Sprachnotiz{meldung.audio_sekunden ? ` · ${meldung.audio_sekunden} Sek.` : ''}</button>
