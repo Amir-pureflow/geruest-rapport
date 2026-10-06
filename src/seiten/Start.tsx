@@ -228,7 +228,7 @@ function StartBauf() {
           </p>
         )}
         {!k && !fehler && supabase && (
-          <div className="grid grid-cols-2 gap-2.5 md:grid-cols-3 md:gap-4" aria-busy="true">
+          <div className="grid grid-cols-2 gap-3 md:grid-cols-3" aria-busy="true">
             {Array.from({ length: 3 }, (_, i) => (
               <div key={i} className={'card h-[104px] animate-pulse bg-surface-2 md:h-[116px] ' + (i === 0 ? 'col-span-2 md:col-span-1' : '')} />
             ))}
@@ -237,7 +237,7 @@ function StartBauf() {
         {k && (
           <>
             {/* Handy: der Tagesstand steht oben über die ganze Breite, die zwei Zahlen zur Vorwoche darunter */}
-            <div className="grid grid-cols-2 gap-2.5 md:grid-cols-3 md:gap-4">
+            <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
               <div className="col-span-2 md:col-span-1">
                 <Kachel
                   zu="/heute"
@@ -269,7 +269,7 @@ function StartBauf() {
 
             {/* Regie: eigene Reihe, damit die Stunden oben ungestört bleiben */}
             {rz && (
-              <div className="grid grid-cols-2 gap-2.5 md:grid-cols-4 md:gap-4">
+              <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
                 <Kachel
                   zu="/zusatzauftrag"
                   icon={PhoneCall}

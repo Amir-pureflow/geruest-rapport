@@ -128,14 +128,17 @@ export interface BueroBlatt {
   total_min: number;
 }
 
-/** Je Temporärbüro ein Blatt. Nur Personen mit typ 'temporaer'; ohne Büro → «ohne Büro». */
+/** Ersatzgruppe für Temporäre ohne eingetragenes Büro — kein echtes Büro, bekommt kein eigenes Excel. */
+export const OHNE_BUERO = 'ohne Büro';
+
+/** Je Temporärbüro ein Blatt. Nur Personen mit typ 'temporaer'; ohne Büro → OHNE_BUERO. */
 export function temporaerBueroBlaetter(eintraege: LohnEintrag[]): BueroBlatt[] {
   const bueros = new Map<string, Map<string, BueroZeile>>();
   for (const e of eintraege) {
     if (e.mitarbeiter.typ !== 'temporaer') continue;
     mussInt(e.normal_min, 'normal_min');
     mussInt(e.ueber_min, 'ueber_min');
-    const buero = e.mitarbeiter.temporaerbuero?.trim() || 'ohne Büro';
+    const buero = e.mitarbeiter.temporaerbuero?.trim() || OHNE_BUERO;
     const konto = e.konto_nr ?? '—';
     const zeilen = bueros.get(buero) ?? new Map<string, BueroZeile>();
     const key = `${e.mitarbeiter.id}|${e.datum}|${konto}`;

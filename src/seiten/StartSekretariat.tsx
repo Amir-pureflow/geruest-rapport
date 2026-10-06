@@ -14,6 +14,7 @@ import { AlarmClock, CheckCircle2, Clock, Hourglass } from 'lucide-react';
 import { Shell, navFuer } from '../ui/Shell';
 import { Kachel, NavKarte } from '../ui/Karten';
 import { Segment } from '../ui/Segment';
+import { OHNE_BUERO } from '../lib/lohn';
 import { DiagrammKarte, Fristen, RegieMonate } from '../ui/Diagramm';
 import { fristen, regieMonate, type FristEintrag, type RegieMonat } from '../lib/kennzahlen';
 import { einstellungen } from '../lib/einstellungen';
@@ -136,7 +137,7 @@ export function StartSekretariat() {
   const bueros = useMemo(() => {
     const m = new Map<string, { min: number; leute: number }>();
     for (const p of temporaer) {
-      const b = p.buero ?? 'ohne Büro';
+      const b = p.buero?.trim() || OHNE_BUERO;
       const e = m.get(b) ?? { min: 0, leute: 0 };
       e.min += p.normal + p.ueber;
       e.leute += 1;
@@ -166,7 +167,7 @@ export function StartSekretariat() {
           <div className="card text-sm text-ink3">Lädt …</div>
         ) : (
           <>
-            <div className="grid grid-cols-2 gap-2.5 md:grid-cols-4 md:gap-4">
+            <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
               <Kachel zu={exportLink} icon={Clock} titel="Stunden" wert={`${stunden(total)} h`} label={`${zeitraum === 'monat' ? 'im Monat' : 'in der Woche'} · ${personen.length} von ${aktive} Mitarbeitenden`} farbe="blau" />
               <Kachel zu={exportLink} icon={AlarmClock} titel="Überstunden" wert={`${stunden(ueber)} h`} label={zeitraum === 'monat' ? 'im Monat' : 'in der Woche'} farbe="gelb" />
               <Kachel zu={exportLink} icon={CheckCircle2} titel="Freigegeben" wert={`${stunden(frei)} h`} label="vom Bauführer — bereit für den Lohn" farbe="gruen" />
@@ -242,7 +243,9 @@ export function StartSekretariat() {
                 <div className="divide-y divide-line">
                   {bueros.map(([b, e]) => (
                     <div key={b} className="flex items-baseline justify-between gap-3 py-1.5 text-sm">
-                      <span>{b} <span className="text-xs text-ink3">· {e.leute} {e.leute === 1 ? 'Person' : 'Personen'}</span></span>
+                      {b === OHNE_BUERO
+                        ? <span className="text-amber-deep">Temporär, Büro fehlt <span className="text-xs">· {e.leute} {e.leute === 1 ? 'Person' : 'Personen'} · </span><Link to="/verwaltung" className="text-xs font-semibold text-steel">eintragen ›</Link></span>
+                        : <span>{b} <span className="text-xs text-ink3">· {e.leute} {e.leute === 1 ? 'Person' : 'Personen'}</span></span>}
                       <span className="font-mono tabular-nums">{stunden(e.min)} h</span>
                     </div>
                   ))}

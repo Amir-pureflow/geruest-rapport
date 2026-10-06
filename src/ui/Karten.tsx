@@ -17,6 +17,20 @@ export function NavKarte({ zu, titel, text }: { zu: string; titel: string; text:
 export type KachelFarbe = 'neutral' | 'gruen' | 'gelb' | 'blau' | 'rot';
 
 /**
+ * Die grosse Zahl einer Kachel — in Übersicht und Export gleich (06.10.2026): 24/28 px, einzeilig.
+ * Beträge «Fr. 3'904.81» bekommen das «Fr.» klein davor, damit sie nicht auf zwei Zeilen umbrechen.
+ */
+function KachelWert({ wert }: { wert: string }) {
+  const fr = wert.startsWith('Fr. ');
+  return (
+    <span className="block whitespace-nowrap text-[24px] font-semibold leading-none tabular-nums tracking-tight text-ink lg:text-[28px]">
+      {fr && <span className="mr-1 text-[15px] font-semibold text-ink3 lg:text-base">Fr.</span>}
+      {fr ? wert.slice(4) : wert}
+    </span>
+  );
+}
+
+/**
  * Sanfter Verlauf + Icon-Chip in Vollfarbe (Vorbild 05.10.2026: Kennzahl-Karten moderner SaaS-Dashboards).
  * Die Farbe sagt, was die Zahl bedeutet (grün gut, gelb wartet, blau unterwegs, rot dringend);
  * die Zahl selbst bleibt dunkel — der Chip und die Fläche tragen die Bedeutung.
@@ -81,9 +95,7 @@ export function Kachel({
         <span className="text-ink3 transition-transform duration-150 group-hover:translate-x-0.5" aria-hidden="true">→</span>
       </span>
       <span className="block">
-        <span className="block text-[28px] font-semibold leading-none tabular-nums tracking-tight text-ink lg:text-[32px]">
-          {wert}
-        </span>
+        <KachelWert wert={wert} />
         {fortschritt && (
           <span className="mt-2.5 block h-1 w-full overflow-hidden rounded-full bg-ink/10" aria-hidden="true">
             <span
@@ -124,7 +136,7 @@ export function ZahlKarte({
         <span className="truncate text-sm font-semibold text-ink">{titel}</span>
       </span>
       <span className="block">
-        <span className="block text-[24px] font-semibold leading-none tabular-nums tracking-tight text-ink lg:text-[28px]">{wert}</span>
+        <KachelWert wert={wert} />
         {label && <span className="mt-1.5 block text-xs leading-snug text-ink2 lg:text-[13px]">{label}</span>}
       </span>
     </div>

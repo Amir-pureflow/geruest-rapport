@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { AlarmClock, Building2, ChevronDown, Clock, Download, FileSpreadsheet, HardHat, Users } from 'lucide-react';
 import { Shell } from '../ui/Shell';
 import { supabase } from '../lib/supabase';
@@ -16,6 +17,7 @@ import {
   wochenImMonat,
   wochenSpalten,
   wochenTitel,
+  OHNE_BUERO,
   type BueroBlatt,
   type LohnEintrag,
 } from '../lib/lohn';
@@ -174,7 +176,10 @@ export function Export() {
 
   const eintraege = useMemo(() => zeilen.map(zuEintrag), [zeilen]);
   const lohn = useMemo(() => lohnZeilen(eintraege), [eintraege]);
-  const bueros = useMemo(() => temporaerBueroBlaetter(eintraege), [eintraege]);
+  const alleBueros = useMemo(() => temporaerBueroBlaetter(eintraege), [eintraege]);
+  // Nur echte Büros bekommen Karte, Blatt und eigenes Excel; Temporäre ohne Büro stehen im Lohn-Blatt und als Hinweis
+  const bueros = useMemo(() => alleBueros.filter((b) => b.buero !== OHNE_BUERO), [alleBueros]);
+  const ohneBuero = alleBueros.find((b) => b.buero === OHNE_BUERO);
   const ueber = useMemo(
     () => ueberstunden(
       eintraege,
@@ -404,8 +409,17 @@ export function Export() {
             </div>
           ))}
 
-          {tab === 'bueros' && (bueros.length === 0 ? leer('Stunden von Temporären') : (
+          {tab === 'bueros' && (bueros.length === 0 && !ohneBuero ? leer('Stunden von Temporären') : (
             <div className="grid gap-3 p-4 sm:grid-cols-2">
+              {ohneBuero && (
+                <div className="rounded-[16px] border border-amber/40 bg-amber-soft/60 p-4 sm:col-span-2">
+                  <p className="text-sm font-semibold text-amber-deep">Temporär, aber kein Büro eingetragen</p>
+                  <p className="mt-0.5 text-xs text-ink2">
+                    {ohneBuero.personen.map((p) => `${p.name} ${stunden(p.total_min)} h`).join(' · ')} — die Stunden stehen im Lohn-Blatt. Für ein eigenes Büro-Excel das Temporärbüro eintragen.{' '}
+                    <Link to="/verwaltung" className="font-semibold text-steel">Zur Verwaltung ›</Link>
+                  </p>
+                </div>
+              )}
               {bueros.map((b) => (
                 <div key={b.buero} className="flex flex-col rounded-[16px] border border-line bg-gradient-to-br from-white to-[#f6f4ef] p-4">
                   <div className="flex items-start justify-between gap-3">
