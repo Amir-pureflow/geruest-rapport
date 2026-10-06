@@ -63,16 +63,16 @@ const SEITEN_BASIS: Record<Ansicht, string[]> = {
 
 /**
  * Seiten je Ansicht — abhängig von den Firmen-Schaltern (Verwaltung → Einstellungen, 02.10.2026):
- * MODUS_ERFASSUNG = regie   → Zusatzauftrag, Regierapporte, Auswertung, Board kommen dazu.
+ * MODUS_ERFASSUNG = regie   → Zusatzauftrag, Regierapporte, Auswertung, Planung kommen dazu.
  * MODUS_SEKRETARIAT = voll  → das Sekretariat sieht dasselbe wie der Bauführer (ohne Teamgerät).
  */
 export function seitenFuer(a: Ansicht): string[] {
   const e = einstellungen();
   const regie = e.erfassung === 'regie';
-  if (a === 'bauf') return regie ? ['zusatzauftrag', 'erfassung', 'heute', 'cockpit', 'regie', 'auswertung', 'board', 'verwaltung'] : SEITEN_BASIS.bauf;
+  if (a === 'bauf') return regie ? ['zusatzauftrag', 'erfassung', 'heute', 'cockpit', 'regie', 'auswertung', 'planung', 'verwaltung'] : SEITEN_BASIS.bauf;
   if (a === 'sekretariat') {
     if (e.sekretariat !== 'voll') return SEITEN_BASIS.sekretariat;
-    return regie ? ['zusatzauftrag', 'heute', 'cockpit', 'regie', 'auswertung', 'export', 'board', 'verwaltung'] : ['heute', 'cockpit', 'export', 'verwaltung'];
+    return regie ? ['zusatzauftrag', 'heute', 'cockpit', 'regie', 'auswertung', 'export', 'planung', 'verwaltung'] : ['heute', 'cockpit', 'export', 'verwaltung'];
   }
   return SEITEN_BASIS[a];
 }

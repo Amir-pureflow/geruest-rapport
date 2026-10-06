@@ -123,7 +123,7 @@ Anmeldung**, einmal (`einstellungenLaden()`), danach aus dem Zwischenspeicher (`
 
 | Spalte | Werte | Standard | Wirkung |
 |---|---|---|---|
-| `modus_erfassung` | `wochenblatt` · `regie` | `wochenblatt` | `regie` bringt Zusatzauftrag, Regierapporte, Auswertung, Board, Kundenlink, Ansicht «Kunde», den Abweichungs-Ablauf im Teamgerät und den Regie-Entscheid in der Wochenübersicht |
+| `modus_erfassung` | `wochenblatt` · `regie` | `wochenblatt` | `regie` bringt Zusatzauftrag, Regierapporte, Auswertung, Planung, Kundenlink, Ansicht «Kunde», den Abweichungs-Ablauf im Teamgerät und den Regie-Entscheid in der Wochenübersicht |
 | `modus_sekretariat` | `stunden` · `voll` | `stunden` | `voll` gibt dem Sekretariat dieselben Bereiche wie dem Bauführer (ohne Teamgerät) und, mit Regie, Fristen + Regie je Monat auf der Übersicht |
 | `modus_mehrkostenanzeige` | `false` · `true` | `false` | `true` zeigt «Bauleitung informieren» am Zusatzauftrag (Bausitzungsprotokoll 7.1) und die Anzeigepflicht je Kunde |
 
@@ -226,7 +226,7 @@ kennen heute nur de/ar/pl/en (Check-Constraint). Kommt mit dem Transkriptions-Sp
 ## Nicht bauen
 
 - SORBA ersetzen oder in SORBA schreiben (kein DB-Write, keine UI-Automation)
-- Regie, Zusatzaufträge, Kundenlink, Board **ohne Schalter** — sie gehören hinter `MODUS_ERFASSUNG` und dürfen bei
+- Regie, Zusatzaufträge, Kundenlink, Planung **ohne Schalter** — sie gehören hinter `MODUS_ERFASSUNG` und dürfen bei
   der Gerüst GmbH nirgends auftauchen
 - Automatische Freigabe «plausibler» Stunden
 - Mitarbeiter-Scoring oder -Bewertung
@@ -277,7 +277,8 @@ src/seiten/RegieListe.tsx         Regie-Modus: Entwurf → beim Kunden → best�
 src/seiten/RegieVorschau.tsx      Regie-Modus: Rapport vorrechnen (Positionen aus den Stunden)
 src/seiten/RegieDetail.tsx        Regie-Modus: senden, Zustellnachweis, Rückfrage, PDF
 src/seiten/Auswertung.tsx         Regie-Modus: Regie je Baustelle, Kunde, Monat
-src/seiten/Board.tsx              Regie-Modus: Jahresplan Team × KW
+src/seiten/Planung.tsx            Regie-Modus: Planung Team × Tag (ersetzt 06.10.2026 das Board) — Einsatz für Tag/Woche/länger planen, ändern, entfernen; schreibt jahresplan + planaenderung
+src/lib/planung.ts                Spuren, Ausschnitt, Schnellwahl der Zeiträume (+ Tests)
 src/seiten/Bestaetigung.tsx       Kundenlink ohne Login (/b/:token) — nur im Regie-Modus
 src/lib/datum.ts                  Wochen-/Datumshelfer, NORMALTAG_MIN
 src/lib/foto.ts                   Fotos verkleinern (1600 px, JPEG) vor Queue/Upload

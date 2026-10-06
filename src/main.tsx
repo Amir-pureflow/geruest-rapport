@@ -1,6 +1,6 @@
 import { StrictMode, useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import './index.css';
 import { registerSW } from 'virtual:pwa-register';
 import { Start } from './seiten/Start';
@@ -19,7 +19,7 @@ const RegieListe = lazy(() => import('./seiten/RegieListe').then((m) => ({ defau
 const RegieDetail = lazy(() => import('./seiten/RegieDetail').then((m) => ({ default: m.RegieDetail })));
 const RegieVorschau = lazy(() => import('./seiten/RegieVorschau').then((m) => ({ default: m.RegieVorschau })));
 const Auswertung = lazy(() => import('./seiten/Auswertung').then((m) => ({ default: m.Auswertung })));
-const Board = lazy(() => import('./seiten/Board').then((m) => ({ default: m.Board })));
+const Planung = lazy(() => import('./seiten/Planung').then((m) => ({ default: m.Planung })));
 const Bestaetigung = lazy(() => import('./seiten/Bestaetigung').then((m) => ({ default: m.Bestaetigung })));
 import { Shell } from './ui/Shell';
 import { ansichten, ANSICHT_LABEL, ansichtSetzen } from './lib/ansicht';
@@ -133,14 +133,16 @@ function App() {
         {hat('cockpit') && <Route path="/cockpit" element={<Cockpit />} />}
         {hat('export') && <Route path="/export" element={<Export />} />}
         {hat('verwaltung') && <Route path="/verwaltung" element={<Verwaltung />} />}
-        {/* Regie-Modus: Kundenlink ohne Login, Zusatzauftrag, Regierapporte, Auswertung, Board */}
+        {/* Regie-Modus: Kundenlink ohne Login, Zusatzauftrag, Regierapporte, Auswertung, Planung */}
         {regieModus && <Route path="/b/:token" element={<Suspense fallback={null}><Bestaetigung /></Suspense>} />}
         {hat('zusatzauftrag') && <Route path="/zusatzauftrag" element={<Suspense fallback={null}><Zusatzauftrag /></Suspense>} />}
         {hat('regie') && <Route path="/regie" element={<Suspense fallback={null}><RegieListe /></Suspense>} />}
         {hat('regie') && <Route path="/regie/neu" element={<Suspense fallback={null}><RegieVorschau /></Suspense>} />}
         {hat('regie') && <Route path="/regie/:id" element={<Suspense fallback={null}><RegieDetail /></Suspense>} />}
         {hat('auswertung') && <Route path="/auswertung" element={<Suspense fallback={null}><Auswertung /></Suspense>} />}
-        {hat('board') && <Route path="/board" element={<Suspense fallback={null}><Board /></Suspense>} />}
+        {hat('planung') && <Route path="/planung" element={<Suspense fallback={null}><Planung /></Suspense>} />}
+        {/* Das Board ist seit 06.10.2026 die Planung — alte Lesezeichen leiten weiter */}
+        {hat('planung') && <Route path="/board" element={<Navigate to="/planung" replace />} />}
         {sitzung && ansicht && <Route path="*" element={<FremdeSeite ansicht={ansicht} />} />}
       </Routes>
     </BrowserRouter>

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { ANSICHT_LABEL, useAnsicht, type Ansicht } from '../lib/ansicht';
-import { ChevronRight, ChevronDown, LayoutDashboard, CalendarDays, CalendarRange, Download, Settings, Smartphone, PhoneCall, FileText, BarChart3, LayoutGrid, ArrowLeftRight, LogOut, type LucideIcon } from 'lucide-react';
+import { ChevronRight, ChevronDown, LayoutDashboard, CalendarDays, CalendarRange, Download, Settings, Smartphone, PhoneCall, FileText, BarChart3, CalendarPlus, ArrowLeftRight, LogOut, type LucideIcon } from 'lucide-react';
 import { einstellungen } from '../lib/einstellungen';
 import { abmelden } from '../lib/konto';
 import { eigeneFirma } from '../lib/einstellungen';
@@ -141,7 +141,7 @@ interface NavGruppe { titel?: string; eintraege: NavEintrag[] }
  * Gleiche Ordnung für beide Büro-Ansichten: erst das Tägliche, dann die Daten.
  *
  * Was zu sehen ist, hängt an den Firmen-Schaltern (`src/lib/einstellungen.ts`, Entscheid 02.10.2026):
- * `MODUS_ERFASSUNG = regie` bringt Zusatzauftrag, Regierapporte, Auswertung und Board zurück,
+ * `MODUS_ERFASSUNG = regie` bringt Zusatzauftrag, Regierapporte, Auswertung und Planung zurück,
  * `MODUS_SEKRETARIAT = voll` gibt dem Sekretariat dieselben Bereiche wie dem Bauführer.
  */
 export function navFuer(a: 'bauf' | 'sekretariat'): NavGruppe[] {
@@ -185,7 +185,7 @@ export function navFuer(a: 'bauf' | 'sekretariat'): NavGruppe[] {
       eintraege: [
         // Export gehört dem Sekretariat — beim Bauführer entfernt (04.10.2026, Amir)
         ...(a === 'sekretariat' ? [{ zu: '/export', label: 'Export', icon: Download }] : []),
-        ...(regie ? [{ zu: '/board', label: 'Board', icon: LayoutGrid }] : []),
+        ...(regie ? [{ zu: '/planung', label: 'Planung', icon: CalendarPlus }] : []),
         { zu: '/verwaltung', label: 'Verwaltung', icon: Settings },
       ],
     },
@@ -228,7 +228,7 @@ const TITEL: Record<string, string> = {
   '/regie': 'Regierapporte',
   '/regie/neu': 'Neuer Rapport',
   '/auswertung': 'Auswertung',
-  '/board': 'Board',
+  '/planung': 'Planung',
 };
 
 /** Brotkrumen: Übersicht › Wochenübersicht. Jede Stufe ist anklickbar, die letzte nicht. */
