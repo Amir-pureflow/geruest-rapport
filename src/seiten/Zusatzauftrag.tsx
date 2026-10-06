@@ -1,9 +1,8 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
-import { ClipboardPlus, CloudOff, Ellipsis, TriangleAlert, Mail, MapPin, MoveHorizontal, Phone, Search, Sparkles, SquareMinus, SquarePlus, Wrench, type LucideIcon } from 'lucide-react';
+import { ClipboardPlus, CloudOff, Ellipsis, Mail, MapPin, MoveHorizontal, Phone, Search, Sparkles, SquareMinus, SquarePlus, Wrench, type LucideIcon } from 'lucide-react';
 import { Shell } from '../ui/Shell';
 import { supabase } from '../lib/supabase';
-import { einstellungen } from '../lib/einstellungen';
 import { ausIso, iso as isoDatum, kurz } from '../lib/datum';
 import { TAETIGKEITEN, TAETIGKEIT_LABEL } from '../lib/zusatzauftrag';
 import {
@@ -57,13 +56,10 @@ interface Auftrag {
   ohne_meldung: boolean;
   erledigt_grund: string | null;
   erledigt_am: string | null;
-  /** 0011: Kunde und Mehrkostenanzeige */
+  /** 0011: Kunde */
   kunde_name: string | null;
   kunde_email: string | null;
   kunde_ansprechperson: string | null;
-  anzeige_noetig: boolean;
-  angezeigt_am: string | null;
-  angezeigt_an: string | null;
 }
 
 
@@ -108,13 +104,6 @@ const CACHE_KEY = 'baustellen-cache-v2';
 
 type Rueckmeldung = { art: 'gesendet' | 'wartet'; text: string };
 
-/**
- * Mehrkostenanzeige an die Bauleitung (Bausitzungsprotokoll 7.1): vor der Arbeit anzeigen, sonst zahlt
- * die Bauleitung nicht. Ob eine Firma das über die App macht, sagt der Schalter `MODUS_MEHRKOSTENANZEIGE`
- * (Verwaltung → Einstellungen, 02.10.2026). Bei der Gerüst GmbH ist er aus — dort ist nicht geklärt,
- * wie sie es heute machen (15.09.).
- */
-const MEHRKOSTENANZEIGE_AKTIV = einstellungen().mehrkostenanzeige;
 
 export function Zusatzauftrag() {
   const [baustellen, setBaustellen] = useState<Baustelle[]>([]);
@@ -167,7 +156,7 @@ export function Zusatzauftrag() {
     const { data } = await supabase
       .from('zusatzauftrag_stand')
       .select(
-        'id,besteller_name,kanal,taetigkeit,geplant_fuer,bestellt_am,status,notiz,konto_nr,baustelle_id,baustelle_bezeichnung,stand,gemeldet_am,gemeldet_von_team,regierapport_id,regierapport_nummer,regierapport_status,ohne_meldung,erledigt_grund,erledigt_am,kunde_name,kunde_email,kunde_ansprechperson,anzeige_noetig,angezeigt_am,angezeigt_an',
+        'id,besteller_name,kanal,taetigkeit,geplant_fuer,bestellt_am,status,notiz,konto_nr,baustelle_id,baustelle_bezeichnung,stand,gemeldet_am,gemeldet_von_team,regierapport_id,regierapport_nummer,regierapport_status,ohne_meldung,erledigt_grund,erledigt_am,kunde_name,kunde_email,kunde_ansprechperson',
       )
       .order('bestellt_am', { ascending: false })
       .limit(50);
@@ -179,7 +168,7 @@ export function Zusatzauftrag() {
         .select('id,besteller_name,kanal,taetigkeit,geplant_fuer,bestellt_am,status,notiz,konto_nr,baustelle_bezeichnung,stand,gemeldet_am,gemeldet_von_team,regierapport_id,regierapport_nummer,regierapport_status,ohne_meldung,erledigt_grund,erledigt_am')
         .order('bestellt_am', { ascending: false })
         .limit(50);
-      if (alt.data) setListe((alt.data as unknown as Auftrag[]).map((a) => ({ ...a, anzeige_noetig: false, angezeigt_am: null, angezeigt_an: null, kunde_email: null, kunde_name: null, kunde_ansprechperson: null })));
+      if (alt.data) setListe((alt.data as unknown as Auftrag[]).map((a) => ({ ...a, kunde_email: null, kunde_name: null, kunde_ansprechperson: null })));
     }
   }
 
@@ -265,18 +254,6 @@ export function Zusatzauftrag() {
   }
 
   /** Der einzige Handgriff: bestellt, aber es gibt keine Regie — mit Pflichtgrund, wer, wann. */
-  // Mehrkostenanzeige: Empfänger vorbelegt aus dem Kunden, Versand über die Edge Function
-  const [anzeige, setAnzeige] = useState<{ id: string; an: string; laeuft: boolean; fehler: string } | null>(null);
-  async function anzeigeSenden(a: Auftrag) {
-    if (!supabase || !anzeige || anzeige.id !== a.id) return;
-    setAnzeige({ ...anzeige, laeuft: true, fehler: '' });
-    const { data, error } = await supabase.functions.invoke('mehrkosten-anzeigen', { body: { zusatzauftrag_id: a.id, empfaenger_email: anzeige.an.trim() } });
-    let text = error?.message ?? '';
-    if (error && 'context' in error) { try { text = ((await (error as { context: Response }).context.json()) as { fehler?: string }).fehler ?? text; } catch { /* Text reicht */ } }
-    if (error || data?.fehler) { setAnzeige({ ...anzeige, laeuft: false, fehler: data?.fehler ?? text ?? 'Versand fehlgeschlagen.' }); return; }
-    setAnzeige(null);
-    void ladeListe();
-  }
 
   async function ohneRegieErledigen(a: Auftrag, grund: string) {
     if (!supabase) return;
@@ -483,32 +460,10 @@ export function Zusatzauftrag() {
                         <span className="font-semibold text-ink">{TAETIGKEIT_LABEL[a.taetigkeit] ?? a.taetigkeit}</span>
                         <span className="inline-flex items-center gap-1"><KanalIcon size={12} className="text-ink3" aria-hidden="true" />{a.besteller_name}</span>
                         {a.notiz && <span className="text-ink3">«{a.notiz}»</span>}
-                        {MEHRKOSTENANZEIGE_AKTIV && a.angezeigt_am && (
-                          <span className="text-good-deep" title={`Bauleitung informiert am ${kurz(new Date(a.angezeigt_am))}${a.angezeigt_an ? ' · ' + a.angezeigt_an : ''}`}>✓ angezeigt {kurz(new Date(a.angezeigt_am))}</span>
-                        )}
                       </p>
                       {a.stand !== 'erledigt_ohne_regie' && <Fortschritt stand={a.stand} />}
                     </div>
                   </div>
-
-                  {anzeige?.id === a.id && (
-                    <div className="mx-4 mb-3 space-y-2 rounded-[12px] bg-ground p-3">
-                      <p className="text-xs font-semibold">Mehrkostenanzeige per Mail an die Bauleitung</p>
-                      <p className="text-xs text-ink2">
-                        Inhalt: Bestellung durch {a.besteller_name} am {kurz(new Date(a.bestellt_am))}, Arbeit «{TAETIGKEIT_LABEL[a.taetigkeit] ?? a.taetigkeit}» auf {a.baustelle_bezeichnung ?? a.konto_nr}
-                        {a.geplant_fuer ? `, geplant ${kurz(ausIso(a.geplant_fuer))}` : ''}, Verrechnung nach Regie-Tarif, Regierapport folgt.
-                      </p>
-                      <input type="email" value={anzeige.an} onChange={(e) => setAnzeige({ ...anzeige, an: e.target.value })} placeholder="E-Mail der Bauleitung" className="field" />
-                      {!a.kunde_email && <p className="text-[11px] text-amber-deep">Beim Kunden ist keine E-Mail hinterlegt — unter Verwaltung › Kunden eintragen, dann ist sie hier vorbelegt.</p>}
-                      {anzeige.fehler && <p className="text-xs font-semibold text-accent-deep">{anzeige.fehler}</p>}
-                      <div className="flex gap-2">
-                        <button type="button" disabled={anzeige.laeuft || !anzeige.an.trim()} className="cta w-auto px-4 py-2 text-sm disabled:opacity-60" onClick={() => void anzeigeSenden(a)}>
-                          {anzeige.laeuft ? 'Sendet …' : 'Anzeige senden'}
-                        </button>
-                        <button type="button" className="btn-ghost" onClick={() => setAnzeige(null)}>Abbrechen</button>
-                      </div>
-                    </div>
-                  )}
 
                   {erledigen === a.id && (
                     <div className="mx-4 mb-3 space-y-2 rounded-[12px] bg-ground p-3">
@@ -545,13 +500,6 @@ export function Zusatzauftrag() {
                       )}
                     </span>
                     <span className="flex shrink-0 items-center gap-3">
-                      {/* Mehrkostenanzeige — vor der Arbeit, sonst zahlt die Bauleitung nicht (Protokoll 7.1) */}
-                      {MEHRKOSTENANZEIGE_AKTIV && a.anzeige_noetig && offen && !a.angezeigt_am && anzeige?.id !== a.id && (
-                        <button type="button" title="Bei diesem Kunden zählt Zusatzarbeit nur, wenn sie vorher schriftlich angezeigt wurde." onClick={() => setAnzeige({ id: a.id, an: a.kunde_email ?? '', laeuft: false, fehler: '' })}
-                          className="inline-flex items-center gap-1.5 rounded-full bg-amber px-3 py-1 font-semibold text-white shadow-[0_3px_8px_-3px_rgb(217_147_15/0.6)] hover:bg-amber-deep">
-                          <TriangleAlert size={12} strokeWidth={2.5} aria-hidden="true" />Bauleitung informieren
-                        </button>
-                      )}
                       {offen && erledigen !== a.id && (
                         <button type="button" onClick={() => setErledigen(a.id)} className="font-semibold text-ink3 hover:text-ink">erledigt ohne Regie …</button>
                       )}

@@ -2,7 +2,8 @@
  * Einstellungen der angemeldeten Firma — ein Code, pro Firma anders (Entscheid 02.10.2026).
  *
  * Jede Firma arbeitet anders: die eine will nur das Wochenblatt (Normal + Überstunden), die andere
- * den vollen Regie-Ablauf mit Symbolen und Mehrkostenanzeige. Statt zwei Zweigen gibt es Schalter.
+ * den vollen Regie-Ablauf mit Symbolen. Statt zwei Zweigen gibt es Schalter. (Die Mehrkostenanzeige
+ * «Bauleitung informieren» ist am 06.10.2026 auf Wunsch von Amir ganz entfernt worden.)
  *
  * Seit Migration 0019 stehen sie in der Zeile der Firma (Tabelle `firma`), nicht mehr global in
  * `konfiguration`. Erst dadurch kann dieselbe App der einen Firma die Regie-Fassung zeigen und der
@@ -14,19 +15,16 @@ import { supabase } from './supabase';
 export interface Einstellungen {
   /** 'wochenblatt' = nur Normal + Überstunden · 'regie' = zusätzlich Symbole, «Wer wollte das?», Stunden je Person */
   erfassung: 'wochenblatt' | 'regie';
-  /** Knopf «Bauleitung informieren» am Zusatzauftrag (Bausitzungsprotokoll 7.1) */
-  mehrkostenanzeige: boolean;
   /** 'stunden' = nur Stunden, Export, Verwaltung · 'voll' = alles wie der Bauführer */
   sekretariat: 'stunden' | 'voll';
 }
 
-export const STANDARD: Einstellungen = { erfassung: 'wochenblatt', mehrkostenanzeige: false, sekretariat: 'stunden' };
+export const STANDARD: Einstellungen = { erfassung: 'wochenblatt', sekretariat: 'stunden' };
 
 const KEY = 'firma-einstellungen';
 /** Spalte in `firma` je Schalter. */
 const SPALTE = {
   erfassung: 'modus_erfassung',
-  mehrkostenanzeige: 'modus_mehrkostenanzeige',
   sekretariat: 'modus_sekretariat',
 } as const;
 
@@ -115,16 +113,16 @@ export async function einstellungenLaden(): Promise<Einstellungen> {
   // neuen Spalten — dann nochmals ohne sie, damit die App trotzdem startet.
   const mitBriefkopf = await supabase
     .from('firma')
-    .select('id,name,modus_erfassung,modus_sekretariat,modus_mehrkostenanzeige,briefkopf_name,briefkopf_slogan,briefkopf_adresse,briefkopf_tel,briefkopf_fax,briefkopf_mail,briefkopf_web,briefkopf_bank,briefkopf_mwst')
+    .select('id,name,modus_erfassung,modus_sekretariat,briefkopf_name,briefkopf_slogan,briefkopf_adresse,briefkopf_tel,briefkopf_fax,briefkopf_mail,briefkopf_web,briefkopf_bank,briefkopf_mwst')
     .limit(1);
   const ohneBriefkopf = mitBriefkopf.data && mitBriefkopf.data.length > 0
     ? null
-    : await supabase.from('firma').select('id,name,modus_erfassung,modus_sekretariat,modus_mehrkostenanzeige').limit(1);
+    : await supabase.from('firma').select('id,name,modus_erfassung,modus_sekretariat').limit(1);
   const data = ((mitBriefkopf.data ?? ohneBriefkopf?.data ?? null) as unknown) as Record<string, string | boolean | null>[] | null;
   if (!data || data.length === 0) { gelesen = false; return zwischenspeicher; }
   gelesen = true;
   const r = data[0] as unknown as {
-    id: string; name: string; modus_erfassung: string; modus_sekretariat: string; modus_mehrkostenanzeige: boolean;
+    id: string; name: string; modus_erfassung: string; modus_sekretariat: string;
   };
   firma = { id: r.id, name: r.name };
   const bk = data[0] as Record<string, string | null>;
@@ -135,7 +133,6 @@ export async function einstellungenLaden(): Promise<Einstellungen> {
   };
   const neu: Einstellungen = {
     erfassung: r.modus_erfassung === 'regie' ? 'regie' : 'wochenblatt',
-    mehrkostenanzeige: r.modus_mehrkostenanzeige === true,
     sekretariat: r.modus_sekretariat === 'voll' ? 'voll' : 'stunden',
   };
   zwischenspeicher = neu;

@@ -221,8 +221,11 @@ const FESTE_NOTIZEN: { team: number; notiz: number; ende?: number; woche?: numbe
   { vorTagen: 0, team: 15, notiz: 0, ende: 18 * 60 },             // Team 16 · Polnisch
 ];
 
-/** Diese Teams haben heute noch nicht gemeldet (Team 6, 10, 15, 19) — so sieht das Team-Board am Abend aus. */
-const HEUTE_OFFEN = new Set([5, 9, 14, 18]);
+/**
+ * Diese Teams haben heute noch nicht gemeldet (Team 3, 6, 10, 15) — so sieht das Team-Board am Abend aus.
+ * Team 3 ist absichtlich dabei: im Video meldet es den Tag am Teamgerät (Italienisch).
+ */
+const HEUTE_OFFEN = new Set([2, 5, 9, 14]);
 
 // ── Zeilen (1:1 die Tabellen) ─────────────────────────────────────────────────
 

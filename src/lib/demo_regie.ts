@@ -23,8 +23,6 @@ export interface ZusatzauftragRow {
   bestellt_am: string; kanal: string; taetigkeit: string; geplant_fuer: string; notiz: string | null;
   status: 'offen' | 'erledigt_ohne_regie';
   erledigt_grund?: 'abgesagt' | 'pauschale' | 'kulanz' | 'doppelt' | null; erledigt_am?: string | null; erledigt_von?: string | null;
-  /** Mehrkostenanzeige (0011): wann und an wen die Bauleitung informiert wurde */
-  angezeigt_am?: string | null; angezeigt_an?: string | null;
 }
 export interface RegierapportRow {
   id: string; zusatzauftrag_id: string | null; tagesmeldung_id: string | null; baustelle_id: string; nummer: string;
@@ -136,8 +134,6 @@ export function erzeugeDemoRegie(d: DemoBetrieb, opts: { heute: Date; userId: st
       taetigkeit: z.pick(TAETIGKEITEN), geplant_fuer: m.datum, notiz: null,
       // Der Stand («gemeldet», «im Regierapport») wird abgeleitet, nie gespeichert (Regel aus CLAUDE.md)
       status: 'offen',
-      // Bauleitung am selben Abend informiert — so läuft es, wenn der Bauführer es gleich erledigt
-      angezeigt_am: ts(addTage(tag, -1), 17, 10), angezeigt_an: k.email,
     };
     zusatzauftraege.push(za);
     if (alterTage < 1 || !geplanterStand) continue; // noch kein Rapport: frisch oder wartet auf den Entscheid
@@ -219,8 +215,6 @@ export function erzeugeDemoRegie(d: DemoBetrieb, opts: { heute: Date; userId: st
         taetigkeit: z.pick(TAETIGKEITEN), geplant_fuer: iso(addTage(heute, inTagen)),
         notiz: z.chance(0.5) ? z.pick(NOTIZEN) : null,
         status: 'offen',
-        // Zwei frische Bestellungen sind der Bauleitung noch nicht angezeigt — der Hinweis zeigt, wie es geht
-        ...(i === 1 || i === 4 ? {} : { angezeigt_am: new Date(bestellt.getTime() + 20 * 60000).toISOString(), angezeigt_an: k.email }),
       });
     });
 

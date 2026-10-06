@@ -4,7 +4,7 @@ import { einstellungen } from '../../lib/einstellungen';
 
 // Die Spalten praeferenz, anzeige_noetig, frist_tage, weitere_emails gehören zur Regie. Ohne den Schalter
 // `MODUS_ERFASSUNG = regie` sind ihre Eingabefelder weg und die Standardwerte werden mitgespeichert;
-// die Mehrkostenanzeige hat zusätzlich ihren eigenen Schalter `MODUS_MEHRKOSTENANZEIGE` (02.10.2026).
+// die Mehrkostenanzeige gibt es seit 06.10.2026 nicht mehr (anzeige_noetig bleibt nur als Spalte stehen).
 interface Kunde { id?: string; name: string; ansprechperson: string | null; email: string | null; telefon: string | null; praeferenz: 'einzel' | 'sammel'; anzeige_noetig: boolean; frist_tage: number; adresse: string | null; weitere_emails: string | null }
 
 const LEER: Kunde = { name: '', ansprechperson: '', email: '', telefon: '', praeferenz: 'einzel', anzeige_noetig: true, frist_tage: 3, adresse: '', weitere_emails: '' };
@@ -91,17 +91,6 @@ export function Kunden() {
               </div>
               {/* Regeln aus dem Werkvertrag — pro Kunde anders, darum hier und nicht im Code */}
               <div className="grid gap-3 sm:grid-cols-2">
-                {/* Die Anzeigepflicht nur zeigen, wenn die Firma die Anzeige auch über die App schickt */}
-                {e.mehrkostenanzeige && (
-                  <div>
-                    <label className="lbl">Zusatzarbeit vorher anzeigen</label>
-                    <div className="flex gap-2">
-                      <button type="button" onClick={() => f({ anzeige_noetig: true })} className={'chip px-3 ' + (bearbeitet.anzeige_noetig ? 'chip-on' : '')}>ja, schriftlich</button>
-                      <button type="button" onClick={() => f({ anzeige_noetig: false })} className={'chip px-3 ' + (!bearbeitet.anzeige_noetig ? 'chip-on' : '')}>nicht nötig</button>
-                    </div>
-                    <p className="mt-1 text-[11px] text-ink3">Viele Bauleitungen zahlen Mehrkosten nur, wenn sie vor der Arbeit schriftlich angezeigt wurden.</p>
-                  </div>
-                )}
                 <div>
                   <label className="lbl">Frist für die Gegenzeichnung</label>
                   <div className="flex items-center gap-2">

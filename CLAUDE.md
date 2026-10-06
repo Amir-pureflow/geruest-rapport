@@ -125,10 +125,12 @@ Anmeldung**, einmal (`einstellungenLaden()`), danach aus dem Zwischenspeicher (`
 |---|---|---|---|
 | `modus_erfassung` | `wochenblatt` · `regie` | `wochenblatt` | `regie` bringt Zusatzauftrag, Regierapporte, Auswertung, Planung, Kundenlink, Ansicht «Kunde», den Abweichungs-Ablauf im Teamgerät und den Regie-Entscheid in der Wochenübersicht |
 | `modus_sekretariat` | `stunden` · `voll` | `stunden` | `voll` gibt dem Sekretariat dieselben Bereiche wie dem Bauführer (ohne Teamgerät) und, mit Regie, Fristen + Regie je Monat auf der Übersicht |
-| `modus_mehrkostenanzeige` | `false` · `true` | `false` | `true` zeigt «Bauleitung informieren» am Zusatzauftrag (Bausitzungsprotokoll 7.1) und die Anzeigepflicht je Kunde |
+
+Die Mehrkostenanzeige («Bauleitung informieren», Schalter `modus_mehrkostenanzeige`) ist am 06.10.2026 auf Wunsch von Amir
+ganz aus der App entfernt worden; Spalten und Edge Function `mehrkosten-anzeigen` stehen nur noch in der Datenbank.
 
 Heute: **Gerüst GmbH** (Arbnor) = Wochenblatt, ein Team (Nuhi Vaiti als Gruppenleiter, Ismail Vaiti als
-Gerüstbaumitarbeiter). **We-Plan** = Regie, Sekretariat voll, Mehrkostenanzeige an, der ganze Demobetrieb.
+Gerüstbaumitarbeiter). **We-Plan** = Regie, Sekretariat voll, der ganze Demobetrieb.
 
 **Regeln dazu:**
 - Liefert die Datenbank nichts (Migration fehlt, offline, Zugang ohne Firma), bleibt der **letzte bekannte Stand**

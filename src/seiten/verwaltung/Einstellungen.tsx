@@ -96,15 +96,6 @@ const WAHLEN = [
       { wert: 'voll', label: 'Alles wie der Bauführer', text: 'Dazu die Tages- und die Wochenübersicht. Führt die Firma Zusatzarbeit, sieht das Sekretariat auch die Rapporte an die Kunden.' },
     ],
   } as Wahl<'sekretariat'>,
-  {
-    feld: 'mehrkostenanzeige',
-    titel: 'Zusatzarbeit vorher anmelden',
-    erklaerung: 'Viele Bauleitungen zahlen sie nur, wenn sie vor der Arbeit schriftlich angemeldet war.',
-    optionen: [
-      { wert: false, label: 'Aus', text: 'Die Firma meldet das selber an, wie bisher. In der App gibt es dafür keinen Knopf.' },
-      { wert: true, label: 'An', text: 'Beim Zusatzauftrag steht «Bauleitung informieren». Ein Tipp schickt die Mail und hält fest, wann und an wen.' },
-    ],
-  } as Wahl<'mehrkostenanzeige'>,
 ];
 
 export function Einstellungen() {

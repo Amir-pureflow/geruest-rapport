@@ -108,10 +108,12 @@ describe('Demo-Betrieb — Struktur wie im Gespräch mit Arbnor', () => {
     }
   });
 
-  it('heute haben 16 von 20 Teams gemeldet, zwei davon mit Überstunden', () => {
+  it('heute haben 16 von 20 Teams gemeldet, zwei davon mit Überstunden — Team 3 noch nicht (es meldet im Video)', () => {
     const heuteMeldungen = d.meldungen.filter((m) => m.datum === '2026-09-03');
     expect(heuteMeldungen).toHaveLength(16);
     const mitUeber = heuteMeldungen.filter((m) => d.eintraege.some((e) => e.tagesmeldung_id === m.id && e.ueber_min > 0));
     expect(mitUeber).toHaveLength(2);
+    const team3 = d.teams.find((t) => t.bezeichnung === 'Team 3')!;
+    expect(heuteMeldungen.some((m) => m.team_id === team3.id)).toBe(false);
   });
 });
