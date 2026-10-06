@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
+import { Check } from 'lucide-react';
 import { Shell } from '../ui/Shell';
 import { FotoGalerie } from '../ui/FotoGalerie';
 import { supabase } from '../lib/supabase';
@@ -109,13 +110,17 @@ function kurzName(name: string): string {
 const zellWort = (st: ZellStatus, regie: boolean): string =>
   ({ leer: '', gruen: 'offen', frei: 'freigegeben ✓', gelb: regie ? 'Regieverdacht' : 'Überstunden', rot: 'über 10 h' })[st];
 
-/** Tageszelle im Raster: Farbe = Stand. Offen ist weiss mit Rand, damit man sieht, dass da etwas ist. */
-const ZELLE: Record<ZellStatus, string> = {
-  leer: 'bg-ground text-ink3/60',
-  gruen: 'bg-surface text-ink ring-1 ring-line-strong hover:bg-ground',
-  frei: 'bg-good-soft text-good-deep hover:bg-good-soft/80',
-  gelb: 'bg-amber-soft text-amber-deep font-semibold hover:bg-amber-soft/80',
-  rot: 'bg-accent-soft text-accent-deep font-semibold hover:bg-accent-soft/80',
+/**
+ * Tageszelle im Raster: Farbe = Stand. 06.10.2026 wie die Team-Kacheln — Tage mit Meldung sind Kacheln
+ * mit kräftiger Zahl und Status-Punkt, leere Tage treten zurück (vorher eine Reihe grauer Kästen, in der
+ * der eine offene Tag unterging). «Offen» ist blau wie «gemeldet» beim Vorarbeiter.
+ */
+const ZELLE: Record<ZellStatus, { kachel: string; rand: string; punkt: string; wort: string }> = {
+  leer: { kachel: 'bg-ink/[0.025]', rand: '', punkt: '', wort: '' },
+  gruen: { kachel: 'bg-white text-ink shadow-[0_1px_2px_rgb(17_17_19/0.05),0_6px_14px_-10px_rgb(17_17_19/0.35)]', rand: 'ring-1 ring-line-strong hover:ring-steel/60', punkt: 'bg-steel', wort: 'text-steel' },
+  frei: { kachel: 'bg-gradient-to-br from-white to-[#dcf2e5] text-good-deep', rand: 'ring-1 ring-good/30 hover:ring-good/60', punkt: 'bg-good', wort: 'text-good-deep' },
+  gelb: { kachel: 'bg-gradient-to-br from-white to-[#fbe3a6] text-ink', rand: 'ring-1 ring-amber/50 hover:ring-amber', punkt: 'bg-amber', wort: 'text-amber-deep' },
+  rot: { kachel: 'bg-gradient-to-br from-white to-[#f9d8d1] text-ink', rand: 'ring-1 ring-accent/45 hover:ring-accent', punkt: 'bg-accent', wort: 'text-accent-deep' },
 };
 
 export function Cockpit() {
@@ -728,7 +733,8 @@ export function Cockpit() {
                         {z.alle.length === 0 ? (
                           <span className="text-ink3">keine Meldung</span>
                         ) : darfFreigeben && z.gruene.length > 0 ? (
-                          <button type="button" className="btn-ghost border-good/50 px-2.5 py-1 text-xs text-good-deep disabled:opacity-60" disabled={!userId || speichert} onClick={() => void freigeben(z.gruene, `${z.team.bezeichnung}: ${z.gruenTage} Tage`)}>
+                          <button type="button" className="inline-flex items-center gap-1.5 rounded-full bg-good px-3 py-1.5 text-xs font-semibold text-white shadow-[0_4px_10px_-4px_rgb(31_157_85/0.6)] transition hover:bg-good-deep disabled:opacity-60" disabled={!userId || speichert} onClick={() => void freigeben(z.gruene, `${z.team.bezeichnung}: ${z.gruenTage} Tage`)}>
+                            <Check size={13} strokeWidth={3} aria-hidden="true" />
                             {z.gruenTage} {z.gruenTage === 1 ? 'Tag' : 'Tage'} freigeben
                           </button>
                         ) : z.offenTage === 0 ? (
@@ -749,14 +755,17 @@ export function Cockpit() {
                             disabled={t.status === 'leer'}
                             onClick={() => tagUmschalten(z.team.id, t.datum)}
                             aria-label={`${tagName(t.datum)}: ${t.status === 'leer' ? 'keine Meldung' : stunden(t.min) + ' h'}`}
-                            className={'rounded-md py-1 text-center font-mono text-[11px] leading-tight tabular-nums transition ' + ZELLE[t.status] + (aktiv ? ' ring-2 ring-accent' : '')}
+                            className={'flex min-h-[46px] flex-col items-center justify-center rounded-[10px] px-1 py-1.5 text-center leading-tight transition ' + ZELLE[t.status].kachel + ' ' + (aktiv ? 'ring-2 ring-accent' : ZELLE[t.status].rand)}
                           >
-                            {t.status === 'leer' ? '–' : (
+                            {t.status === 'leer' ? null : (
                               <>
-                                <span className="block">{stunden(t.min)}</span>
-                                {/* Das Wort zum Stand steht in der Zelle; am Handy (schmale Zellen) nur ein Haken für «freigegeben» */}
-                                <span className="hidden font-sans text-[9px] font-medium opacity-80 sm:block">{zellWort(t.status, regie)}</span>
-                                <span className="block font-sans text-[9px] font-medium opacity-80 sm:hidden">{t.status === 'frei' ? '✓' : t.status === 'gelb' ? (regie ? 'Regie?' : 'Über') : t.status === 'rot' ? '>10 h' : 'offen'}</span>
+                                <span className="font-mono text-[13px] font-semibold tabular-nums">{stunden(t.min)}</span>
+                                {/* Das Wort zum Stand steht in der Zelle; am Handy (schmale Zellen) nur die Kurzform */}
+                                <span className={'mt-0.5 hidden items-center gap-1 font-sans text-[10px] font-semibold sm:flex ' + ZELLE[t.status].wort}>
+                                  <span className={'h-1.5 w-1.5 shrink-0 rounded-full ' + ZELLE[t.status].punkt} aria-hidden="true" />
+                                  {zellWort(t.status, regie)}
+                                </span>
+                                <span className={'mt-0.5 block font-sans text-[9px] font-semibold sm:hidden ' + ZELLE[t.status].wort}>{t.status === 'frei' ? '✓' : t.status === 'gelb' ? (regie ? 'Regie?' : 'Über') : t.status === 'rot' ? '>10 h' : 'offen'}</span>
                               </>
                             )}
                           </button>
@@ -1019,10 +1028,10 @@ export function Cockpit() {
 
         {!laedt && sichtbar.length > 0 && (
           <p className="flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-ink3">
-            <span><span className="mr-1 inline-block h-2 w-2 rounded-sm bg-surface ring-1 ring-line-strong" />offen</span>
-            <span><span className="mr-1 inline-block h-2 w-2 rounded-sm bg-good-soft ring-1 ring-good/40" />freigegeben</span>
-            <span><span className="mr-1 inline-block h-2 w-2 rounded-sm bg-amber-soft ring-1 ring-amber/40" />{regie ? 'Regieverdacht — entscheiden' : 'Überstunden — Notiz lesen'}</span>
-            <span><span className="mr-1 inline-block h-2 w-2 rounded-sm bg-accent-soft ring-1 ring-accent/40" />über 10 h</span>
+            <span><span className="mr-1 inline-block h-2 w-2 rounded-full bg-steel" />offen</span>
+            <span><span className="mr-1 inline-block h-2 w-2 rounded-full bg-good" />freigegeben</span>
+            <span><span className="mr-1 inline-block h-2 w-2 rounded-full bg-amber" />{regie ? 'Regieverdacht — entscheiden' : 'Überstunden — Notiz lesen'}</span>
+            <span><span className="mr-1 inline-block h-2 w-2 rounded-full bg-accent" />über 10 h</span>
             <span>Zelle antippen = Tag öffnen</span>
           </p>
         )}

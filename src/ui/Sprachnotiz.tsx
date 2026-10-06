@@ -8,7 +8,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { supabase } from '../lib/supabase';
 
-const SPRACHE: Record<string, string> = { de: 'Deutsch', ar: 'Arabisch', pl: 'Polnisch', en: 'Englisch' };
+const SPRACHE: Record<string, string> = { de: 'Deutsch', sq: 'Albanisch', pt: 'Portugiesisch', it: 'Italienisch', fr: 'Französisch', ar: 'Arabisch', pl: 'Polnisch', en: 'Englisch' };
 
 function bewegungReduziert(): boolean {
   return typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;

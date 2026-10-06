@@ -8,7 +8,8 @@ import { Link } from 'react-router-dom';
 import { Shell } from '../ui/Shell';
 import { supabase } from '../lib/supabase';
 import { formatChf } from '../lib/tarif';
-import { MONATE } from '../ui/Karten';
+import { Banknote, CircleCheck, PencilLine, Send } from 'lucide-react';
+import { MONATE, ZahlKarte } from '../ui/Karten';
 
 interface Zeile {
   monat: string; // JJJJ-MM-TT (Monatsanfang)
@@ -133,10 +134,10 @@ export function Auswertung() {
         {!laedt && !fehler && (
           <>
             <div className="grid grid-cols-2 gap-2.5 lg:grid-cols-4 lg:gap-4">
-              <div className="card"><span className="block text-2xl font-semibold tracking-tight tabular-nums">{formatChf(total)}</span><span className="mt-0.5 block text-xs text-ink3">Regie im {monatsName(monat)}{monatVorher ? ` · Vormonat ${formatChf(totalVorher)}` : ''}</span></div>
-              <div className="card bg-amber-soft"><span className="block text-2xl font-semibold tracking-tight tabular-nums text-amber-deep">{formatChf(summe((z) => z.entwurf))}</span><span className="mt-0.5 block text-xs text-amber-deep/70">noch Entwurf</span></div>
-              <div className="card bg-steel-soft"><span className="block text-2xl font-semibold tracking-tight tabular-nums text-steel">{formatChf(summe((z) => z.kunde_r))}</span><span className="mt-0.5 block text-xs text-steel/70">beim Kunden</span></div>
-              <div className="card bg-good-soft"><span className="block text-2xl font-semibold tracking-tight tabular-nums text-good-deep">{formatChf(summe((z) => z.bestaetigt))}</span><span className="mt-0.5 block text-xs text-good-deep/70">bestätigt</span></div>
+              <ZahlKarte titel="Regie total" icon={Banknote} wert={formatChf(total)} label={`im ${monatsName(monat)}${monatVorher ? ` · Vormonat ${formatChf(totalVorher)}` : ''}`} />
+              <ZahlKarte titel="Entwurf" icon={PencilLine} farbe="gelb" wert={formatChf(summe((z) => z.entwurf))} label="noch nicht verschickt" />
+              <ZahlKarte titel="Beim Kunden" icon={Send} farbe="blau" wert={formatChf(summe((z) => z.kunde_r))} label="verschickt, wartet auf Bestätigung" />
+              <ZahlKarte titel="Bestätigt" icon={CircleCheck} farbe="gruen" wert={formatChf(summe((z) => z.bestaetigt))} label="vom Kunden bestätigt" />
             </div>
 
             <section className="card p-0">

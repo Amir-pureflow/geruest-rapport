@@ -98,4 +98,37 @@ export function Kachel({
   );
 }
 
+/** Kennzahl ohne Link — gleiche Anatomie wie `Kachel`: Icon-Chip + Titel, dunkle Zahl, Farbe nur in der Ecke. */
+export function ZahlKarte({
+  titel,
+  wert,
+  label,
+  farbe = 'neutral',
+  icon: Icon,
+}: {
+  titel: string;
+  wert: string;
+  label?: string;
+  farbe?: KachelFarbe;
+  icon?: LucideIcon;
+}) {
+  const f = KACHEL_STIL[farbe];
+  return (
+    <div className={'card flex flex-col justify-between gap-3.5 rounded-[20px] border-2 border-white/70 shadow-[0_1px_2px_rgb(17_17_19/0.04),0_16px_36px_-18px_rgb(17_17_19/0.22)] ' + f.karte}>
+      <span className="flex min-w-0 items-center gap-2.5">
+        {Icon && (
+          <span className={'grid h-9 w-9 flex-none place-items-center rounded-[12px] text-white shadow-[0_4px_10px_-4px_rgb(17_17_19/0.35)] ' + f.chip} aria-hidden="true">
+            <Icon size={18} strokeWidth={2.2} />
+          </span>
+        )}
+        <span className="truncate text-sm font-semibold text-ink">{titel}</span>
+      </span>
+      <span className="block">
+        <span className="block text-[24px] font-semibold leading-none tabular-nums tracking-tight text-ink lg:text-[28px]">{wert}</span>
+        {label && <span className="mt-1.5 block text-xs leading-snug text-ink2 lg:text-[13px]">{label}</span>}
+      </span>
+    </div>
+  );
+}
+
 export const MONATE = ['Januar', 'Februar', 'März', 'April', 'Mai', 'Juni', 'Juli', 'August', 'September', 'Oktober', 'November', 'Dezember'];

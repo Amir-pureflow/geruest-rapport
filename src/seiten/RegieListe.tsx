@@ -96,7 +96,7 @@ function BaustellenWahl({ baustellen, wert, setzen }: { baustellen: { konto_nr: 
   return (
     <div ref={box} className="relative">
       <span className="flex items-center gap-1">
-        <button type="button" onClick={() => setOffen((o) => !o)} aria-expanded={offen} className={'chip flex max-w-[280px] items-center gap-1.5 px-3 py-1.5 text-xs ' + (wert ? 'chip-on' : '')}>
+        <button type="button" onClick={() => setOffen((o) => !o)} aria-expanded={offen} className={'chip flex max-w-[280px] items-center gap-1.5 rounded-full px-3.5 py-1.5 text-xs font-semibold ' + (wert ? 'chip-on' : '')}>
           <span className="truncate">{gewaehlt ? <><span className="font-mono">{gewaehlt.konto_nr}</span> {gewaehlt.bezeichnung}</> : 'Alle Baustellen'}</span>
           <ChevronDown size={14} className={'shrink-0 transition-transform ' + (offen ? 'rotate-180' : '')} aria-hidden="true" />
         </button>
