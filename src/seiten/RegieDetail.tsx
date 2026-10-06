@@ -447,7 +447,7 @@ export function RegieDetail() {
   }
 
   return (
-    <Shell zurueck schmal krume={rapport.nummer ?? 'Regierapport'}>
+    <Shell zurueck krume={rapport.nummer ?? 'Regierapport'}>
       <div className="space-y-6">
         <header className="flex items-start justify-between gap-4">
           <div className="min-w-0">
@@ -494,265 +494,273 @@ export function RegieDetail() {
           );
         })()}
 
-        {/* Ursprung: woher die Zahlen kommen — Tagesmeldung des Teams und die Bestellung des Kunden */}
-        {(rapport.tagesmeldung || rapport.zusatzauftrag) && (
-          <section className="panel space-y-3 bg-steel-soft">
-            <p className="lbl mb-0 text-steel">Ursprung</p>
-            {rapport.tagesmeldung && (() => {
-              const m = rapport.tagesmeldung;
-              const total = m.zeiteintrag.reduce((s, z) => s + z.normal_min + z.ueber_min, 0);
-              return (
-                <div className="space-y-1.5 text-sm">
-                  <p>
-                    <strong>Tagesmeldung {tagKurz(m.datum)}</strong>
-                    {m.team && <> · {m.team.bezeichnung}{m.team.chefmonteur ? ` (${m.team.chefmonteur.name})` : ''}</>}
-                  </p>
-                  <p className="text-ink2">
-                    Team meldet: <strong>{ABWEICHUNG_TEXT[m.abweichung_typ ?? ''] ?? 'Überstunden'}</strong>
-                    {m.wer_hats_gewollt && <> · {WER_TEXT[m.wer_hats_gewollt] ?? m.wer_hats_gewollt}</>}
-                  </p>
-                  {m.zeiteintrag.length > 0 && (
-                    <p className="text-ink2">
-                      {m.zeiteintrag.map((z) => `${z.mitarbeiter?.name ?? '?'} ${((z.normal_min + z.ueber_min) / 60).toFixed(1)} h`).join(' · ')}
-                      <span className="text-ink3"> · zusammen {(total / 60).toFixed(1)} h</span>
-                    </p>
-                  )}
-                  {m.foto?.length > 0 && (
-                    <div>
-                      <p className="mb-1 text-[11px] text-ink3">Fotos vom Team · {m.foto.length}</p>
-                      <FotoGalerie pfade={m.foto.map((f) => f.pfad)} />
-                    </div>
-                  )}
-                  {m.transkript && (
-                    <div className="rounded-[10px] bg-ground px-3 py-2 text-ink2">
-                      <p className="italic">«{m.transkript}»</p>
-                      {m.transkript_quelle && (
-                        <details className="mt-1 text-xs text-ink3">
-                          <summary className="cursor-pointer">{(m.transkript_sprache ?? 'de') === 'de' ? 'So wurde es gesprochen · Text ist bereinigt' : `Original (${{ sq: 'Albanisch', pt: 'Portugiesisch', it: 'Italienisch', fr: 'Französisch', ar: 'Arabisch', pl: 'Polnisch', en: 'Englisch' }[m.transkript_sprache ?? ''] ?? 'andere Sprache'}) · automatisch übersetzt`}</summary>
-                          <p className="mt-1 italic" dir="auto">{m.transkript_quelle}</p>
-                        </details>
+        <div className="grid gap-6 lg:grid-cols-12 lg:items-start">
+          {/* Links: was der Bauführer bearbeitet */}
+          <div className="space-y-6 lg:col-span-7">
+            <section className="card">
+              <p className="lbl">Positionen · SGUV 2026/27</p>
+              <div className="divide-y divide-line">
+                {positionen.map((p) => (
+                  <div key={p.id} className="flex items-center justify-between gap-2 py-1.5 text-sm">
+                    <span className="min-w-0 truncate">{p.bezeichnung}</span>
+                    <span className="flex flex-none items-center gap-1.5">
+                      {entwurf && !FIXE_POSITIONEN.has(p.tarif_code) && (
+                        <>
+                          <button type="button" onClick={() => void stundenAnpassen(p, -50)} className="btn-ghost px-2 py-0.5" title="−0.5 h">−</button>
+                          <button type="button" onClick={() => void stundenAnpassen(p, 50)} className="btn-ghost px-2 py-0.5" title="+0.5 h">+</button>
+                        </>
                       )}
-                    </div>
-                  )}
-                  {!m.transkript && m.audio_pfad && (
-                    <p className="flex flex-wrap items-center gap-2 text-xs text-ink3">
-                      {transkriptLaeuft ? 'Text wird erstellt …' : 'Noch kein Text zur Sprachnotiz.'}
-                      {!transkriptLaeuft && <button type="button" className="btn-ghost px-2 py-0.5 text-xs" onClick={() => void transkribieren(m.id)}>Text erstellen</button>}
-                    </p>
-                  )}
-                  {(m.audio_pfad || m.audio_sekunden) && (
-                    <div className="flex items-center gap-2">
-                      {m.audio_pfad ? (
-                        <button type="button" onClick={() => void sprachnotizAnhoeren(m.audio_pfad!)} className="btn-ghost">▶ Sprachnotiz{m.audio_sekunden ? ` · ${m.audio_sekunden} Sek.` : ''}</button>
-                      ) : (
-                        <span className="font-mono text-[11px] text-ink3">Sprachnotiz {m.audio_sekunden} Sek. (Demo — keine Aufnahme hinterlegt)</span>
-                      )}
-                      {audioUrl && <audio controls autoPlay src={audioUrl} className="h-8 flex-1" />}
-                    </div>
-                  )}
-                  {m.team && (
-                    <Link to={`/cockpit?woche=${m.datum}&tag=${m.datum}&team=${m.team.id}&meldung=${m.id}&rapport=${rapport.id}`} className="inline-block font-semibold text-steel">
-                      Diese Woche in der Wochenübersicht anschauen ›
-                    </Link>
-                  )}
-                </div>
-              );
-            })()}
-            {rapport.zusatzauftrag && (
-              <div className="border-t border-line pt-2.5 text-sm">
-                <p>
-                  <strong>Bestellt von {rapport.zusatzauftrag.besteller_name}</strong> {KANAL_TEXT[rapport.zusatzauftrag.kanal] ?? rapport.zusatzauftrag.kanal}
-                  {' '}am {tagKurz(rapport.zusatzauftrag.bestellt_am)}
-                </p>
-                <p className="text-ink2">
-                  {taetigkeitText(rapport.zusatzauftrag.taetigkeit)}
-                  {rapport.zusatzauftrag.geplant_fuer && <> · geplant für {tagKurz(rapport.zusatzauftrag.geplant_fuer)}</>}
-                  {rapport.zusatzauftrag.notiz && <> · {rapport.zusatzauftrag.notiz}</>}
-                </p>
-                <Link to="/zusatzauftrag" className="mt-1 inline-block text-xs font-semibold text-steel">Zu den Zusatzaufträgen ›</Link>
+                      <span className="w-24 text-right font-mono tabular-nums">{formatChf(p.betrag_rappen)}</span>
+                    </span>
+                  </div>
+                ))}
               </div>
-            )}
-            {!rapport.tagesmeldung && (
-              <p className="text-xs text-ink3">Zu diesem Rapport ist keine Tagesmeldung verknüpft (älterer Rapport).</p>
-            )}
-          </section>
-        )}
-
-        <section className="panel space-y-2">
-          <div className="flex items-center justify-between gap-3">
-            <p className="lbl mb-0">Bilder zum Rapport</p>
-            <label className="btn-ghost inline-block cursor-pointer">
-              {fotoLaedt ? 'lädt …' : '+ Bilder nachreichen'}
-              <input type="file" accept="image/*" multiple className="hidden" onChange={(e) => void fotosNachreichen(e)} />
-            </label>
-          </div>
-          {rapport.foto?.length > 0
-            ? <FotoGalerie pfade={rapport.foto.map((f) => f.pfad)} />
-            : <p className="text-xs text-ink3">{rapport.tagesmeldung?.foto?.length ? 'Die Bilder des Teams stehen oben beim Ursprung.' : 'Noch keine Bilder — der Kunde will sehen, was gemacht wurde.'}</p>}
-        </section>
-
-        <section className="card">
-          <p className="lbl">Positionen · SGUV 2026/27</p>
-          <div className="divide-y divide-line">
-            {positionen.map((p) => (
-              <div key={p.id} className="flex items-center justify-between gap-2 py-1.5 text-sm">
-                <span className="min-w-0 truncate">{p.bezeichnung}</span>
-                <span className="flex flex-none items-center gap-1.5">
-                  {entwurf && !FIXE_POSITIONEN.has(p.tarif_code) && (
-                    <>
-                      <button type="button" onClick={() => void stundenAnpassen(p, -50)} className="btn-ghost px-2 py-0.5" title="−0.5 h">−</button>
-                      <button type="button" onClick={() => void stundenAnpassen(p, 50)} className="btn-ghost px-2 py-0.5" title="+0.5 h">+</button>
-                    </>
-                  )}
-                  <span className="w-24 text-right font-mono tabular-nums">{formatChf(p.betrag_rappen)}</span>
+              {entwurf && (
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <button type="button" onClick={() => void fahrzeugUmschalten()} className={'chip ' + (fahrzeugZeile ? 'chip-on' : '')}>
+                    Lieferwagen 1 h
+                  </button>
+                  <button type="button" onClick={() => void etappeUmschalten()} className={'chip ' + (etappeZeile ? 'chip-on' : '')}>
+                    Etappenzuschlag
+                  </button>
+                  <button type="button" onClick={() => void mieteUmschalten()} className={'chip ' + (mieteZeile ? 'chip-on' : '')}>
+                    Materialmiete 9 %
+                  </button>
+                </div>
+              )}
+              <div className="mt-4 flex items-baseline justify-between border-t border-line pt-3">
+                <span className="text-[15px] font-semibold">Total</span>
+                <span className="text-[22px] font-semibold tracking-tight tabular-nums">
+                  {formatChf(total)}
                 </span>
               </div>
-            ))}
-          </div>
-          {entwurf && (
-            <div className="mt-3 flex flex-wrap gap-2">
-              <button type="button" onClick={() => void fahrzeugUmschalten()} className={'chip ' + (fahrzeugZeile ? 'chip-on' : '')}>
-                Lieferwagen 1 h
-              </button>
-              <button type="button" onClick={() => void etappeUmschalten()} className={'chip ' + (etappeZeile ? 'chip-on' : '')}>
-                Etappenzuschlag
-              </button>
-              <button type="button" onClick={() => void mieteUmschalten()} className={'chip ' + (mieteZeile ? 'chip-on' : '')}>
-                Materialmiete 9 %
-              </button>
-            </div>
-          )}
-          <div className="mt-4 flex items-baseline justify-between border-t border-line pt-3">
-            <span className="text-[15px] font-semibold">Total</span>
-            <span className="text-[22px] font-semibold tracking-tight tabular-nums">
-              {formatChf(total)}
-            </span>
-          </div>
-          <p className="mt-1 text-[11px] text-ink3">
-            Vorgerechnet als Entscheidungshilfe — der verbindliche Beleg ist das Dokument im Anhang.
-            {entwurf && ' Mit − / + nur die Stunden stehen lassen, die wirklich Zusatzarbeit waren.'}
-          </p>
-        </section>
-
-        {/* Leistungsbeschrieb: der Text, den der Bauführer in SORBA tippt — vorgeschlagen, nie ungeprüft */}
-        <section className="card space-y-2">
-          <div className="flex items-baseline justify-between gap-3">
-            <p className="lbl mb-0">Was gemacht wurde · Text für Rapport und Kunde</p>
-            {rapport.beschrieb && <span className="text-[11px] text-ink3">{rapport.beschrieb_quelle === 'ki' ? 'Vorschlag, geprüft' : 'von Hand'}</span>}
-          </div>
-          <textarea
-            value={beschrieb}
-            onChange={(e) => setBeschrieb(e.target.value)}
-            rows={4}
-            placeholder="z. B. Gerüst an der Westfassade auf Wunsch der Bauleitung versetzt, 3 Mann, 1 h."
-            className="field min-h-[6rem] text-sm"
-          />
-          <div className="flex flex-wrap items-center gap-2">
-            <button type="button" className="btn-ghost disabled:opacity-60" disabled={beschriebLaeuft} onClick={() => void beschriebVorschlagen()}>
-              {beschriebLaeuft ? 'Schreibt …' : 'Text vorschlagen'}
-            </button>
-            <button type="button" className="btn-ghost" disabled={beschrieb.trim() === (rapport.beschrieb ?? '')} onClick={() => void beschriebSpeichern(beschriebInfo.startsWith('Vorschlag aus') ? 'ki' : 'hand')}>
-              Speichern
-            </button>
-            <button type="button" className="btn-ghost" disabled={!beschrieb.trim()} onClick={beschriebKopieren}>
-              {beschriebKopiert ? 'Kopiert ✓' : 'Text kopieren'}
-            </button>
-          </div>
-          {beschriebInfo && <p className={'text-xs ' + (beschriebInfo.includes('fehlgeschlagen') || beschriebInfo.includes('nicht möglich') ? 'font-semibold text-accent-deep' : 'text-ink2')}>{beschriebInfo}</p>}
-          <p className="text-[11px] text-ink3">
-            Grundlage: {rapport.tagesmeldung?.transkript ? 'Sprachnotiz des Teams, Positionen' : 'nur die Positionen — keine Sprachnotiz vorhanden'}{rapport.zusatzauftrag ? ', Zusatzauftrag' : ''}.
-            Die KI schreibt nur den Text. Zahlen kommen aus den Positionen, entscheiden tust du.
-          </p>
-        </section>
-
-        {entwurf ? (
-          <section className="card space-y-4">
-            <p className="text-[15px] font-semibold">An die Bauleitung senden</p>
-            <div>
-              <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-[12px] bg-ground px-3.5 py-3">
-                <span className="text-sm text-ink2">Die Mail nimmt automatisch ein PDF des Rapports mit.</span>
-                <button type="button" className="btn-ghost shrink-0" disabled={pdfLaeuft} onClick={() => void pdfAnsehen()}>{pdfLaeuft ? 'Erstellt …' : 'PDF ansehen'}</button>
-              </div>
-              <label className="lbl">Eigenes Dokument statt PDF (optional)</label>
-              {rapport.anhang_pfad ? (
-                <p className="text-sm">
-                  📎 {rapport.anhang_pfad.split('/').pop()}{' '}
-                  <label className="ml-1 cursor-pointer text-xs text-steel underline">
-                    ersetzen
-                    <input type="file" className="hidden" onChange={(e) => void anhangWaehlen(e)} />
-                  </label>
-                </p>
-              ) : (
-                <label className="block cursor-pointer rounded-[10px] border border-dashed border-line-strong px-3.5 py-3 text-center text-sm text-ink3 hover:border-ink3">
-                  Datei wählen
-                  <input type="file" className="hidden" onChange={(e) => void anhangWaehlen(e)} />
-                </label>
-              )}
               <p className="mt-1 text-[11px] text-ink3">
-                Ohne eigenes Dokument hängt die App ihr PDF an.
+                Vorgerechnet als Entscheidungshilfe — der verbindliche Beleg ist das Dokument im Anhang.
+                {entwurf && ' Mit − / + nur die Stunden stehen lassen, die wirklich Zusatzarbeit waren.'}
               </p>
-            </div>
-            <div>
-              <label className="lbl">E-Mail der Bauleitung</label>
-              <input
-                type="email"
-                value={empfaenger}
-                onChange={(e) => setEmpfaenger(e.target.value)}
-                placeholder="bauleitung@firma.ch"
-                className="field"
+            </section>
+
+            {/* Leistungsbeschrieb: der Text, den der Bauführer in SORBA tippt — vorgeschlagen, nie ungeprüft */}
+            <section className="card space-y-2">
+              <div className="flex items-baseline justify-between gap-3">
+                <p className="lbl mb-0">Was gemacht wurde · Text für Rapport und Kunde</p>
+                {rapport.beschrieb && <span className="text-[11px] text-ink3">{rapport.beschrieb_quelle === 'ki' ? 'Vorschlag, geprüft' : 'von Hand'}</span>}
+              </div>
+              <textarea
+                value={beschrieb}
+                onChange={(e) => setBeschrieb(e.target.value)}
+                rows={4}
+                placeholder="z. B. Gerüst an der Westfassade auf Wunsch der Bauleitung versetzt, 3 Mann, 1 h."
+                className="field min-h-[6rem] text-sm"
               />
-              <p className="mt-1 text-[11px] text-ink3">Erlaubt: die hinterlegte Bauleitung, weitere Adressen des Kunden (Verwaltung → Kunden) und Adressen derselben Firma.</p>
-            </div>
-            <button type="button" onClick={() => void senden()} disabled={sendet} className="cta cta-accent">
-              {sendet ? 'Sendet …' : 'Regierapport senden'}
-            </button>
-            {fehler && <p className="text-sm font-semibold text-accent-deep">{fehler}</p>}
-            <p className="text-[11px] text-ink3">
-              Fester Betreff «Regie {rapport.baustelle?.bezeichnung} · {rapport.baustelle?.konto_nr}»,
-              Frist läuft ab Versand 3 Tage.
-            </p>
-            <div className="border-t border-line pt-3">
-              {!verwerfenFrage ? (
-              <button type="button" onClick={() => setVerwerfenFrage(true)} className="text-xs font-semibold text-ink3 underline underline-offset-2">
-                Entwurf verwerfen
-              </button>
+              <div className="flex flex-wrap items-center gap-2">
+                <button type="button" className="btn-ghost disabled:opacity-60" disabled={beschriebLaeuft} onClick={() => void beschriebVorschlagen()}>
+                  {beschriebLaeuft ? 'Schreibt …' : 'Text vorschlagen'}
+                </button>
+                <button type="button" className="btn-ghost" disabled={beschrieb.trim() === (rapport.beschrieb ?? '')} onClick={() => void beschriebSpeichern(beschriebInfo.startsWith('Vorschlag aus') ? 'ki' : 'hand')}>
+                  Speichern
+                </button>
+                <button type="button" className="btn-ghost" disabled={!beschrieb.trim()} onClick={beschriebKopieren}>
+                  {beschriebKopiert ? 'Kopiert ✓' : 'Text kopieren'}
+                </button>
+              </div>
+              {beschriebInfo && <p className={'text-xs ' + (beschriebInfo.includes('fehlgeschlagen') || beschriebInfo.includes('nicht möglich') ? 'font-semibold text-accent-deep' : 'text-ink2')}>{beschriebInfo}</p>}
+              <p className="text-[11px] text-ink3">
+                Grundlage: {rapport.tagesmeldung?.transkript ? 'Sprachnotiz des Teams, Positionen' : 'nur die Positionen — keine Sprachnotiz vorhanden'}{rapport.zusatzauftrag ? ', Zusatzauftrag' : ''}.
+                Die KI schreibt nur den Text. Zahlen kommen aus den Positionen, entscheiden tust du.
+              </p>
+            </section>
+
+            <section className="card space-y-2">
+              <div className="flex items-center justify-between gap-3">
+                <p className="lbl mb-0">Bilder zum Rapport</p>
+                <label className="btn-ghost inline-block cursor-pointer">
+                  {fotoLaedt ? 'lädt …' : '+ Bilder nachreichen'}
+                  <input type="file" accept="image/*" multiple className="hidden" onChange={(e) => void fotosNachreichen(e)} />
+                </label>
+              </div>
+              {rapport.foto?.length > 0
+                ? <FotoGalerie pfade={rapport.foto.map((f) => f.pfad)} />
+                : <p className="text-xs text-ink3">{rapport.tagesmeldung?.foto?.length ? 'Die Bilder des Teams stehen oben beim Ursprung.' : 'Noch keine Bilder — der Kunde will sehen, was gemacht wurde.'}</p>}
+            </section>
+
+          </div>
+          {/* Rechts, mitlaufend: senden bzw. Verlauf, darunter woher die Zahlen kommen */}
+          <div className="space-y-6 lg:sticky lg:top-6 lg:col-span-5">
+            {entwurf ? (
+              <section className="card space-y-4">
+                <p className="text-[15px] font-semibold">An die Bauleitung senden</p>
+                <div>
+                  <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-[12px] bg-ground px-3.5 py-3">
+                    <span className="text-sm text-ink2">Die Mail nimmt automatisch ein PDF des Rapports mit.</span>
+                    <button type="button" className="btn-ghost shrink-0" disabled={pdfLaeuft} onClick={() => void pdfAnsehen()}>{pdfLaeuft ? 'Erstellt …' : 'PDF ansehen'}</button>
+                  </div>
+                  <label className="lbl">Eigenes Dokument statt PDF (optional)</label>
+                  {rapport.anhang_pfad ? (
+                    <p className="text-sm">
+                      📎 {rapport.anhang_pfad.split('/').pop()}{' '}
+                      <label className="ml-1 cursor-pointer text-xs text-steel underline">
+                        ersetzen
+                        <input type="file" className="hidden" onChange={(e) => void anhangWaehlen(e)} />
+                      </label>
+                    </p>
+                  ) : (
+                    <label className="block cursor-pointer rounded-[10px] border border-dashed border-line-strong px-3.5 py-3 text-center text-sm text-ink3 hover:border-ink3">
+                      Datei wählen
+                      <input type="file" className="hidden" onChange={(e) => void anhangWaehlen(e)} />
+                    </label>
+                  )}
+                  <p className="mt-1 text-[11px] text-ink3">
+                    Ohne eigenes Dokument hängt die App ihr PDF an.
+                  </p>
+                </div>
+                <div>
+                  <label className="lbl">E-Mail der Bauleitung</label>
+                  <input
+                    type="email"
+                    value={empfaenger}
+                    onChange={(e) => setEmpfaenger(e.target.value)}
+                    placeholder="bauleitung@firma.ch"
+                    className="field"
+                  />
+                  <p className="mt-1 text-[11px] text-ink3">Erlaubt: die hinterlegte Bauleitung, weitere Adressen des Kunden (Verwaltung → Kunden) und Adressen derselben Firma.</p>
+                </div>
+                <button type="button" onClick={() => void senden()} disabled={sendet} className="cta cta-accent">
+                  {sendet ? 'Sendet …' : 'Regierapport senden'}
+                </button>
+                {fehler && <p className="text-sm font-semibold text-accent-deep">{fehler}</p>}
+                <p className="text-[11px] text-ink3">
+                  Fester Betreff «Regie {rapport.baustelle?.bezeichnung} · {rapport.baustelle?.konto_nr}»,
+                  Frist läuft ab Versand 3 Tage.
+                </p>
+                <div className="border-t border-line pt-3">
+                  {!verwerfenFrage ? (
+                  <button type="button" onClick={() => setVerwerfenFrage(true)} className="text-xs font-semibold text-ink3 underline underline-offset-2">
+                    Entwurf verwerfen
+                  </button>
+                ) : (
+                  <div className="rounded-[10px] border border-accent/40 bg-accent-soft p-3 text-sm">
+                    <p>Diesen Entwurf löschen? Die Meldung des Teams bleibt bestehen, du kannst später wieder einen Rapport daraus machen.</p>
+                    <div className="mt-2 grid grid-cols-2 gap-2">
+                      <button type="button" className="btn-ghost" onClick={() => setVerwerfenFrage(false)}>Behalten</button>
+                      <button type="button" className="btn-ghost border-accent text-accent-deep" onClick={() => void entwurfVerwerfen()}>Verwerfen</button>
+                    </div>
+                  </div>
+                  )}
+                </div>
+              </section>
             ) : (
-              <div className="rounded-[10px] border border-accent/40 bg-accent-soft p-3 text-sm">
-                <p>Diesen Entwurf löschen? Die Meldung des Teams bleibt bestehen, du kannst später wieder einen Rapport daraus machen.</p>
-                <div className="mt-2 grid grid-cols-2 gap-2">
-                  <button type="button" className="btn-ghost" onClick={() => setVerwerfenFrage(false)}>Behalten</button>
-                  <button type="button" className="btn-ghost border-accent text-accent-deep" onClick={() => void entwurfVerwerfen()}>Verwerfen</button>
+              <section className="card space-y-2">
+                <p className="lbl">Verlauf</p>
+                {rapport.versendet_am && !logs.some((l) => l.ereignis === 'gesendet') && (
+                  <div className="flex items-baseline justify-between gap-2 text-sm">
+                    <span>verschickt</span>
+                    <span className="font-mono text-xs text-ink3">{zeitstempel(rapport.versendet_am)}</span>
+                  </div>
+                )}
+                {logs.length === 0 && !rapport.versendet_am && <p className="text-sm text-ink3">Noch keine Ereignisse.</p>}
+                {logs.map((l) => (
+                  <div key={l.id} className="text-sm">
+                    <div className="flex items-baseline justify-between gap-2">
+                      <span>{EREIGNIS_LABEL[l.ereignis] ?? l.ereignis}</span>
+                      <span className="font-mono text-xs text-ink3">{zeitstempel(l.zeitpunkt)}</span>
+                    </div>
+                    {l.ereignis === 'rueckfrage' && l.detail?.kommentar && <p className="mt-0.5 text-xs italic text-ink2">«{l.detail.kommentar}»</p>}
+                  </div>
+                ))}
+                <div className="flex gap-2 pt-2">
+                  <button type="button" onClick={linkKopieren} className="btn-ghost">
+                    {kopiert ? 'Kopiert ✓' : 'Kundenlink kopieren'}
+                  </button>
                 </div>
-              </div>
-              )}
-            </div>
-          </section>
-        ) : (
-          <section className="panel space-y-2">
-            <p className="lbl">Verlauf</p>
-            {rapport.versendet_am && !logs.some((l) => l.ereignis === 'gesendet') && (
-              <div className="flex items-baseline justify-between gap-2 text-sm">
-                <span>verschickt</span>
-                <span className="font-mono text-xs text-ink3">{zeitstempel(rapport.versendet_am)}</span>
-              </div>
+              </section>
             )}
-            {logs.length === 0 && !rapport.versendet_am && <p className="text-sm text-ink3">Noch keine Ereignisse.</p>}
-            {logs.map((l) => (
-              <div key={l.id} className="text-sm">
-                <div className="flex items-baseline justify-between gap-2">
-                  <span>{EREIGNIS_LABEL[l.ereignis] ?? l.ereignis}</span>
-                  <span className="font-mono text-xs text-ink3">{zeitstempel(l.zeitpunkt)}</span>
-                </div>
-                {l.ereignis === 'rueckfrage' && l.detail?.kommentar && <p className="mt-0.5 text-xs italic text-ink2">«{l.detail.kommentar}»</p>}
-              </div>
-            ))}
-            <div className="flex gap-2 pt-2">
-              <button type="button" onClick={linkKopieren} className="btn-ghost">
-                {kopiert ? 'Kopiert ✓' : 'Kundenlink kopieren'}
-              </button>
-            </div>
-          </section>
-        )}
+            {/* Ursprung: woher die Zahlen kommen — Tagesmeldung des Teams und die Bestellung des Kunden */}
+            {(rapport.tagesmeldung || rapport.zusatzauftrag) && (
+              <section className="card space-y-3">
+                <p className="lbl mb-0">Ursprung · Meldung und Bestellung</p>
+                {rapport.tagesmeldung && (() => {
+                  const m = rapport.tagesmeldung;
+                  const total = m.zeiteintrag.reduce((s, z) => s + z.normal_min + z.ueber_min, 0);
+                  return (
+                    <div className="space-y-1.5 text-sm">
+                      <p>
+                        <strong>Tagesmeldung {tagKurz(m.datum)}</strong>
+                        {m.team && <> · {m.team.bezeichnung}{m.team.chefmonteur ? ` (${m.team.chefmonteur.name})` : ''}</>}
+                      </p>
+                      <p className="text-ink2">
+                        Team meldet: <strong>{ABWEICHUNG_TEXT[m.abweichung_typ ?? ''] ?? 'Überstunden'}</strong>
+                        {m.wer_hats_gewollt && <> · {WER_TEXT[m.wer_hats_gewollt] ?? m.wer_hats_gewollt}</>}
+                      </p>
+                      {m.zeiteintrag.length > 0 && (
+                        <p className="text-ink2">
+                          {m.zeiteintrag.map((z) => `${z.mitarbeiter?.name ?? '?'} ${((z.normal_min + z.ueber_min) / 60).toFixed(1)} h`).join(' · ')}
+                          <span className="text-ink3"> · zusammen {(total / 60).toFixed(1)} h</span>
+                        </p>
+                      )}
+                      {m.foto?.length > 0 && (
+                        <div>
+                          <p className="mb-1 text-[11px] text-ink3">Fotos vom Team · {m.foto.length}</p>
+                          <FotoGalerie pfade={m.foto.map((f) => f.pfad)} />
+                        </div>
+                      )}
+                      {m.transkript && (
+                        <div className="rounded-[10px] bg-ground px-3 py-2 text-ink2">
+                          <p className="italic">«{m.transkript}»</p>
+                          {m.transkript_quelle && (
+                            <details className="mt-1 text-xs text-ink3">
+                              <summary className="cursor-pointer">{(m.transkript_sprache ?? 'de') === 'de' ? 'So wurde es gesprochen · Text ist bereinigt' : `Original (${{ sq: 'Albanisch', pt: 'Portugiesisch', it: 'Italienisch', fr: 'Französisch', ar: 'Arabisch', pl: 'Polnisch', en: 'Englisch' }[m.transkript_sprache ?? ''] ?? 'andere Sprache'}) · automatisch übersetzt`}</summary>
+                              <p className="mt-1 italic" dir="auto">{m.transkript_quelle}</p>
+                            </details>
+                          )}
+                        </div>
+                      )}
+                      {!m.transkript && m.audio_pfad && (
+                        <p className="flex flex-wrap items-center gap-2 text-xs text-ink3">
+                          {transkriptLaeuft ? 'Text wird erstellt …' : 'Noch kein Text zur Sprachnotiz.'}
+                          {!transkriptLaeuft && <button type="button" className="btn-ghost px-2 py-0.5 text-xs" onClick={() => void transkribieren(m.id)}>Text erstellen</button>}
+                        </p>
+                      )}
+                      {m.audio_pfad && (
+                        <div className="flex items-center gap-2">
+                          {m.audio_pfad ? (
+                            <button type="button" onClick={() => void sprachnotizAnhoeren(m.audio_pfad!)} className="btn-ghost">▶ Sprachnotiz{m.audio_sekunden ? ` · ${m.audio_sekunden} Sek.` : ''}</button>
+                          ) : (
+                            <span className="font-mono text-[11px] text-ink3">Sprachnotiz {m.audio_sekunden} Sek. (Demo — keine Aufnahme hinterlegt)</span>
+                          )}
+                          {audioUrl && <audio controls autoPlay src={audioUrl} className="h-8 flex-1" />}
+                        </div>
+                      )}
+                      {m.team && (
+                        <Link to={`/cockpit?woche=${m.datum}&tag=${m.datum}&team=${m.team.id}&meldung=${m.id}&rapport=${rapport.id}`} className="inline-block font-semibold text-steel">
+                          Diese Woche in der Wochenübersicht anschauen ›
+                        </Link>
+                      )}
+                    </div>
+                  );
+                })()}
+                {rapport.zusatzauftrag && (
+                  <div className="border-t border-line pt-2.5 text-sm">
+                    <p>
+                      <strong>Bestellt von {rapport.zusatzauftrag.besteller_name}</strong> {KANAL_TEXT[rapport.zusatzauftrag.kanal] ?? rapport.zusatzauftrag.kanal}
+                      {' '}am {tagKurz(rapport.zusatzauftrag.bestellt_am)}
+                    </p>
+                    <p className="text-ink2">
+                      {taetigkeitText(rapport.zusatzauftrag.taetigkeit)}
+                      {rapport.zusatzauftrag.geplant_fuer && <> · geplant für {tagKurz(rapport.zusatzauftrag.geplant_fuer)}</>}
+                      {rapport.zusatzauftrag.notiz && <> · {rapport.zusatzauftrag.notiz}</>}
+                    </p>
+                    <Link to="/zusatzauftrag" className="mt-1 inline-block text-xs font-semibold text-steel">Zu den Zusatzaufträgen ›</Link>
+                  </div>
+                )}
+                {!rapport.tagesmeldung && (
+                  <p className="text-xs text-ink3">Zu diesem Rapport ist keine Tagesmeldung verknüpft (älterer Rapport).</p>
+                )}
+              </section>
+            )}
+
+          </div>
+        </div>
       </div>
     </Shell>
   );

@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { supabase } from '../../lib/supabase';
+import { Plus, Search, UserRound } from 'lucide-react';
 import tarife from '../../../fixtures/tarife_sguv_2026.json';
+import { Avatar, Dialog } from '../../ui/Dialog';
 
 interface Person {
   id?: string;
@@ -93,96 +95,134 @@ export function Mitarbeiter() {
   }
 
   const f = (patch: Partial<Person>) => setBearbeitet((b) => (b ? { ...b, ...patch } : b));
+  const schliessen = useCallback(() => setBearbeitet(null), []);
+
+  const anzahl = { alle: fest + temp, intern: fest, temporaer: temp, inaktiv: liste.filter((p) => !p.aktiv).length };
+  const funktionText = (code: string) => tarife.personal.find((t) => t.code === code)?.bezeichnung ?? code;
 
   return (
-    <div className="space-y-3">
-      <div className="flex items-center justify-between gap-2">
-        <p className="text-sm text-ink2"><b className="text-ink">{fest}</b> fest · <b className="text-ink">{temp}</b> temporär · {liste.filter((p) => !p.aktiv).length} inaktiv</p>
-        <button type="button" onClick={() => setBearbeitet({ ...LEER })} className="btn-ghost">+ Neu</button>
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="relative min-w-[220px] flex-1">
+          <Search size={16} className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-ink3" aria-hidden="true" />
+          <input value={suche} onChange={(e) => setSuche(e.target.value)} placeholder="Name, Temporärbüro oder Telefon …" className="field pl-10" />
+        </div>
+        <div className="flex rounded-full border border-ink/10 bg-white p-1 shadow-[0_1px_2px_rgb(17_17_19/0.06)]" role="group" aria-label="Filter">
+          {(['alle', 'intern', 'temporaer', 'inaktiv'] as const).map((k) => (
+            <button key={k} type="button" onClick={() => setFilter(k)} aria-pressed={filter === k}
+              className={'rounded-full px-3 py-1.5 text-xs font-semibold transition ' + (filter === k ? 'bg-ink text-white shadow-sm' : 'text-ink2 hover:text-ink')}>
+              {k === 'alle' ? 'Alle' : k === 'intern' ? 'Fest' : k === 'temporaer' ? 'Temporär' : 'Inaktiv'} <span className="opacity-60">{anzahl[k]}</span>
+            </button>
+          ))}
+        </div>
+        <button type="button" onClick={() => { setFehler(''); setBearbeitet({ ...LEER }); }} className="inline-flex items-center gap-1.5 rounded-full bg-gradient-to-br from-[#ff6d4c] via-accent to-[#9c1409] px-4 py-2 text-sm font-semibold text-white shadow-[0_10px_22px_-10px_rgb(224_48_30/0.7)] transition hover:-translate-y-px">
+          <Plus size={15} strokeWidth={2.6} aria-hidden="true" />Person
+        </button>
+      </div>
+      {!bearbeitet && fehler && <p className="card text-sm font-semibold text-accent-deep">{fehler}</p>}
+
+      <div className="card overflow-hidden p-0">
+        <table className="w-full text-left text-sm">
+          <thead className="border-b border-line bg-surface-2/60 text-[11px] font-semibold uppercase tracking-[0.06em] text-ink3">
+            <tr>
+              <th className="px-4 py-2.5">Name</th>
+              <th className="hidden px-4 py-2.5 md:table-cell">Funktion</th>
+              <th className="hidden px-4 py-2.5 sm:table-cell">Anstellung</th>
+              <th className="hidden px-4 py-2.5 lg:table-cell">Sprache</th>
+              <th className="px-4 py-2.5 text-right">Weg</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-line">
+            {sichtbar.map((p) => (
+              <tr key={p.id} onClick={() => { setFehler(''); setBearbeitet({ ...p }); }} className="cursor-pointer transition hover:bg-ground/70">
+                <td className="px-4 py-2.5">
+                  <span className="flex items-center gap-3">
+                    <Avatar name={p.name} />
+                    <span className="min-w-0">
+                      <span className="block truncate font-medium text-ink">{p.name}</span>
+                      <span className="block truncate text-[11px] text-ink3 md:hidden">{funktionText(p.funktion)}</span>
+                    </span>
+                  </span>
+                </td>
+                <td className="hidden px-4 py-2.5 text-ink2 md:table-cell">{funktionText(p.funktion)}</td>
+                <td className="hidden px-4 py-2.5 sm:table-cell">
+                  {p.typ === 'temporaer'
+                    ? <span className="rounded-full bg-amber-soft px-2.5 py-0.5 text-[11px] font-semibold text-amber-deep">temporär{p.temporaerbuero ? ` · ${p.temporaerbuero}` : ''}</span>
+                    : <span className="rounded-full bg-surface-2 px-2.5 py-0.5 text-[11px] font-semibold text-ink2">{p.typ === 'extern' ? 'extern' : 'fest'}</span>}
+                </td>
+                <td className="hidden px-4 py-2.5 text-ink2 lg:table-cell">{SPRACHEN.find(([k]) => k === p.sprache)?.[1]}</td>
+                <td className="px-4 py-2.5 text-right text-xs text-ink3">{p.oev_standard ? <span className="rounded-full bg-steel-soft px-2 py-0.5 font-semibold text-steel">öV</span> : p.km_standard > 0 ? <span className="font-mono tabular-nums">{p.km_standard} km</span> : '—'}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        {sichtbar.length === 0 && <p className="p-4 text-sm text-ink3">Niemand gefunden.</p>}
       </div>
 
       {bearbeitet && (
-        <section className="card space-y-3 p-4">
-          <p className="lbl mb-0">{bearbeitet.id ? 'Bearbeiten' : 'Neue Person'}</p>
-          <input value={bearbeitet.name} onChange={(e) => f({ name: e.target.value })} placeholder="Vorname Name" className="field" />
-          <div className="grid grid-cols-2 gap-2">
-            <div>
-              <label className="lbl">Anstellung</label>
-              <select value={bearbeitet.typ} onChange={(e) => f({ typ: e.target.value as Person['typ'] })} className="field">
-                <option value="intern">fest (intern)</option>
-                <option value="temporaer">temporär</option>
-                <option value="extern">extern</option>
-              </select>
-            </div>
-            <div>
-              <label className="lbl">Funktion (Tarif)</label>
-              <select value={bearbeitet.funktion} onChange={(e) => f({ funktion: e.target.value })} className="field">
-                {tarife.personal.map((t) => <option key={t.code} value={t.code}>{t.bezeichnung}</option>)}
-              </select>
-            </div>
-            <div>
-              <label className="lbl">Sprache</label>
-              <select value={bearbeitet.sprache} onChange={(e) => f({ sprache: e.target.value as Person['sprache'] })} className="field">
-                {SPRACHEN.map(([k, l]) => <option key={k} value={k}>{l}</option>)}
-              </select>
-            </div>
-            {hatTelefon && (
-              <div>
-                <label className="lbl">Telefon (optional)</label>
-                <input type="tel" value={bearbeitet.telefon ?? ''} onChange={(e) => f({ telefon: e.target.value || null })} placeholder="079 …" className="field" />
-              </div>
-            )}
-            {bearbeitet.typ === 'temporaer' && (
-              <div>
-                <label className="lbl">Temporärbüro</label>
-                <input value={bearbeitet.temporaerbuero ?? ''} onChange={(e) => f({ temporaerbuero: e.target.value || null })} placeholder="z. B. Adecco" className="field" />
-              </div>
-            )}
-          </div>
-          <div className="flex flex-wrap items-center gap-3 text-sm">
-            <label className="flex items-center gap-1.5"><input type="checkbox" checked={bearbeitet.oev_standard} onChange={(e) => f({ oev_standard: e.target.checked, km_standard: e.target.checked ? 0 : bearbeitet.km_standard })} /> reist mit öV</label>
-            {!bearbeitet.oev_standard && (
-              <label className="flex items-center gap-1.5">km/Tag <input type="number" min={0} value={bearbeitet.km_standard} onChange={(e) => f({ km_standard: Math.max(0, Number(e.target.value) || 0) })} className="field w-20 py-1" /></label>
-            )}
-            <label className="flex items-center gap-1.5"><input type="checkbox" checked={bearbeitet.aktiv} onChange={(e) => f({ aktiv: e.target.checked })} /> aktiv</label>
-          </div>
-          <div className="flex gap-2">
-            <button type="button" onClick={() => void speichern()} className="cta py-3 text-base">Speichern</button>
-            <button type="button" onClick={() => setBearbeitet(null)} className="btn-ghost">Abbrechen</button>
-          </div>
-          {fehler && <p className="text-sm font-semibold text-accent-deep">{fehler}</p>}
-        </section>
-      )}
-      {!bearbeitet && fehler && <p className="card text-sm font-semibold text-accent-deep">{fehler}</p>}
-
-      <div className="flex gap-2">
-        <input value={suche} onChange={(e) => setSuche(e.target.value)} placeholder="Suchen …" className="field" />
-      </div>
-      <div className="flex gap-1.5">
-        {(['alle', 'intern', 'temporaer', 'inaktiv'] as const).map((k) => (
-          <button key={k} type="button" onClick={() => setFilter(k)} className={'chip px-3 py-1 text-xs ' + (filter === k ? 'chip-on' : '')}>
-            {k === 'alle' ? 'alle' : k === 'intern' ? 'fest' : k === 'temporaer' ? 'temporär' : 'inaktiv'}
-          </button>
-        ))}
-      </div>
-
-      <div className="card divide-y divide-line p-0">
-        {sichtbar.map((p) => (
-          <button key={p.id} type="button" onClick={() => setBearbeitet({ ...p })} className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left hover:bg-ground">
-            <span className="min-w-0">
-              <span className="block truncate text-sm font-medium">{p.name}</span>
-              <span className="block text-[11px] text-ink3">
-                {tarife.personal.find((t) => t.code === p.funktion)?.bezeichnung ?? p.funktion}
-                {p.typ === 'temporaer' && ` · temporär (${p.temporaerbuero ?? '–'})`}
-                {p.sprache !== 'de' && ` · ${SPRACHEN.find(([k]) => k === p.sprache)?.[1]}`}
-                {hatTelefon && p.telefon && ` · ${p.telefon}`}
-              </span>
+        <Dialog
+          titel={bearbeitet.id ? bearbeitet.name || 'Person bearbeiten' : 'Neue Person'}
+          untertitel="Anstellung, Funktion, Sprache der Sprachnotiz"
+          icon={UserRound}
+          onSchliessen={schliessen}
+          fuss={<>
+            <span />
+            <span className="flex items-center gap-2">
+              <button type="button" onClick={schliessen} className="btn-ghost">Abbrechen</button>
+              <button type="button" onClick={() => void speichern()} className="inline-flex items-center rounded-full bg-gradient-to-br from-[#ff6d4c] via-accent to-[#9c1409] px-5 py-2 text-sm font-semibold text-white shadow-[0_10px_22px_-10px_rgb(224_48_30/0.7)]">Speichern</button>
             </span>
-            <span className="font-mono text-[11px] text-ink3">{p.oev_standard ? 'öV' : p.km_standard > 0 ? `${p.km_standard} km` : ''}</span>
-          </button>
-        ))}
-        {sichtbar.length === 0 && <p className="p-3 text-sm text-ink3">Niemand gefunden.</p>}
-      </div>
+          </>}
+        >
+          <div className="space-y-4">
+            <label className="block">
+              <span className="lbl">Name</span>
+              <input value={bearbeitet.name} onChange={(e) => f({ name: e.target.value })} placeholder="Vorname Name" className="field" />
+            </label>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <label className="block">
+                <span className="lbl">Anstellung</span>
+                <select value={bearbeitet.typ} onChange={(e) => f({ typ: e.target.value as Person['typ'] })} className="field">
+                  <option value="intern">fest (intern)</option>
+                  <option value="temporaer">temporär</option>
+                  <option value="extern">extern</option>
+                </select>
+              </label>
+              <label className="block">
+                <span className="lbl">Funktion (Tarif)</span>
+                <select value={bearbeitet.funktion} onChange={(e) => f({ funktion: e.target.value })} className="field">
+                  {tarife.personal.map((t) => <option key={t.code} value={t.code}>{t.bezeichnung}</option>)}
+                </select>
+              </label>
+              <label className="block">
+                <span className="lbl">Sprache der Sprachnotiz</span>
+                <select value={bearbeitet.sprache} onChange={(e) => f({ sprache: e.target.value as Person['sprache'] })} className="field">
+                  {SPRACHEN.map(([k, l]) => <option key={k} value={k}>{l}</option>)}
+                </select>
+              </label>
+              {hatTelefon && (
+                <label className="block">
+                  <span className="lbl">Telefon <span className="font-normal text-ink3">(freiwillig)</span></span>
+                  <input type="tel" value={bearbeitet.telefon ?? ''} onChange={(e) => f({ telefon: e.target.value || null })} placeholder="079 …" className="field" />
+                </label>
+              )}
+              {bearbeitet.typ === 'temporaer' && (
+                <label className="block">
+                  <span className="lbl">Temporärbüro</span>
+                  <input value={bearbeitet.temporaerbuero ?? ''} onChange={(e) => f({ temporaerbuero: e.target.value || null })} placeholder="z. B. Adecco" className="field" />
+                </label>
+              )}
+            </div>
+            <div className="flex flex-wrap items-center gap-x-5 gap-y-3 rounded-[14px] bg-surface-2/70 px-4 py-3 text-sm">
+              <label className="flex items-center gap-2"><input type="checkbox" checked={bearbeitet.oev_standard} onChange={(e) => f({ oev_standard: e.target.checked, km_standard: e.target.checked ? 0 : bearbeitet.km_standard })} /> reist mit öV</label>
+              {!bearbeitet.oev_standard && (
+                <label className="flex items-center gap-2">km pro Tag <input type="number" min={0} value={bearbeitet.km_standard} onChange={(e) => f({ km_standard: Math.max(0, Number(e.target.value) || 0) })} className="field w-20 py-1" /></label>
+              )}
+              <label className="flex items-center gap-2"><input type="checkbox" checked={bearbeitet.aktiv} onChange={(e) => f({ aktiv: e.target.checked })} /> aktiv</label>
+            </div>
+            {fehler && <p className="text-sm font-semibold text-accent-deep">{fehler}</p>}
+          </div>
+        </Dialog>
+      )}
     </div>
   );
 }

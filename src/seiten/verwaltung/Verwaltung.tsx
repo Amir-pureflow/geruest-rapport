@@ -37,14 +37,20 @@ export function Verwaltung() {
 
   return (
     <Shell zurueck>
-      <div className="space-y-4">
-        <h1 className="font-display text-2xl font-semibold">Verwaltung</h1>
-        <div className="flex gap-1.5 overflow-x-auto pb-1">
+      <div className="space-y-5">
+        <header>
+          <p className="lbl mb-0.5">Planung &amp; Daten</p>
+          <h1 className="font-display text-2xl font-semibold">Verwaltung</h1>
+          <p className="mt-1 text-sm text-ink3">Mitarbeitende, Teams, Kunden und Baustellen — das, was die App braucht, bevor sie mit echten Leuten läuft.</p>
+        </header>
+        <div className="-mx-1 overflow-x-auto px-1 pb-1">
+          <div className="inline-flex rounded-full border border-ink/10 bg-white p-1 shadow-[0_1px_2px_rgb(17_17_19/0.06)]" role="tablist">
           {tabs.map(([t, label]) => (
-            <button key={t} type="button" onClick={() => wechseln(t)} className={'chip whitespace-nowrap px-3 py-1.5 text-xs ' + (tab === t ? 'chip-on' : '')}>
+            <button key={t} type="button" role="tab" aria-selected={tab === t} onClick={() => wechseln(t)} className={'whitespace-nowrap rounded-full px-4 py-1.5 text-sm font-semibold transition ' + (tab === t ? 'bg-ink text-white shadow-sm' : 'text-ink2 hover:text-ink')}>
               {label}
             </button>
           ))}
+          </div>
         </div>
         {tab === 'mitarbeiter' && <Mitarbeiter />}
         {tab === 'teams' && <Teams />}
