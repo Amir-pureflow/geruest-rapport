@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { CalendarCheck, ClipboardList, ClipboardPlus, CloudOff, Ellipsis, Mail, MapPin, MoveHorizontal, Phone, Search, Sparkles, SquareMinus, SquarePlus, TriangleAlert, Wrench, type LucideIcon } from 'lucide-react';
 import { Shell } from '../ui/Shell';
 import { KennzahlPille } from '../ui/Karten';
+import { DatumWahl } from '../ui/DatumWahl';
 import { supabase } from '../lib/supabase';
 import { ausIso, iso as isoDatum, kurz } from '../lib/datum';
 import { TAETIGKEITEN, TAETIGKEIT_LABEL } from '../lib/zusatzauftrag';
@@ -389,7 +390,7 @@ export function Zusatzauftrag() {
 
             <Schritt nr={4} titel="Wann?">
               <div className="grid grid-cols-2 gap-3">
-                <input type="date" value={geplant} onChange={(e) => setGeplant(e.target.value)} className="field" aria-label="Geplant für" />
+                <DatumWahl wert={geplant} aendern={setGeplant} label="Geplant für" platzhalter="Tag wählen" />
                 <input value={notiz} onChange={(e) => setNotiz(e.target.value)} placeholder="Notiz (freiwillig)" className="field" aria-label="Notiz (optional)" />
               </div>
             </Schritt>

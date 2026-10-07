@@ -4,6 +4,7 @@ import { Shell } from '../ui/Shell';
 import { supabase } from '../lib/supabase';
 import { addTage, ausIso, iso, kurz, kw, lang, montag, WOCHENTAGE } from '../lib/datum';
 import { arbeitstage, spuren, ueberschneiden, zeitraumVorschlag, type Schnellwahl, type Zeitraum } from '../lib/planung';
+import { DatumWahl } from '../ui/DatumWahl';
 
 /**
  * Planung (06.10.2026, ersetzt das Board): Zeilen = Teams, Spalten = Tage. Ein Einsatz ist ein Balken über
@@ -412,14 +413,14 @@ function EinsatzDialog({
               })}
             </div>
             <div className="grid grid-cols-2 gap-3">
-              <label className="block">
+              <div>
                 <span className="mb-1 block text-xs text-ink3">von</span>
-                <input type="date" className="field" value={von} onChange={(e) => { setVon(e.target.value); if (e.target.value > bis) setBis(e.target.value); }} />
-              </label>
-              <label className="block">
+                <DatumWahl wert={von} aendern={(v) => { setVon(v); if (v > bis) setBis(v); }} label="von" schnell={false} leerErlaubt={false} />
+              </div>
+              <div>
                 <span className="mb-1 block text-xs text-ink3">bis</span>
-                <input type="date" className="field" value={bis} min={von} onChange={(e) => setBis(e.target.value)} />
-              </label>
+                <DatumWahl wert={bis} aendern={setBis} min={von} label="bis" schnell={false} leerErlaubt={false} />
+              </div>
             </div>
             {von && bis && bis >= von && (
               <p className="mt-2 text-xs text-ink2">
