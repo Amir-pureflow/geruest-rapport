@@ -24,8 +24,21 @@ interface Kennzahlen {
   teams: number;
   /** offene Team-Tage vor dieser Woche — der Bauführer denkt in Tagen, nicht in Zeiteinträgen (05.10.2026) */
   zuPruefen: number;
-  /** offene Zeiteinträge der Vorwoche mit Überstunden — da liest der Bauführer die Notiz */
+  /**
+   * Team-Tage der Vorwoche mit offenen Überstunden, die noch einen Entscheid brauchen — gleich gezählt wie
+   * «Zum Anschauen» in der Wochenübersicht (08.10.2026: vorher Zeiteinträge = Personen, darum 8 statt 2).
+   * Im Regie-Modus fällt ein Tag weg, sobald ein Regierapport oder «keine Regie» dazu steht.
+   */
   ueberOffen: number;
+}
+
+interface UeberZeile { team_id: string; datum: string; baustelle_id: string; regie_entscheid?: string | null; regierapport?: { id: string }[] | null }
+
+/** Team-Tage (Team · Datum · Baustelle) mit offenen Überstunden; im Regie-Modus ohne die schon entschiedenen. */
+function ueberTage(zeilen: UeberZeile[], regie: boolean): number {
+  const schluessel = (z: UeberZeile) => `${z.team_id}|${z.datum}|${z.baustelle_id}`;
+  const entschieden = new Set(zeilen.filter((z) => regie && ((z.regierapport?.length ?? 0) > 0 || !!z.regie_entscheid)).map(schluessel));
+  return new Set(zeilen.map(schluessel).filter((k) => !entschieden.has(k))).size;
 }
 
 /**
@@ -115,7 +128,10 @@ function StartBauf() {
         c.from('tagesmeldung').select('team_id').eq('datum', heuteIso),
         c.from('team').select('id', { count: 'exact', head: true }).eq('aktiv', true),
         c.from('tagesmeldung').select('datum,team_id,zeiteintrag!inner(id)').eq('zeiteintrag.status', 'offen').lt('datum', wochenStart),
-        c.from('zeiteintrag').select('id,tagesmeldung!inner(datum)', { count: 'exact', head: true }).eq('status', 'offen').gt('ueber_min', 0).gte('tagesmeldung.datum', vorwoche).lt('tagesmeldung.datum', wochenStart),
+        c.from('tagesmeldung')
+          .select('team_id,datum,baustelle_id,' + (regie ? 'regie_entscheid,regierapport(id),' : '') + 'zeiteintrag!inner(id)')
+          .eq('zeiteintrag.status', 'offen').gt('zeiteintrag.ueber_min', 0)
+          .gte('datum', vorwoche).lt('datum', wochenStart),
       ]);
       const erster = [tm, teams, zp, uo].find((r) => r.error);
       if (erster?.error) { setFehler(erster.error.message); return; }
@@ -125,7 +141,7 @@ function StartBauf() {
         teamsGemeldet: gemeldet.size,
         teams: teams.count ?? 0,
         zuPruefen: new Set(((zp.data ?? []) as unknown as { datum: string; team_id: string }[]).map((r) => r.team_id + r.datum)).size,
-        ueberOffen: uo.count ?? 0,
+        ueberOffen: ueberTage((uo.data ?? []) as unknown as UeberZeile[], regie),
       });
       // Diagramm und Board danach — die Kacheln sollen nicht darauf warten
       // Die Karte springt auf die älteste Woche mit offenen Freigaben (Amir, 04.10.2026) —
@@ -261,7 +277,7 @@ function StartBauf() {
                 zu={`/cockpit?woche=${vorwoche}`}
                 titel="Überstunden"
                 wert={String(k.ueberOffen)}
-                label={k.ueberOffen > 0 ? 'aus der Vorwoche — Notiz lesen' : 'aus der Vorwoche offen'}
+                label={k.ueberOffen > 0 ? `${k.ueberOffen === 1 ? 'Tag' : 'Tage'} aus der Vorwoche — Notiz lesen` : 'aus der Vorwoche offen'}
                 icon={AlarmClock}
                 farbe="rot"
               />
