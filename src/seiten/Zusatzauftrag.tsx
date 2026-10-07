@@ -297,9 +297,9 @@ export function Zusatzauftrag() {
           </div>
         </header>
 
-        <div className="grid gap-6 lg:grid-cols-12 lg:items-start">
+        <div className="space-y-6">
           {/* ── Neuer Auftrag ─────────────────────────────────────────────── */}
-          <section className="card space-y-5 p-5 lg:sticky lg:top-6 lg:col-span-5 lg:p-6">
+          <section className="card p-5 lg:p-7">
             <div className="flex items-center gap-3">
               <span className="grid h-10 w-10 place-items-center rounded-[12px] bg-accent text-white shadow-[0_4px_10px_-4px_rgb(224_48_30/0.6)]">
                 <ClipboardPlus size={19} strokeWidth={2.2} aria-hidden="true" />
@@ -310,6 +310,8 @@ export function Zusatzauftrag() {
               </span>
             </div>
 
+            <div className="mt-5 grid gap-x-8 gap-y-5 lg:grid-cols-2">
+            <div className="space-y-5">
             <Schritt nr={1} titel="Baustelle">
               {gewaehlt ? (
                 <button
@@ -366,7 +368,9 @@ export function Zusatzauftrag() {
                 })}
               </div>
             </Schritt>
+            </div>
 
+            <div className="space-y-5">
             <Schritt nr={3} titel="Was ist zu tun?">
               <div className="grid grid-cols-3 gap-2">
                 {TAETIGKEITEN.map(([wert, label]) => {
@@ -390,20 +394,25 @@ export function Zusatzauftrag() {
               </div>
             </Schritt>
 
-            <div className="space-y-2 pt-1">
-              <button type="button" onClick={() => void speichern()} className={'cta ' + (rueckmeldung?.art === 'gesendet' ? 'cta-good' : '')}>
-                {rueckmeldung?.art === 'gesendet' ? rueckmeldung.text : 'Auftrag speichern'}
-              </button>
-              {rueckmeldung?.art === 'wartet' && (
-                <p role="status" className="rounded-[12px] bg-amber-soft px-3 py-2 text-sm font-semibold text-amber-deep">{rueckmeldung.text}</p>
-              )}
-              {fehler && <p className="text-sm font-semibold text-accent-deep">{fehler}</p>}
+            </div>
+            </div>
+
+            <div className="mt-6 flex flex-col-reverse gap-3 border-t border-line pt-5 sm:flex-row sm:items-center sm:justify-between">
               <p className="flex items-center gap-1.5 text-xs text-ink3"><CloudOff size={13} aria-hidden="true" />Ohne Netz wird lokal gespeichert und gesendet, sobald Empfang da ist.</p>
+              <div className="flex flex-col gap-2 sm:items-end">
+                {fehler && <p className="text-sm font-semibold text-accent-deep">{fehler}</p>}
+                {rueckmeldung?.art === 'wartet' && (
+                  <p role="status" className="rounded-[12px] bg-amber-soft px-3 py-2 text-sm font-semibold text-amber-deep">{rueckmeldung.text}</p>
+                )}
+                <button type="button" onClick={() => void speichern()} className={'cta sm:w-auto sm:px-10 ' + (rueckmeldung?.art === 'gesendet' ? 'cta-good' : '')}>
+                  {rueckmeldung?.art === 'gesendet' ? rueckmeldung.text : 'Auftrag speichern'}
+                </button>
+              </div>
             </div>
           </section>
 
           {/* ── Aufträge ──────────────────────────────────────────────────── */}
-          <section className="space-y-3 lg:col-span-7">
+          <section className="space-y-3">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div className="flex rounded-full border border-ink/10 bg-white p-1 shadow-[0_1px_2px_rgb(17_17_19/0.06)]" role="group" aria-label="Auswahl">
                 {([[false, `Offen · ${offene.length + lokal.length}`], [true, `Erledigt · ${erledigte.length}`]] as const).map(([erl, label]) => (
@@ -416,6 +425,7 @@ export function Zusatzauftrag() {
               <p className="text-xs text-ink3">Der Stand ergibt sich aus Meldung und Regierapport.</p>
             </div>
 
+            <div className="grid gap-4 lg:grid-cols-2 lg:items-start">
             {!zeigeErledigte && lokal.map((e) => {
               const p = e.payload as LokalPayload;
               const b = baustellen.find((x) => x.id === p.baustelle_id);
@@ -436,7 +446,7 @@ export function Zusatzauftrag() {
             })}
 
             {sichtbar.length === 0 && (zeigeErledigte || lokal.length === 0) && (
-              <div className="card text-sm text-ink3">
+              <div className="card text-sm text-ink3 lg:col-span-2">
                 {zeigeErledigte ? 'Noch nichts erledigt.' : erledigte.length > 0 ? 'Nichts offen — alles im Regierapport oder beim Kunden.' : 'Noch keine — der nächste Kundenanruf landet hier.'}
               </div>
             )}
@@ -512,6 +522,7 @@ export function Zusatzauftrag() {
                 </article>
               );
             })}
+            </div>
           </section>
         </div>
       </div>
