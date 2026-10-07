@@ -53,7 +53,8 @@ export const ANSICHT_LABEL: Record<Ansicht, string> = Object.fromEntries(ANSICHT
 /** Welche Seiten jede Ansicht ohne Regie hat. «/» gibt es immer. */
 const SEITEN_BASIS: Record<Ansicht, string[]> = {
   // Export (Stundenraster) beim Bauführer entfernt (04.10.2026, Amir) — Exporte liegen beim Sekretariat.
-  bauf: ['erfassung', 'heute', 'cockpit', 'verwaltung'],
+  // Zusatzauftrag seit 08.10.2026 auch ohne Regie: Bestellung festhalten, den Rapport schreibt der Bauführer in SORBA
+  bauf: ['zusatzauftrag', 'erfassung', 'heute', 'cockpit', 'verwaltung'],
   // Sekretariat (Entscheid 17.09.): nur Stunden, Export, Stammdaten
   sekretariat: ['export', 'verwaltung'],
   chef: ['erfassung'],
@@ -63,7 +64,7 @@ const SEITEN_BASIS: Record<Ansicht, string[]> = {
 
 /**
  * Seiten je Ansicht — abhängig von den Firmen-Schaltern (Verwaltung → Einstellungen, 02.10.2026):
- * MODUS_ERFASSUNG = regie   → Zusatzauftrag, Regierapporte, Auswertung, Planung kommen dazu.
+ * MODUS_ERFASSUNG = regie   → Regierapporte, Auswertung, Planung kommen dazu (Zusatzauftrag gibt es seit 08.10. immer).
  * MODUS_SEKRETARIAT = voll  → das Sekretariat sieht dasselbe wie der Bauführer (ohne Teamgerät).
  */
 export function seitenFuer(a: Ansicht): string[] {
@@ -72,7 +73,7 @@ export function seitenFuer(a: Ansicht): string[] {
   if (a === 'bauf') return regie ? ['zusatzauftrag', 'erfassung', 'heute', 'cockpit', 'regie', 'auswertung', 'planung', 'verwaltung'] : SEITEN_BASIS.bauf;
   if (a === 'sekretariat') {
     if (e.sekretariat !== 'voll') return SEITEN_BASIS.sekretariat;
-    return regie ? ['zusatzauftrag', 'heute', 'cockpit', 'regie', 'auswertung', 'export', 'planung', 'verwaltung'] : ['heute', 'cockpit', 'export', 'verwaltung'];
+    return regie ? ['zusatzauftrag', 'heute', 'cockpit', 'regie', 'auswertung', 'export', 'planung', 'verwaltung'] : ['zusatzauftrag', 'heute', 'cockpit', 'export', 'verwaltung'];
   }
   return SEITEN_BASIS[a];
 }

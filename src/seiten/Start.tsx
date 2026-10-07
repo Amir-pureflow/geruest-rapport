@@ -211,20 +211,18 @@ function StartBauf() {
               {supabase ? 'verbunden' : 'offline-Modus'}
             </span>
             {/* Die eine Aktion — und nur, wenn es etwas zu tun gibt (Firmenrot, siehe index.css) */}
-            {regie ? (
+            {regie || !k || k.zuPruefen === 0 ? (
               <Link to="/zusatzauftrag" className="cta cta-accent hidden w-auto px-5 py-2.5 md:block">+ Zusatzarbeit</Link>
             ) : (
-              k && k.zuPruefen > 0 && (
-                <Link to={`/cockpit?woche=${vorwoche}`} className="cta hidden w-auto px-5 py-2.5 md:block">
-                  Vorwoche prüfen
-                </Link>
-              )
+              <Link to={`/cockpit?woche=${vorwoche}`} className="cta hidden w-auto px-5 py-2.5 md:block">
+                Vorwoche prüfen
+              </Link>
             )}
           </div>
         </header>
 
-        {/* Handy: der Anruf ist das Dringendste — der Kunde ist noch am Telefon */}
-        {regie && (
+        {/* Handy: der Anruf ist das Dringendste — der Kunde ist noch am Telefon (seit 08.10. auch ohne Regie) */}
+        {(
           <Link to="/zusatzauftrag" className="cta cta-accent block p-5 text-left md:hidden">
             <span className="block text-[17px] font-semibold">+ Zusatzarbeit</span>
             <span className="mt-0.5 block text-sm text-white/85">Kundenbestellung festhalten, während er noch am Telefon ist — 20 Sekunden</span>

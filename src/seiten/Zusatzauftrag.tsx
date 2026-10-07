@@ -5,6 +5,7 @@ import { Shell } from '../ui/Shell';
 import { KennzahlPille } from '../ui/Karten';
 import { DatumWahl } from '../ui/DatumWahl';
 import { supabase } from '../lib/supabase';
+import { einstellungen } from '../lib/einstellungen';
 import { ausIso, iso as isoDatum, kurz } from '../lib/datum';
 import { TAETIGKEITEN, TAETIGKEIT_LABEL } from '../lib/zusatzauftrag';
 import {
@@ -98,7 +99,13 @@ const GRUENDE = [
   ['doppelt', 'doppelt erfasst'],
 ] as const;
 
-const GRUND_LABEL: Record<string, string> = Object.fromEntries(GRUENDE);
+/**
+ * Ohne Regie (Gerüst GmbH, 08.10.2026: «bei Arbnor ist es einfach eine Notiz»): Der Auftrag wird abgehakt, sobald er
+ * gemacht ist — der Rapport entsteht in SORBA. Gespeichert als erledigt_grund 'sorba' (Migration 0027).
+ */
+const GRUENDE_BASIS = [['sorba', 'erledigt'], ...GRUENDE] as const;
+
+const GRUND_LABEL: Record<string, string> = Object.fromEntries(GRUENDE_BASIS);
 
 // Baustellenliste lokal vorhalten, damit das Formular auch ohne Netz aufgeht.
 // Kommt Netz zurück, wird der Cache beim nächsten Laden erneuert. v2: mit Kunde.
@@ -108,6 +115,8 @@ type Rueckmeldung = { art: 'gesendet' | 'wartet'; text: string };
 
 
 export function Zusatzauftrag() {
+  // Ohne Regie gibt es in der App keinen Regierapport: Bestellt → Gemeldet → Erledigt (in SORBA rapportiert)
+  const regie = einstellungen().erfassung === 'regie';
   const [baustellen, setBaustellen] = useState<Baustelle[]>([]);
   const [suche, setSuche] = useState('');
   const [gewaehlt, setGewaehlt] = useState<Baustelle | null>(null);
@@ -287,10 +296,16 @@ export function Zusatzauftrag() {
 
   async function ohneRegieErledigen(a: Auftrag, grund: string) {
     if (!supabase) return;
-    await supabase
+    const { error } = await supabase
       .from('zusatzauftrag')
       .update({ status: 'erledigt_ohne_regie', erledigt_grund: grund, erledigt_am: new Date().toISOString(), erledigt_von: userId })
       .eq('id', a.id);
+    if (error) {
+      setFehler(grund === 'sorba' && /erledigt_grund|check/i.test(error.message)
+        ? 'Die Datenbank kennt «erledigt» ohne Regie noch nicht — Migration 0027 fehlt.'
+        : 'Konnte nicht abschliessen: ' + error.message);
+      return;
+    }
     setErledigen(null);
     void ladeListe();
   }
@@ -317,7 +332,7 @@ export function Zusatzauftrag() {
           <div>
             <p className="lbl mb-0.5">Tagesgeschäft</p>
             <h1 className="font-display text-2xl font-semibold">Zusatzaufträge</h1>
-            <p className="mt-1 text-sm text-ink3">Was der Kunde zusätzlich bestellt — erfassen, solange er noch am Telefon ist.</p>
+            <p className="mt-1 text-sm text-ink3">Was der Kunde zusätzlich bestellt — erfassen, solange er noch am Telefon ist.{regie ? '' : ' Den Rapport schreibst du wie gewohnt in SORBA.'}</p>
           </div>
           <div className="flex flex-wrap gap-2">
             <KennzahlPille wert={String(offene.length + lokal.length)} text="offen" icon={ClipboardList} />
@@ -451,7 +466,7 @@ export function Zusatzauftrag() {
                   </button>
                 ))}
               </div>
-              <p className="text-xs text-ink3">Der Stand ergibt sich aus Meldung und Regierapport.</p>
+              <p className="text-xs text-ink3">{regie ? 'Der Stand ergibt sich aus Meldung und Regierapport.' : 'Abhaken, sobald die Arbeit gemacht und in SORBA rapportiert ist.'}</p>
             </div>
 
             <div className="grid gap-4 lg:grid-cols-2 lg:items-start">
@@ -492,7 +507,7 @@ export function Zusatzauftrag() {
                         <h3 className="min-w-0 truncate font-display text-[15px] font-semibold">{a.baustelle_bezeichnung ?? a.konto_nr}</h3>
                         <span className={'inline-flex shrink-0 items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-semibold ' + (STAND_STIL[a.stand] ?? 'bg-ground text-ink3')}>
                           <span className="h-1.5 w-1.5 rounded-full bg-current" aria-hidden="true" />
-                          {STAND_LABEL[a.stand] ?? a.stand}
+                          {!regie && a.stand === 'erledigt_ohne_regie' ? 'erledigt' : (STAND_LABEL[a.stand] ?? a.stand)}
                         </span>
                       </div>
                       <p className="mt-1.5 flex flex-wrap items-center gap-x-2.5 gap-y-1 text-xs text-ink2">
@@ -501,13 +516,14 @@ export function Zusatzauftrag() {
                         <span className="inline-flex items-center gap-1"><KanalIcon size={12} className="text-ink3" aria-hidden="true" />{a.besteller_name}</span>
                         {a.notiz && <span className="text-ink3">«{a.notiz}»</span>}
                       </p>
-                      {a.stand !== 'erledigt_ohne_regie' && <Fortschritt stand={a.stand} />}
+                      {/* Ohne Regie ist der Auftrag eine Notiz — kein Fortschritt über Rapport und Kunde */}
+                      {regie && a.stand !== 'erledigt_ohne_regie' && <Fortschritt stand={a.stand} />}
                     </div>
                   </div>
 
                   {erledigen === a.id && (
                     <div className="mx-4 mb-3 space-y-2 rounded-[12px] bg-ground p-3">
-                      <p className="text-xs font-semibold">Warum gibt es keine Regie?</p>
+                      <p className="text-xs font-semibold">{regie ? 'Warum gibt es keine Regie?' : 'Warum fällt der Auftrag weg?'}</p>
                       <div className="grid grid-cols-2 gap-1.5">
                         {GRUENDE.map(([code, text]) => (
                           <button key={code} type="button" onClick={() => void ohneRegieErledigen(a, code)} className="chip text-xs">{text}</button>
@@ -547,7 +563,11 @@ export function Zusatzauftrag() {
                     </span>
                     <span className="flex shrink-0 items-center gap-3">
                       {offen && erledigen !== a.id && (
-                        <button type="button" onClick={() => setErledigen(a.id)} className="font-semibold text-ink3 hover:text-ink">erledigt ohne Regie …</button>
+                        <button type="button" onClick={() => setErledigen(a.id)} className="font-semibold text-ink3 hover:text-ink">{regie ? 'erledigt ohne Regie …' : 'anderer Grund …'}</button>
+                      )}
+                      {/* Ohne Regie: abhaken mit einem Klick */}
+                      {!regie && offen && erledigen !== a.id && (
+                        <button type="button" onClick={() => void ohneRegieErledigen(a, 'sorba')} className="rounded-full bg-good px-3.5 py-1.5 font-semibold text-white shadow-sm hover:bg-good-deep">Erledigt ✓</button>
                       )}
                     </span>
                     {a.stand === 'erledigt_ohne_regie' && (
@@ -609,13 +629,14 @@ const STUFEN: { stand: Auftrag['stand']; label: string }[] = [
 ];
 
 /** Wo der Auftrag steht — fünf Stufen, die erreichten ausgefüllt. */
-function Fortschritt({ stand }: { stand: Auftrag['stand'] }) {
-  const erreicht = STUFEN.findIndex((s) => s.stand === stand);
+function Fortschritt({ stand, stufen = STUFEN }: { stand: Auftrag['stand']; stufen?: typeof STUFEN }) {
+  const erreicht = stufen.findIndex((s) => s.stand === stand);
+  const fertig = erreicht === stufen.length - 1;
   return (
     <ol className="mt-3 flex items-center gap-1" aria-label={`Stand: ${STAND_LABEL[stand]}`}>
-      {STUFEN.map((s, i) => (
+      {stufen.map((s, i) => (
         <li key={s.stand} className="flex min-w-0 flex-1 flex-col gap-1">
-          <span className={'h-1.5 rounded-full ' + (i <= erreicht ? (stand === 'bestaetigt' ? 'bg-good' : 'bg-steel') : 'bg-ink/10')} />
+          <span className={'h-1.5 rounded-full ' + (i <= erreicht ? (fertig ? 'bg-good' : 'bg-steel') : 'bg-ink/10')} />
           <span className={'truncate text-[10px] ' + (i === erreicht ? 'font-semibold text-ink' : 'text-ink3')}>{s.label}</span>
         </li>
       ))}
