@@ -100,6 +100,17 @@ interface LogZeile {
   detail: { kommentar?: string } | null;
 }
 
+/** Fasst gleiche Ereignisse direkt hintereinander zusammen (erstes behält Zeit); Rückfragen mit Text nie. */
+function verlaufZusammengefasst(logs: LogZeile[]): { l: LogZeile; anzahl: number }[] {
+  const out: { l: LogZeile; anzahl: number }[] = [];
+  for (const l of logs) {
+    const vorher = out[out.length - 1];
+    if (vorher && vorher.l.ereignis === l.ereignis && !l.detail?.kommentar && !vorher.l.detail?.kommentar) vorher.anzahl += 1;
+    else out.push({ l, anzahl: 1 });
+  }
+  return out;
+}
+
 const EREIGNIS_LABEL: Record<string, string> = {
   gesendet: 'Mail gesendet',
   zugestellt: 'zugestellt',
@@ -659,10 +670,12 @@ export function RegieDetail() {
                   </div>
                 )}
                 {logs.length === 0 && !rapport.versendet_am && <p className="text-sm text-ink3">Noch keine Ereignisse.</p>}
-                {logs.map((l) => (
+                {/* Gleiche Ereignisse direkt hintereinander (z. B. der Kunde lädt die Seite dreimal) = eine Zeile mit Anzahl.
+                    Gespeichert bleibt jedes einzelne — nur die Anzeige fasst zusammen. */}
+                {verlaufZusammengefasst(logs).map(({ l, anzahl }) => (
                   <div key={l.id} className="text-sm">
                     <div className="flex items-baseline justify-between gap-2">
-                      <span>{EREIGNIS_LABEL[l.ereignis] ?? l.ereignis}</span>
+                      <span>{EREIGNIS_LABEL[l.ereignis] ?? l.ereignis}{anzahl > 1 && <span className="text-ink3"> · {anzahl}×</span>}</span>
                       <span className="font-mono text-xs text-ink3">{zeitstempel(l.zeitpunkt)}</span>
                     </div>
                     {l.ereignis === 'rueckfrage' && l.detail?.kommentar && <p className="mt-0.5 text-xs italic text-ink2">«{l.detail.kommentar}»</p>}
