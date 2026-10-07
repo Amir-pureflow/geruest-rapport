@@ -87,3 +87,15 @@ describe('zuSpalten / zeitenText', () => {
     expect(zeitenText(undefined)).toBeNull();
   });
 });
+
+describe('aufteilen — normaler Arbeitstag je Firma (08.10.2026)', () => {
+  it('8.2 h (492 min): 10 h Arbeit = 8.2 h normal + 1.8 h Überstunden', () => {
+    expect(aufteilen(600, 492)).toEqual({ normal_min: 492, ueber_min: 108 });
+  });
+  it('genau ein normaler Tag hat keine Überstunden, egal wie lang er ist', () => {
+    for (const n of [480, 492, 504, 510, 540]) expect(aufteilen(n, n)).toEqual({ normal_min: n, ueber_min: 0 });
+  });
+  it('ohne Angabe gilt weiter 8.4 h', () => {
+    expect(aufteilen(600)).toEqual(aufteilen(600, NORMALTAG_MIN));
+  });
+});

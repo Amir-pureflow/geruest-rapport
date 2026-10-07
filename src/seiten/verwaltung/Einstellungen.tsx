@@ -4,10 +4,105 @@
  * für alle Geräte dieser Firma. Nach dem Umschalten lädt die App neu, damit Menü und Erfassung passen.
  */
 import { useState } from 'react';
+import { Clock3, Minus, Plus } from 'lucide-react';
 import {
   einstellungen, einstellungSetzen, schalterGelesen, eigeneFirma,
-  briefkopf, briefkopfSetzen, type Briefkopf, type Einstellungen,
+  briefkopf, briefkopfSetzen, normaltagMin, normaltagAusDatenbank, NORMALTAG_BEREICH,
+  type Briefkopf, type Einstellungen,
 } from '../../lib/einstellungen';
+import { Segment } from '../../ui/Segment';
+
+/** Häufige Normaltage im Bau: 8.0 · 8.2 · 8.4 (42-h-Woche) · 8.5 · 9.0 h. */
+const NORMALTAG_VORSCHLAEGE = [480, 492, 504, 510, 540];
+const alsStunden = (min: number) => (min / 60).toFixed(1);
+const alsUhrzeit = (min: number) => `${Math.floor(min / 60)} h ${String(min % 60).padStart(2, '0')} min`;
+
+/**
+ * Normaler Arbeitstag (08.10.2026): Jede Firma bestimmt selbst, ab wann Überstunden zählen —
+ * Gerüst GmbH 8.4 h, eine andere Firma vielleicht 8.2 h. Gilt für neue Meldungen und Korrekturen;
+ * was schon gemeldet ist, bleibt, wie es ist (die Aufteilung steht im Zeiteintrag).
+ */
+function NormaltagKarte() {
+  const [gespeichert, setGespeichert] = useState(normaltagMin);
+  const [min, setMin] = useState(normaltagMin);
+  const [speichert, setSpeichert] = useState(false);
+  const [meldung, setMeldung] = useState<{ text: string; art: 'ok' | 'fehler' } | null>(null);
+  const ausDatenbank = normaltagAusDatenbank();
+  const { min: unten, max: oben, schritt } = NORMALTAG_BEREICH;
+  const stellen = (neu: number) => { setMin(Math.min(oben, Math.max(unten, neu))); setMeldung(null); };
+  const beispiel = 600; // 7:00–12:00 und 13:00–18:00
+
+  async function speichern() {
+    setSpeichert(true);
+    const f = await einstellungSetzen('normaltagMin', min);
+    setSpeichert(false);
+    if (f) { setMeldung({ text: f, art: 'fehler' }); return; }
+    setGespeichert(min);
+    setMeldung({ text: 'Gespeichert ✓', art: 'ok' });
+  }
+
+  return (
+    <section className="card space-y-4">
+      <div className="flex items-start gap-3">
+        <span className="grid h-10 w-10 shrink-0 place-items-center rounded-[12px] bg-steel text-white shadow-[0_4px_10px_-4px_rgb(43_108_176/0.6)]">
+          <Clock3 size={19} strokeWidth={2.2} aria-hidden="true" />
+        </span>
+        <div>
+          <h2 className="font-display text-[15px] font-semibold">Normaler Arbeitstag</h2>
+          <p className="mt-0.5 text-xs text-ink3">
+            So viele Stunden zählen pro Tag als normal. Was darüber liegt, sind Überstunden — in der Erfassung, in der
+            Wochenübersicht und im Lohn-Export.
+          </p>
+        </div>
+      </div>
+
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex items-center gap-3">
+          <button type="button" onClick={() => stellen(min - schritt)} disabled={min <= unten} aria-label="6 Minuten weniger"
+            className="grid h-11 w-11 place-items-center rounded-full border border-line bg-white text-ink2 transition hover:text-ink disabled:opacity-40">
+            <Minus size={18} aria-hidden="true" />
+          </button>
+          <div className="min-w-[9.5rem] text-center">
+            <div className="font-display text-4xl font-semibold leading-none tabular-nums">{alsStunden(min)}<span className="ml-1 text-lg text-ink3">h</span></div>
+            <div className="mt-1.5 text-xs tabular-nums text-ink3">{alsUhrzeit(min)} · {alsStunden(min * 5)} h pro Woche</div>
+          </div>
+          <button type="button" onClick={() => stellen(min + schritt)} disabled={min >= oben} aria-label="6 Minuten mehr"
+            className="grid h-11 w-11 place-items-center rounded-full border border-line bg-white text-ink2 transition hover:text-ink disabled:opacity-40">
+            <Plus size={18} aria-hidden="true" />
+          </button>
+        </div>
+        <div className="space-y-1.5">
+          <p className="lbl">Schnellwahl</p>
+          <Segment
+            label="Normaler Arbeitstag"
+            optionen={NORMALTAG_VORSCHLAEGE.map((v) => ({ wert: v, text: `${alsStunden(v)} h` }))}
+            wert={NORMALTAG_VORSCHLAEGE.includes(min) ? min : -1}
+            aendern={stellen}
+          />
+        </div>
+      </div>
+
+      <p className="rounded-[12px] bg-ground px-3.5 py-2.5 text-xs text-ink2">
+        Beispiel: 7:00–12:00 und 13:00–18:00 = {alsStunden(beispiel)} h →{' '}
+        <b className="text-ink">{alsStunden(Math.min(beispiel, min))} h normal</b>
+        {beispiel > min && <> + <b className="text-amber-deep">{alsStunden(beispiel - min)} h Überstunden</b></>}
+      </p>
+
+      <div className="flex flex-wrap items-center gap-3">
+        <button type="button" disabled={speichert || min === gespeichert} onClick={() => void speichern()} className="cta w-auto px-5 py-2.5 text-sm disabled:opacity-50">
+          {speichert ? 'Speichert …' : 'Arbeitstag speichern'}
+        </button>
+        {meldung && <span className={'text-sm font-semibold ' + (meldung.art === 'ok' ? 'text-good-deep' : 'text-accent-deep')}>{meldung.text}</span>}
+        <span className="text-[11px] text-ink3">Gilt ab sofort für neue Meldungen und Korrekturen. Bereits gemeldete Tage bleiben, wie sie sind.</span>
+      </div>
+      {ausDatenbank === false && (
+        <p className="rounded-[12px] border border-amber/40 bg-amber-soft px-3.5 py-2 text-xs text-amber-deep">
+          Die Datenbank kennt diese Einstellung noch nicht (Migration 0026 fehlt) — bis dahin gilt 8.4 h.
+        </p>
+      )}
+    </section>
+  );
+}
 
 /** Die Felder des Briefkopfs in der Reihenfolge, in der sie auf dem Rapport stehen. */
 const BRIEFKOPF_FELDER: { feld: keyof Briefkopf; label: string; platzhalter: string; breit?: boolean }[] = [
@@ -131,6 +226,8 @@ export function Einstellungen() {
         </p>
       )}
       {fehler && <p className="rounded-[12px] border border-accent/40 bg-accent-soft px-4 py-2.5 text-sm text-accent-deep">{fehler}</p>}
+
+      <NormaltagKarte />
 
       {WAHLEN.map((w) => (
         <section key={w.feld} className="card space-y-2.5">

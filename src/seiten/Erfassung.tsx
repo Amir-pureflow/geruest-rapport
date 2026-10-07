@@ -5,10 +5,10 @@ import { Shell } from '../ui/Shell';
 import { Pegel, TranskriptLive } from '../ui/Sprachnotiz';
 import { supabase } from '../lib/supabase';
 import { enqueueMeldung, aktualisiereMeldung, belegFehlerVon, flushNachSupabase, offeneMeldungen, offeneAnzahl, lokaleMeldungEntfernen, type MeldungPayload } from '../lib/db';
-import { addTage, iso, lang, stunden, NORMALTAG_MIN } from '../lib/datum';
+import { addTage, iso, lang, stunden } from '../lib/datum';
 import { fotoVerkleinern } from '../lib/foto';
 import { kennzeichen } from '../lib/fahrzeug';
-import { einstellungen } from '../lib/einstellungen';
+import { einstellungen, normaltagMin } from '../lib/einstellungen';
 import { MAX_SPANNEN, NACHMITTAG_MIN, ausUhrzeit, aufteilen, mittagMinuten, spanneVollstaendig, spannenMinuten, spannenUeberlappen, standardSpannen, uhrzeitFeld, zuSpalten, type Spanne } from '../lib/zeiten';
 
 /**
@@ -46,7 +46,8 @@ type Wer = 'kunde' | 'chef' | 'niemand';
 const TEAM_KEY = 'teamgeraet-team-id';
 /** Zuletzt gewählte Teams auf diesem Gerät (max. 5, neuestes vorne) — damit die Teamwahl nie mehr als 5 Kacheln braucht (Regel 3). */
 const ZULETZT_KEY = 'teamgeraet-zuletzt';
-const STANDARD_MIN = NORMALTAG_MIN;
+/** Normaler Arbeitstag der Firma (Verwaltung → Einstellungen), Standard 8.4 h — jedes Mal frisch gelesen. */
+const standardMin = (): number => normaltagMin();
 /** Nur Auto (Bauführer 20.09.: «Nur auto») — öV bleibt im Datenmodell, ist in der Erfassung aber ausgeblendet, bis geklärt ist, ob es ganz weg soll. */
 const OEV_AKTIV = false;
 /** Zuletzt hinzugefügte Personen je Team (max. 5) — wer letzte Woche mitgeholfen hat, ist mit einem Tipp wieder da. */
@@ -93,13 +94,13 @@ function gaesteMerken(teamId: string, id: string): void {
 }
 
 function neueAnwesenheit(p: Person, modus: ZeitModus, spannen: Spanne[]): Anwesenheit {
-  return { dabei: true, min: STANDARD_MIN, ueber: 0, oev: OEV_AKTIV && p.oev_standard, km: p.km_standard, modus, zeiten: spannen.map((s) => ({ ...s })) };
+  return { dabei: true, min: standardMin(), ueber: 0, oev: OEV_AKTIV && p.oev_standard, km: p.km_standard, modus, zeiten: spannen.map((s) => ({ ...s })) };
 }
 
 /** Was für die Person zählt: bei Stundenzahl die Regler, bei von–bis die Summe der Zeiten (ohne Pausenrechnung), aufgeteilt in Normal und Über. */
 function wirksam(a: Anwesenheit): { min: number; ueber: number } {
   if (a.modus !== 'zeit') return { min: a.min, ueber: a.ueber };
-  const t = aufteilen(spannenMinuten(a.zeiten));
+  const t = aufteilen(spannenMinuten(a.zeiten), normaltagMin());
   return { min: t.normal_min, ueber: t.ueber_min };
 }
 
@@ -863,8 +864,8 @@ export function Erfassung() {
         const min = normal ? w.min : abMinVon(p.id);
         return {
           id: crypto.randomUUID(), mitarbeiter_id: p.id,
-          normal_min: Math.min(min, STANDARD_MIN),
-          ueber_min: Math.max(0, min - STANDARD_MIN) + (normal ? ueberVon(p) : 0),
+          normal_min: Math.min(min, standardMin()),
+          ueber_min: Math.max(0, min - standardMin()) + (normal ? ueberVon(p) : 0),
           oev: normal ? a.oev : false, km: normal ? a.km : 0, baustelle_id: b.id, konto_nr: b.konto_nr,
           // Zeiten nur mitschicken, wenn welche eingetragen sind — so bleibt die Stundenzahl-Meldung auch vor Migration 0016 gültig
           ...(normal && a.modus === 'zeit' ? zuSpalten(a.zeiten) : {}),
@@ -887,7 +888,7 @@ export function Erfassung() {
 
   /** Stunden des normalen Tags in Worten: «8.0 h» wenn alle gleich, sonst «7.5–8.5 h». */
   function normalStundenText(): string {
-    const mins = dabei.map((p) => (anw[p.id] ? wirksam(anw[p.id]).min : STANDARD_MIN));
+    const mins = dabei.map((p) => (anw[p.id] ? wirksam(anw[p.id]).min : standardMin()));
     const lo = Math.min(...mins);
     const hi = Math.max(...mins);
     const ueber = ueberTotal;
@@ -1428,7 +1429,7 @@ export function Erfassung() {
           <div className="rounded-[14px] border border-line bg-surface p-3 shadow-[0_1px_2px_rgb(17_17_19/0.04)]">
             <SpannenEditor spannen={teamSpannen} setSpannen={setzeTeamSpannen} />
             {(() => {
-              const t = aufteilen(spannenMinuten(teamSpannen));
+              const t = aufteilen(spannenMinuten(teamSpannen), normaltagMin());
               return (
                 <p className="mt-2 font-mono text-sm tabular-nums">
                   {teamSpannen.some(spanneVollstaendig) ? <>{stunden(t.normal_min + t.ueber_min)} h{t.ueber_min > 0 && <span className="font-semibold text-amber-deep"> · davon {stunden(t.ueber_min)} h Überstunden</span>}</> : <span className="text-ink3">«bis» eintragen</span>}

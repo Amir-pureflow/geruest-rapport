@@ -11,22 +11,36 @@
  * die Erfassung läuft offline und darf auf keine Abfrage warten.
  */
 import { supabase } from './supabase';
+import { NORMALTAG_MIN } from './datum';
 
 export interface Einstellungen {
   /** 'wochenblatt' = nur Normal + Überstunden · 'regie' = zusätzlich Symbole, «Wer wollte das?», Stunden je Person */
   erfassung: 'wochenblatt' | 'regie';
   /** 'stunden' = nur Stunden, Export, Verwaltung · 'voll' = alles wie der Bauführer */
   sekretariat: 'stunden' | 'voll';
+  /** Normaler Arbeitstag in Minuten (Migration 0026) — alles darüber sind Überstunden. Gerüst GmbH 504 = 8.4 h. */
+  normaltagMin: number;
 }
 
-export const STANDARD: Einstellungen = { erfassung: 'wochenblatt', sekretariat: 'stunden' };
+export const STANDARD: Einstellungen = { erfassung: 'wochenblatt', sekretariat: 'stunden', normaltagMin: NORMALTAG_MIN };
+
+/** Erlaubter Bereich für den normalen Arbeitstag: 6.0 bis 10.0 h, in Schritten von 6 Minuten (0.1 h). */
+export const NORMALTAG_BEREICH = { min: 360, max: 600, schritt: 6 } as const;
+
+function gueltigerNormaltag(x: unknown): number | null {
+  return typeof x === 'number' && Number.isFinite(x) && x >= NORMALTAG_BEREICH.min && x <= NORMALTAG_BEREICH.max ? Math.round(x) : null;
+}
 
 const KEY = 'firma-einstellungen';
 /** Spalte in `firma` je Schalter. */
 const SPALTE = {
   erfassung: 'modus_erfassung',
   sekretariat: 'modus_sekretariat',
+  normaltagMin: 'normaltag_min',
 } as const;
+
+/** Kam der normale Arbeitstag aus der Datenbank? `false` = Migration 0026 fehlt, es gilt der Standard 8.4 h. */
+let normaltagGelesen: boolean | null = null;
 
 let zwischenspeicher: Einstellungen = lesenLokal();
 /** Hat die Datenbank beim letzten Versuch geliefert? null = noch nicht versucht oder offline. */
@@ -76,7 +90,7 @@ export async function briefkopfSetzen(neu: Briefkopf): Promise<string | null> {
 function lesenLokal(): Einstellungen {
   try {
     const x = JSON.parse(localStorage.getItem(KEY) ?? 'null') as Partial<Einstellungen> | null;
-    return x ? { ...STANDARD, ...x } : STANDARD;
+    return x ? { ...STANDARD, ...x, normaltagMin: gueltigerNormaltag(x.normaltagMin) ?? NORMALTAG_MIN } : STANDARD;
   } catch {
     return STANDARD;
   }
@@ -85,6 +99,16 @@ function lesenLokal(): Einstellungen {
 /** Was die App gerade annimmt — sofort verfügbar, auch offline. */
 export function einstellungen(): Einstellungen {
   return zwischenspeicher;
+}
+
+/** Normaler Arbeitstag dieser Firma in Minuten — Grundlage für Normal/Überstunden in Erfassung, Korrektur und Demo. */
+export function normaltagMin(): number {
+  return gueltigerNormaltag(zwischenspeicher.normaltagMin) ?? NORMALTAG_MIN;
+}
+
+/** Stand die Einstellung «Normaler Arbeitstag» in der Datenbank? `false` = Migration 0026 fehlt noch. */
+export function normaltagAusDatenbank(): boolean | null {
+  return normaltagGelesen;
 }
 
 /**
@@ -131,9 +155,15 @@ export async function einstellungenLaden(): Promise<Einstellungen> {
     tel: bk.briefkopf_tel ?? '', fax: bk.briefkopf_fax ?? '', mail: bk.briefkopf_mail ?? '',
     web: bk.briefkopf_web ?? '', bank: bk.briefkopf_bank ?? '', mwst: bk.briefkopf_mwst ?? '',
   };
+  // Normaler Arbeitstag (0026) als eigene Abfrage: fehlt die Spalte noch, bleiben die übrigen Schalter gültig
+  const nt = await supabase.from('firma').select('normaltag_min').eq('id', r.id).limit(1);
+  const ntWert = !nt.error && nt.data?.[0] ? gueltigerNormaltag((nt.data[0] as { normaltag_min: unknown }).normaltag_min) : null;
+  normaltagGelesen = ntWert !== null;
   const neu: Einstellungen = {
     erfassung: r.modus_erfassung === 'regie' ? 'regie' : 'wochenblatt',
     sekretariat: r.modus_sekretariat === 'voll' ? 'voll' : 'stunden',
+    // Fehlt die Spalte noch, kann auch nichts anderes als der Standard gespeichert sein — sonst (kurz kein Netz) der letzte bekannte Wert
+    normaltagMin: ntWert ?? zwischenspeicher.normaltagMin,
   };
   zwischenspeicher = neu;
   try { localStorage.setItem(KEY, JSON.stringify(neu)); } catch { /* ohne Speicher läuft es auch */ }
@@ -147,6 +177,9 @@ export async function einstellungSetzen<K extends keyof Einstellungen>(feld: K, 
   const { error } = await supabase.from('firma').update({ [SPALTE[feld]]: wert }).eq('id', firma.id);
   // Ohne Migration 0019 gibt es die Tabelle nicht, und ohne Eintrag in `benutzer` greift keine Regel.
   if (error) {
+    if (feld === 'normaltagMin' && /normaltag_min|does not exist|column/i.test(error.message)) {
+      return 'Die Datenbank kennt diese Einstellung noch nicht — Migration 0026 fehlt.';
+    }
     return /row-level security|permission denied|does not exist/i.test(error.message)
       ? 'Die Datenbank lässt das nicht zu. Entweder ist Migration 0019 noch nicht eingespielt, oder dieser Zugang hängt an keiner Firma.'
       : error.message;

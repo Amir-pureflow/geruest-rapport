@@ -4,7 +4,9 @@ import { Check } from 'lucide-react';
 import { Shell } from '../ui/Shell';
 import { FotoGalerie } from '../ui/FotoGalerie';
 import { supabase } from '../lib/supabase';
-import { addTage, iso, kurz as ch, kw, montag, stunden, NORMALTAG_MIN } from '../lib/datum';
+import { addTage, iso, kurz as ch, kw, montag, stunden } from '../lib/datum';
+import { aufteilen as aufteilenTag } from '../lib/zeiten';
+import { normaltagMin } from '../lib/einstellungen';
 import { zeitenText } from '../lib/zeiten';
 import { useAnsicht } from '../lib/ansicht';
 import { einstellungen } from '../lib/einstellungen';
@@ -493,9 +495,9 @@ export function Cockpit() {
     void laden();
   }
 
-  /** Korrektur in Gesamtminuten (Normal + Über), am normalen Tag (8.4 h) aufgeteilt — wie die Erfassung. */
+  /** Korrektur in Gesamtminuten (Normal + Über), am normalen Arbeitstag der Firma aufgeteilt — wie die Erfassung. */
   function aufteilen(total: number): { normal_min: number; ueber_min: number } {
-    return { normal_min: Math.min(total, NORMALTAG_MIN), ueber_min: Math.max(0, total - NORMALTAG_MIN) };
+    return aufteilenTag(total, normaltagMin());
   }
   function korrekturStarten(e: Eintrag, deltaMin: number) {
     setKorrektur((k) => {

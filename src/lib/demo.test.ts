@@ -180,3 +180,13 @@ describe('Demo-Betrieb «klein» — für Vorführungen (08.10.2026)', () => {
     expect(d.teams).toHaveLength(20);
   });
 });
+
+describe('Demo-Betrieb mit eigenem normalen Arbeitstag', () => {
+  it('rechnet Überstunden ab dem Normaltag der Firma (8.2 h)', () => {
+    const k = erzeugeDemoBetrieb({ baustellen, heute, userId: 'u1', umfang: 'klein', normaltagMin: 492 });
+    const lang = k.eintraege.filter((e) => e.ueber_min > 0);
+    expect(lang.length).toBeGreaterThan(0);
+    for (const e of lang) expect(e.normal_min).toBe(492);
+    for (const e of k.eintraege) expect(e.normal_min).toBeLessThanOrEqual(492);
+  });
+});

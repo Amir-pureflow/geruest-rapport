@@ -73,10 +73,14 @@ export function spannenUeberlappen(spannen: Spanne[]): boolean {
   return false;
 }
 
-/** Gesamtminuten in Normal (bis 8.4 h) und Überstunden aufteilen — wie auf dem Wochenblatt. */
-export function aufteilen(total: number): { normal_min: number; ueber_min: number } {
+/**
+ * Gesamtminuten in Normal (bis zum normalen Arbeitstag der Firma, Standard 8.4 h) und Überstunden aufteilen —
+ * wie auf dem Wochenblatt. `normalMin` = `normaltagMin()` aus den Firmen-Einstellungen.
+ */
+export function aufteilen(total: number, normalMin: number = NORMALTAG_MIN): { normal_min: number; ueber_min: number } {
   const t = Math.max(0, Math.round(total));
-  return { normal_min: Math.min(t, NORMALTAG_MIN), ueber_min: Math.max(0, t - NORMALTAG_MIN) };
+  const n = Math.max(0, Math.round(normalMin));
+  return { normal_min: Math.min(t, n), ueber_min: Math.max(0, t - n) };
 }
 
 /** Spalten des Zeiteintrags (Migration 0016). */

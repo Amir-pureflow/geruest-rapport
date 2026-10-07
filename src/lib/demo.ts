@@ -24,7 +24,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { addTage, iso, montag } from './datum';
 import { aufteilen } from './zeiten';
-import { eigeneFirma, einstellungen } from './einstellungen';
+import { eigeneFirma, einstellungen, normaltagMin } from './einstellungen';
 
 /**
  * Nur diese Firmen dürfen den Demo-Betrieb laden oder leeren. Er ersetzt ALLE Bewegungsdaten —
@@ -319,7 +319,7 @@ function wochentag(d: Date): number {
 
 // ── Generator ────────────────────────────────────────────────────────────────
 
-export function erzeugeDemoBetrieb(opts: { baustellen: BaustelleQuelle[]; heute: Date; userId: string; seed?: number; umfang?: DemoUmfang }): DemoBetrieb {
+export function erzeugeDemoBetrieb(opts: { baustellen: BaustelleQuelle[]; heute: Date; userId: string; seed?: number; umfang?: DemoUmfang; normaltagMin?: number }): DemoBetrieb {
   const umfang = opts.umfang ?? 'gross';
   const A = AUFBAU[umfang];
   const z = new Zufall(opts.seed ?? 20261006);
@@ -401,7 +401,7 @@ export function erzeugeDemoBetrieb(opts: { baustellen: BaustelleQuelle[]; heute:
   const kunden: KundeRow[] = KUNDEN.slice(0, A.kunden).map(([firma, ap]) => ({
     id: z.uuid(), name: firma, praeferenz: z.chance(0.3) ? 'sammel' : 'einzel',
     ansprechperson: ap,
-    email: `${slug(ap.split('. ')[1] ?? ap)}@${slug(firma).slice(0, 18)}.example`,
+    email: `${slug(ap.split('. ')[1] ?? ap)}@${slug(firma).slice(0, 18).replace(/-+$/, '')}.example`,
     telefon: `031 ${z.int(300, 999)} ${z.int(10, 99)} ${z.int(10, 99)}`,
   }));
 
@@ -551,7 +551,7 @@ export function erzeugeDemoBetrieb(opts: { baustellen: BaustelleQuelle[]; heute:
           if (bleibtLaenger) ueberstuendler++;
           const bis2 = bleibtLaenger ? ende : tagesEnde;
           const total = (12 * 60 - tagesBeginn) + (bis2 - 13 * 60);
-          const { normal_min, ueber_min } = aufteilen(total);
+          const { normal_min, ueber_min } = aufteilen(total, opts.normaltagMin);
           eintraege.push({
             id: z.uuid(), tagesmeldung_id: meldung.id, mitarbeiter_id: m.id,
             normal_min, ueber_min,
@@ -619,7 +619,7 @@ export async function demoLaden(client: SupabaseClient, userId: string, log: Pro
   log(`${bs.length} Baustellen gefunden`);
 
   await demoZuruecksetzen(client, log);
-  const d = erzeugeDemoBetrieb({ baustellen: bs, heute: new Date(), userId, umfang });
+  const d = erzeugeDemoBetrieb({ baustellen: bs, heute: new Date(), userId, umfang, normaltagMin: normaltagMin() });
 
   await inChunks(client, 'kunde', d.kunden, log);
   await inChunks(client, 'mitarbeiter', d.mitarbeiter, log);
