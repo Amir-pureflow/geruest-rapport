@@ -152,6 +152,34 @@ export function Zusatzauftrag() {
     setMeldungLinks(links);
   }
 
+  /**
+   * «bestellt», aber das Team war schon da: Die Teams arbeiten meist täglich auf derselben Baustelle, darum zählt
+   * erst ein Tag mit Überstunden als «gemeldet» (Sicht zusatzauftrag_stand, 0015). Ein normaler Tag ab dem geplanten
+   * Tag wird hier trotzdem genannt — sonst stünde «wartet auf die Meldung», obwohl das Team gemeldet hat.
+   */
+  const [normalGemeldet, setNormalGemeldet] = useState<Record<string, { datum: string; team: string; link: string }>>({});
+  async function normalGemeldetLaden(auftraege: Auftrag[]) {
+    if (!supabase) return;
+    const heute = isoDatum(new Date());
+    const ab = (a: Auftrag) => a.geplant_fuer ?? a.bestellt_am.slice(0, 10);
+    const bestellt = auftraege.filter((a) => a.stand === 'bestellt' && a.baustelle_id && ab(a) <= heute);
+    if (bestellt.length === 0) { setNormalGemeldet({}); return; }
+    const { data } = await supabase
+      .from('tagesmeldung')
+      .select('id,team_id,datum,baustelle_id,team:team_id(bezeichnung)')
+      .in('baustelle_id', [...new Set(bestellt.map((a) => a.baustelle_id as string))])
+      .gte('datum', bestellt.map(ab).sort()[0])
+      .lte('datum', heute)
+      .order('datum');
+    const treffer: Record<string, { datum: string; team: string; link: string }> = {};
+    for (const a of bestellt) {
+      const m = ((data ?? []) as unknown as { id: string; team_id: string; datum: string; baustelle_id: string; team: { bezeichnung: string } | null }[])
+        .find((x) => x.baustelle_id === a.baustelle_id && x.datum >= ab(a));
+      if (m) treffer[a.id] = { datum: m.datum, team: m.team?.bezeichnung ?? 'Das Team', link: `/cockpit?woche=${m.datum}&tag=${m.datum}&team=${m.team_id}&meldung=${m.id}` };
+    }
+    setNormalGemeldet(treffer);
+  }
+
   async function ladeListe() {
     void offeneAuftraege().then(setLokal);
     if (!supabase) return;
@@ -162,7 +190,7 @@ export function Zusatzauftrag() {
       )
       .order('bestellt_am', { ascending: false })
       .limit(50);
-    if (data) { setListe(data as unknown as Auftrag[]); void meldungLinksLaden(data as unknown as Auftrag[]); }
+    if (data) { setListe(data as unknown as Auftrag[]); void meldungLinksLaden(data as unknown as Auftrag[]); void normalGemeldetLaden(data as unknown as Auftrag[]); }
     else {
       // Sicht noch ohne 0011? Dann ohne die Kundenspalten laden, statt gar nicht.
       const alt = await supabase
@@ -503,10 +531,16 @@ export function Zusatzauftrag() {
                       {(a.stand === 'im_regierapport' || a.stand === 'beim_kunden' || a.stand === 'bestaetigt') && a.regierapport_id && (
                         <Link to={`/regie/${a.regierapport_id}`} className="font-semibold text-steel">Regierapport {a.regierapport_nummer ?? ''} ›</Link>
                       )}
-                      {a.stand === 'bestellt' && a.ohne_meldung && (
+                      {a.stand === 'bestellt' && normalGemeldet[a.id] && (
+                        <>
+                          {normalGemeldet[a.id].team} hat am {kurz(ausIso(normalGemeldet[a.id].datum))} hier gemeldet — ohne Überstunden ·{' '}
+                          <Link to={normalGemeldet[a.id].link} className="font-semibold text-steel" title="Meldung ansehen: Zusatzarbeit gemacht?">Meldung ansehen ›</Link>
+                        </>
+                      )}
+                      {a.stand === 'bestellt' && !normalGemeldet[a.id] && a.ohne_meldung && (
                         <span className="font-semibold text-amber-deep">Geplanter Tag vorbei, noch keine Meldung vom Team — nachfragen?</span>
                       )}
-                      {a.stand === 'bestellt' && !a.ohne_meldung && <>wartet auf die Meldung des Teams</>}
+                      {a.stand === 'bestellt' && !normalGemeldet[a.id] && !a.ohne_meldung && <>wartet auf die Meldung des Teams</>}
                       {a.stand === 'erledigt_ohne_regie' && (
                         <>{GRUND_LABEL[a.erledigt_grund ?? ''] ?? a.erledigt_grund}{a.erledigt_am ? ` · ${kurz(new Date(a.erledigt_am))}` : ''}</>
                       )}
