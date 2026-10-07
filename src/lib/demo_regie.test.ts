@@ -92,3 +92,23 @@ describe('Demodaten Regie — nur für Firmen mit MODUS_ERFASSUNG = regie', () =
       .toEqual(r.regierapporte.map((x) => `${x.nummer}:${x.status}:${x.betrag_rappen}`));
   });
 });
+
+describe('Demodaten Regie «klein» — nur echte Kundenaufträge (08.10.2026)', () => {
+  const k = erzeugeDemoBetrieb({ baustellen, heute, userId, umfang: 'klein' });
+  const rk = erzeugeDemoRegie(k, { heute, userId });
+
+  it('sechs Regierapporte, je ein Stand vertreten', () => {
+    expect(rk.regierapporte).toHaveLength(6);
+    expect(new Set(rk.regierapporte.map((x) => x.status))).toEqual(new Set(['bestaetigt', 'frist_abgelaufen', 'rueckfrage', 'versendet', 'entwurf']));
+  });
+
+  it('Zusatzaufträge: drei offene Bestellungen, zwei, die zum Rapport wurden, einer abgesagt — keiner pro Überstunde', () => {
+    expect(rk.zusatzauftraege).toHaveLength(6);
+    expect(rk.zusatzauftraege.filter((za) => za.geplant_fuer >= '2026-09-03')).toHaveLength(3);
+    const mitRapport = rk.regierapporte.filter((x) => x.zusatzauftrag_id);
+    expect(mitRapport).toHaveLength(2);
+    for (const rap of mitRapport) expect(rk.zusatzauftraege.some((za) => za.id === rap.zusatzauftrag_id)).toBe(true);
+    expect(rk.zusatzauftraege.filter((za) => za.status === 'erledigt_ohne_regie')).toHaveLength(1);
+    for (const za of rk.zusatzauftraege) expect(za.besteller_rolle).toBe('Bauleitung');
+  });
+});

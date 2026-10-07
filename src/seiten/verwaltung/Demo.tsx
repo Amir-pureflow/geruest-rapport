@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '../../lib/supabase';
-import { demoLaden, demoZuruecksetzen, type DemoZusammenfassung } from '../../lib/demo';
+import { demoLaden, demoZuruecksetzen, type DemoUmfang, type DemoZusammenfassung } from '../../lib/demo';
 import { lokaleWarteschlangeLeeren } from '../../lib/db';
 
 /**
@@ -11,7 +11,7 @@ export function Demo() {
   const [migrationOk, setMigrationOk] = useState<boolean | null>(null);
   const [userId, setUserId] = useState<string | null>(null);
   const [laeuft, setLaeuft] = useState(false);
-  const [bestaetigen, setBestaetigen] = useState<'laden' | 'leeren' | null>(null);
+  const [bestaetigen, setBestaetigen] = useState<DemoUmfang | 'leeren' | null>(null);
   const [protokoll, setProtokoll] = useState<string[]>([]);
   const [ergebnis, setErgebnis] = useState<DemoZusammenfassung | null>(null);
   const [fehler, setFehler] = useState('');
@@ -24,11 +24,11 @@ export function Demo() {
 
   const log = (z: string) => setProtokoll((p) => [...p, z]);
 
-  async function laden() {
+  async function laden(umfang: DemoUmfang) {
     if (!supabase || !userId) return;
     setLaeuft(true); setFehler(''); setErgebnis(null); setProtokoll([]);
     try {
-      const r = await demoLaden(supabase, userId, log);
+      const r = await demoLaden(supabase, userId, log, umfang);
       setErgebnis(r);
       localStorage.removeItem('teamgeraet-team-id');
       await lokaleWarteschlangeLeeren();
@@ -62,23 +62,30 @@ export function Demo() {
       <section className="card space-y-3 p-4">
         <p className="font-display text-lg font-semibold">Demo-Betrieb</p>
         <p className="text-sm text-ink2">
-          Erzeugt einen vollständigen Gerüstbaubetrieb: <b>75 Mitarbeitende</b> (45 fest, 30 temporär),
-          5 Bauführer, <b>20 Teams</b> mit Vorarbeiter, 30 Kunden mit Bauleitung, erfundene Baustellen,
-          Planung und <b>fünf Wochen Tagesmeldungen</b> mit Sprachnotizen auf Italienisch, Französisch, Polnisch und Portugiesisch.
-          Die Vorwoche bleibt zum Prüfen offen — am besten am Tag der Vorführung laden.
+          Für Vorführungen: ein übersichtlicher Betrieb mit <b>5 Teams</b> à drei Leuten, 2 Bauführern, <b>6 Kunden</b> und
+          <b> drei Wochen</b> Tagesmeldungen. Jedes Team spricht eine andere Sprache (Deutsch, Französisch, Italienisch,
+          Portugiesisch, Polnisch). Die Vorwoche bleibt zum Prüfen offen, Team 3 hat heute noch nicht gemeldet — das lässt sich
+          live auf dem Handy zeigen. Am besten am Tag der Vorführung laden.
+        </p>
+        <p className="text-xs text-ink3">
+          Der grosse Betrieb (20 Teams, 75 Mitarbeitende, 30 Kunden, fünf Wochen) ist der aus dem Launch-Video.
         </p>
         <p className="text-xs text-ink3">
           Kunden-Mails enden auf <span className="font-mono">.example</span> — aus der Demo geht nie eine Mail an eine echte fremde Adresse.
           Ersetzt alle bisherigen Bewegungsdaten; die Kontonummern bleiben, ihre Namen werden durch erfundene ersetzt.
         </p>
         <div className="flex flex-wrap gap-2">
-          {bestaetigen === 'laden' ? (
+          {bestaetigen === 'klein' || bestaetigen === 'gross' ? (
             <>
-              <button type="button" disabled={laeuft} onClick={() => void laden()} className="cta w-auto px-5 py-3 text-base">{laeuft ? 'Lädt …' : 'Ja, jetzt laden'}</button>
+              <button type="button" disabled={laeuft} onClick={() => void laden(bestaetigen)} className="cta w-auto px-5 py-3 text-base">{laeuft ? 'Lädt …' : 'Ja, jetzt laden'}</button>
               <button type="button" onClick={() => setBestaetigen(null)} className="btn-ghost">Abbrechen</button>
+              <span className="self-center text-xs text-ink3">{bestaetigen === 'klein' ? 'Vorführung · 5 Teams' : 'Grosser Betrieb · 20 Teams'}</span>
             </>
           ) : (
-            <button type="button" disabled={laeuft || migrationOk === false || !userId} onClick={() => setBestaetigen('laden')} className="cta w-auto px-5 py-3 text-base">Demo-Betrieb laden</button>
+            <>
+              <button type="button" disabled={laeuft || migrationOk === false || !userId} onClick={() => setBestaetigen('klein')} className="cta w-auto px-5 py-3 text-base">Demo-Betrieb laden</button>
+              <button type="button" disabled={laeuft || migrationOk === false || !userId} onClick={() => setBestaetigen('gross')} className="btn-ghost">Grosser Betrieb (Video)</button>
+            </>
           )}
         </div>
         <div className="space-y-2 border-t border-line pt-3">

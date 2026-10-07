@@ -12,6 +12,9 @@
  * echte Zeiten von–bis. Was das Video braucht (Team 3 auf Italienisch, Überstunden heute, eine
  * Vorwoche mit Hinweisen in fünf Sprachen), steht fest; der Rest ist Zufall mit festem Seed.
  *
+ * Zwei Umfänge (08.10.2026): «klein» für Vorführungen — 5 Teams, 17 Leute, 6 Kunden, drei Wochen, jede Sprache
+ * einmal, keine Zufallsabweichungen: Was auffällt, ist gewollt. «gross» = der Betrieb oben, fürs Video und für Lasttests.
+ *
  * Zusatzaufträge und Regierapporte stehen in `demo_regie.ts` und werden nur geladen, wenn die Firma
  * `MODUS_ERFASSUNG = regie` gesetzt hat (02.10.2026). Ohne Regie macht SORBA das.
  *
@@ -227,19 +230,65 @@ const FESTE_NOTIZEN: { team: number; notiz: number; ende?: number; woche?: numbe
  */
 const HEUTE_OFFEN = new Set([2, 5, 9, 14]);
 
+/**
+ * Vorführung (klein): Team 1 Deutsch, 2 Französisch, 3 Italienisch, 4 Portugiesisch, 5 Polnisch.
+ * Vor zwei Wochen: vier Überstunden-Fälle (daraus Regierapporte: bestätigt, Frist abgelaufen, bestätigt, Rückfrage).
+ * Vorwoche: vier Überstunden-Fälle — zwei schon Rapport (verschickt, Entwurf), zwei warten auf den Bauführer —
+ * und eine Bemerkung. Diese Woche: eine Bemerkung, heute Überstunden bei Team 5. Team 3 meldet heute live.
+ */
+const FESTE_NOTIZEN_KLEIN: typeof FESTE_NOTIZEN = [
+  { woche: -2, tag: 0, team: 0, notiz: 4, ende: 17 * 60 + 30 },  // Team 1 · Deutsch
+  { woche: -2, tag: 1, team: 3, notiz: 1, ende: 17 * 60 + 30 },  // Team 4 · Portugiesisch
+  { woche: -2, tag: 2, team: 2, notiz: 3, ende: 18 * 60 },       // Team 3 · Italienisch
+  { woche: -2, tag: 3, team: 4, notiz: 5, ende: 18 * 60 },       // Team 5 · Polnisch
+  { woche: -1, tag: 0, team: 2, notiz: 0, ende: 18 * 60 },       // Team 3 · Italienisch → Rapport verschickt
+  { woche: -1, tag: 1, team: 3, notiz: 2, ende: 18 * 60 + 30 },  // Team 4 · Portugiesisch → Rapport-Entwurf
+  { woche: -1, tag: 2, team: 1, notiz: 3, ende: 18 * 60 },       // Team 2 · Französisch → wartet auf Entscheid
+  { woche: -1, tag: 3, team: 4, notiz: 5, ende: 17 * 60 + 30 },  // Team 5 · Polnisch → wartet auf Entscheid
+  { woche: -1, tag: 2, team: 0, notiz: 6 },                      // Team 1 · Bemerkung (Kran)
+  { vorTagen: 2, team: 3, notiz: NOTIZ_SPAET },                  // Team 4 · Bemerkung (Material zu spät)
+  { vorTagen: 0, team: 4, notiz: 0, ende: 18 * 60 },             // Team 5 · heute Überstunden
+];
+
+/** Wie gross der Demo-Betrieb ist. «gross» ist der Betrieb aus dem Launch-Video (gleicher Seed = gleiche Daten). */
+export type DemoUmfang = 'klein' | 'gross';
+
+interface Aufbau {
+  bauf: number; vorarbeiter: [Herkunft, Sprache][]; interne: number; temps: number; tempJeTeam: (teamIdx: number) => number;
+  bueros: readonly string[]; kunden: number; aktiv: number; fertig: number; kundeFuerAbgeschlossene: boolean;
+  wochen: number; zufall: boolean; feste: typeof FESTE_NOTIZEN; heuteOffen: Set<number>;
+  wechsel: Set<number>; reparatur: Set<number>; frei: Set<number>;
+}
+
+const AUFBAU: Record<DemoUmfang, Aufbau> = {
+  gross: {
+    bauf: 5, vorarbeiter: VORARBEITER, interne: 20, temps: 30, tempJeTeam: (i) => (i < 10 ? 2 : 1), // 10×2 + 10×1 = 30
+    bueros: TEMPORAERBUEROS, kunden: 30, aktiv: 80, fertig: 60, kundeFuerAbgeschlossene: true,
+    wochen: 5, zufall: true, feste: FESTE_NOTIZEN, heuteOffen: HEUTE_OFFEN,
+    wechsel: new Set([4, 10]), reparatur: new Set([3, 13]), frei: new Set([8, 16]),
+  },
+  klein: {
+    bauf: 2, vorarbeiter: [['ch', 'de'], ['fr', 'fr'], ['it', 'it'], ['pt', 'pt'], ['pl', 'pl']], interne: 5, temps: 5, tempJeTeam: () => 1,
+    bueros: ['Adecco', 'Randstad', 'Manpower'], kunden: 6, aktiv: 12, fertig: 3, kundeFuerAbgeschlossene: false,
+    wochen: 3, zufall: false, feste: FESTE_NOTIZEN_KLEIN, heuteOffen: new Set([2]),
+    wechsel: new Set([1]), reparatur: new Set([3]), frei: new Set([4]),
+  },
+};
+
 // ── Zeilen (1:1 die Tabellen) ─────────────────────────────────────────────────
 
 export interface MitarbeiterRow { id: string; name: string; typ: 'intern' | 'extern' | 'temporaer'; funktion: string; sprache: Sprache; temporaerbuero: string | null; aktiv: boolean; oev_standard: boolean; km_standard: number; eintritt: string }
 export interface TeamRow { id: string; bezeichnung: string; fahrzeug: string; chefmonteur_id: string; aktiv: boolean }
 export interface TeamMitgliedRow { team_id: string; mitarbeiter_id: string; von: string }
 export interface KundeRow { id: string; name: string; praeferenz: 'einzel' | 'sammel'; ansprechperson: string; email: string; telefon: string }
-export interface BaustelleUpdate { id: string; konto_nr: string; bezeichnung: string | null; kunde_id: string; status: 'aktiv' | 'fertig_gemeldet' | 'abgeschlossen'; fertigstellung_am: string | null }
+export interface BaustelleUpdate { id: string; konto_nr: string; bezeichnung: string | null; kunde_id: string | null; status: 'aktiv' | 'fertig_gemeldet' | 'abgeschlossen'; fertigstellung_am: string | null }
 export interface JahresplanRow { id: string; baustelle_id: string; team_id: string; von: string; bis: string }
 export interface TagesmeldungRow { id: string; client_uuid: string; team_id: string; datum: string; baustelle_id: string; normalfall: boolean; abweichung_typ: string | null; wer_hats_gewollt: string | null; transkript: string | null; transkript_quelle: string | null; transkript_sprache: string | null; audio_sekunden: number | null; erfasst_von: string; erfasst_am: string; status: 'offen' | 'freigegeben' }
 export interface ZeiteintragRow { id: string; tagesmeldung_id: string; mitarbeiter_id: string; normal_min: number; ueber_min: number; oev: boolean; km: number; baustelle_id: string; konto_nr: string; status: 'offen' | 'freigegeben'; von_min: number | null; bis_min: number | null; von2_min: number | null; bis2_min: number | null }
 export interface FreigabeLogRow { id: string; zeiteintrag_id: string; wer: string; wann: string; feld: string; alt: string; neu: string }
 
 export interface DemoBetrieb {
+  umfang: DemoUmfang;
   mitarbeiter: MitarbeiterRow[];
   teams: TeamRow[];
   teamMitglieder: TeamMitgliedRow[];
@@ -270,7 +319,9 @@ function wochentag(d: Date): number {
 
 // ── Generator ────────────────────────────────────────────────────────────────
 
-export function erzeugeDemoBetrieb(opts: { baustellen: BaustelleQuelle[]; heute: Date; userId: string; seed?: number }): DemoBetrieb {
+export function erzeugeDemoBetrieb(opts: { baustellen: BaustelleQuelle[]; heute: Date; userId: string; seed?: number; umfang?: DemoUmfang }): DemoBetrieb {
+  const umfang = opts.umfang ?? 'gross';
+  const A = AUFBAU[umfang];
   const z = new Zufall(opts.seed ?? 20261006);
   const jetzt = new Date(opts.heute);
   const heute = new Date(opts.heute);
@@ -305,14 +356,14 @@ export function erzeugeDemoBetrieb(opts: { baustellen: BaustelleQuelle[]; heute:
     return row;
   };
 
-  for (let i = 0; i < 5; i++) person({ name: name('ch'), typ: 'intern', funktion: 'bauf', sprache: 'de', temporaerbuero: null, oev_standard: false, km_standard: z.int(15, 40), jahre: 15 });
+  for (let i = 0; i < A.bauf; i++) person({ name: name('ch'), typ: 'intern', funktion: 'bauf', sprache: 'de', temporaerbuero: null, oev_standard: false, km_standard: z.int(15, 40), jahre: 15 });
 
-  const chefs = VORARBEITER.map(([h, sp]) =>
+  const chefs = A.vorarbeiter.map(([h, sp]) =>
     person({ name: name(h), typ: 'intern', funktion: 'gruppe', sprache: sp, temporaerbuero: null, oev_standard: false, km_standard: z.int(10, 45), jahre: 12 }),
   );
 
   const interne: MitarbeiterRow[] = [];
-  for (let i = 0; i < 20; i++) {
+  for (let i = 0; i < A.interne; i++) {
     const r = z.next();
     const [h, sp]: [Herkunft, Sprache] = r < 0.3 ? ['alb', 'de'] : r < 0.5 ? ['ch', 'de'] : r < 0.65 ? ['it', 'it'] : r < 0.8 ? ['pt', 'pt'] : ['pl', 'pl'];
     const oev = z.chance(0.3);
@@ -320,11 +371,11 @@ export function erzeugeDemoBetrieb(opts: { baustellen: BaustelleQuelle[]; heute:
   }
 
   const temps: MitarbeiterRow[] = [];
-  for (let i = 0; i < 30; i++) {
+  for (let i = 0; i < A.temps; i++) {
     const r = z.next();
     const [h, sp]: [Herkunft, Sprache] = r < 0.25 ? ['ar', 'ar'] : r < 0.5 ? ['pl', 'pl'] : r < 0.6 ? ['en', 'en'] : r < 0.75 ? ['pt', 'pt'] : r < 0.88 ? ['alb', 'de'] : ['ch', 'de'];
     const oev = z.chance(0.5);
-    temps.push(person({ name: name(h), typ: 'temporaer', funktion: z.chance(0.4) ? 'monteur' : 'mitarbeiter', sprache: sp, temporaerbuero: z.pick(TEMPORAERBUEROS), oev_standard: oev, km_standard: 0, jahre: 1 }));
+    temps.push(person({ name: name(h), typ: 'temporaer', funktion: z.chance(0.4) ? 'monteur' : 'mitarbeiter', sprache: sp, temporaerbuero: z.pick(A.bueros), oev_standard: oev, km_standard: 0, jahre: 1 }));
   }
 
   // Teams -------------------------------------------------------------------
@@ -332,7 +383,7 @@ export function erzeugeDemoBetrieb(opts: { baustellen: BaustelleQuelle[]; heute:
   const teamMitglieder: TeamMitgliedRow[] = [];
   const mitgliederVon = new Map<string, MitarbeiterRow[]>();
   let tempIdx = 0;
-  for (let i = 0; i < 20; i++) {
+  for (let i = 0; i < A.vorarbeiter.length; i++) {
     const team: TeamRow = {
       id: z.uuid(), bezeichnung: `Team ${i + 1}`,
       fahrzeug: `${z.pick(FAHRZEUGE)} · BE ${z.int(10, 99)} ${z.int(100, 999)}`,
@@ -340,21 +391,21 @@ export function erzeugeDemoBetrieb(opts: { baustellen: BaustelleQuelle[]; heute:
     };
     teams.push(team);
     const leute = [chefs[i], interne[i]];
-    const anzTemp = i < 10 ? 2 : 1; // 10×2 + 10×1 = 30
+    const anzTemp = A.tempJeTeam(i);
     for (let k = 0; k < anzTemp && tempIdx < temps.length; k++) leute.push(temps[tempIdx++]);
     mitgliederVon.set(team.id, leute);
     for (const m of leute) teamMitglieder.push({ team_id: team.id, mitarbeiter_id: m.id, von: m.typ === 'temporaer' ? iso(addTage(heute, -z.int(20, 120))) : iso(addTage(heute, -z.int(200, 900))) });
   }
 
   // Kunden (Stammdaten: wem gehört die Baustelle) ------------------------------
-  const kunden: KundeRow[] = KUNDEN.map(([firma, ap]) => ({
+  const kunden: KundeRow[] = KUNDEN.slice(0, A.kunden).map(([firma, ap]) => ({
     id: z.uuid(), name: firma, praeferenz: z.chance(0.3) ? 'sammel' : 'einzel',
     ansprechperson: ap,
     email: `${slug(ap.split('. ')[1] ?? ap)}@${slug(firma).slice(0, 18)}.example`,
     telefon: `031 ${z.int(300, 999)} ${z.int(10, 99)} ${z.int(10, 99)}`,
   }));
 
-  // Baustellen: erfundene Namen, die ersten 80 aktiv ------------------------------
+  // Baustellen: erfundene Namen, die ersten (gross 80, klein 12) aktiv ------------------------------
   const vorhanden = new Set(opts.baustellen.map((b) => (b.bezeichnung ?? '').toLowerCase()));
   const namenGesehen = new Set<string>();
   const ersatzName = (i: number): string => {
@@ -368,10 +419,12 @@ export function erzeugeDemoBetrieb(opts: { baustellen: BaustelleQuelle[]; heute:
     return `Baustelle ${i + 1}`;
   };
   const baustellen: BaustelleUpdate[] = opts.baustellen.map((b, i) => {
-    const status: BaustelleUpdate['status'] = i < 80 ? 'aktiv' : i < 140 ? 'fertig_gemeldet' : 'abgeschlossen';
+    const status: BaustelleUpdate['status'] = i < A.aktiv ? 'aktiv' : i < A.aktiv + A.fertig ? 'fertig_gemeldet' : 'abgeschlossen';
+    const kunde = z.pick(kunden).id;
     return {
       id: b.id, konto_nr: b.konto_nr, bezeichnung: ersatzName(i),
-      kunde_id: z.pick(kunden).id, status,
+      // Vorführung: alte, abgeschlossene Konten ohne Kunde — die Kundenliste zeigt nur, was gerade läuft
+      kunde_id: status === 'abgeschlossen' && !A.kundeFuerAbgeschlossene ? null : kunde, status,
       fertigstellung_am: status === 'aktiv' ? null : iso(addTage(heute, status === 'fertig_gemeldet' ? -z.int(3, 45) : -z.int(60, 300))),
     };
   });
@@ -386,10 +439,9 @@ export function erzeugeDemoBetrieb(opts: { baustellen: BaustelleQuelle[]; heute:
   const plan = (team: TeamRow, b: BaustelleUpdate, von: Date, bis: Date) => jahresplan.push({ id: z.uuid(), baustelle_id: b.id, team_id: team.id, von: iso(von), bis: iso(bis) });
   const mo = (w: number) => addTage(wochenStart, 7 * w);
   const fr = (w: number) => addTage(wochenStart, 7 * w + 4);
-  const wechsel = new Set([4, 10]); // Team 5, 11: ab Donnerstag woanders
-  const reparatur = new Set([3, 13]); // Team 4, 14: Mittwoch ein Reparatur-Tag
-  const frei = new Set([8, 16]); // Team 9, 17: nächste Woche noch nichts geplant
-  let naechste = 20;
+  // gross: Team 5/11 ab Donnerstag woanders, Team 4/14 Mittwoch Reparatur, Team 9/17 nächste Woche noch frei
+  const { wechsel, reparatur, frei } = A;
+  let naechste = teams.length;
   const neueBaustelle = () => aktive[naechste++ % aktive.length];
   for (const [i, team] of teams.entries()) {
     const jetzt1 = aktive[i];
@@ -426,7 +478,7 @@ export function erzeugeDemoBetrieb(opts: { baustellen: BaustelleQuelle[]; heute:
   const festAm = (teamIdx: number, tag: Date) => {
     const tagIso = iso(tag);
     const w = Math.round((montag(tag).getTime() - wochenStart.getTime()) / (7 * 86400000));
-    return FESTE_NOTIZEN.find((n) =>
+    return A.feste.find((n) =>
       n.team === teamIdx && (n.vorTagen !== undefined ? iso(addTage(heute, -n.vorTagen)) === tagIso : n.woche === w && n.tag === wochentag(tag)),
     );
   };
@@ -435,17 +487,17 @@ export function erzeugeDemoBetrieb(opts: { baustellen: BaustelleQuelle[]; heute:
     const leute = mitgliederVon.get(team.id)!;
     const chef = leute[0];
     // Ältere Wochen: zufällig ein Notiz-Tag pro Woche (Überstunden oder Bemerkung) — daraus entsteht Regie-Geschichte
-    for (let w = -4; w <= 0; w++) {
+    for (let w = -(A.wochen - 1); w <= 0; w++) {
       const wStart = addTage(wochenStart, w * 7);
       const freigegeben = w <= -2;
-      const zufallsNotiz = w <= -2 && z.chance(0.4) ? { tag: z.int(0, 4), ueber: z.chance(0.75) } : null;
+      const zufallsNotiz = A.zufall && w <= -2 && z.chance(0.4) ? { tag: z.int(0, 4), ueber: z.chance(0.75) } : null;
       for (let t = 0; t < 6; t++) {
         const tag = addTage(wStart, t);
         const tagIso = iso(tag);
         if (tagIso > heuteIso) continue;
         // Samstag nur ausnahmsweise und nur in alten Wochen
         if (t === 5 && !(freigegeben && teamIdx === 11 && w === -3)) continue;
-        if (tagIso === heuteIso && HEUTE_OFFEN.has(teamIdx)) continue;
+        if (tagIso === heuteIso && A.heuteOffen.has(teamIdx)) continue;
         const status: 'offen' | 'freigegeben' = freigegeben ? 'freigegeben' : 'offen';
         const bs = baustelleAm(team.id, tagIso);
 
@@ -482,7 +534,7 @@ export function erzeugeDemoBetrieb(opts: { baustellen: BaustelleQuelle[]; heute:
         meldungen.push(meldung);
 
         // Freitag manchmal um drei fertig
-        const kurzerFreitag = t === 4 && !notiz && z.chance(0.3);
+        const kurzerFreitag = A.zufall && t === 4 && !notiz && z.chance(0.3);
         let tagesBeginn = 7 * 60;
         let tagesEnde = kurzerFreitag ? 15 * 60 : 16 * 60;
         if (notizIdx === NOTIZ_SPAET) tagesBeginn = 9 * 60;
@@ -492,7 +544,7 @@ export function erzeugeDemoBetrieb(opts: { baustellen: BaustelleQuelle[]; heute:
         for (const m of leute) {
           const istChef = m.id === chef.id;
           // In der Vorwoche und heute sind alle da — die Zahlen im Video sollen ruhig sein
-          const anwesend = istChef || w >= -1 || (m.typ === 'temporaer' ? z.chance(0.9) : z.chance(0.95));
+          const anwesend = istChef || w >= -1 || !A.zufall || (m.typ === 'temporaer' ? z.chance(0.9) : z.chance(0.95));
           if (!anwesend) continue;
           // Überstunden für den Vorarbeiter und einen zweiten — die zwei sind länger geblieben
           const bleibtLaenger = !!notiz?.ueber && ueberstuendler < 2;
@@ -517,7 +569,7 @@ export function erzeugeDemoBetrieb(opts: { baustellen: BaustelleQuelle[]; heute:
     }
   }
 
-  return { mitarbeiter, teams, teamMitglieder, kunden, baustellen, jahresplan, meldungen, eintraege, freigaben };
+  return { umfang, mitarbeiter, teams, teamMitglieder, kunden, baustellen, jahresplan, meldungen, eintraege, freigaben };
 }
 
 // ── Laden / Zurücksetzen ─────────────────────────────────────────────────────
@@ -559,14 +611,15 @@ export async function demoZuruecksetzen(client: SupabaseClient, log: Protokoll):
 
 export interface DemoZusammenfassung { mitarbeiter: number; teams: number; kunden: number; meldungen: number; eintraege: number; regierapporte?: number }
 
-export async function demoLaden(client: SupabaseClient, userId: string, log: Protokoll): Promise<DemoZusammenfassung> {
+/** Lädt den Demo-Betrieb. Standard = «klein» (Vorführung); «gross» = 20 Teams wie im Launch-Video. */
+export async function demoLaden(client: SupabaseClient, userId: string, log: Protokoll, umfang: DemoUmfang = 'klein'): Promise<DemoZusammenfassung> {
   nurDemoFirma();
   const { data: bs, error } = await client.from('baustelle').select('id,konto_nr,bezeichnung').order('konto_nr');
   if (error || !bs || bs.length === 0) throw new Error('Keine Baustellen gefunden — zuerst die Kontenliste importieren.');
   log(`${bs.length} Baustellen gefunden`);
 
   await demoZuruecksetzen(client, log);
-  const d = erzeugeDemoBetrieb({ baustellen: bs, heute: new Date(), userId });
+  const d = erzeugeDemoBetrieb({ baustellen: bs, heute: new Date(), userId, umfang });
 
   await inChunks(client, 'kunde', d.kunden, log);
   await inChunks(client, 'mitarbeiter', d.mitarbeiter, log);

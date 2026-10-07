@@ -115,7 +115,13 @@ export function erzeugeDemoRegie(d: DemoBetrieb, opts: { heute: Date; userId: st
   aeltere.forEach((m, i) => standAelter.set(m.id, i === aeltere.length - 1 ? 'rueckfrage' : i === aeltere.length - 3 ? 'frist_abgelaufen' : 'bestaetigt'));
   const vorwochenFaelle = mitUeber.filter((m) => m.datum >= vorwoche && m.datum < diese);
   const standVorwoche = new Map<string, string>();
-  vorwochenFaelle.slice(0, 3).forEach((m, i) => standVorwoche.set(m.id, ['versendet', 'entwurf', 'versendet'][i]));
+  const klein = d.umfang === 'klein';
+  const vorwochenStaende = klein ? ['versendet', 'entwurf'] : ['versendet', 'entwurf', 'versendet'];
+  vorwochenFaelle.slice(0, vorwochenStaende.length).forEach((m, i) => standVorwoche.set(m.id, vorwochenStaende[i]));
+  // Vorführung (08.10.2026, Amir): Auf der Zusatzauftrag-Seite stehen nur Aufträge, die die Bauleitung wirklich bestellt hat.
+  // Überstunden, die das Team meldet, sind Regieverdacht in der Wochenübersicht — kein Zusatzauftrag. Zwei Fälle
+  // zeigen trotzdem den ganzen Weg Bestellung → Meldung → Rapport → Kunde: der erste ältere und der erste der Vorwoche.
+  const mitBestellung = new Set(klein ? [aeltere[0]?.id, vorwochenFaelle[0]?.id].filter(Boolean) : mitUeber.map((m) => m.id));
 
   let nummer = 31;
   for (const m of mitUeber) {
@@ -126,7 +132,7 @@ export function erzeugeDemoRegie(d: DemoBetrieb, opts: { heute: Date; userId: st
     const geplanterStand = standAelter.get(m.id) ?? standVorwoche.get(m.id) ?? null;
 
     // Der Kunde hat am Vortag angerufen — das ist der Zusatzauftrag zur Überstunde
-    const za: ZusatzauftragRow = {
+    const za: ZusatzauftragRow | null = !mitBestellung.has(m.id) ? null : {
       id: z.uuid(), client_uuid: z.uuid(), baustelle_id: m.baustelle_id,
       besteller_name: k.ansprechperson, besteller_rolle: 'Bauleitung',
       bestellt_am: ts(addTage(tag, -1), z.int(8, 16), z.int(0, 59)),
@@ -135,7 +141,7 @@ export function erzeugeDemoRegie(d: DemoBetrieb, opts: { heute: Date; userId: st
       // Der Stand («gemeldet», «im Regierapport») wird abgeleitet, nie gespeichert (Regel aus CLAUDE.md)
       status: 'offen',
     };
-    zusatzauftraege.push(za);
+    if (za) zusatzauftraege.push(za);
     if (alterTage < 1 || !geplanterStand) continue; // noch kein Rapport: frisch oder wartet auf den Entscheid
 
     // Positionen: die Überstunden je Funktion, dazu Lieferwagen, Etappenzuschlag, Materialmiete
@@ -172,7 +178,7 @@ export function erzeugeDemoRegie(d: DemoBetrieb, opts: { heute: Date; userId: st
     const bestaetigt = status === 'bestaetigt' ? addTage(versendet, z.int(0, 2)) : null;
 
     regierapporte.push({
-      id: rid, zusatzauftrag_id: za.id, tagesmeldung_id: m.id, baustelle_id: m.baustelle_id,
+      id: rid, zusatzauftrag_id: za?.id ?? null, tagesmeldung_id: m.id, baustelle_id: m.baustelle_id,
       nummer: `RR-2026-${String(nummer++).padStart(4, '0')}`,
       status, betrag_rappen: basis + miete, frist_bis: status === 'entwurf' ? null : iso(frist),
       erstellt_am: ts(erstellt, 9, z.int(0, 59)),
@@ -201,9 +207,10 @@ export function erzeugeDemoRegie(d: DemoBetrieb, opts: { heute: Date; userId: st
   const aktive = d.baustellen.filter((b) => b.status === 'aktiv');
   const fertige = d.baustellen.filter((b) => b.status === 'fertig_gemeldet');
   if (aktive.length > 0) {
-    [0, 0, 1, 2, 4, 6].forEach((inTagen, i) => {
-      // Einer an einer fertig gemeldeten Baustelle — das ist der Fall, über den die Bauleitung nochmals bestellt
-      const bs = i === 5 && fertige.length > 0 ? fertige[0] : z.pick(aktive);
+    const offen = klein ? [0, 1, 3] : [0, 0, 1, 2, 4, 6];
+    offen.forEach((inTagen, i) => {
+      // Der letzte an einer fertig gemeldeten Baustelle — das ist der Fall, über den die Bauleitung nochmals bestellt
+      const bs = i === offen.length - 1 && fertige.length > 0 ? fertige[0] : z.pick(aktive);
       const k = kundeVon(bs.id);
       if (!k) return;
       // Nie in der Zukunft bestellt, auch wenn die Demo morgens geladen wird

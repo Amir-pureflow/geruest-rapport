@@ -124,3 +124,59 @@ describe('Demo-Betrieb — Struktur wie im Gespräch mit Arbnor', () => {
     expect(heuteMeldungen.some((m) => m.team_id === team3.id)).toBe(false);
   });
 });
+
+describe('Demo-Betrieb «klein» — für Vorführungen (08.10.2026)', () => {
+  const k = erzeugeDemoBetrieb({ baustellen, heute, userId: 'u1', umfang: 'klein' });
+  const ueberstunden = (m: { id: string }) => k.eintraege.some((e) => e.tagesmeldung_id === m.id && e.ueber_min > 0);
+
+  it('17 Leute: 2 Bauführer, 5 Teams à 3 (Vorarbeiter, Monteur, Temporärer), 6 Kunden', () => {
+    expect(k.umfang).toBe('klein');
+    expect(k.mitarbeiter).toHaveLength(17);
+    expect(k.mitarbeiter.filter((m) => m.funktion === 'bauf')).toHaveLength(2);
+    expect(k.teams).toHaveLength(5);
+    for (const t of k.teams) expect(k.teamMitglieder.filter((m) => m.team_id === t.id)).toHaveLength(3);
+    expect(k.kunden).toHaveLength(6);
+  });
+
+  it('jede Sprache genau einmal: Team 1 Deutsch, 2 Französisch, 3 Italienisch, 4 Portugiesisch, 5 Polnisch', () => {
+    const sprachen = k.teams.map((t) => k.mitarbeiter.find((m) => m.id === t.chefmonteur_id)?.sprache);
+    expect(sprachen).toEqual(['de', 'fr', 'it', 'pt', 'pl']);
+  });
+
+  it('drei Wochen, keine Zufallsabweichungen: ein Tag ohne Notiz hat 8.0 h für alle', () => {
+    expect(k.meldungen.every((m) => m.datum >= '2026-08-17')).toBe(true);
+    const ruhig = k.meldungen.filter((m) => !m.transkript);
+    for (const m of ruhig) {
+      const e = k.eintraege.filter((x) => x.tagesmeldung_id === m.id);
+      expect(e).toHaveLength(3);
+      for (const x of e) expect(x.normal_min + x.ueber_min).toBe(480);
+    }
+  });
+
+  it('heute: 4 von 5 Teams gemeldet, Team 3 noch nicht (meldet live), Team 5 mit Überstunden', () => {
+    const heuteM = k.meldungen.filter((m) => m.datum === '2026-09-03');
+    expect(heuteM).toHaveLength(4);
+    const team3 = k.teams.find((t) => t.bezeichnung === 'Team 3')!;
+    const team5 = k.teams.find((t) => t.bezeichnung === 'Team 5')!;
+    expect(heuteM.some((m) => m.team_id === team3.id)).toBe(false);
+    expect(heuteM.filter(ueberstunden).map((m) => m.team_id)).toEqual([team5.id]);
+  });
+
+  it('Vorwoche offen mit vier Überstunden-Fällen, ältere Woche freigegeben', () => {
+    const vorwoche = k.meldungen.filter((m) => m.datum >= '2026-08-24' && m.datum <= '2026-08-30');
+    expect(vorwoche.every((m) => m.status === 'offen')).toBe(true);
+    expect(vorwoche.filter(ueberstunden)).toHaveLength(4);
+    expect(k.meldungen.filter((m) => m.datum < '2026-08-24').every((m) => m.status === 'freigegeben')).toBe(true);
+  });
+
+  it('12 aktive Baustellen; abgeschlossene Konten ohne Kunde, damit die Kundenliste kurz bleibt', () => {
+    expect(k.baustellen.filter((b) => b.status === 'aktiv')).toHaveLength(12);
+    expect(k.baustellen.filter((b) => b.status === 'abgeschlossen').every((b) => b.kunde_id === null)).toBe(true);
+    expect(k.baustellen.filter((b) => b.status !== 'abgeschlossen').every((b) => b.kunde_id)).toBe(true);
+  });
+
+  it('der grosse Betrieb bleibt der Standard (Video)', () => {
+    expect(d.umfang).toBe('gross');
+    expect(d.teams).toHaveLength(20);
+  });
+});
