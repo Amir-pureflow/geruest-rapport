@@ -33,7 +33,10 @@ export interface RegiePositionRow {
   id: string; regierapport_id: string; tarif_code: string; bezeichnung: string;
   menge_hundertstel: number; ansatz_rappen: number; betrag_rappen: number;
 }
-export interface ZustellungRow { id: string; regierapport_id: string; an: string; ereignis: string; zeitpunkt: string }
+export interface ZustellungRow { id: string; regierapport_id: string; an: string; ereignis: string; zeitpunkt: string; detail?: { kommentar: string } | null }
+
+/** Was die Bauleitung bei einer Rückfrage schreibt — so steht es im Kasten oben am Rapport. */
+const RUECKFRAGE_TEXT = 'Die Zusatzarbeit haben wir so verlangt, das stimmt. Aber waren dafür wirklich zwei Mann nötig? Bitte kurz begründen, dann bestätige ich.';
 
 export interface DemoRegie {
   zusatzauftraege: ZusatzauftragRow[];
@@ -198,7 +201,7 @@ export function erzeugeDemoRegie(d: DemoBetrieb, opts: { heute: Date; userId: st
         zustellungen.push({ id: z.uuid(), regierapport_id: rid, an, ereignis: 'link_geklickt', zeitpunkt: ts(bestaetigt, 14, z.int(0, 30)) });
         zustellungen.push({ id: z.uuid(), regierapport_id: rid, an, ereignis: 'bestaetigt', zeitpunkt: ts(bestaetigt, 14, z.int(31, 59)) });
       }
-      if (status === 'rueckfrage') zustellungen.push({ id: z.uuid(), regierapport_id: rid, an, ereignis: 'rueckfrage', zeitpunkt: ts(addTage(versendet, 1), 9, z.int(0, 59)) });
+      if (status === 'rueckfrage') zustellungen.push({ id: z.uuid(), regierapport_id: rid, an, ereignis: 'rueckfrage', zeitpunkt: ts(addTage(versendet, 1), 9, z.int(0, 59)), detail: { kommentar: RUECKFRAGE_TEXT } });
       if (status === 'frist_abgelaufen') zustellungen.push({ id: z.uuid(), regierapport_id: rid, an, ereignis: 'erinnert', zeitpunkt: ts(frist, 8, 0) });
     }
   }

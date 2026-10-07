@@ -217,7 +217,8 @@ export function RegieDetail() {
     const { error } = await supabase.from('regierapport').update({ status: 'entwurf', frist_bis: null }).eq('id', id);
     if (error) { setFehler('Korrigieren: ' + error.message); return; }
     const { error: logFehler } = await supabase.from('zustellung_log').insert({ regierapport_id: id, an: rapport.empfaenger_email ?? 'kunde', ereignis: 'korrektur' });
-    if (logFehler) setFehler('Zurück auf Entwurf, aber der Verlauf konnte nicht ergänzt werden: ' + logFehler.message);
+    if (logFehler && /zustellung_log_ereignis_check/.test(logFehler.message)) console.warn('Verlaufseintrag «korrektur» fehlt — Migration 0025 einspielen.');
+    else if (logFehler) setFehler('Zurück auf Entwurf, aber der Verlauf konnte nicht ergänzt werden: ' + logFehler.message);
     void laden();
   }
 
