@@ -5,6 +5,7 @@ import { supabase } from '../lib/supabase';
 import { addTage, ausIso, iso, kurz, kw, lang, montag, WOCHENTAGE } from '../lib/datum';
 import { arbeitstage, spuren, ueberschneiden, zeitraumVorschlag, type Schnellwahl, type Zeitraum } from '../lib/planung';
 import { DatumWahl } from '../ui/DatumWahl';
+import { baustellenSuchen } from '../lib/suche';
 
 /**
  * Planung (06.10.2026, ersetzt das Board): Zeilen = Teams, Spalten = Tage. Ein Einsatz ist ein Balken über
@@ -293,8 +294,8 @@ function EinsatzDialog({
     return () => document.removeEventListener('keydown', esc);
   }, [entwurf.baustelle, onSchliessen]);
 
-  const q = suche.trim().toLowerCase();
-  const treffer = (q ? baustellen.filter((b) => b.konto_nr.includes(q) || (b.bezeichnung ?? '').toLowerCase().includes(q)) : baustellen.filter((b) => b.status === 'aktiv')).slice(0, 40);
+  const q = suche.trim();
+  const treffer = q ? baustellenSuchen(baustellen, q, 40) : baustellen.filter((b) => b.status === 'aktiv').slice(0, 40);
 
   const gueltig = !!teamId && !!baustelle && !!von && !!bis && bis >= von;
   const zeitraum: Zeitraum = { von, bis };

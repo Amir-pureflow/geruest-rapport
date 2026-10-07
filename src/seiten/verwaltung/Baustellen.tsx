@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { supabase } from '../../lib/supabase';
 import { ausIso, iso, lang } from '../../lib/datum';
+import { baustellenSuchen } from '../../lib/suche';
 
 interface Baustelle { id: string; konto_nr: string; bezeichnung: string | null; status: 'aktiv' | 'fertig_gemeldet' | 'abgeschlossen'; fertigstellung_am: string | null; kunde_id: string | null }
 interface Kunde { id: string; name: string }
@@ -33,8 +34,9 @@ export function Baustellen() {
   useEffect(() => { void laden(); }, [laden]);
 
   const sichtbar = useMemo(() => {
-    const q = suche.trim().toLowerCase();
-    return liste.filter((b) => (filter === 'alle' || b.status === filter) && (!q || (b.bezeichnung ?? '').toLowerCase().includes(q) || b.konto_nr.includes(q))).slice(0, 60);
+    const q = suche.trim();
+    const imFilter = liste.filter((b) => filter === 'alle' || b.status === filter);
+    return q ? baustellenSuchen(imFilter, q, 60) : imFilter.slice(0, 60);
   }, [liste, suche, filter]);
 
   async function aendern(id: string, patch: Partial<Baustelle>) {

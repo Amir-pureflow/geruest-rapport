@@ -10,6 +10,7 @@ import { fotoVerkleinern } from '../lib/foto';
 import { kennzeichen } from '../lib/fahrzeug';
 import { einstellungen, normaltagMin } from '../lib/einstellungen';
 import { MAX_SPANNEN, NACHMITTAG_MIN, ausUhrzeit, aufteilen, mittagMinuten, spanneVollstaendig, spannenMinuten, spannenUeberlappen, standardSpannen, uhrzeitFeld, zuSpalten, type Spanne } from '../lib/zeiten';
+import { baustellenSuchen } from '../lib/suche';
 
 /**
  * Phase 2 — das Teamgerät. Ein Chefmonteur meldet für sein Team.
@@ -732,8 +733,10 @@ export function Erfassung() {
       // Nummer von vorne, Name irgendwo im Text. Komma trennt die beiden Bedingungen (ODER).
       const muster = q.replace(/[,()*]/g, ' ');
       const filter = nurZiffern ? `konto_nr.like.${muster}%` : `konto_nr.like.${muster}%,bezeichnung.ilike.%${muster}%`;
-      void client.from('baustelle').select('id,konto_nr,bezeichnung').or(filter).order('konto_nr').limit(5).then(({ data }) => {
-        if (!data) return;
+      void client.from('baustelle').select('id,konto_nr,bezeichnung').or(filter).order('konto_nr').limit(60).then(({ data: roh }) => {
+        if (!roh) return;
+        // Anfang zuerst (lib/suche.ts) — «ch» bringt «Chollerstrasse» vor «Archivstrasse»
+        const data = baustellenSuchen(roh, q, 5);
         // Volle Nummer mit genau einem Treffer → direkt übernehmen, ohne zweiten Tipp
         if (nurZiffern && q.length >= 6 && data.length === 1 && data[0].konto_nr === q) { andereWaehlen(data[0]); return; }
         setSuchTreffer(data);
@@ -1400,8 +1403,8 @@ export function Erfassung() {
                 {zeigeListe && (alleBaustellen === null
                   ? <p className="mt-2 text-sm text-ink3">Lädt …</p>
                   : (() => {
-                      const q = ziffern.trim().toLowerCase();
-                      const liste = alleBaustellen.filter((b) => !q || (b.bezeichnung ?? '').toLowerCase().includes(q) || b.konto_nr.includes(q));
+                      const q = ziffern.trim();
+                      const liste = q ? baustellenSuchen(alleBaustellen, q, alleBaustellen.length) : alleBaustellen;
                       return (
                         <div className="mt-2 max-h-80 divide-y divide-line overflow-y-auto rounded-[10px] border border-line bg-surface">
                           {liste.map((b) => (

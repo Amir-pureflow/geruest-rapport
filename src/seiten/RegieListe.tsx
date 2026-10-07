@@ -9,6 +9,7 @@ import { ChevronDown, FileText, Send, CheckCircle2, X, Check, Search, MessageCir
 import { Shell } from '../ui/Shell';
 import { supabase } from '../lib/supabase';
 import { formatChf } from '../lib/tarif';
+import { baustellenSuchen } from '../lib/suche';
 
 interface Zeile {
   id: string;
@@ -91,8 +92,8 @@ function BaustellenWahl({ baustellen, wert, setzen }: { baustellen: { konto_nr: 
     return () => { document.removeEventListener('mousedown', zu); document.removeEventListener('keydown', esc); };
   }, [offen]);
   const gewaehlt = baustellen.find((b) => b.konto_nr === wert);
-  const q = suche.trim().toLowerCase();
-  const treffer = q ? baustellen.filter((b) => b.konto_nr.includes(q) || b.bezeichnung.toLowerCase().includes(q)) : baustellen;
+  const q = suche.trim();
+  const treffer = q ? baustellenSuchen(baustellen, q, baustellen.length) : baustellen;
   return (
     <div ref={box} className="relative">
       <span className="flex items-center gap-1">
