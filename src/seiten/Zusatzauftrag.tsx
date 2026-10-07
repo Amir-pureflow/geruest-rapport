@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
-import { CalendarCheck, Trash2, ClipboardList, ClipboardPlus, CloudOff, Ellipsis, Mail, MapPin, MoveHorizontal, Phone, Search, Sparkles, SquareMinus, SquarePlus, TriangleAlert, Wrench, type LucideIcon } from 'lucide-react';
+import { CalendarCheck, Check, Trash2, ClipboardList, ClipboardPlus, CloudOff, Ellipsis, Mail, MapPin, MoveHorizontal, Phone, Search, Sparkles, SquareMinus, SquarePlus, TriangleAlert, Wrench, type LucideIcon } from 'lucide-react';
 import { Shell } from '../ui/Shell';
 import { KennzahlPille } from '../ui/Karten';
 import { DatumWahl } from '../ui/DatumWahl';
@@ -566,24 +566,26 @@ export function Zusatzauftrag() {
                         <>{GRUND_LABEL[a.erledigt_grund ?? ''] ?? a.erledigt_grund}{a.erledigt_am ? ` · ${kurz(new Date(a.erledigt_am))}` : ''}</>
                       )}
                     </span>
-                    <span className="flex shrink-0 items-center gap-3">
+                    <span className="ml-auto flex shrink-0 items-center gap-1.5">
+                      {!a.regierapport_id && loeschFrage !== a.id && (
+                        <button type="button" onClick={() => { setLoeschFrage(a.id); setLoeschFehler(''); }} aria-label="Auftrag löschen" title="Auftrag löschen"
+                          className="grid h-8 w-8 place-items-center rounded-full text-ink3 transition hover:bg-accent-soft hover:text-accent-deep">
+                          <Trash2 size={15} aria-hidden="true" />
+                        </button>
+                      )}
                       {offen && erledigen !== a.id && (
-                        <button type="button" onClick={() => setErledigen(a.id)} className="font-semibold text-ink3 hover:text-ink">{regie ? 'erledigt ohne Regie …' : 'anderer Grund …'}</button>
+                        <button type="button" onClick={() => setErledigen(a.id)} className="rounded-full px-2.5 py-1.5 font-medium text-ink3 transition hover:bg-surface-2 hover:text-ink">{regie ? 'erledigt ohne Regie …' : 'anderer Grund …'}</button>
                       )}
                       {/* Ohne Regie: abhaken mit einem Klick */}
                       {!regie && offen && erledigen !== a.id && (
-                        <button type="button" onClick={() => void ohneRegieErledigen(a, 'sorba')} className="rounded-full bg-good px-3.5 py-1.5 font-semibold text-white shadow-sm hover:bg-good-deep">Erledigt ✓</button>
+                        <button type="button" onClick={() => void ohneRegieErledigen(a, 'sorba')} className="inline-flex items-center gap-1 rounded-full bg-good px-3.5 py-1.5 font-semibold text-white shadow-sm transition hover:bg-good-deep">
+                          <Check size={13} strokeWidth={3} aria-hidden="true" />Erledigt
+                        </button>
+                      )}
+                      {a.stand === 'erledigt_ohne_regie' && (
+                        <button type="button" onClick={() => void wiederOeffnen(a)} className="rounded-full px-2.5 py-1.5 font-semibold text-steel transition hover:bg-steel-soft">wieder öffnen</button>
                       )}
                     </span>
-                    {a.stand === 'erledigt_ohne_regie' && (
-                      <button type="button" onClick={() => void wiederOeffnen(a)} className="shrink-0 font-semibold text-steel">wieder öffnen</button>
-                    )}
-                    {!a.regierapport_id && loeschFrage !== a.id && (
-                      <button type="button" onClick={() => { setLoeschFrage(a.id); setLoeschFehler(''); }} aria-label="Auftrag löschen" title="Auftrag löschen"
-                        className="grid h-7 w-7 shrink-0 place-items-center rounded-full text-ink3 transition hover:bg-accent-soft hover:text-accent-deep">
-                        <Trash2 size={14} aria-hidden="true" />
-                      </button>
-                    )}
                   </div>
                   {loeschFrage === a.id && (
                     <div className="flex flex-wrap items-center justify-between gap-2 border-t border-accent/30 bg-accent-soft px-4 py-2.5 text-xs">
