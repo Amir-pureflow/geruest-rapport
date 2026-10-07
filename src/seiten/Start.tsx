@@ -329,15 +329,10 @@ function StartBauf() {
           {woche && (
             <DiagrammKarte
               titel={iso(freigabeMo) === iso(montag(heute)) ? 'Freigabe diese Woche' : iso(freigabeMo) === vorwoche ? 'Freigabe Vorwoche' : `Freigabe Woche ${kw(freigabeMo)}`}
-              unter={`${kurz(freigabeMo)} bis ${kurz(addTage(freigabeMo, 6))} · je Tag die Teams, die gemeldet haben`}
-              aktion={
-                <span className="flex shrink-0 items-center gap-3">
-                  <Link to={`/cockpit?woche=${iso(montag(heute))}`} className="text-xs font-semibold text-steel">Diese Woche ›</Link>
-                  <Link to={`/cockpit?woche=${vorwoche}`} className="text-xs font-semibold text-steel">Vorwoche ›</Link>
-                </span>
-              }
+              unter={`${kurz(freigabeMo)} bis ${kurz(addTage(freigabeMo, 6))}`}
+              aktion={<Link to={`/cockpit?woche=${iso(freigabeMo)}`} className="shrink-0 text-xs font-semibold text-steel">Woche öffnen ›</Link>}
             >
-              <WochenTeams tage={woche} gesamt={k?.teams ?? 0} />
+              <WochenTeams tage={woche} zu={`/cockpit?woche=${iso(freigabeMo)}`} />
             </DiagrammKarte>
           )}
           {tr && (

@@ -735,7 +735,7 @@ export function Cockpit() {
                   <div className="px-4 py-3">
                     <div className="flex items-center justify-between gap-3">
                       <span className="flex min-w-0 items-center gap-2.5">
-                        <span className="grid h-8 w-8 shrink-0 place-items-center rounded-[10px] bg-ink text-[12px] font-bold text-white shadow-[0_4px_10px_-6px_rgb(17_17_19/0.6)]" aria-hidden="true">{teamKuerzel(z.team.bezeichnung)}</span>
+                        <span className="grid h-8 w-8 shrink-0 place-items-center rounded-[10px] bg-surface-2 font-display text-[12px] font-semibold tabular-nums text-ink2 ring-1 ring-inset ring-line" aria-hidden="true">{teamKuerzel(z.team.bezeichnung)}</span>
                         <span className="min-w-0">
                           <span className="block truncate font-display text-[14px] font-semibold leading-tight">{z.team.bezeichnung}</span>
                           {/* Wochentotal beim Namen, nicht rechts — rechtsbündig wurde es als Sonntagswert gelesen (04.10.2026) */}

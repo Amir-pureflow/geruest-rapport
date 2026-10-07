@@ -25,6 +25,7 @@
  * grau, um als Flächen unterscheidbar zu sein). Auf Farbfehlsichtigkeit geprüft.
  */
 import type { ReactNode } from 'react';
+import { Check } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { formatChf } from '../lib/tarif';
 
@@ -162,45 +163,90 @@ function Balken({
 }
 
 /**
- * Woche: Teams je Tag nach Freigabestand. Beantwortet «was liegt noch bei mir»,
- * in der Einheit, in der der Bauführer denkt — Teams, nicht Stunden.
+ * Woche: Was wartet noch auf die Freigabe? Oben die Summe in einem Satz, darunter je Tag eine Kachel.
+ *
+ * Vorher (bis 08.10.2026) Balken mit «5 von 5» rechts: die Zahl hiess «gemeldet», der grüne Teil
+ * «freigegeben» — zwei Fragen in einer Zeile, dazu eine Legende «volle Spur = alle Teams». Amir: «nicht
+ * übersichtlich, man sieht nicht, was hier ist». Jetzt nur noch die Frage des Bauführers, in Team-Tagen
+ * wie die Wochenübersicht und in ihren Farben: blau = offen, grün = freigegeben, gestrichelt = keine Meldung.
+ * Samstag/Sonntag nur, wenn an dem Tag jemand gemeldet hat.
  */
 export function WochenTeams({
   tage,
-  hervorIndex = -1,
-  gesamt = 0,
+  zu,
 }: {
   tage: { label: string; offen: number; freigegeben: number; datum: string }[];
-  hervorIndex?: number;
-  /** Anzahl aller aktiven Teams — die volle Spur ist dann «20 Teams». */
-  gesamt?: number;
+  /** Wohin Kacheln und Knopf führen — die Wochenübersicht dieser Woche. */
+  zu: string;
 }) {
-  const teamsText = (n: number) => `${n} ${n === 1 ? 'Team' : 'Teams'}`;
-  const vonAllen = (n: number) => (gesamt > 0 ? `${n} von ${gesamt} Teams` : teamsText(n));
+  const sichtbar = tage.filter((t, i) => i < 5 || t.offen + t.freigegeben > 0);
+  const offen = tage.reduce((s, t) => s + t.offen, 0);
+  const frei = tage.reduce((s, t) => s + t.freigegeben, 0);
+  const gesamt = offen + frei;
+  if (gesamt === 0) return <LeerHinweis text="In dieser Woche hat noch kein Team gemeldet." />;
+
   return (
-    <Balken
-      ariaLabel="Teams je Tag, aufgeteilt in freigegeben und wartet auf Freigabe"
-      punkte={tage.map((t, i) => ({
-        label: t.label,
-        werte: [t.freigegeben, t.offen],
-        hervor: i === hervorIndex,
-        titel:
-          `${t.label} ${t.datum} · ` +
-          `${vonAllen(t.offen + t.freigegeben)} gemeldet` +
-          (t.offen > 0
-            ? ` · ${t.offen} warten auf dich${t.freigegeben > 0 ? ` · ${t.freigegeben} freigegeben` : ''}`
-            : t.freigegeben > 0
-              ? ' · alle freigegeben'
-              : ''),
-      }))}
-      reihen={[
-        { farbe: DATENFARBE.bestaetigt, text: 'freigegeben' },
-        { farbe: DATENFARBE.offen, text: 'wartet auf Freigabe' },
-      ]}
-      wertText={(n) => (gesamt > 0 ? `${n} von ${gesamt}` : String(n))}
-      skala={gesamt}
-      hinweis={gesamt === 1 ? 'volle Spur = das eine Team' : gesamt > 1 ? `volle Spur = alle ${gesamt} Teams` : undefined}
-    />
+    <div>
+      {offen > 0 ? (
+        <p className="font-display text-[20px] font-semibold leading-tight text-ink">
+          <span className="tabular-nums text-steel">{offen}</span> Team-{offen === 1 ? 'Tag wartet' : 'Tage warten'} auf Freigabe
+        </p>
+      ) : (
+        <p className="flex items-center gap-2 font-display text-[20px] font-semibold leading-tight text-good-deep">
+          <Check size={20} strokeWidth={3} aria-hidden="true" /> Alles freigegeben
+        </p>
+      )}
+      <div className="mt-2.5 flex items-center gap-3">
+        <span className="h-2 flex-1 overflow-hidden rounded-full bg-steel-soft" aria-hidden="true">
+          <span className="block h-full rounded-full bg-good" style={{ width: `${(frei / gesamt) * 100}%` }} />
+        </span>
+        <span className="shrink-0 text-xs text-ink3">
+          <span className="font-mono tabular-nums text-ink2">{frei}</span> von <span className="font-mono tabular-nums">{gesamt}</span> freigegeben
+        </span>
+      </div>
+
+      <ul className="mt-4 grid gap-1.5 sm:gap-2" style={{ gridTemplateColumns: `repeat(${sichtbar.length}, minmax(0, 1fr))` }}>
+        {sichtbar.map((t) => {
+          const leer = t.offen + t.freigegeben === 0;
+          const fertig = !leer && t.offen === 0;
+          const titel =
+            `${t.label} ${t.datum} · ` +
+            (leer ? 'keine Meldung' : fertig ? `alle ${t.freigegeben} freigegeben` : `${t.offen} offen${t.freigegeben > 0 ? ` · ${t.freigegeben} freigegeben` : ''}`);
+          return (
+            <li key={t.label}>
+              <Link
+                to={zu}
+                title={titel}
+                aria-label={titel}
+                className={
+                  'flex h-full flex-col items-center rounded-[12px] px-1 py-2 text-center transition hover:-translate-y-px ' +
+                  (leer
+                    ? 'border border-dashed border-ink/[0.10]'
+                    : fertig
+                      ? 'border border-good/25 bg-good-soft/70'
+                      : 'border border-steel/25 bg-steel-soft/70')
+                }
+              >
+                <span className="text-[11px] font-semibold uppercase tracking-wide text-ink3">{t.label}</span>
+                <span className="hidden text-[10px] text-ink3/80 sm:block">{t.datum}</span>
+                {leer ? (
+                  <span className="mt-1.5 flex h-6 items-center text-[15px] text-ink3/50">–</span>
+                ) : fertig ? (
+                  <span className="mt-1.5 grid h-6 w-6 place-items-center rounded-full bg-good text-white">
+                    <Check size={13} strokeWidth={3} aria-hidden="true" />
+                  </span>
+                ) : (
+                  <span className="mt-1 font-display text-[20px] font-semibold leading-7 tabular-nums text-steel">{t.offen}</span>
+                )}
+                <span className={'mt-0.5 text-[10px] font-medium ' + (leer ? 'text-transparent' : fertig ? 'text-good-deep' : 'text-steel')}>
+                  {leer ? '·' : fertig ? 'frei' : 'offen'}
+                </span>
+              </Link>
+            </li>
+          );
+        })}
+      </ul>
+    </div>
   );
 }
 
