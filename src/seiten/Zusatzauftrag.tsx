@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
-import { CalendarCheck, ClipboardList, ClipboardPlus, CloudOff, Ellipsis, Mail, MapPin, MoveHorizontal, Phone, Search, Sparkles, SquareMinus, SquarePlus, TriangleAlert, Wrench, type LucideIcon } from 'lucide-react';
+import { CalendarCheck, Trash2, ClipboardList, ClipboardPlus, CloudOff, Ellipsis, Mail, MapPin, MoveHorizontal, Phone, Search, Sparkles, SquareMinus, SquarePlus, TriangleAlert, Wrench, type LucideIcon } from 'lucide-react';
 import { Shell } from '../ui/Shell';
 import { KennzahlPille } from '../ui/Karten';
 import { DatumWahl } from '../ui/DatumWahl';
@@ -15,6 +15,7 @@ import {
   type FlushErgebnis,
   type LokalerAuftrag,
 } from '../lib/db';
+import { baustellenSuchen } from '../lib/suche';
 
 /**
  * Stufe 1 — der Geldwert: Die Kundenbestellung wird eingetippt,
@@ -239,16 +240,8 @@ export function Zusatzauftrag() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const treffer = useMemo(() => {
-    const q = suche.trim().toLowerCase();
-    if (!q) return [];
-    return baustellen
-      .filter(
-        (b) =>
-          (b.bezeichnung ?? '').toLowerCase().includes(q) || b.konto_nr.includes(q),
-      )
-      .slice(0, 8);
-  }, [suche, baustellen]);
+  // Anfang zuerst (lib/suche.ts): «c» bringt Namen mit C, nicht «Archivstrasse»
+  const treffer = useMemo(() => baustellenSuchen(baustellen, suche, 8), [suche, baustellen]);
 
   async function speichern() {
     setFehler('');
@@ -307,6 +300,18 @@ export function Zusatzauftrag() {
       return;
     }
     setErledigen(null);
+    void ladeListe();
+  }
+
+  /** Auftrag löschen (08.10.2026, Amir) — nur ohne Regierapport; hängt einer daran, lehnt die Datenbank ab (Fremdschlüssel). */
+  const [loeschFrage, setLoeschFrage] = useState<string | null>(null);
+  const [loeschFehler, setLoeschFehler] = useState('');
+  async function loeschen(a: Auftrag) {
+    if (!supabase) return;
+    const { error } = await supabase.from('zusatzauftrag').delete().eq('id', a.id);
+    if (error) { setLoeschFehler('Konnte nicht löschen: ' + error.message); return; }
+    setLoeschFrage(null);
+    setLoeschFehler('');
     void ladeListe();
   }
 
@@ -573,7 +578,22 @@ export function Zusatzauftrag() {
                     {a.stand === 'erledigt_ohne_regie' && (
                       <button type="button" onClick={() => void wiederOeffnen(a)} className="shrink-0 font-semibold text-steel">wieder öffnen</button>
                     )}
+                    {!a.regierapport_id && loeschFrage !== a.id && (
+                      <button type="button" onClick={() => { setLoeschFrage(a.id); setLoeschFehler(''); }} aria-label="Auftrag löschen" title="Auftrag löschen"
+                        className="grid h-7 w-7 shrink-0 place-items-center rounded-full text-ink3 transition hover:bg-accent-soft hover:text-accent-deep">
+                        <Trash2 size={14} aria-hidden="true" />
+                      </button>
+                    )}
                   </div>
+                  {loeschFrage === a.id && (
+                    <div className="flex flex-wrap items-center justify-between gap-2 border-t border-accent/30 bg-accent-soft px-4 py-2.5 text-xs">
+                      <span className="font-semibold text-accent-deep">{loeschFehler || 'Diesen Auftrag löschen? Das lässt sich nicht rückgängig machen.'}</span>
+                      <span className="flex items-center gap-2">
+                        <button type="button" onClick={() => { setLoeschFrage(null); setLoeschFehler(''); }} className="font-semibold text-ink3 hover:text-ink">Abbrechen</button>
+                        <button type="button" onClick={() => void loeschen(a)} className="rounded-full bg-accent px-3.5 py-1.5 font-semibold text-white shadow-sm hover:bg-accent-deep">Löschen</button>
+                      </span>
+                    </div>
+                  )}
                 </article>
               );
             })}
