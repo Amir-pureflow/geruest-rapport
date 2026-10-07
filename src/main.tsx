@@ -12,15 +12,41 @@ import { Tag } from './seiten/Tag';
 import { Export } from './seiten/Export';
 import { Verwaltung } from './seiten/verwaltung/Verwaltung';
 // Regie-Seiten: nur erreichbar, wenn die Firma mit Regie arbeitet (Firmen-Schalter MODUS_ERFASSUNG).
-// Nachladen, damit der Wochenblatt-Modus den Code gar nicht erst holt.
+// Nachgeladen, damit der Start schnell bleibt — und gleich nach dem Start im Hintergrund vorgeladen (siehe vorladen()),
+// damit der erste Klick auf «Regierapporte» nicht erst auf den Code warten muss (08.10.2026: weisses Aufblitzen).
 import { lazy, Suspense } from 'react';
-const Zusatzauftrag = lazy(() => import('./seiten/Zusatzauftrag').then((m) => ({ default: m.Zusatzauftrag })));
-const RegieListe = lazy(() => import('./seiten/RegieListe').then((m) => ({ default: m.RegieListe })));
-const RegieDetail = lazy(() => import('./seiten/RegieDetail').then((m) => ({ default: m.RegieDetail })));
-const RegieVorschau = lazy(() => import('./seiten/RegieVorschau').then((m) => ({ default: m.RegieVorschau })));
-const Auswertung = lazy(() => import('./seiten/Auswertung').then((m) => ({ default: m.Auswertung })));
-const Planung = lazy(() => import('./seiten/Planung').then((m) => ({ default: m.Planung })));
-const Bestaetigung = lazy(() => import('./seiten/Bestaetigung').then((m) => ({ default: m.Bestaetigung })));
+const NACHLADEN = {
+  zusatzauftrag: () => import('./seiten/Zusatzauftrag'),
+  regieListe: () => import('./seiten/RegieListe'),
+  regieDetail: () => import('./seiten/RegieDetail'),
+  regieVorschau: () => import('./seiten/RegieVorschau'),
+  auswertung: () => import('./seiten/Auswertung'),
+  planung: () => import('./seiten/Planung'),
+  bestaetigung: () => import('./seiten/Bestaetigung'),
+};
+const Zusatzauftrag = lazy(() => NACHLADEN.zusatzauftrag().then((m) => ({ default: m.Zusatzauftrag })));
+const RegieListe = lazy(() => NACHLADEN.regieListe().then((m) => ({ default: m.RegieListe })));
+const RegieDetail = lazy(() => NACHLADEN.regieDetail().then((m) => ({ default: m.RegieDetail })));
+const RegieVorschau = lazy(() => NACHLADEN.regieVorschau().then((m) => ({ default: m.RegieVorschau })));
+const Auswertung = lazy(() => NACHLADEN.auswertung().then((m) => ({ default: m.Auswertung })));
+const Planung = lazy(() => NACHLADEN.planung().then((m) => ({ default: m.Planung })));
+const Bestaetigung = lazy(() => NACHLADEN.bestaetigung().then((m) => ({ default: m.Bestaetigung })));
+
+/** Nach dem Start, wenn der Browser Luft hat: die nachgeladenen Seiten schon holen (ohne Regie nur den Zusatzauftrag). */
+function vorladen(regie: boolean) {
+  const los = () => {
+    void NACHLADEN.zusatzauftrag().catch(() => undefined);
+    if (!regie) return;
+    for (const [k, f] of Object.entries(NACHLADEN)) if (k !== 'zusatzauftrag') void f().catch(() => undefined);
+  };
+  if ('requestIdleCallback' in window) (window as unknown as { requestIdleCallback: (f: () => void) => void }).requestIdleCallback(los);
+  else setTimeout(los, 1500);
+}
+
+/** Solange eine Seite zum ersten Mal lädt: ruhiger Grund statt einer weissen Fläche. */
+function SeiteLaedt() {
+  return <div className="min-h-dvh bg-ground" aria-busy="true" />;
+}
 import { Shell } from './ui/Shell';
 import { ansichten, ANSICHT_LABEL, ansichtSetzen } from './lib/ansicht';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
@@ -102,6 +128,7 @@ function App() {
       setSitzung(ok);
       if (ok) await einstellungenLaden().catch(() => undefined);
       setBereit(true);
+      if (ok) vorladen(einstellungen().erfassung === 'regie');
     })();
   }, []);
 
@@ -124,6 +151,8 @@ function App() {
 
   return (
     <BrowserRouter>
+      {/* Ein Rahmen für alle Seiten: Beim Seitenwechsel bleibt die alte Seite stehen, bis die neue da ist */}
+      <Suspense fallback={<SeiteLaedt />}>
       <Routes>
         <Route path="/ansicht" element={<Ansicht />} />
         {(!ansicht || !sitzung) && <Route path="*" element={<Ansicht />} />}
@@ -134,17 +163,18 @@ function App() {
         {hat('export') && <Route path="/export" element={<Export />} />}
         {hat('verwaltung') && <Route path="/verwaltung" element={<Verwaltung />} />}
         {/* Regie-Modus: Kundenlink ohne Login, Zusatzauftrag, Regierapporte, Auswertung, Planung */}
-        {regieModus && <Route path="/b/:token" element={<Suspense fallback={null}><Bestaetigung /></Suspense>} />}
-        {hat('zusatzauftrag') && <Route path="/zusatzauftrag" element={<Suspense fallback={null}><Zusatzauftrag /></Suspense>} />}
-        {hat('regie') && <Route path="/regie" element={<Suspense fallback={null}><RegieListe /></Suspense>} />}
-        {hat('regie') && <Route path="/regie/neu" element={<Suspense fallback={null}><RegieVorschau /></Suspense>} />}
-        {hat('regie') && <Route path="/regie/:id" element={<Suspense fallback={null}><RegieDetail /></Suspense>} />}
-        {hat('auswertung') && <Route path="/auswertung" element={<Suspense fallback={null}><Auswertung /></Suspense>} />}
-        {hat('planung') && <Route path="/planung" element={<Suspense fallback={null}><Planung /></Suspense>} />}
+        {regieModus && <Route path="/b/:token" element={<Bestaetigung />} />}
+        {hat('zusatzauftrag') && <Route path="/zusatzauftrag" element={<Zusatzauftrag />} />}
+        {hat('regie') && <Route path="/regie" element={<RegieListe />} />}
+        {hat('regie') && <Route path="/regie/neu" element={<RegieVorschau />} />}
+        {hat('regie') && <Route path="/regie/:id" element={<RegieDetail />} />}
+        {hat('auswertung') && <Route path="/auswertung" element={<Auswertung />} />}
+        {hat('planung') && <Route path="/planung" element={<Planung />} />}
         {/* Das Board ist seit 06.10.2026 die Planung — alte Lesezeichen leiten weiter */}
         {hat('planung') && <Route path="/board" element={<Navigate to="/planung" replace />} />}
         {sitzung && ansicht && <Route path="*" element={<FremdeSeite ansicht={ansicht} />} />}
       </Routes>
+      </Suspense>
     </BrowserRouter>
   );
 }
