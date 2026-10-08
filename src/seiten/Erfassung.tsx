@@ -206,17 +206,24 @@ function SpannenEditor({ spannen, setSpannen, klein = false }: { spannen: Spanne
     const v = ausUhrzeit(text);
     setSpannen(spannen.map((s, j): Spanne => (j !== i ? s : teil === 'von' ? { ...s, von: v ?? s.von } : { ...s, bis: v })));
   };
+  // Raster statt fester Breite: Die Beschriftung bekommt genau so viel Platz, wie «Nachmittag» braucht — vorher (w-9)
+  // lag das Zeitfeld über dem Wort (Amir, 09.10.2026: «sieht nicht clean aus»). Die Felder stehen trotzdem bündig untereinander.
+  const mitLabel = spannen.length > 1;
   return (
     <div className="space-y-1.5">
-      {spannen.map((s, i) => (
-        <div key={i} className="flex items-center gap-1.5">
-          {spannen.length > 1 && <span className={'shrink-0 text-[10px] leading-tight text-ink3 ' + (klein ? 'w-9' : 'w-14')}>{i === 0 ? 'Vormittag' : 'Nachmittag'}</span>}
-          <ZeitFeld wert={uhrzeitFeld(s.von)} aendern={(t) => aendern(i, 'von', t)} label="von" klasse={feld + ' border-line'} />
-          <span className="text-ink3">–</span>
-          <ZeitFeld wert={uhrzeitFeld(s.bis)} aendern={(t) => aendern(i, 'bis', t)} label="bis" klasse={feld + (s.bis === null ? ' border-amber/70' : ' border-line')} />
-          {i > 0 && <button type="button" onClick={() => setSpannen(spannen.filter((_, j) => j !== i))} aria-label="Zeit entfernen" className="grid h-9 w-9 shrink-0 place-items-center rounded-[10px] text-ink3 active:bg-surface-2"><X size={16} /></button>}
-        </div>
-      ))}
+      <div className={'grid items-center justify-start gap-x-1.5 gap-y-1.5 ' + (mitLabel ? 'grid-cols-[auto_auto_auto_auto_auto]' : 'grid-cols-[auto_auto_auto_auto]')}>
+        {spannen.map((s, i) => (
+          <div key={i} className="contents">
+            {mitLabel && <span className="whitespace-nowrap pr-1 text-[11px] font-medium leading-none text-ink3">{i === 0 ? 'Vormittag' : 'Nachmittag'}</span>}
+            <ZeitFeld wert={uhrzeitFeld(s.von)} aendern={(t) => aendern(i, 'von', t)} label="von" klasse={feld + ' border-line'} />
+            <span className="text-ink3">–</span>
+            <ZeitFeld wert={uhrzeitFeld(s.bis)} aendern={(t) => aendern(i, 'bis', t)} label="bis" klasse={feld + (s.bis === null ? ' border-amber/70' : ' border-line')} />
+            {i > 0
+              ? <button type="button" onClick={() => setSpannen(spannen.filter((_, j) => j !== i))} aria-label="Zeit entfernen" className="grid h-9 w-9 shrink-0 place-items-center rounded-[10px] text-ink3 active:bg-surface-2"><X size={16} /></button>
+              : <span aria-hidden="true" />}
+          </div>
+        ))}
+      </div>
       {spannen.length < MAX_SPANNEN && (
         <button type="button" onClick={() => setSpannen([...spannen, { von: Math.max(NACHMITTAG_MIN, spannen[spannen.length - 1]?.bis ?? 0), bis: null }])} className="text-xs font-semibold text-steel">
           + Nachmittag
