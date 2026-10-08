@@ -210,7 +210,8 @@ export function erzeugeDemoRegie(d: DemoBetrieb, opts: { heute: Date; userId: st
   const aktive = d.baustellen.filter((b) => b.status === 'aktiv');
   const fertige = d.baustellen.filter((b) => b.status === 'fertig_gemeldet');
   if (aktive.length > 0) {
-    const offen = klein ? [0, 1, 3] : [0, 0, 1, 2, 4, 6];
+    // Klein: keiner für heute — den legt Amir in der Vorführung live an, er soll der einzige von heute sein (08.10.2026)
+    const offen = klein ? [1, 3] : [0, 0, 1, 2, 4, 6];
     offen.forEach((inTagen, i) => {
       // Der letzte an einer fertig gemeldeten Baustelle — das ist der Fall, über den die Bauleitung nochmals bestellt
       const bs = i === offen.length - 1 && fertige.length > 0 ? fertige[0] : z.pick(aktive);

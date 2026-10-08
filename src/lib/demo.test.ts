@@ -153,13 +153,14 @@ describe('Demo-Betrieb «klein» — für Vorführungen (08.10.2026)', () => {
     }
   });
 
-  it('heute: 4 von 5 Teams gemeldet, Team 3 noch nicht (meldet live), Team 5 mit Überstunden', () => {
+  it('heute: 4 von 5 Teams gemeldet, alle normal — Team 3 noch nicht (meldet live in der Vorführung)', () => {
     const heuteM = k.meldungen.filter((m) => m.datum === '2026-09-03');
     expect(heuteM).toHaveLength(4);
     const team3 = k.teams.find((t) => t.bezeichnung === 'Team 3')!;
-    const team5 = k.teams.find((t) => t.bezeichnung === 'Team 5')!;
     expect(heuteM.some((m) => m.team_id === team3.id)).toBe(false);
-    expect(heuteM.filter(ueberstunden).map((m) => m.team_id)).toEqual([team5.id]);
+    // Kein Überstunden-Fall heute: der einzige soll der aus der Vorführung sein (08.10.2026)
+    expect(heuteM.filter(ueberstunden)).toHaveLength(0);
+    expect(heuteM.every((m) => m.normalfall)).toBe(true);
   });
 
   it('Vorwoche offen mit vier Überstunden-Fällen, ältere Woche freigegeben', () => {

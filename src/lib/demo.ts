@@ -234,7 +234,8 @@ const HEUTE_OFFEN = new Set([2, 5, 9, 14]);
  * Vorführung (klein): Team 1 Deutsch, 2 Französisch, 3 Italienisch, 4 Portugiesisch, 5 Polnisch.
  * Vor zwei Wochen: vier Überstunden-Fälle (daraus Regierapporte: bestätigt, Frist abgelaufen, bestätigt, Rückfrage).
  * Vorwoche: vier Überstunden-Fälle — zwei schon Rapport (verschickt, Entwurf), zwei warten auf den Bauführer —
- * und eine Bemerkung. Diese Woche: eine Bemerkung, heute Überstunden bei Team 5. Team 3 meldet heute live.
+ * und eine Bemerkung. Diese Woche: eine Bemerkung. Heute melden alle einen normalen Tag, nur Team 3 fehlt — es meldet
+ * live (seit 08.10.2026 ohne Überstunden bei Team 5: Amir will heute genau einen Fall, den aus seiner Vorführung).
  */
 const FESTE_NOTIZEN_KLEIN: typeof FESTE_NOTIZEN = [
   { woche: -2, tag: 0, team: 0, notiz: 4, ende: 17 * 60 + 30 },  // Team 1 · Deutsch
@@ -247,7 +248,6 @@ const FESTE_NOTIZEN_KLEIN: typeof FESTE_NOTIZEN = [
   { woche: -1, tag: 3, team: 4, notiz: 5, ende: 17 * 60 + 30 },  // Team 5 · Polnisch → wartet auf Entscheid
   { woche: -1, tag: 2, team: 0, notiz: 6 },                      // Team 1 · Bemerkung (Kran)
   { vorTagen: 2, team: 3, notiz: NOTIZ_SPAET },                  // Team 4 · Bemerkung (Material zu spät)
-  { vorTagen: 0, team: 4, notiz: 0, ende: 18 * 60 },             // Team 5 · heute Überstunden
 ];
 
 /** Wie gross der Demo-Betrieb ist. «gross» ist der Betrieb aus dem Launch-Video (gleicher Seed = gleiche Daten). */

@@ -102,9 +102,11 @@ describe('Demodaten Regie «klein» — nur echte Kundenaufträge (08.10.2026)',
     expect(new Set(rk.regierapporte.map((x) => x.status))).toEqual(new Set(['bestaetigt', 'frist_abgelaufen', 'rueckfrage', 'versendet', 'entwurf']));
   });
 
-  it('Zusatzaufträge: drei offene Bestellungen, zwei, die zum Rapport wurden, einer abgesagt — keiner pro Überstunde', () => {
-    expect(rk.zusatzauftraege).toHaveLength(6);
-    expect(rk.zusatzauftraege.filter((za) => za.geplant_fuer >= '2026-09-03')).toHaveLength(3);
+  it('Zusatzaufträge: zwei offene Bestellungen (keine für heute), zwei, die zum Rapport wurden, einer abgesagt — keiner pro Überstunde', () => {
+    expect(rk.zusatzauftraege).toHaveLength(5);
+    // Für heute keiner — den legt Amir in der Vorführung live an (08.10.2026)
+    expect(rk.zusatzauftraege.filter((za) => za.geplant_fuer === '2026-09-03')).toHaveLength(0);
+    expect(rk.zusatzauftraege.filter((za) => za.geplant_fuer > '2026-09-03')).toHaveLength(2);
     const mitRapport = rk.regierapporte.filter((x) => x.zusatzauftrag_id);
     expect(mitRapport).toHaveLength(2);
     for (const rap of mitRapport) expect(rk.zusatzauftraege.some((za) => za.id === rap.zusatzauftrag_id)).toBe(true);
