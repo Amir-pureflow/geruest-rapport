@@ -1,8 +1,10 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
 import { supabase } from '../../lib/supabase';
 import { Plus, Search, UserRound } from 'lucide-react';
 import tarife from '../../../fixtures/tarife_sguv_2026.json';
 import { Avatar, Dialog } from '../../ui/Dialog';
+import { personEntfernen, personPruefen } from '../../lib/entfernen';
+import { LoeschLeiste, Papierkorb, useLoeschFrage } from '../../ui/LoeschFrage';
 
 interface Person {
   id?: string;
@@ -94,8 +96,32 @@ export function Mitarbeiter() {
     void laden();
   }
 
+  /**
+   * Löschen (09.10.2026, Amir): ohne Stunden wirklich weg, mit Stunden nur aus allen Listen — der Lohn-Export
+   * behält sie. Was passiert, sagt die Rückfrage, bevor jemand bestätigt (src/lib/entfernen.ts).
+   */
+  const [hinweis, setHinweis] = useState('');
+  const loeschFrage = useLoeschFrage<Person & { id: string }>(
+    personPruefen,
+    (p, entscheid) => personEntfernen(p.id, entscheid),
+    (p, ergebnis, entscheid) => {
+      setBearbeitet(null);
+      setHinweis(ergebnis === 'geloescht'
+        ? `«${p.name}» ist gelöscht.`
+        : entscheid === 'loeschen'
+          ? `«${p.name}» hat inzwischen Stunden — darum nur aus allen Listen entfernt, die Stunden bleiben im Lohn-Export.`
+          : `«${p.name}» ist aus allen Listen entfernt, die Stunden bleiben im Lohn-Export. Wieder aktivieren geht unter «Inaktiv».`);
+      void laden();
+    },
+  );
+  const { frage, abbrechen } = loeschFrage;
+  function loeschenFragen(p: Person & { id: string }) {
+    setHinweis('');
+    loeschFrage.fragen(p);
+  }
+
   const f = (patch: Partial<Person>) => setBearbeitet((b) => (b ? { ...b, ...patch } : b));
-  const schliessen = useCallback(() => setBearbeitet(null), []);
+  const schliessen = useCallback(() => { setBearbeitet(null); abbrechen(); }, [abbrechen]);
 
   const anzahl = { alle: fest + temp, intern: fest, temporaer: temp, inaktiv: liste.filter((p) => !p.aktiv).length };
   const funktionText = (code: string) => tarife.personal.find((t) => t.code === code)?.bezeichnung ?? code;
@@ -115,11 +141,12 @@ export function Mitarbeiter() {
             </button>
           ))}
         </div>
-        <button type="button" onClick={() => { setFehler(''); setBearbeitet({ ...LEER }); }} className="inline-flex items-center gap-1.5 rounded-full bg-gradient-to-br from-[#ff6d4c] via-accent to-[#9c1409] px-4 py-2 text-sm font-semibold text-white shadow-[0_10px_22px_-10px_rgb(224_48_30/0.7)] transition hover:-translate-y-px">
+        <button type="button" onClick={() => { setFehler(''); setHinweis(''); setBearbeitet({ ...LEER }); }} className="inline-flex items-center gap-1.5 rounded-full bg-gradient-to-br from-[#ff6d4c] via-accent to-[#9c1409] px-4 py-2 text-sm font-semibold text-white shadow-[0_10px_22px_-10px_rgb(224_48_30/0.7)] transition hover:-translate-y-px">
           <Plus size={15} strokeWidth={2.6} aria-hidden="true" />Person
         </button>
       </div>
       {!bearbeitet && fehler && <p className="card text-sm font-semibold text-accent-deep">{fehler}</p>}
+      {hinweis && <p className="card text-sm text-ink2" role="status">{hinweis}</p>}
 
       <div className="card overflow-hidden p-0">
         <table className="w-full text-left text-sm">
@@ -130,11 +157,13 @@ export function Mitarbeiter() {
               <th className="hidden px-4 py-2.5 sm:table-cell">Anstellung</th>
               <th className="hidden px-4 py-2.5 lg:table-cell">Sprache</th>
               <th className="px-4 py-2.5 text-right">Weg</th>
+              <th className="w-12 py-2.5 pl-0 pr-3"><span className="sr-only">Löschen</span></th>
             </tr>
           </thead>
           <tbody className="divide-y divide-line">
             {sichtbar.map((p) => (
-              <tr key={p.id} onClick={() => { setFehler(''); setBearbeitet({ ...p }); }} className="cursor-pointer transition hover:bg-ground/70">
+              <Fragment key={p.id}>
+              <tr onClick={() => { setFehler(''); setHinweis(''); setBearbeitet({ ...p }); }} className="cursor-pointer transition hover:bg-ground/70">
                 <td className="px-4 py-2.5">
                   <span className="flex items-center gap-3">
                     <Avatar name={p.name} />
@@ -152,7 +181,16 @@ export function Mitarbeiter() {
                 </td>
                 <td className="hidden px-4 py-2.5 text-ink2 lg:table-cell">{SPRACHEN.find(([k]) => k === p.sprache)?.[1]}</td>
                 <td className="px-4 py-2.5 text-right text-xs text-ink3">{p.oev_standard ? <span className="rounded-full bg-steel-soft px-2 py-0.5 font-semibold text-steel">öV</span> : p.km_standard > 0 ? <span className="font-mono tabular-nums">{p.km_standard} km</span> : '—'}</td>
+                <td className="py-1 pl-0 pr-3 text-right">
+                  {frage?.ding.id !== p.id && <Papierkorb titel={`${p.name} löschen`} onClick={() => loeschenFragen(p)} />}
+                </td>
               </tr>
+              {frage?.ding.id === p.id && !bearbeitet && (
+                <tr>
+                  <td colSpan={6} className="p-0"><LoeschLeiste frage={frage} onAbbrechen={abbrechen} onBestaetigen={loeschFrage.bestaetigen} art="tabelle" /></td>
+                </tr>
+              )}
+              </Fragment>
             ))}
           </tbody>
         </table>
@@ -166,7 +204,9 @@ export function Mitarbeiter() {
           icon={UserRound}
           onSchliessen={schliessen}
           fuss={<>
-            <span />
+            {bearbeitet.id
+              ? <button type="button" onClick={() => { const p = liste.find((x) => x.id === bearbeitet.id); if (p) loeschenFragen(p); }} className="text-xs font-semibold text-accent-deep hover:text-accent">Person löschen …</button>
+              : <span />}
             <span className="flex items-center gap-2">
               <button type="button" onClick={schliessen} className="btn-ghost">Abbrechen</button>
               <button type="button" onClick={() => void speichern()} className="inline-flex items-center rounded-full bg-gradient-to-br from-[#ff6d4c] via-accent to-[#9c1409] px-5 py-2 text-sm font-semibold text-white shadow-[0_10px_22px_-10px_rgb(224_48_30/0.7)]">Speichern</button>
@@ -220,6 +260,7 @@ export function Mitarbeiter() {
               <label className="flex items-center gap-2"><input type="checkbox" checked={bearbeitet.aktiv} onChange={(e) => f({ aktiv: e.target.checked })} /> aktiv</label>
             </div>
             {fehler && <p className="text-sm font-semibold text-accent-deep">{fehler}</p>}
+            {frage && frage.ding.id === bearbeitet.id && <LoeschLeiste frage={frage} onAbbrechen={abbrechen} onBestaetigen={loeschFrage.bestaetigen} art="fenster" />}
           </div>
         </Dialog>
       )}

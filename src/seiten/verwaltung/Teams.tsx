@@ -3,6 +3,8 @@ import { supabase } from '../../lib/supabase';
 import { iso } from '../../lib/datum';
 import { Plus, Star, Truck, Users } from 'lucide-react';
 import { Avatar, Dialog } from '../../ui/Dialog';
+import { teamEntfernen, teamPruefen } from '../../lib/entfernen';
+import { LoeschLeiste, Papierkorb, useLoeschFrage } from '../../ui/LoeschFrage';
 
 interface Team { id: string; bezeichnung: string; fahrzeug: string | null; chefmonteur_id: string | null; aktiv: boolean }
 interface Person { id: string; name: string; typ: string; funktion: string }
@@ -58,33 +60,66 @@ export function Teams() {
     if (team.chefmonteur_id === m.mitarbeiter_id) await supabase.from('team').update({ chefmonteur_id: null }).eq('id', team.id);
     void laden();
   }
-  /** Löschen nur, wenn keine Historie dranhängt — Meldungen und Planungen gehen nie verloren. */
-  async function loeschen() {
-    if (!supabase || !team) return;
-    if (!window.confirm(`Team «${team.bezeichnung}» wirklich löschen?`)) return;
-    setFehler('');
-    const [tm, plan] = await Promise.all([
-      supabase.from('tagesmeldung').select('id', { count: 'exact', head: true }).eq('team_id', team.id),
-      supabase.from('jahresplan').select('id', { count: 'exact', head: true }).eq('team_id', team.id),
-    ]);
-    if ((tm.count ?? 0) > 0 || (plan.count ?? 0) > 0) {
-      setFehler(`«${team.bezeichnung}» hat schon Meldungen oder Planungen — löschen würde Historie zerstören. Stattdessen den Haken «aktiv» entfernen, dann verschwindet das Team aus der Erfassung.`);
-      return;
-    }
-    const { error: e1 } = await supabase.from('team_mitglied').delete().eq('team_id', team.id);
-    if (e1) { setFehler(e1.message); return; }
-    const { error } = await supabase.from('team').delete().eq('id', team.id);
-    if (error) {
-      setFehler(/foreign key|verlet|violat/i.test(error.message)
-        ? `«${team.bezeichnung}» wird noch irgendwo verwendet — stattdessen den Haken «aktiv» entfernen.`
-        : error.message);
-      return;
-    }
-    setGewaehlt(null);
-    void laden();
+  /**
+   * Löschen (09.10.2026, Amir): ohne Meldung wirklich weg, mit Meldungen nur aus allen Listen — die Stunden bleiben im
+   * Lohn-Export, die Leute als Mitarbeitende. Was passiert, sagt die Rückfrage, bevor jemand bestätigt
+   * (src/lib/entfernen.ts). Ersetzt das alte «Team löschen …», das bei jeder Meldung oder Planung nur abgelehnt hat.
+   */
+  const [hinweis, setHinweis] = useState('');
+  const loeschFrage = useLoeschFrage<Team>(
+    (t) => teamPruefen(t, mitglieder.filter((m) => m.team_id === t.id).length),
+    (t, entscheid) => teamEntfernen(t.id, entscheid),
+    (t, ergebnis) => {
+      setGewaehlt(null);
+      setHinweis(ergebnis === 'geloescht'
+        ? `«${t.bezeichnung}» ist gelöscht.`
+        : `«${t.bezeichnung}» ist aus allen Listen entfernt, die Stunden bleiben im Lohn-Export. Wieder aktivieren geht unter «Inaktive Teams».`);
+      void laden();
+    },
+  );
+  const { frage, abbrechen } = loeschFrage;
+  function loeschenFragen(t: Team) {
+    setHinweis('');
+    loeschFrage.fragen(t);
   }
 
-  const schliessen = useCallback(() => { setGewaehlt(null); setFehler(''); }, []);
+  const schliessen = useCallback(() => { setGewaehlt(null); setFehler(''); abbrechen(); }, [abbrechen]);
+
+  /** Eine Karte im Raster — aktive oben, ruhende und entfernte darunter unter «Inaktive Teams». */
+  function karte(t: Team) {
+    const leute = mitglieder.filter((m) => m.team_id === t.id);
+    const chef = leute.find((m) => m.mitarbeiter_id === t.chefmonteur_id)?.mitarbeiter ?? null;
+    const andere = leute.filter((m) => m.mitarbeiter_id !== t.chefmonteur_id);
+    return (
+      <div key={t.id} className="relative rounded-[18px] border border-ink/[0.06] bg-white shadow-[0_1px_2px_rgb(17_17_19/0.04),0_10px_28px_-18px_rgb(17_17_19/0.28)] transition hover:-translate-y-px hover:shadow-[0_1px_2px_rgb(17_17_19/0.05),0_16px_32px_-16px_rgb(17_17_19/0.35)]">
+        <button type="button" onClick={() => { setFehler(''); setHinweis(''); setGewaehlt(t.id); }} className="block w-full rounded-[18px] p-4 text-left">
+          <span className="flex items-center justify-between gap-2 pr-8">
+            <span className="font-display text-[16px] font-semibold text-ink">{t.bezeichnung}</span>
+            <span className={'rounded-full px-2.5 py-0.5 text-[11px] font-semibold ' + (t.aktiv ? 'bg-surface-2 text-ink2' : 'bg-ink/10 text-ink3')}>{t.aktiv ? `${leute.length} Personen` : 'inaktiv'}</span>
+          </span>
+          <span className="mt-3 flex items-center gap-2.5">
+            {chef ? <Avatar name={chef.name} gross /> : <span className="grid h-9 w-9 place-items-center rounded-full border border-dashed border-line-strong text-ink3">?</span>}
+            <span className="min-w-0">
+              <span className="block truncate text-sm font-medium text-ink">{chef?.name ?? 'kein Chefmonteur'}</span>
+              <span className="block text-[11px] text-ink3">Chefmonteur</span>
+            </span>
+          </span>
+          <span className="mt-3 flex items-center justify-between gap-3 border-t border-line pt-3">
+            <span className="flex -space-x-1">
+              {andere.slice(0, 5).map((m) => <Avatar key={m.mitarbeiter_id} name={m.mitarbeiter.name} ring />)}
+              {andere.length === 0 && <span className="text-[11px] text-ink3">noch niemand dazu</span>}
+            </span>
+            {t.fahrzeug && <span className="inline-flex min-w-0 items-center gap-1 truncate text-[11px] text-ink3"><Truck size={12} className="shrink-0" aria-hidden="true" /><span className="truncate">{t.fahrzeug}</span></span>}
+          </span>
+        </button>
+        {frage?.ding.id !== t.id && <span className="absolute right-2 top-3"><Papierkorb titel={`${t.bezeichnung} löschen`} onClick={() => loeschenFragen(t)} /></span>}
+        {frage?.ding.id === t.id && gewaehlt !== t.id && <LoeschLeiste frage={frage} onAbbrechen={abbrechen} onBestaetigen={loeschFrage.bestaetigen} />}
+      </div>
+    );
+  }
+
+  const aktive = teams.filter((t) => t.aktiv);
+  const inaktive = teams.filter((t) => !t.aktiv);
 
   return (
     <div className="space-y-4">
@@ -93,40 +128,23 @@ export function Teams() {
         <button type="button" onClick={() => void teamAnlegen()} disabled={!neu.trim()} className="inline-flex items-center gap-1.5 rounded-full bg-gradient-to-br from-[#ff6d4c] via-accent to-[#9c1409] px-4 py-2 text-sm font-semibold text-white shadow-[0_10px_22px_-10px_rgb(224_48_30/0.7)] transition hover:-translate-y-px disabled:opacity-50">
           <Plus size={15} strokeWidth={2.6} aria-hidden="true" />Team anlegen
         </button>
-        <span className="text-sm text-ink3">{teams.filter((t) => t.aktiv).length} aktive Teams · {frei.length} Personen ohne Team</span>
+        <span className="text-sm text-ink3">{aktive.length} aktive Teams · {frei.length} Personen ohne Team</span>
       </div>
       {!team && fehler && <p className="card text-sm font-semibold text-accent-deep">{fehler}</p>}
+      {hinweis && <p className="card text-sm text-ink2" role="status">{hinweis}</p>}
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-        {teams.map((t) => {
-          const leute = mitglieder.filter((m) => m.team_id === t.id);
-          const chef = leute.find((m) => m.mitarbeiter_id === t.chefmonteur_id)?.mitarbeiter ?? null;
-          const andere = leute.filter((m) => m.mitarbeiter_id !== t.chefmonteur_id);
-          return (
-            <button key={t.id} type="button" onClick={() => { setFehler(''); setGewaehlt(t.id); }}
-              className={'rounded-[18px] border border-ink/[0.06] bg-white p-4 text-left shadow-[0_1px_2px_rgb(17_17_19/0.04),0_10px_28px_-18px_rgb(17_17_19/0.28)] transition hover:-translate-y-px hover:shadow-[0_1px_2px_rgb(17_17_19/0.05),0_16px_32px_-16px_rgb(17_17_19/0.35)] ' + (t.aktiv ? '' : 'opacity-55')}>
-              <span className="flex items-center justify-between gap-2">
-                <span className="font-display text-[16px] font-semibold text-ink">{t.bezeichnung}</span>
-                <span className={'rounded-full px-2.5 py-0.5 text-[11px] font-semibold ' + (t.aktiv ? 'bg-surface-2 text-ink2' : 'bg-ink/10 text-ink3')}>{t.aktiv ? `${leute.length} Personen` : 'inaktiv'}</span>
-              </span>
-              <span className="mt-3 flex items-center gap-2.5">
-                {chef ? <Avatar name={chef.name} gross /> : <span className="grid h-9 w-9 place-items-center rounded-full border border-dashed border-line-strong text-ink3">?</span>}
-                <span className="min-w-0">
-                  <span className="block truncate text-sm font-medium text-ink">{chef?.name ?? 'kein Chefmonteur'}</span>
-                  <span className="block text-[11px] text-ink3">Chefmonteur</span>
-                </span>
-              </span>
-              <span className="mt-3 flex items-center justify-between gap-3 border-t border-line pt-3">
-                <span className="flex -space-x-1">
-                  {andere.slice(0, 5).map((m) => <Avatar key={m.mitarbeiter_id} name={m.mitarbeiter.name} ring />)}
-                  {andere.length === 0 && <span className="text-[11px] text-ink3">noch niemand dazu</span>}
-                </span>
-                {t.fahrzeug && <span className="inline-flex min-w-0 items-center gap-1 truncate text-[11px] text-ink3"><Truck size={12} className="shrink-0" aria-hidden="true" /><span className="truncate">{t.fahrzeug}</span></span>}
-              </span>
-            </button>
-          );
-        })}
+        {aktive.map(karte)}
       </div>
+      {/* Ruhende (Nebensaison) und entfernte Teams: zugeklappt, öffnen → Haken «aktiv» setzt sie zurück */}
+      {inaktive.length > 0 && (
+        <details>
+          <summary className="cursor-pointer select-none text-sm font-semibold text-ink3 hover:text-ink">Inaktive Teams <span className="opacity-60">{inaktive.length}</span></summary>
+          <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+            {inaktive.map(karte)}
+          </div>
+        </details>
+      )}
 
       {team && (
         <Dialog
@@ -135,7 +153,7 @@ export function Teams() {
           icon={Users}
           onSchliessen={schliessen}
           fuss={<>
-            <button type="button" onClick={() => void loeschen()} className="text-xs font-semibold text-accent-deep hover:text-accent">Team löschen …</button>
+            <button type="button" onClick={() => loeschenFragen(team)} className="text-xs font-semibold text-accent-deep hover:text-accent">Team löschen …</button>
             <button type="button" onClick={schliessen} className="btn-ghost">Fertig</button>
           </>}
         >
@@ -188,9 +206,10 @@ export function Teams() {
                 <option value="">Person wählen …</option>
                 {frei.map((p) => <option key={p.id} value={p.id}>{p.name}{p.typ === 'temporaer' ? ' (temp)' : ''}</option>)}
               </select>
-              <span className="mt-1 block text-[11px] text-ink3">{frei.length} Personen ohne Team · Löschen geht nur, solange das Team keine Meldungen oder Planungen hat — sonst «aktiv» abwählen.</span>
+              <span className="mt-1 block text-[11px] text-ink3">{frei.length} Personen ohne Team</span>
             </label>
             {fehler && <p className="text-sm font-semibold text-accent-deep">{fehler}</p>}
+            {frage && frage.ding.id === team.id && <LoeschLeiste frage={frage} onAbbrechen={abbrechen} onBestaetigen={loeschFrage.bestaetigen} art="fenster" />}
           </div>
         </Dialog>
       )}
