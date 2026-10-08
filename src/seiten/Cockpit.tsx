@@ -196,8 +196,12 @@ export function Cockpit() {
     void laden();
   }
   const [teams, setTeams] = useState<Team[]>([]);
-  // Standard «Zu tun»: nur Teams mit Hinweis. Kommt man gezielt zu einem Team (Tagesübersicht/Rapport), alle zeigen.
-  const [filter, setFilter] = useState<Filter>(() => (params.get('team') ? 'alle' : 'zutun'));
+  // Standard «Zu tun»: nur Teams mit Hinweis. Kommt man gezielt zu einem Team oder Tag (Tagesübersicht, Rapport,
+  // Freigabe-Karte der Übersicht), alle zeigen.
+  const [filter, setFilter] = useState<Filter>(() => (params.get('team') || params.get('tag') ? 'alle' : 'zutun'));
+  // ?tag ohne Team (Freigabe-Karte der Übersicht, 08.10.2026): den ganzen Tag markieren — Spalte im Kopf und die
+  // Zellen aller Teams. Amir: «sonst macht es keinen Sinn, dass man pro Tag klicken kann und dann die ganze Woche sieht».
+  const [markTag, setMarkTag] = useState<string | null>(() => (!params.get('team') && params.get('tag')) || null);
   // Aufgeklappter Tag eines Teams — die Tagesübersicht springt mit ?team&tag direkt hinein
   const [offen, setOffen] = useState<{ team: string; datum: string } | null>(() => {
     const t = params.get('team');
@@ -713,16 +717,28 @@ export function Cockpit() {
         ) : sichtbar.length === 0 ? (
           <div className="card text-sm text-ink3">Nichts in dieser Auswahl.</div>
         ) : (
+          <>
+          {markTag && wochenTage.includes(markTag) && (
+            <p className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-ink2">
+              <span className="inline-flex items-center gap-1.5 font-semibold text-steel">
+                <span className="h-2 w-2 rounded-full bg-steel" aria-hidden="true" />{tagName(markTag)} markiert
+              </span>
+              <span className="text-ink3">Zelle antippen öffnet den Tag des Teams</span>
+              <button type="button" className="text-xs font-semibold text-ink3 underline underline-offset-2 hover:text-ink" onClick={() => setMarkTag(null)}>Markierung aufheben</button>
+            </p>
+          )}
           <section className="card overflow-hidden p-0">
-            {/* Kopfzeile Mo–So wie ein Kalender: Wochentag klein, Datum darunter, heute als rote Pille (08.10.2026) */}
+            {/* Kopfzeile Mo–So wie ein Kalender: Wochentag klein, Datum darunter, heute als rote Pille (08.10.2026);
+                ein markierter Tag (Sprung aus der Freigabe-Karte) als blaue Pille */}
             <div className="grid grid-cols-7 gap-1.5 border-b border-line px-4 pb-3 pt-4">
               {wochenTage.map((datum, i) => {
                 const heute = datum === iso(new Date());
                 const wochenende = i >= 5;
+                const markiert = datum === markTag;
                 return (
                   <span key={datum} className="flex flex-col items-center gap-1">
-                    <span className={'text-[10px] font-semibold uppercase tracking-[0.1em] ' + (heute ? 'text-accent' : wochenende ? 'text-ink3/60' : 'text-ink3')}>{TAGE[i]}</span>
-                    <span className={'rounded-full px-2.5 py-0.5 font-display text-[13px] font-semibold tabular-nums leading-tight ' + (heute ? 'bg-accent text-white shadow-[0_4px_10px_-4px_rgb(224_48_30/0.6)]' : wochenende ? 'text-ink3/70' : 'text-ink')}>{ch(addTage(wochenStart, i))}</span>
+                    <span className={'text-[10px] font-semibold uppercase tracking-[0.1em] ' + (markiert ? 'text-steel' : heute ? 'text-accent' : wochenende ? 'text-ink3/60' : 'text-ink3')}>{TAGE[i]}</span>
+                    <span className={'rounded-full px-2.5 py-0.5 font-display text-[13px] font-semibold tabular-nums leading-tight ' + (markiert ? (heute ? 'bg-accent text-white ring-2 ring-steel ring-offset-2' : 'bg-steel text-white shadow-[0_4px_10px_-4px_rgb(43_108_176/0.6)]') : heute ? 'bg-accent text-white shadow-[0_4px_10px_-4px_rgb(224_48_30/0.6)]' : wochenende ? 'text-ink3/70' : 'text-ink')}>{ch(addTage(wochenStart, i))}</span>
                   </span>
                 );
               })}
@@ -764,6 +780,7 @@ export function Cockpit() {
                     <div className="mt-2.5 grid grid-cols-7 gap-1.5">
                       {z.tage.map((t) => {
                         const aktiv = auf && offen?.datum === t.datum;
+                        const markiert = t.datum === markTag;
                         return (
                           <button
                             key={t.datum}
@@ -771,7 +788,7 @@ export function Cockpit() {
                             disabled={t.status === 'leer'}
                             onClick={() => tagUmschalten(z.team.id, t.datum)}
                             aria-label={`${tagName(t.datum)}: ${t.status === 'leer' ? 'keine Meldung' : stunden(t.min) + ' h'}`}
-                            className={'flex min-h-[48px] flex-col items-center justify-center rounded-[12px] px-1 py-1.5 text-center leading-tight transition ' + ZELLE[t.status].kachel + ' ' + (aktiv ? 'ring-2 ring-accent' : ZELLE[t.status].rand)}
+                            className={'flex min-h-[48px] flex-col items-center justify-center rounded-[12px] px-1 py-1.5 text-center leading-tight transition ' + ZELLE[t.status].kachel + ' ' + (aktiv ? 'ring-2 ring-accent' : markiert ? 'ring-2 ring-steel/70' : ZELLE[t.status].rand)}
                           >
                             {t.status === 'leer' ? null : (
                               <>
@@ -1055,6 +1072,7 @@ export function Cockpit() {
               );
             })}
           </section>
+          </>
         )}
 
         {!laedt && sichtbar.length > 0 && (

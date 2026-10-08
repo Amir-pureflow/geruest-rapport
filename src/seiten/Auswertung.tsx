@@ -9,7 +9,7 @@ import { Shell } from '../ui/Shell';
 import { supabase } from '../lib/supabase';
 import { formatChf } from '../lib/tarif';
 import { Banknote, CircleCheck, PencilLine, Send } from 'lucide-react';
-import { MONATE, ZahlKarte } from '../ui/Karten';
+import { Kachel, MONATE } from '../ui/Karten';
 import { Segment } from '../ui/Segment';
 
 interface Zeile {
@@ -130,11 +130,13 @@ export function Auswertung() {
 
         {!laedt && !fehler && (
           <>
+            {/* Gleiche Kacheln wie in der Übersicht — klickbar mit Hover (Amir, 08.10.2026). Ziel: die Regierapporte,
+                dort stehen Entwürfe, Beim Kunden und Bestätigt nebeneinander. */}
             <div className="grid grid-cols-2 gap-2.5 lg:grid-cols-4 lg:gap-4">
-              <ZahlKarte titel="Regie total" icon={Banknote} wert={formatChf(total)} label={`im ${monatsName(monat)}${monatVorher ? ` · Vormonat ${formatChf(totalVorher)}` : ''}`} />
-              <ZahlKarte titel="Entwurf" icon={PencilLine} farbe="gelb" wert={formatChf(summe((z) => z.entwurf))} label="noch nicht verschickt" />
-              <ZahlKarte titel="Beim Kunden" icon={Send} farbe="blau" wert={formatChf(summe((z) => z.kunde_r))} label="verschickt, wartet auf Bestätigung" />
-              <ZahlKarte titel="Bestätigt" icon={CircleCheck} farbe="gruen" wert={formatChf(summe((z) => z.bestaetigt))} label="vom Kunden bestätigt" />
+              <Kachel zu="/regie" titel="Regie total" icon={Banknote} wert={formatChf(total)} label={`im ${monatsName(monat)}${monatVorher ? ` · Vormonat ${formatChf(totalVorher)}` : ''}`} />
+              <Kachel zu="/regie" titel="Entwurf" icon={PencilLine} farbe="gelb" wert={formatChf(summe((z) => z.entwurf))} label="noch nicht verschickt" />
+              <Kachel zu="/regie" titel="Beim Kunden" icon={Send} farbe="blau" wert={formatChf(summe((z) => z.kunde_r))} label="verschickt, wartet auf Bestätigung" />
+              <Kachel zu="/regie" titel="Bestätigt" icon={CircleCheck} farbe="gruen" wert={formatChf(summe((z) => z.bestaetigt))} label="vom Kunden bestätigt" />
             </div>
 
             <section className="card p-0">

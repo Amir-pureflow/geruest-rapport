@@ -332,7 +332,7 @@ function StartBauf() {
               unter={`${kurz(freigabeMo)} bis ${kurz(addTage(freigabeMo, 6))}`}
               aktion={<Link to={`/cockpit?woche=${iso(freigabeMo)}`} className="shrink-0 text-xs font-semibold text-steel">Woche öffnen ›</Link>}
             >
-              <WochenTeams tage={woche} zu={`/cockpit?woche=${iso(freigabeMo)}`} />
+              <WochenTeams tage={woche} woche={iso(freigabeMo)} />
             </DiagrammKarte>
           )}
           {tr && (

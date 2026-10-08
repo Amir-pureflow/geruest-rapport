@@ -53,6 +53,17 @@ const BALKEN: Record<KachelFarbe, string> = {
   rot: 'bg-accent',
 };
 
+/** Weiche Trennstellen (U+00AD) in langen Kacheltiteln: unsichtbar, bis das Wort nicht passt — dann «Zusatz-|aufträge». */
+const TRENNSTELLEN: [RegExp, string][] = [
+  [/Zusatzaufträge/g, 'Zusatz­aufträge'],
+  [/Überstunden/g, 'Über­stunden'],
+  [/Verschickt/g, 'Ver­schickt'],
+  [/Bestätigt/g, 'Be­stätigt'],
+];
+function mitTrennstellen(titel: string): string {
+  return TRENNSTELLEN.reduce((t, [muster, ersatz]) => t.replace(muster, ersatz), titel);
+}
+
 /**
  * Kennzahl-Kachel. `farbe` tönt die Fläche; «warn» schaltet auf Bernstein, wenn keine Farbe gesetzt ist.
  * `fortschritt` legt einen feinen Balken unter die Zahl — «1 von 20» sieht man dann, statt es zu lesen.
@@ -90,9 +101,12 @@ export function Kachel({
               <Icon size={18} strokeWidth={2.2} />
             </span>
           )}
-          {titel && <span className="truncate text-sm font-semibold text-ink">{titel}</span>}
+          {/* Umbrechen statt abschneiden («Beim K…», 08.10.2026): an Leerzeichen und an festen Trennstellen (TRENNSTELLEN) —
+              nie mitten im Wort ohne Strich. Browser ohne deutsche Silbentrennung zerrissen sonst «Freigab|e». */}
+          {titel && <span className="min-w-0 overflow-hidden text-sm font-semibold leading-tight text-ink [hyphens:manual]">{mitTrennstellen(titel)}</span>}
         </span>
-        <span className="text-ink3 transition-transform duration-150 group-hover:translate-x-0.5" aria-hidden="true">→</span>
+        {/* Am Handy ohne Pfeil — dort ist die ganze Kachel der Knopf, und der Titel braucht den Platz */}
+        <span className="hidden shrink-0 text-ink3 transition-transform duration-150 group-hover:translate-x-0.5 sm:inline" aria-hidden="true">→</span>
       </span>
       <span className="block">
         <KachelWert wert={wert} />

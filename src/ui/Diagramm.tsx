@@ -27,6 +27,7 @@
 import type { ReactNode } from 'react';
 import { Check } from 'lucide-react';
 import { Link } from 'react-router-dom';
+import { addTage, ausIso, iso } from '../lib/datum';
 import { formatChf } from '../lib/tarif';
 
 export const DATENFARBE = {
@@ -173,13 +174,16 @@ function Balken({
  */
 export function WochenTeams({
   tage,
-  zu,
+  woche,
 }: {
   tage: { label: string; offen: number; freigegeben: number; datum: string }[];
-  /** Wohin Kacheln und Knopf führen — die Wochenübersicht dieser Woche. */
-  zu: string;
+  /** Montag der Woche (ISO). Jede Kachel öffnet die Wochenübersicht mit diesem Tag markiert (`?woche&tag`, 08.10.2026). */
+  woche: string;
 }) {
-  const sichtbar = tage.filter((t, i) => i < 5 || t.offen + t.freigegeben > 0);
+  const mo = ausIso(woche);
+  const sichtbar = tage
+    .map((t, i) => ({ ...t, zu: `/cockpit?woche=${woche}&tag=${iso(addTage(mo, i))}` }))
+    .filter((t, i) => i < 5 || t.offen + t.freigegeben > 0);
   const offen = tage.reduce((s, t) => s + t.offen, 0);
   const frei = tage.reduce((s, t) => s + t.freigegeben, 0);
   const gesamt = offen + frei;
@@ -215,7 +219,7 @@ export function WochenTeams({
           return (
             <li key={t.label}>
               <Link
-                to={zu}
+                to={t.zu}
                 title={titel}
                 aria-label={titel}
                 className={
