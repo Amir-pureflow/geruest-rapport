@@ -806,36 +806,51 @@ export function Cockpit() {
                           <p className="font-mono text-xs tabular-nums text-ink3">{stunden(tag.min)} h · {personenN} Pers.</p>
                         </div>
 
-                        {/* Eine Zeile pro Person: Normal + Überstunden, rechts Korrektur und Freigabe */}
+                        {/* Ein Block pro Person, der Name einmal (08.10.2026 — vorher stand jede Person doppelt da, wenn sie
+                            neben dem normalen Tag Zusatzarbeit hatte; Amir: «verwirrend mit den doppelten Namen»).
+                            Darunter je Eintrag eine Zeile: erst der normale Tag, dann Zusatzarbeit — jede mit eigener Korrektur. */}
                         <div className="divide-y divide-line rounded-[12px] border border-line">
-                          {detail.map((e) => (
-                            <div key={e.id} className="flex items-center justify-between gap-2 px-3 py-2">
-                              <span className="min-w-0 text-sm">
-                                <span className="block truncate font-medium">
-                                  {e.mitarbeiter.name}
-                                  {e.mitarbeiter.typ === 'temporaer' && <span className="ml-1 text-[10px] text-ink3">temp</span>}
-                                </span>
-                                <span className="flex flex-wrap items-center gap-x-1.5 text-[11px] text-ink3">
-                                  {mehrereBaustellen && e.tagesmeldung.baustelle && <span className="knr">{e.tagesmeldung.baustelle.konto_nr}</span>}
-                                  {e.tagesmeldung.normalfall
-                                    ? <>{stunden(e.normal_min)} normal{e.ueber_min > 0 && <span className="font-semibold text-amber-deep"> + {stunden(e.ueber_min)} Überstunden</span>}</>
-                                    : <span className="rounded-md bg-amber-soft px-1.5 py-0.5 font-semibold text-amber-deep">Zusatzarbeit · {ABWEICHUNG_KURZ[e.tagesmeldung.abweichung_typ ?? ''] ?? 'Abweichung'}</span>}
-                                  {/* Zeiten von–bis, wie das Team sie eingetragen hat — ohne Pausenrechnung (20.09.) */}
-                                  {zeitenText(e) && <span className="font-mono tabular-nums text-ink2">· {zeitenText(e)}</span>}
-                                </span>
-                              </span>
-                              <span className="flex shrink-0 items-center gap-1.5">
-                                {darfFreigeben && e.status === 'offen' && <button type="button" className="btn-ghost px-2.5" onClick={() => korrekturStarten(e, -30)} aria-label="weniger">−</button>}
-                                <span className={'w-12 text-center font-mono text-sm tabular-nums ' + (korrektur?.id === e.id && korrektur.total !== korrektur.alt ? 'font-semibold text-steel' : '')}>
-                                  {stunden(korrektur?.id === e.id ? korrektur.total : e.normal_min + e.ueber_min)} h
-                                </span>
-                                {darfFreigeben && e.status === 'offen' && <button type="button" className="btn-ghost px-2.5" onClick={() => korrekturStarten(e, 30)} aria-label="mehr">+</button>}
-                                {e.status === 'offen'
-                                  ? <span className="w-7 text-center text-xs text-ink3">offen</span>
-                                  : <span className="w-7 text-center text-good" title="freigegeben">✓</span>}
-                              </span>
-                            </div>
-                          ))}
+                          {[...detail.reduce((m, e) => m.set(e.mitarbeiter.id, [...(m.get(e.mitarbeiter.id) ?? []), e]), new Map<string, typeof detail>()).values()].map((eintraege) => {
+                            const reihe = [...eintraege].sort((a, b) => Number(b.tagesmeldung.normalfall) - Number(a.tagesmeldung.normalfall));
+                            const person = reihe[0].mitarbeiter;
+                            return (
+                              <div key={person.id} className="space-y-1.5 px-3 py-2">
+                                {reihe.map((e, i) => (
+                                  <div key={e.id} className="flex items-center justify-between gap-2">
+                                    <span className="min-w-0 text-sm">
+                                      {i === 0 && (
+                                        <span className="block truncate font-medium">
+                                          {person.name}
+                                          {person.typ === 'temporaer' && <span className="ml-1 text-[10px] text-ink3">temp</span>}
+                                        </span>
+                                      )}
+                                      <span className="flex flex-wrap items-center gap-x-1.5 text-[11px] text-ink3">
+                                        {mehrereBaustellen && e.tagesmeldung.baustelle && <span className="knr">{e.tagesmeldung.baustelle.konto_nr}</span>}
+                                        {e.tagesmeldung.normalfall
+                                          ? <>{stunden(e.normal_min)} normal{e.ueber_min > 0 && <span className="font-semibold text-amber-deep"> + {stunden(e.ueber_min)} Überstunden</span>}</>
+                                          : <span className="rounded-md bg-amber-soft px-1.5 py-0.5 font-semibold text-amber-deep">
+                                              {/* «Zusatzarbeit · zusätzlich gearbeitet» sagte zweimal dasselbe — nur andere Gründe dazuschreiben */}
+                                              {e.tagesmeldung.abweichung_typ === 'zusaetzlich' ? 'Zusatzarbeit' : `Zusatzarbeit · ${ABWEICHUNG_KURZ[e.tagesmeldung.abweichung_typ ?? ''] ?? 'Abweichung'}`}
+                                            </span>}
+                                        {/* Zeiten von–bis, wie das Team sie eingetragen hat — ohne Pausenrechnung (20.09.) */}
+                                        {zeitenText(e) && <span className="font-mono tabular-nums text-ink2">· {zeitenText(e)}</span>}
+                                      </span>
+                                    </span>
+                                    <span className="flex shrink-0 items-center gap-1.5">
+                                      {darfFreigeben && e.status === 'offen' && <button type="button" className="btn-ghost px-2.5" onClick={() => korrekturStarten(e, -30)} aria-label={`${person.name}: weniger`}>−</button>}
+                                      <span className={'w-12 text-center font-mono text-sm tabular-nums ' + (korrektur?.id === e.id && korrektur.total !== korrektur.alt ? 'font-semibold text-steel' : '')}>
+                                        {stunden(korrektur?.id === e.id ? korrektur.total : e.normal_min + e.ueber_min)} h
+                                      </span>
+                                      {darfFreigeben && e.status === 'offen' && <button type="button" className="btn-ghost px-2.5" onClick={() => korrekturStarten(e, 30)} aria-label={`${person.name}: mehr`}>+</button>}
+                                      {e.status === 'offen'
+                                        ? <span className="w-7 text-center text-xs text-ink3">offen</span>
+                                        : <span className="w-7 text-center text-good" title="freigegeben">✓</span>}
+                                    </span>
+                                  </div>
+                                ))}
+                              </div>
+                            );
+                          })}
                         </div>
 
                         {korrektur && detail.some((e) => e.id === korrektur.id) && korrektur.total !== korrektur.alt && (
