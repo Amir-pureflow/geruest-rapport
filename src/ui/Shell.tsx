@@ -185,7 +185,8 @@ export function navFuer(a: 'bauf' | 'sekretariat'): NavGruppe[] {
       eintraege: [
         // Export gehört dem Sekretariat — beim Bauführer entfernt (04.10.2026, Amir)
         ...(a === 'sekretariat' ? [{ zu: '/export', label: 'Export', icon: Download }] : []),
-        ...(regie ? [{ zu: '/planung', label: 'Planung', icon: CalendarPlus }] : []),
+        // Planung seit 09.10.2026 auch ohne Regie (Amir: der Bauführer plant die Teams)
+        { zu: '/planung', label: 'Planung', icon: CalendarPlus },
         { zu: '/verwaltung', label: 'Verwaltung', icon: Settings },
       ],
     },
