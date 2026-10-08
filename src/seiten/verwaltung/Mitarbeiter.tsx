@@ -3,6 +3,7 @@ import { supabase } from '../../lib/supabase';
 import { Plus, Search, UserRound } from 'lucide-react';
 import tarife from '../../../fixtures/tarife_sguv_2026.json';
 import { Avatar, Dialog } from '../../ui/Dialog';
+import { Zugang } from './Zugang';
 
 interface Person {
   id?: string;
@@ -219,6 +220,8 @@ export function Mitarbeiter() {
               )}
               <label className="flex items-center gap-2"><input type="checkbox" checked={bearbeitet.aktiv} onChange={(e) => f({ aktiv: e.target.checked })} /> aktiv</label>
             </div>
+            {/* Zugang aufs Handy — erst wenn die Person gespeichert ist, sonst gibt es keine id zum Einladen. */}
+            {bearbeitet.id && <Zugang personId={bearbeitet.id} name={bearbeitet.name} telefon={bearbeitet.telefon} />}
             {fehler && <p className="text-sm font-semibold text-accent-deep">{fehler}</p>}
           </div>
         </Dialog>

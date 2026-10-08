@@ -23,6 +23,7 @@ const NACHLADEN = {
   auswertung: () => import('./seiten/Auswertung'),
   planung: () => import('./seiten/Planung'),
   bestaetigung: () => import('./seiten/Bestaetigung'),
+  koppeln: () => import('./seiten/Koppeln'),
 };
 const Zusatzauftrag = lazy(() => NACHLADEN.zusatzauftrag().then((m) => ({ default: m.Zusatzauftrag })));
 const RegieListe = lazy(() => NACHLADEN.regieListe().then((m) => ({ default: m.RegieListe })));
@@ -31,6 +32,7 @@ const RegieVorschau = lazy(() => NACHLADEN.regieVorschau().then((m) => ({ defaul
 const Auswertung = lazy(() => NACHLADEN.auswertung().then((m) => ({ default: m.Auswertung })));
 const Planung = lazy(() => NACHLADEN.planung().then((m) => ({ default: m.Planung })));
 const Bestaetigung = lazy(() => NACHLADEN.bestaetigung().then((m) => ({ default: m.Bestaetigung })));
+const Koppeln = lazy(() => NACHLADEN.koppeln().then((m) => ({ default: m.Koppeln })));
 
 /** Nach dem Start, wenn der Browser Luft hat: die nachgeladenen Seiten schon holen (ohne Regie nur den Zusatzauftrag). */
 function vorladen(regie: boolean) {
@@ -135,8 +137,11 @@ function App() {
   if (!bereit) return null; // kurzer Moment beim Start
 
   // Niemand angemeldet: nur die Anmeldeseite, sonst nichts.
-  // Der Kundenlink /b/:token bleibt offen — die Bauleitung hat kein Konto und soll keines brauchen.
-  if (!sitzung && !window.location.pathname.startsWith('/b/')) {
+  // Zwei Ausnahmen, beide absichtlich ohne Konto erreichbar:
+  //   /b/:token — Kundenlink. Die Bauleitung hat kein Konto und soll keines brauchen.
+  //   /e/:token — Einladung. Das Gerät des Monteurs holt sich hier erst seine Sitzung (0028).
+  const offenerLink = /^\/[be]\//.test(window.location.pathname);
+  if (!sitzung && !offenerLink) {
     return (
       <BrowserRouter>
         <Routes>
@@ -155,6 +160,10 @@ function App() {
       <Suspense fallback={<SeiteLaedt />}>
       <Routes>
         <Route path="/ansicht" element={<Ansicht />} />
+        {/* Einladung: immer erreichbar, mit und ohne Sitzung. Ein Monteur, dessen Gerät noch
+            nichts weiss, kommt hier an — und einer, der schon gekoppelt ist, darf das Gerät
+            auf eine andere Person umkoppeln, ohne vorher abzumelden. */}
+        <Route path="/e/:token" element={<Koppeln />} />
         {(!ansicht || !sitzung) && <Route path="*" element={<Ansicht />} />}
         {sitzung && ansicht && <Route path="/" element={<Start />} />}
         {hat('erfassung') && <Route path="/erfassung" element={<Erfassung />} />}
