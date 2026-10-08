@@ -107,6 +107,8 @@ describe('Demodaten Regie «klein» — nur echte Kundenaufträge (08.10.2026)',
     // Für heute keiner — den legt Amir in der Vorführung live an (08.10.2026)
     expect(rk.zusatzauftraege.filter((za) => za.geplant_fuer === '2026-09-03')).toHaveLength(0);
     expect(rk.zusatzauftraege.filter((za) => za.geplant_fuer > '2026-09-03')).toHaveLength(2);
+    // Keiner aufs Wochenende geplant
+    for (const za of rk.zusatzauftraege) expect([0, 6]).not.toContain(new Date(za.geplant_fuer + 'T12:00:00').getDay());
     const mitRapport = rk.regierapporte.filter((x) => x.zusatzauftrag_id);
     expect(mitRapport).toHaveLength(2);
     for (const rap of mitRapport) expect(rk.zusatzauftraege.some((za) => za.id === rap.zusatzauftrag_id)).toBe(true);

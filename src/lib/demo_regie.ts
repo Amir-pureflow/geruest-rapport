@@ -66,6 +66,12 @@ class Zufall {
   }
 }
 
+/** Samstag/Sonntag → folgender Montag. */
+function werktag(d: Date): Date {
+  const wt = d.getDay();
+  return wt === 6 ? addTage(d, 2) : wt === 0 ? addTage(d, 1) : d;
+}
+
 function ts(d: Date, h: number, m: number): string {
   const x = new Date(d);
   x.setHours(h, m, 0, 0);
@@ -223,7 +229,8 @@ export function erzeugeDemoRegie(d: DemoBetrieb, opts: { heute: Date; userId: st
         id: z.uuid(), client_uuid: z.uuid(), baustelle_id: bs.id, besteller_name: k.ansprechperson, besteller_rolle: 'Bauleitung',
         bestellt_am: bestellt.toISOString(),
         kanal: z.pick(['telefon', 'telefon', 'mail', 'vor_ort']),
-        taetigkeit: z.pick(TAETIGKEITEN), geplant_fuer: iso(addTage(heute, inTagen)),
+        // Nie aufs Wochenende geplant — «So 11.10.» fiel in der Vorführung auf (08.10.2026): Sa/So → Montag
+        taetigkeit: z.pick(TAETIGKEITEN), geplant_fuer: iso(werktag(addTage(heute, inTagen))),
         notiz: z.chance(0.5) ? z.pick(NOTIZEN) : null,
         status: 'offen',
       });
@@ -235,7 +242,7 @@ export function erzeugeDemoRegie(d: DemoBetrieb, opts: { heute: Date; userId: st
     if (k) {
       zusatzauftraege.push({
         id: z.uuid(), client_uuid: z.uuid(), baustelle_id: bs.id, besteller_name: k.ansprechperson, besteller_rolle: 'Bauleitung',
-        bestellt_am: ts(addTage(heute, -6), 9, 15), kanal: 'telefon', taetigkeit: 'versetzen', geplant_fuer: iso(addTage(heute, -4)),
+        bestellt_am: ts(addTage(heute, -6), 9, 15), kanal: 'telefon', taetigkeit: 'versetzen', geplant_fuer: iso(werktag(addTage(heute, -4))),
         notiz: 'Fenstermontage verschoben', status: 'erledigt_ohne_regie',
         erledigt_grund: 'abgesagt', erledigt_am: ts(addTage(heute, -5), 16, 40), erledigt_von: opts.userId,
       });
