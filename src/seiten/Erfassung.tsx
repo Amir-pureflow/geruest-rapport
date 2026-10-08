@@ -9,7 +9,7 @@ import { addTage, iso, lang, stunden } from '../lib/datum';
 import { fotoVerkleinern } from '../lib/foto';
 import { kennzeichen } from '../lib/fahrzeug';
 import { einstellungen, normaltagMin } from '../lib/einstellungen';
-import { MAX_SPANNEN, NACHMITTAG_MIN, ausUhrzeit, aufteilen, mittagMinuten, spanneVollstaendig, spannenMinuten, spannenUeberlappen, standardSpannen, uhrzeitFeld, zuSpalten, type Spanne } from '../lib/zeiten';
+import { MAX_SPANNEN, MITTAG_VON_MIN, NACHMITTAG_MIN, ZNUENI_BIS_MIN, ZNUENI_VON_MIN, ausUhrzeit, aufteilen, kannPauseAbziehen, mittagMinuten, pauseAbziehen, pauseZaehlen, spanneVollstaendig, spannenMinuten, spannenUeberlappen, standardSpannen, umfasstPause, uhrzeitFeld, zuSpalten, type Spanne } from '../lib/zeiten';
 import { baustellenSuchen } from '../lib/suche';
 
 /**
@@ -196,12 +196,19 @@ function ZeitFeld({ wert, aendern, label, klasse }: { wert: string; aendern: (te
   );
 }
 
+/** Beschriftung einer Zeile: ab 12:00 «Nachmittag», die erste sonst «Vormittag», eine weitere vor 12:00 «nach Pause» (Znüni-Abzug). */
+function spannenName(s: Spanne, i: number): string {
+  return s.von >= MITTAG_VON_MIN ? 'Nachmittag' : i === 0 ? 'Vormittag' : 'nach Pause';
+}
+
 /**
- * Zeiten von–bis: eine oder zwei Spannen (Vormittag, Nachmittag). Native Uhrzeit-Wahl statt Tastatur (Regel 2).
- * Kein Pausenabzug — die App zählt, was dasteht; der Mittag 12–13 (unbezahlt) ist als Lücke vorgegeben.
+ * Zeiten von–bis: Vormittag und Nachmittag, nach einem Znüni-Abzug dazwischen «nach Pause». Native Uhrzeit-Wahl statt Tastatur (Regel 2).
+ * Kein stiller Pausenabzug — die App zählt, was dasteht; der Mittag 12–13 (unbezahlt) ist als Lücke vorgegeben.
+ * Zahlt der Bauherr den Znüni nicht, schneidet «− Pause» 9:00–9:30 heraus (09.10.2026, Amir); das × der Zeile «nach Pause» nimmt es zurück.
  */
 function SpannenEditor({ spannen, setSpannen, klein = false }: { spannen: Spanne[]; setSpannen: (s: Spanne[]) => void; klein?: boolean }) {
-  const feld = 'rounded-[10px] border bg-surface text-center font-mono font-semibold tabular-nums focus:border-accent focus:outline-none ' + (klein ? 'h-10 w-[5.4rem] text-[14px]' : 'h-12 w-28 text-lg');
+  // Auf dem Handy etwas schmaler: mit «Nachmittag» und dem Knopf «− Pause» muss die Zeile in die Karte passen (390 px)
+  const feld = 'rounded-[10px] border bg-surface text-center font-mono font-semibold tabular-nums focus:border-accent focus:outline-none ' + (klein ? 'h-10 w-[5.4rem] text-[14px]' : 'h-12 w-[5.6rem] text-lg sm:w-28');
   const aendern = (i: number, teil: 'von' | 'bis', text: string) => {
     const v = ausUhrzeit(text);
     setSpannen(spannen.map((s, j): Spanne => (j !== i ? s : teil === 'von' ? { ...s, von: v ?? s.von } : { ...s, bis: v })));
@@ -209,22 +216,43 @@ function SpannenEditor({ spannen, setSpannen, klein = false }: { spannen: Spanne
   // Raster statt fester Breite: Die Beschriftung bekommt genau so viel Platz, wie «Nachmittag» braucht — vorher (w-9)
   // lag das Zeitfeld über dem Wort (Amir, 09.10.2026: «sieht nicht clean aus»). Die Felder stehen trotzdem bündig untereinander.
   const mitLabel = spannen.length > 1;
+  // Der Pausen-Knopf steht in der Zelle, in der spätere Zeilen ihr × haben — gleich breit, damit das Raster nicht wächst
+  const pauseMoeglich = kannPauseAbziehen(spannen);
+  // «+ Nachmittag» wie bisher bis zwei Zeilen — eine Zeile «nach Pause» zählt nicht mit, für sie gibt es die dritte
+  const nachmittagMoeglich = spannen.length < MAX_SPANNEN && spannen.filter((s, i) => spannenName(s, i) !== 'nach Pause').length < 2;
   return (
     <div className="space-y-1.5">
       <div className={'grid items-center justify-start gap-x-1.5 gap-y-1.5 ' + (mitLabel ? 'grid-cols-[auto_auto_auto_auto_auto]' : 'grid-cols-[auto_auto_auto_auto]')}>
-        {spannen.map((s, i) => (
-          <div key={i} className="contents">
-            {mitLabel && <span className="whitespace-nowrap pr-1 text-[11px] font-medium leading-none text-ink3">{i === 0 ? 'Vormittag' : 'Nachmittag'}</span>}
-            <ZeitFeld wert={uhrzeitFeld(s.von)} aendern={(t) => aendern(i, 'von', t)} label="von" klasse={feld + ' border-line'} />
-            <span className="text-ink3">–</span>
-            <ZeitFeld wert={uhrzeitFeld(s.bis)} aendern={(t) => aendern(i, 'bis', t)} label="bis" klasse={feld + (s.bis === null ? ' border-amber/70' : ' border-line')} />
-            {i > 0
-              ? <button type="button" onClick={() => setSpannen(spannen.filter((_, j) => j !== i))} aria-label="Zeit entfernen" className="grid h-9 w-9 shrink-0 place-items-center rounded-[10px] text-ink3 active:bg-surface-2"><X size={16} /></button>
-              : <span aria-hidden="true" />}
-          </div>
-        ))}
+        {spannen.map((s, i) => {
+          // genau der Schnitt von «− Pause»: × fügt die beiden Zeilen wieder zusammen, statt die Zeit zu löschen
+          const nachPause = i > 0 && spannen[i - 1].bis === ZNUENI_VON_MIN && s.von === ZNUENI_BIS_MIN;
+          return (
+            <div key={i} className="contents">
+              {mitLabel && <span className="whitespace-nowrap pr-1 text-[11px] font-medium leading-none text-ink3">{spannenName(s, i)}</span>}
+              <ZeitFeld wert={uhrzeitFeld(s.von)} aendern={(t) => aendern(i, 'von', t)} label="von" klasse={feld + ' border-line'} />
+              <span className="text-ink3">–</span>
+              <ZeitFeld wert={uhrzeitFeld(s.bis)} aendern={(t) => aendern(i, 'bis', t)} label="bis" klasse={feld + (s.bis === null ? ' border-amber/70' : ' border-line')} />
+              {i > 0 ? (
+                nachPause
+                  ? <button type="button" onClick={() => setSpannen(pauseZaehlen(spannen))} aria-label="Pause 9:00–9:30 wieder zählen" title="Pause 9:00–9:30 wieder zählen" className="grid h-9 w-9 shrink-0 place-items-center rounded-[10px] text-ink3 active:bg-surface-2"><X size={16} /></button>
+                  : <button type="button" onClick={() => setSpannen(spannen.filter((_, j) => j !== i))} aria-label="Zeit entfernen" className="grid h-9 w-9 shrink-0 place-items-center rounded-[10px] text-ink3 active:bg-surface-2"><X size={16} /></button>
+              ) : pauseMoeglich && umfasstPause(s) ? (
+                <button
+                  type="button"
+                  onClick={() => setSpannen(pauseAbziehen(spannen))}
+                  aria-label="Pause 9:00–9:30 abziehen"
+                  title="Pause 9:00–9:30 abziehen"
+                  className="chip flex h-10 w-9 shrink-0 flex-col items-center justify-center gap-0.5 p-0 font-semibold leading-none text-steel"
+                >
+                  <span className="text-[14px]" aria-hidden="true">−</span>
+                  <span className="text-[9.5px] tracking-tight">Pause</span>
+                </button>
+              ) : <span aria-hidden="true" />}
+            </div>
+          );
+        })}
       </div>
-      {spannen.length < MAX_SPANNEN && (
+      {nachmittagMoeglich && (
         <button type="button" onClick={() => setSpannen([...spannen, { von: Math.max(NACHMITTAG_MIN, spannen[spannen.length - 1]?.bis ?? 0), bis: null }])} className="text-xs font-semibold text-steel">
           + Nachmittag
         </button>
@@ -1446,7 +1474,7 @@ export function Erfassung() {
                 </p>
               );
             })()}
-            <p className="mt-1 text-[11px] text-ink3">Die App zieht keine Pause ab — was hier steht, zählt. Mittag 12–13 ist als Lücke vorgegeben. Unten kann jede Person anders sein.</p>
+            <p className="mt-1 text-[11px] text-ink3">Die App zieht von sich aus keine Pause ab — was hier steht, zählt. Mittag 12–13 ist als Lücke vorgegeben. Zahlt der Bauherr die Pause 9:00–9:30 nicht: «− Pause» tippen. Unten kann jede Person anders sein.</p>
             <MittagHinweis spannen={teamSpannen} />
           </div>
         </section>

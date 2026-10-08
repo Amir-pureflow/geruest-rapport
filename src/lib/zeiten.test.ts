@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { aufteilen, ausUhrzeit, markiertePersonen, mittagMinuten, spannenMinuten, spannenUeberlappen, standardSpannen, ueberMarkiert, uhrzeit, uhrzeitFeld, zeitenText, zuSpalten } from './zeiten';
+import { MAX_SPANNEN, aufteilen, ausSpalten, ausUhrzeit, kannPauseAbziehen, markiertePersonen, mittagMinuten, pauseAbgezogen, pauseAbziehen, pauseZaehlen, spannenMinuten, spannenUeberlappen, standardSpannen, ueberMarkiert, uhrzeit, uhrzeitFeld, zeitenText, zuSpalten } from './zeiten';
 import { NORMALTAG_MIN } from './datum';
 
 describe('Uhrzeit ↔ Minuten', () => {
@@ -85,6 +85,82 @@ describe('zuSpalten / zeitenText', () => {
     expect(zeitenText({ von_min: 420, bis_min: 960, von2_min: null, bis2_min: null })).toBe('7:00–16:00');
     expect(zeitenText({ von_min: null, bis_min: null, von2_min: null, bis2_min: null })).toBeNull();
     expect(zeitenText(undefined)).toBeNull();
+  });
+  it('drei Spannen (Znüni abgezogen, 0029): Spalten 3 nur, wenn es die dritte gibt', () => {
+    expect(zuSpalten([{ von: 780, bis: 1020 }, { von: 570, bis: 720 }, { von: 420, bis: 540 }])).toEqual({
+      von_min: 420, bis_min: 540, von2_min: 570, bis2_min: 720, von3_min: 780, bis3_min: 1020,
+    });
+    // ohne dritte Spanne fehlen die Felder ganz — so geht die Meldung auch vor Migration 0029 durch
+    expect(zuSpalten(standardSpannen())).not.toHaveProperty('von3_min');
+    expect(zuSpalten([{ von: 420, bis: 540 }, { von: 570, bis: 720 }, { von: 780, bis: null }])).not.toHaveProperty('bis3_min');
+  });
+  it('zeigt drei Spannen und liest sie zurück', () => {
+    const z = { von_min: 420, bis_min: 540, von2_min: 570, bis2_min: 720, von3_min: 780, bis3_min: 1020 };
+    expect(zeitenText(z)).toBe('7:00–9:00 · 9:30–12:00 · 13:00–17:00');
+    expect(ausSpalten(z)).toEqual([{ von: 420, bis: 540 }, { von: 570, bis: 720 }, { von: 780, bis: 1020 }]);
+    expect(ausSpalten({ von_min: 420, bis_min: 720, von2_min: 780, bis2_min: 1020 })).toEqual([{ von: 420, bis: 720 }, { von: 780, bis: 1020 }]);
+    expect(ausSpalten({ von_min: null, bis_min: null, von2_min: null, bis2_min: null })).toEqual([]);
+  });
+});
+
+describe('Znüni 9:00–9:30 — abziehen nur auf Knopfdruck, rückgängig machbar', () => {
+  const tag = () => [{ von: 420, bis: 720 }, { von: 780, bis: 1020 }];
+
+  it('teilt den Vormittag: 7:00–9:00 und 9:30–12:00, der Nachmittag bleibt', () => {
+    expect(pauseAbziehen(tag())).toEqual([{ von: 420, bis: 540 }, { von: 570, bis: 720 }, { von: 780, bis: 1020 }]);
+    expect(pauseAbziehen([{ von: 420, bis: 960 }])).toEqual([{ von: 420, bis: 540 }, { von: 570, bis: 960 }]);
+    // Nachmittag noch offen — der Vormittag lässt sich trotzdem teilen
+    expect(pauseAbziehen(standardSpannen())).toEqual([{ von: 420, bis: 540 }, { von: 570, bis: 720 }, { von: 780, bis: null }]);
+  });
+  it('das Total sinkt um genau 30 Minuten', () => {
+    expect(spannenMinuten(pauseAbziehen(tag()))).toBe(spannenMinuten(tag()) - 30);
+    expect(spannenMinuten(pauseAbziehen([{ von: 420, bis: 960 }]))).toBe(540 - 30);
+  });
+  it('rückgängig: ergibt wieder genau die Zeiten von vorher', () => {
+    expect(pauseZaehlen(pauseAbziehen(tag()))).toEqual(tag());
+    expect(pauseZaehlen(pauseAbziehen([{ von: 420, bis: 960 }]))).toEqual([{ von: 420, bis: 960 }]);
+    expect(spannenMinuten(pauseZaehlen(pauseAbziehen(tag())))).toBe(spannenMinuten(tag()));
+  });
+  it('erkennt den Zustand', () => {
+    expect(kannPauseAbziehen(tag())).toBe(true);
+    expect(pauseAbgezogen(tag())).toBe(false);
+    const geteilt = pauseAbziehen(tag());
+    expect(kannPauseAbziehen(geteilt)).toBe(false);
+    expect(pauseAbgezogen(geteilt)).toBe(true);
+    // Reihenfolge der Eingabe egal
+    expect(pauseAbgezogen([...geteilt].reverse())).toBe(true);
+  });
+  it('passt nicht → unverändert: Beginn nach 9:00, Ende vor 9:30, schon geteilt', () => {
+    const spaet = [{ von: 600, bis: 720 }, { von: 780, bis: 1020 }];
+    expect(kannPauseAbziehen(spaet)).toBe(false);
+    expect(pauseAbziehen(spaet)).toBe(spaet);
+    const frueh = [{ von: 360, bis: 555 }];
+    expect(kannPauseAbziehen(frueh)).toBe(false);
+    expect(pauseAbziehen(frueh)).toBe(frueh);
+    const geteilt = pauseAbziehen(tag());
+    expect(pauseAbziehen(geteilt)).toBe(geteilt);
+    // genau um 9:00 begonnen oder um 9:30 aufgehört: davor oder danach bliebe nichts übrig
+    expect(kannPauseAbziehen([{ von: 540, bis: 720 }])).toBe(false);
+    expect(kannPauseAbziehen([{ von: 420, bis: 570 }])).toBe(false);
+    // ohne «bis» nichts teilen
+    expect(kannPauseAbziehen([{ von: 420, bis: null }])).toBe(false);
+  });
+  it('wieder zählen ohne Abzug → unverändert; eine andere Lücke wird nie geschlossen', () => {
+    const t = tag();
+    expect(pauseZaehlen(t)).toBe(t);
+    const andereLuecke = [{ von: 420, bis: 540 }, { von: 600, bis: 720 }];
+    expect(pauseAbgezogen(andereLuecke)).toBe(false);
+    expect(pauseZaehlen(andereLuecke)).toBe(andereLuecke);
+  });
+  it('höchstens drei Spannen — der Mittag-Hinweis bleibt still', () => {
+    expect(pauseAbziehen(tag())).toHaveLength(MAX_SPANNEN);
+    expect(mittagMinuten(pauseAbziehen(tag()))).toBe(0);
+    expect(spannenUeberlappen(pauseAbziehen(tag()))).toBe(false);
+  });
+  it('die Aufteilung folgt: 9.0 h → 8.5 h, die Überstunden schrumpfen mit (Normaltag je Firma)', () => {
+    expect(aufteilen(spannenMinuten(tag()))).toEqual({ normal_min: 504, ueber_min: 36 });
+    expect(aufteilen(spannenMinuten(pauseAbziehen(tag())))).toEqual({ normal_min: 504, ueber_min: 6 });
+    expect(aufteilen(spannenMinuten(pauseAbziehen(tag())), 540)).toEqual({ normal_min: 510, ueber_min: 0 });
   });
 });
 

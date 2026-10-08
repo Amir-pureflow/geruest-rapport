@@ -11,8 +11,8 @@ type DbFehler = { code?: string; message: string } | null;
 interface Aufruf { tabelle: string; op: string; rows: unknown }
 
 interface FakeOpts {
-  /** Fehler je (Tabelle, Operation) — wird bei jedem Aufruf gefragt, kann also zählen. */
-  fehler?: (tabelle: string, op: string) => DbFehler;
+  /** Fehler je (Tabelle, Operation) — wird bei jedem Aufruf gefragt, kann also zählen. `rows` = was gesendet wurde. */
+  fehler?: (tabelle: string, op: string, rows: unknown) => DbFehler;
   /** Fehler des Storage-Uploads je Pfad. */
   upload?: (pfad: string) => { message: string; statusCode?: string } | null;
 }
@@ -22,7 +22,7 @@ function fakeClient(opts: FakeOpts = {}) {
   const uploads: string[] = [];
   const antwort = (tabelle: string, op: string, rows: unknown) => {
     aufrufe.push({ tabelle, op, rows });
-    return Promise.resolve({ data: null, error: opts.fehler?.(tabelle, op) ?? null });
+    return Promise.resolve({ data: null, error: opts.fehler?.(tabelle, op, rows) ?? null });
   };
   const client = {
     from: (tabelle: string) => ({
@@ -100,6 +100,30 @@ describe('flushNachSupabase — Idempotenz', () => {
     expect(zeiten[0]).toMatchObject({ von_min: 420, bis_min: 720, von2_min: 780, bis2_min: 1020 });
     // ohne Zeiten bleiben die Spalten weg — die Stundenzahl-Meldung ist auch vor der Migration gültig
     expect(zeiten[1]).not.toHaveProperty('von_min');
+    // ohne Znüni-Abzug keine dritte Spanne — die Meldung kommt auch vor Migration 0029 durch
+    expect(zeiten[0]).not.toHaveProperty('von3_min');
+  });
+
+  it('dritte Spanne vor Migration 0029: nur diese Meldung wartet, die andern gehen durch', async () => {
+    const mitPause = meldung(4);
+    mitPause.eintraege[0] = { ...mitPause.eintraege[0], von_min: 420, bis_min: 540, von2_min: 570, bis2_min: 720, von3_min: 780, bis3_min: 1020 };
+    await enqueueMeldung(mitPause);
+    await enqueueMeldung(meldung(5));
+    let migriert = false;
+    const { client } = fakeClient({
+      fehler: (t, op, rows) =>
+        !migriert && t === 'zeiteintrag' && op === 'upsert' && (rows as Record<string, unknown>[]).some((r) => 'von3_min' in r)
+          ? { code: 'PGRST204', message: "Could not find the 'von3_min' column of 'zeiteintrag' in the schema cache" }
+          : null,
+    });
+    const erg = await flushNachSupabase(client);
+    expect(erg).toMatchObject({ gesendet: 1, fehler: 1, verworfen: 0 });
+    expect(erg.fehlerText).toContain('Migration 0029');
+    expect(await offeneMeldungen()).toHaveLength(1);
+
+    migriert = true;
+    expect(await flushNachSupabase(client)).toMatchObject({ gesendet: 1, fehler: 0 });
+    expect(await offeneMeldungen()).toHaveLength(0);
   });
 });
 

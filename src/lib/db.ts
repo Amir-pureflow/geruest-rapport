@@ -39,6 +39,10 @@ function fehlerDeuten(err: { code?: string; message: string }): { text: string; 
     const was = /team_id/.test(err.message) ? 'das Team' : /mitarbeiter_id/.test(err.message) ? 'eine Person' : /baustelle_id/.test(err.message) ? 'die Baustelle' : 'ein Stammdatensatz';
     return { text: `${was} dieser Meldung gibt es auf dem Server nicht mehr (z. B. nach einem Demo-Neustart). Meldung aussortiert — bitte Team neu wählen und nochmals melden.`, endgueltig: true };
   }
+  if (/(von3_min|bis3_min)/.test(err.message) && /does not exist|schema cache/.test(err.message)) {
+    // Dritte Spanne (Znüni abgezogen + Nachmittag) vor Migration 0029 — nur diese Meldung wartet, die übrigen gehen durch
+    return { text: 'Die Datenbank kennt die Zeit nach der Pause noch nicht — Migration 0029 ausführen. Die Meldung bleibt auf dem Gerät.', endgueltig: false };
+  }
   if (err.code === '42703' || /column .* does not exist/.test(err.message)) {
     return { text: `Die Datenbank ist nicht auf dem neusten Stand (${err.message}). Migration ausführen.`, endgueltig: false };
   }
@@ -132,6 +136,9 @@ export interface MeldungPayload {
     bis_min?: number | null;
     von2_min?: number | null;
     bis2_min?: number | null;
+    /** Dritte Spanne (Migration 0029) — nur nach einem Znüni-Abzug mit Nachmittag, sonst fehlt das Feld ganz. */
+    von3_min?: number | null;
+    bis3_min?: number | null;
   }[];
 }
 

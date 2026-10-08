@@ -17,8 +17,8 @@ interface Team { id: string; bezeichnung: string }
 interface Person { id: string; name: string; funktion: string; typ: string }
 interface Eintrag {
   id: string; normal_min: number; ueber_min: number; oev: boolean; km: number; status: string;
-  /** Zeiten von–bis, falls das Team welche eingetragen hat (Migration 0016) */
-  von_min?: number | null; bis_min?: number | null; von2_min?: number | null; bis2_min?: number | null;
+  /** Zeiten von–bis, falls das Team welche eingetragen hat (Migration 0016; dritte Spanne nach Znüni-Abzug 0029) */
+  von_min?: number | null; bis_min?: number | null; von2_min?: number | null; bis2_min?: number | null; von3_min?: number | null; bis3_min?: number | null;
   tagesmeldung: { datum: string; normalfall: boolean; baustelle: { konto_nr: string; bezeichnung: string | null } | null; team: { bezeichnung: string } | null };
 }
 interface Korrektur { zeiteintrag_id: string; feld: 'normal_min' | 'ueber_min'; alt: string | null; neu: string | null; begruendung: string | null; wann: string }
@@ -97,14 +97,15 @@ export function StartMonteur() {
     const c = supabase;
     setLaedt(true);
     void (async () => {
-      // Zeiten von–bis (Migration 0016) mitladen — fehlen die Spalten noch, ohne sie
-      const lade = (mitZeiten: boolean) => c
+      // Zeiten von–bis (Migration 0016, dritte Spanne 0029) mitladen — fehlen die Spalten noch, ohne sie
+      const lade = (mitZeiten: boolean, mitDritter = mitZeiten) => c
         .from('zeiteintrag')
-        .select('id,normal_min,ueber_min,oev,km,status,' + (mitZeiten ? 'von_min,bis_min,von2_min,bis2_min,' : '') + 'tagesmeldung:tagesmeldung_id!inner(datum,normalfall,baustelle:baustelle_id(konto_nr,bezeichnung),team:team_id(bezeichnung))')
+        .select('id,normal_min,ueber_min,oev,km,status,' + (mitZeiten ? 'von_min,bis_min,von2_min,bis2_min,' + (mitDritter ? 'von3_min,bis3_min,' : '') : '') + 'tagesmeldung:tagesmeldung_id!inner(datum,normalfall,baustelle:baustelle_id(konto_nr,bezeichnung),team:team_id(bezeichnung))')
         .eq('mitarbeiter_id', personId)
         .gte('tagesmeldung.datum', vonIso)
         .lte('tagesmeldung.datum', bisIso);
       let erg = await lade(true);
+      if (erg.error && /(von3_min|bis3_min) does not exist/.test(erg.error.message)) erg = await lade(true, false);
       if (erg.error && /(von2?_min|bis2?_min) does not exist/.test(erg.error.message)) erg = await lade(false);
       const liste = (erg.data ?? []) as unknown as Eintrag[];
       setEintraege(liste);

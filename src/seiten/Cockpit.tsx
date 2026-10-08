@@ -7,7 +7,7 @@ import { supabase } from '../lib/supabase';
 import { addTage, iso, kurz as ch, kw, montag, stunden } from '../lib/datum';
 import { aufteilen as aufteilenTag } from '../lib/zeiten';
 import { gelbePersonen, normaltagMin } from '../lib/einstellungen';
-import { zeitenText } from '../lib/zeiten';
+import { ausSpalten, kannPauseAbziehen, pauseAbgezogen, pauseAbziehen, pauseZaehlen, spannenMinuten, zeitenText, zuSpalten } from '../lib/zeiten';
 import { useAnsicht } from '../lib/ansicht';
 import { einstellungen } from '../lib/einstellungen';
 import { minutenBetrag, formatChf, tarifNachCode, RUECKFALL_ANSATZ_RAPPEN } from '../lib/tarif';
@@ -44,6 +44,9 @@ interface Eintrag {
   bis_min?: number | null;
   von2_min?: number | null;
   bis2_min?: number | null;
+  /** Dritte Spanne nach einem Znüni-Abzug (Migration 0029) — fehlt die Spalte noch, kommt das Feld nicht mit */
+  von3_min?: number | null;
+  bis3_min?: number | null;
   status: string;
   /** Chronik: wer hat wann was geändert — Regel #7, hier auch lesbar, nicht nur geschrieben */
   freigabe_log?: LogZeile[];
@@ -96,7 +99,9 @@ function teamKuerzel(bezeichnung: string): string {
 }
 /** Feste Gründe für Korrekturen — kein Freitext, aber immer ein «warum» (Regel #7). */
 const GRUENDE = ['Mit Chefmonteur abgeklärt', 'Pause abgezogen', 'Anreise ist keine Arbeitszeit', 'Tippfehler im Teamgerät'];
-const FELD: Record<string, string> = { normal_min: 'Normalzeit', ueber_min: 'Überzeit' };
+const FELD: Record<string, string> = { normal_min: 'Normalzeit', ueber_min: 'Überzeit', zeiten: 'Zeiten' };
+/** Grund im freigabe_log beim Znüni-Abzug (09.10.2026) — fest, wie die übrigen Korrekturgründe. */
+const ZNUENI_GRUND = { ab: 'Znüni-Pause abgezogen (Bauherr zahlt sie nicht)', zurueck: 'Znüni-Pause wieder gezählt (Abzug zurückgenommen)' };
 const ABWEICHUNG_KURZ: Record<string, string> = { zusaetzlich: 'zusätzlich gearbeitet', warten: 'warten müssen', kaputt: 'etwas kaputt', laenger: 'länger gearbeitet' };
 /** «länger» (alte Daten) erklärt den langen Tag — kein eigener Hinweis. */
 const laengerOhneKunde = (tm: { abweichung_typ: string | null; wer_hats_gewollt: string | null }) => tm.abweichung_typ === 'laenger' && tm.wer_hats_gewollt !== 'kunde';
@@ -145,8 +150,9 @@ export function Cockpit() {
     const w = params.get('woche');
     if (w && /^\d{4}-\d{2}-\d{2}$/.test(w)) return montag(new Date(w + 'T12:00:00'));
     const heute = new Date();
-    const dieseWoche = montag(heute);
-    return heute.getDay() === 1 || heute.getDay() === 2 ? addTage(dieseWoche, -7) : dieseWoche;
+    // Montag/Dienstag: Vorwoche — die wird noch abgeschlossen (09.10.2026, Amir)
+    const vorwoche = heute.getDay() === 1 || heute.getDay() === 2;
+    return montag(vorwoche ? addTage(heute, -7) : heute);
   });
   const istAktuelleWoche = iso(wochenStart) === iso(montag(new Date()));
   const istVorwoche = iso(wochenStart) < iso(montag(new Date()));
@@ -238,25 +244,28 @@ export function Cockpit() {
     if (!supabase) return;
     setLaedt(true);
     const c = supabase;
-    // Transkript-Spalten kommen mit Migration 0009, Zeiten von–bis mit 0016 — fehlen sie noch, ohne sie laden statt gar nicht
-    const auswahl = (mitTranskript: boolean, mitZeiten: boolean) =>
-      'id,normal_min,ueber_min,status,' + (mitZeiten ? 'von_min,bis_min,von2_min,bis2_min,' : '') +
+    // Transkript-Spalten kommen mit Migration 0009, Zeiten von–bis mit 0016, die dritte Spanne (Znüni-Abzug) mit 0029 —
+    // fehlen sie noch, ohne sie laden statt gar nicht
+    const auswahl = (mitTranskript: boolean, mitZeiten: boolean, mitDritter: boolean) =>
+      'id,normal_min,ueber_min,status,' + (mitZeiten ? 'von_min,bis_min,von2_min,bis2_min,' + (mitDritter ? 'von3_min,bis3_min,' : '') : '') +
       'freigabe_log(feld,alt,neu,begruendung,wann),mitarbeiter:mitarbeiter_id(id,name,funktion,typ),tagesmeldung:tagesmeldung_id!inner(id,datum,normalfall,abweichung_typ,wer_hats_gewollt,transkript,' +
       (mitTranskript ? 'transkript_quelle,transkript_sprache,transkript_fehler,' : '') +
       'audio_pfad,audio_sekunden,' + (regie ? 'regie_entscheid,regie_grund,' : '') +
       'team:team_id(id,bezeichnung),baustelle:baustelle_id(id,konto_nr,bezeichnung),foto(id,pfad)' +
       (regie ? ',regierapport(id,status,nummer)' : '') + ')';
     const eintraegeLaden = async () => {
-      const lade = (t: boolean, z: boolean) => c.from('zeiteintrag').select(auswahl(t, z)).gte('tagesmeldung.datum', vonIso).lte('tagesmeldung.datum', bisIso);
+      const lade = (t: boolean, z: boolean, d: boolean) => c.from('zeiteintrag').select(auswahl(t, z, d)).gte('tagesmeldung.datum', vonIso).lte('tagesmeldung.datum', bisIso);
       let mitTranskript = true;
       let mitZeiten = true;
-      for (let versuch = 0; versuch < 3; versuch++) {
-        const erg = await lade(mitTranskript, mitZeiten);
+      let mitDritter = true;
+      for (let versuch = 0; versuch < 4; versuch++) {
+        const erg = await lade(mitTranskript, mitZeiten, mitDritter);
+        if (erg.error && mitDritter && /(von3_min|bis3_min) does not exist/.test(erg.error.message)) { mitDritter = false; continue; }
         if (erg.error && mitZeiten && /(von2?_min|bis2?_min) does not exist/.test(erg.error.message)) { mitZeiten = false; continue; }
         if (erg.error && mitTranskript && /transkript_\w+ does not exist/.test(erg.error.message)) { mitTranskript = false; continue; }
         return erg;
       }
-      return lade(false, false);
+      return lade(false, false, false);
     };
     const z = await eintraegeLaden();
     if (z.error) setLadeFehler(z.error.message);
@@ -555,6 +564,49 @@ export function Cockpit() {
     setKorrektur(null);
     void laden();
   }
+  /**
+   * Znüni 9:00–9:30 abziehen oder wieder zählen (09.10.2026, Amir): zahlt der Bauherr die Pause nicht, wird der
+   * Vormittag geteilt (7:00–9:00 und 9:30–12:00). Die Stunden verschieben sich um genau diese 30 Minuten — eine
+   * frühere Korrektur bleibt stehen — und werden am normalen Arbeitstag der Firma neu aufgeteilt.
+   * Weg wie die Korrektur ohne RPC: Zeile ändern, dann jede Änderung mit Grund ins freigabe_log (Regel #7).
+   * Nur offene Einträge, wie die Korrektur; ohne Zeiten (nur Stundenzahl) gibt es den Knopf nicht.
+   */
+  async function pauseUmschalten(e: Eintrag) {
+    if (!supabase || !userId || speichert || e.status !== 'offen') return;
+    const alt = ausSpalten(e);
+    const abziehen = !pauseAbgezogen(alt);
+    const neu = abziehen ? pauseAbziehen(alt) : pauseZaehlen(alt);
+    if (neu === alt) return;
+    const altTotal = e.normal_min + e.ueber_min;
+    const neuTotal = Math.max(0, altTotal + spannenMinuten(neu) - spannenMinuten(alt));
+    const stundenNeu = aufteilen(neuTotal);
+    // Spalten 3 nur anfassen, wenn es sie braucht — vor Migration 0029 bleibt so jeder Abzug ohne Nachmittag möglich.
+    // Fällt die dritte Spanne weg (wieder zählen), muss sie ausdrücklich geleert werden.
+    const spalten = { ...zuSpalten(neu), ...(alt.length > 2 && neu.length <= 2 ? { von3_min: null, bis3_min: null } : {}) };
+    const grund = abziehen ? ZNUENI_GRUND.ab : ZNUENI_GRUND.zurueck;
+    setSpeichert(true);
+    setKorrektur(null);
+    const u = await supabase.from('zeiteintrag').update({ ...spalten, ...stundenNeu }).eq('id', e.id).eq('status', 'offen').select('id');
+    if (u.error) {
+      melden(/(von3_min|bis3_min)/.test(u.error.message) && /does not exist|schema cache/.test(u.error.message)
+        ? 'Die Datenbank kennt die Zeit nach der Pause noch nicht — Migration 0029 fehlt.'
+        : 'Pause konnte nicht gespeichert werden: ' + u.error.message, 'fehler');
+    } else if ((u.data ?? []).length === 0) {
+      melden(`${e.mitarbeiter.name}: nicht geändert — der Eintrag ist schon freigegeben.`, 'fehler');
+    } else {
+      const logs = [
+        { zeiteintrag_id: e.id, wer: userId, feld: 'zeiten', alt: zeitenText(e), neu: zeitenText(spalten), begruendung: grund },
+        ...(stundenNeu.normal_min !== e.normal_min ? [{ zeiteintrag_id: e.id, wer: userId, feld: 'normal_min', alt: String(e.normal_min), neu: String(stundenNeu.normal_min), begruendung: grund }] : []),
+        ...(stundenNeu.ueber_min !== e.ueber_min ? [{ zeiteintrag_id: e.id, wer: userId, feld: 'ueber_min', alt: String(e.ueber_min), neu: String(stundenNeu.ueber_min), begruendung: grund }] : []),
+      ];
+      const l = await supabase.from('freigabe_log').insert(logs);
+      if (l.error) melden('Gespeichert, aber nicht protokolliert: ' + l.error.message, 'fehler');
+      else melden(`${e.mitarbeiter.name}: ${abziehen ? 'Pause abgezogen' : 'Pause wieder gezählt'} · ${stunden(altTotal)} → ${stunden(neuTotal)} h ✓`);
+    }
+    setSpeichert(false);
+    void laden();
+  }
+
   /** Ganzes Team an einem Tag auf denselben Wert — statt 3 × 4 Aufklappvorgänge. */
   async function teamSetzen(liste: Eintrag[], total: number, grund: string) {
     if (!supabase || !userId || liste.length === 0 || speichert) return;
@@ -866,6 +918,23 @@ export function Cockpit() {
                                             </span>}
                                         {/* Zeiten von–bis, wie das Team sie eingetragen hat — ohne Pausenrechnung (20.09.) */}
                                         {zeitenText(e) && <span className="font-mono tabular-nums text-ink2">· {zeitenText(e)}</span>}
+                                        {/* Znüni 9:00–9:30: bezahlt, zählt mit — zahlt der Bauherr sie nicht, hier abziehen (09.10.2026). Nur mit Zeiten. */}
+                                        {darfFreigeben && e.status === 'offen' && (() => {
+                                          const sp = ausSpalten(e);
+                                          const ab = pauseAbgezogen(sp);
+                                          if (!ab && !kannPauseAbziehen(sp)) return null;
+                                          return (
+                                            <button
+                                              type="button"
+                                              disabled={!userId || speichert}
+                                              onClick={() => void pauseUmschalten(e)}
+                                              title={ab ? 'Pause 9:00–9:30 wieder als Arbeitszeit zählen' : 'Der Bauherr zahlt die Pause 9:00–9:30 nicht — 30 Minuten abziehen'}
+                                              className="font-semibold text-steel underline underline-offset-2 hover:text-ink disabled:opacity-60"
+                                            >
+                                              {ab ? 'Pause wieder zählen' : 'Pause abziehen (9:00–9:30)'}
+                                            </button>
+                                          );
+                                        })()}
                                       </span>
                                     </span>
                                     <span className="flex shrink-0 items-center gap-1.5">
@@ -1062,7 +1131,7 @@ export function Cockpit() {
                             <summary className="cursor-pointer font-semibold uppercase tracking-wide">Verlauf</summary>
                             {detail.flatMap((e) => (e.freigabe_log ?? []).map((l) => ({ ...l, wer_name: e.mitarbeiter.name }))).sort((a, b) => a.wann.localeCompare(b.wann)).map((l, i) => (
                               <p key={i} className="mt-0.5">
-                                {ch(new Date(l.wann))} {new Date(l.wann).toLocaleTimeString('de-CH', { hour: '2-digit', minute: '2-digit' })} · {l.wer_name}: {l.feld === 'status' ? 'freigegeben' : `${FELD[l.feld] ?? l.feld} ${stunden(Number(l.alt))} → ${stunden(Number(l.neu))} h`}{l.begruendung ? ` · ${l.begruendung}` : ''}
+                                {ch(new Date(l.wann))} {new Date(l.wann).toLocaleTimeString('de-CH', { hour: '2-digit', minute: '2-digit' })} · {l.wer_name}: {l.feld === 'status' ? 'freigegeben' : l.feld === 'zeiten' ? `${FELD.zeiten} ${l.alt ?? '–'} → ${l.neu ?? '–'}` : `${FELD[l.feld] ?? l.feld} ${stunden(Number(l.alt))} → ${stunden(Number(l.neu))} h`}{l.begruendung ? ` · ${l.begruendung}` : ''}
                               </p>
                             ))}
                           </details>
