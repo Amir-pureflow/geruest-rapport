@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { ANSICHT_LABEL, useAnsicht, type Ansicht } from '../lib/ansicht';
-import { ChevronRight, ChevronDown, LayoutDashboard, CalendarDays, CalendarRange, Download, Settings, Smartphone, PhoneCall, FileText, BarChart3, CalendarPlus, ArrowLeftRight, LogOut, type LucideIcon } from 'lucide-react';
+import { ChevronRight, ChevronDown, LayoutDashboard, CalendarDays, CalendarRange, Download, Settings, PhoneCall, FileText, BarChart3, CalendarPlus, ArrowLeftRight, LogOut, type LucideIcon } from 'lucide-react';
 import { einstellungen } from '../lib/einstellungen';
 import { abmelden } from '../lib/konto';
 import { eigeneFirma } from '../lib/einstellungen';
@@ -190,12 +190,7 @@ export function navFuer(a: 'bauf' | 'sekretariat'): NavGruppe[] {
         { zu: '/verwaltung', label: 'Verwaltung', icon: Settings },
       ],
     },
-    ...(a === 'bauf'
-      ? [{
-          titel: 'Weitere',
-          eintraege: [{ zu: '/erfassung?wahl', label: 'Erfassung (Teamgerät)', icon: Smartphone }],
-        }]
-      : []),
+    // «Erfassung (Teamgerät)» nicht mehr im Menü des Bauführers (09.10.2026, Amir: «hat nichts mit dem Bauführer zu tun»)
   ];
 }
 
