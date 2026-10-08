@@ -81,6 +81,20 @@ Regiebeträge und das Freigabe-Protokoll lesen. Darum die Anmeldung und `0019`.
 Teamgerät teilen den Zugang der Firma; im `freigabe_log` steht dann die Firma, nicht die Person. Persönliche Konten
 und Rechte je Rolle sind der nächste Schritt — `benutzer` ist dafür vorbereitet, mehrere Konten dürfen zu einer Firma
 gehören.
+
+**Zugang für Monteur und Chefmonteur (09.10.2026, Migration `0032`).** Büro-Ansichten melden sich mit Mail und
+Passwort an. Baustellen-Ansichten nicht: Der Bauführer öffnet Verwaltung → Mitarbeitende → Person → «Zugang
+einladen», schickt den Link per WhatsApp (`wa.me`, Nummer aus `mitarbeiter.telefon`), der Monteur tippt ihn **einmal**
+an — danach bleibt das Gerät gekoppelt. Grund: Regel #4 (abends auf dem Gerüst gibt es kein Netz für eine Anmeldung),
+Regel #2 (kein Tippen) und der Umstand, dass die meisten Monteure und alle Temporären nie im Büro sind.
+- Der Link `/e/:token` ist wie `/b/:token` **ohne Anmeldung** erreichbar, 24 h gültig, einmal verwendbar.
+  Das Öffnen verbraucht ihn nicht (WhatsApp ruft Links selbst auf) — erst der Knopf.
+- Eingelöst wird über die Edge Function `einladung` (`verify_jwt: false`). Sie legt **je Gerät** einen eigenen
+  Auth-Zugang an, hängt ihn in `benutzer` an die Firma und gibt die Sitzung zurück.
+- Sperren: `geraet_sperren(id)` setzt `gesperrt` und löscht die Zeile in `benutzer` → `aktuelle_firma()` ist null,
+  das Gerät sieht nichts mehr. Als Funktion, weil die App auf `benutzer` nur die eigene Zeile lesen darf.
+- ⚠ **Rechte je Rolle gibt es weiterhin nur in der Oberfläche.** Ein gekoppeltes Monteur-Gerät hat an der Datenbank
+  dieselben Rechte wie der Bauführer. `geraet.ansicht` hält die Rolle schon fest, damit die Regeln später andocken.
 - Bauführer: Tagesübersicht, Wochenübersicht (freigeben, korrigieren), SORBA-Raster, Verwaltung, Erfassung (Test).
 - Sekretariat (17.09.): Übersicht Stunden je Mitarbeiter, Export (Lohn, Überstunden, Temporärbüros), Verwaltung —
   nur ansehen im Cockpit. **Lohn sieht nur das Sekretariat** (Bauführer 20.09.: «kein Zugriff hier drauf»).
@@ -257,6 +271,9 @@ src/lib/ansicht.ts                Ansicht lesen/setzen, Seiten je Ansicht (seite
 src/lib/einstellungen.ts          Schalter der angemeldeten Firma: lesen, zwischenspeichern, setzen
 src/lib/konto.ts                  Anmelden, abmelden, «ist jemand angemeldet»
 src/seiten/Anmelden.tsx           Anmeldung der Firma — die erste Seite
+src/lib/einladung.ts              Einladungslink: Adresse bauen, wa.me-Nummer, Gültigkeit, einlösen (+ Tests)
+src/seiten/Koppeln.tsx            /e/:token ohne Anmeldung — «Bist du das?», ein Knopf, Gerät gekoppelt
+src/seiten/verwaltung/Zugang.tsx  Im Mitarbeiter-Dialog: einladen, per WhatsApp schicken, Geräte sehen und sperren
 src/seiten/verwaltung/Einstellungen.tsx  Die drei Schalter umlegen (lädt die App danach neu)
 src/ui/Karten.tsx                 NavKarte, Kachel, MONATE — gemeinsam für alle Startseiten
 src/seiten/Tag.tsx                Tagesübersicht: welche Teams haben gemeldet, welche nicht
@@ -290,7 +307,8 @@ src/ui/FotoGalerie.tsx            Vorschau aus dem Bucket «anhaenge» (signiert
 src/ui/Sprachnotiz.tsx            Pegelbalken während der Aufnahme, Text-Enthüllung nach dem Speichern
 src/ui/Shell.tsx                  Rahmen: Büro-Ansichten mit Bereichsleiste (md) / Seitenleiste (lg), Baustellen-Ansichten Handy-Spalte
 supabase/functions/transkribieren Sprachnotiz → Text (Mistral)
-supabase/migrations/              0001–0015 historisch (inkl. Regie-Tabellen) · 0016 Zeiten von–bis · 0017 Firmen-Schalter (durch 0019 abgelöst) · 0019 mehrere Firmen, Rechte je Firma · 0020 Dateien und Rapportnummern je Firma · 0021 Briefkopf je Firma
+supabase/functions/einladung      Einladungslink einlösen (verify_jwt false) — Zugang je Gerät, Sitzung zurück
+supabase/migrations/              0001–0015 historisch (inkl. Regie-Tabellen) · 0016 Zeiten von–bis · 0017 Firmen-Schalter (durch 0019 abgelöst) · 0019 mehrere Firmen, Rechte je Firma · 0020 Dateien und Rapportnummern je Firma · 0021 Briefkopf je Firma · 0032 Einladung und Gerät (Zugang für Monteur/Chefmonteur)
 archiv/regie-und-board/           Stand vom 20.09. als Nachschlagewerk — nicht mehr die Quelle (Regie ist zurück, hinter Schaltern)
 ```
 
