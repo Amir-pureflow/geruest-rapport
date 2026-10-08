@@ -225,12 +225,14 @@ export function RegieDetail() {
   const [fotoLaedt, setFotoLaedt] = useState(false);
   /** Bilder nachreichen — z. B. vom Bauführer selbst gemacht oder per Mail vom Team bekommen. */
   async function fotosNachreichen(e: ChangeEvent<HTMLInputElement>) {
-    const dateien = e.target.files;
+    // Erst kopieren, dann das Feld leeren: `files` ist eine lebendige Liste — nach `value = ''` ist sie leer,
+    // und «Bilder nachreichen» tat still nichts (08.10.2026).
+    const dateien = Array.from(e.target.files ?? []);
     e.target.value = '';
-    if (!supabase || !id || !dateien || dateien.length === 0) return;
+    if (!supabase || !id || dateien.length === 0) return;
     setFotoLaedt(true);
     const { data: u } = await supabase.auth.getUser();
-    for (const datei of Array.from(dateien).slice(0, 6)) {
+    for (const datei of dateien.slice(0, 6)) {
       try {
         const blob = await fotoVerkleinern(datei);
         const fid = crypto.randomUUID();
