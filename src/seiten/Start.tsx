@@ -11,7 +11,7 @@ import { DiagrammKarte, Trichter, WochenTeams } from '../ui/Diagramm';
 import { TeamBoard } from '../ui/TeamBoard';
 import { teamStand, trichter, wochenTeams, type TeamStand, type TrichterDaten, type WochenTag } from '../lib/kennzahlen';
 import { useAnsicht } from '../lib/ansicht';
-import { einstellungen } from '../lib/einstellungen';
+import { einstellungen, gelbePersonen } from '../lib/einstellungen';
 import { formatChf } from '../lib/tarif';
 import { StartChef } from './StartChef';
 import { StartMonteur } from './StartMonteur';
@@ -28,17 +28,26 @@ interface Kennzahlen {
    * Team-Tage der Vorwoche mit offenen Überstunden, die noch einen Entscheid brauchen — gleich gezählt wie
    * «Zum Anschauen» in der Wochenübersicht (08.10.2026: vorher Zeiteinträge = Personen, darum 8 statt 2).
    * Im Regie-Modus fällt ein Tag weg, sobald ein Regierapport oder «keine Regie» dazu steht.
+   * Überstunden zählen erst ab «Gelb markieren ab» der Firma (Tagestotal einer Person, 09.10.2026).
    */
   ueberOffen: number;
 }
 
-interface UeberZeile { team_id: string; datum: string; baustelle_id: string; regie_entscheid?: string | null; regierapport?: { id: string }[] | null }
+interface UeberZeile {
+  team_id: string; datum: string; baustelle_id: string; regie_entscheid?: string | null; regierapport?: { id: string }[] | null;
+  zeiteintrag: { mitarbeiter_id: string; normal_min: number; ueber_min: number; status: string }[] | null;
+}
 
 /** Team-Tage (Team · Datum · Baustelle) mit offenen Überstunden; im Regie-Modus ohne die schon entschiedenen. */
 function ueberTage(zeilen: UeberZeile[], regie: boolean): number {
   const schluessel = (z: UeberZeile) => `${z.team_id}|${z.datum}|${z.baustelle_id}`;
-  const entschieden = new Set(zeilen.filter((z) => regie && ((z.regierapport?.length ?? 0) > 0 || !!z.regie_entscheid)).map(schluessel));
-  return new Set(zeilen.map(schluessel).filter((k) => !entschieden.has(k))).size;
+  // Gelb erst ab dem Tagestotal einer Person — darum alle Einträge der Woche laden, nicht nur die mit Überstunden
+  const personTag = (datum: string, id: string) => `${id}|${datum}`;
+  const gelb = gelbePersonen(zeilen.flatMap((z) => (z.zeiteintrag ?? []).map((e) => ({ person: personTag(z.datum, e.mitarbeiter_id), normal_min: e.normal_min, ueber_min: e.ueber_min }))));
+  const mitUeber = zeilen.filter((z) => (z.zeiteintrag ?? []).some((e) => e.status === 'offen' && e.ueber_min > 0));
+  const gelbeZeilen = mitUeber.filter((z) => (z.zeiteintrag ?? []).some((e) => e.status === 'offen' && e.ueber_min > 0 && gelb.has(personTag(z.datum, e.mitarbeiter_id))));
+  const entschieden = new Set(mitUeber.filter((z) => regie && ((z.regierapport?.length ?? 0) > 0 || !!z.regie_entscheid)).map(schluessel));
+  return new Set(gelbeZeilen.map(schluessel).filter((k) => !entschieden.has(k))).size;
 }
 
 /**
@@ -129,8 +138,7 @@ function StartBauf() {
         c.from('team').select('id', { count: 'exact', head: true }).eq('aktiv', true),
         c.from('tagesmeldung').select('datum,team_id,zeiteintrag!inner(id)').eq('zeiteintrag.status', 'offen').lt('datum', wochenStart),
         c.from('tagesmeldung')
-          .select('team_id,datum,baustelle_id,' + (regie ? 'regie_entscheid,regierapport(id),' : '') + 'zeiteintrag!inner(id)')
-          .eq('zeiteintrag.status', 'offen').gt('zeiteintrag.ueber_min', 0)
+          .select('team_id,datum,baustelle_id,' + (regie ? 'regie_entscheid,regierapport(id),' : '') + 'zeiteintrag(mitarbeiter_id,normal_min,ueber_min,status)')
           .gte('datum', vorwoche).lt('datum', wochenStart),
       ]);
       const erster = [tm, teams, zp, uo].find((r) => r.error);

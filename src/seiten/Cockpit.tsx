@@ -6,7 +6,7 @@ import { FotoGalerie } from '../ui/FotoGalerie';
 import { supabase } from '../lib/supabase';
 import { addTage, iso, kurz as ch, kw, montag, stunden } from '../lib/datum';
 import { aufteilen as aufteilenTag } from '../lib/zeiten';
-import { normaltagMin } from '../lib/einstellungen';
+import { gelbePersonen, normaltagMin } from '../lib/einstellungen';
 import { zeitenText } from '../lib/zeiten';
 import { useAnsicht } from '../lib/ansicht';
 import { einstellungen } from '../lib/einstellungen';
@@ -18,6 +18,7 @@ import { minutenBetrag, formatChf, tarifNachCode, RUECKFALL_ANSATZ_RAPPEN } from
  * Aufbau (17.09.): ein Raster — jedes Team eine Zeile, sieben Zellen Mo–So mit Teamstunden, Farbe = Stand
  * (weiss offen, grün freigegeben, gelb Überstunden, rot über 10 h). Zelle antippen öffnet den Tag:
  * Personen mit Stunden und Zeiten, Korrektur, Überstunden-Karte mit Sprachnotiz, Bemerkung zum Tag, «Tag freigeben».
+ * Gelb wird ein Tag erst ab «Gelb markieren ab» der Firma (09.10.2026, Tagestotal einer Person, Gerüst GmbH 9.0 h).
  * Dazu «N Tage freigeben» je Team und ein Knopf oben für alle Tage ohne Hinweis. Kein Montag-Zwang.
  *
  * Firmen-Schalter `MODUS_ERFASSUNG` (02.10.2026) entscheidet, was mit den Überstunden passiert:
@@ -297,6 +298,16 @@ export function Cockpit() {
   }, [eintraege]);
 
   /**
+   * Personen-Tage (`id|datum`), deren Überstunden gelb werden — erst ab «Gelb markieren ab» der Firma (09.10.2026,
+   * Gerüst GmbH 9.0 h Tagestotal). Darunter sieht der Tag aus wie jeder andere; im Lohn zählen die Überstunden trotzdem.
+   */
+  const gelb = useMemo(
+    () => gelbePersonen(eintraege.map((e) => ({ person: `${e.mitarbeiter.id}|${e.tagesmeldung.datum}`, normal_min: e.normal_min, ueber_min: e.ueber_min }))),
+    [eintraege],
+  );
+  const ueberGelb = (e: Eintrag) => hatUeberstunden(e) && gelb.has(`${e.mitarbeiter.id}|${e.tagesmeldung.datum}`);
+
+  /**
    * Team + Tag + Baustelle, für die schon ein Regierapport oder ein «Keine Regie»-Entscheid existiert —
    * egal an welcher Meldung. Alte Daten haben denselben Tag zweimal (normaler Tag mit Überstunden +
    * Abweichung mit Rapport); der Rapport gilt für beide (Entscheid 15.09.).
@@ -324,10 +335,10 @@ export function Cockpit() {
     // Über 10 h ist nur dann ein offener Hinweis, wenn das Team den langen Tag nicht selbst erklärt hat (Überstunden mit Notiz)
     const erklaert = liste.some((e) => e.tagesmeldung.abweichung_typ === 'laenger' || hatUeberstunden(e));
     if (summe > ZEHN_STUNDEN_MIN && !erklaert) return 'rot';
-    // Überstunden (oder eine Abweichung) = Hinweis: der Bauführer liest die Notiz, prüft die Stunden, gibt frei.
-    // Im Regie-Modus fällt der Hinweis weg, sobald ein Rapport oder ein «keine Regie» dazu steht.
+    // Überstunden ab «Gelb markieren ab» (oder eine Abweichung) = Hinweis: der Bauführer liest die Notiz, prüft die
+    // Stunden, gibt frei. Im Regie-Modus fällt der Hinweis weg, sobald ein Rapport oder ein «keine Regie» dazu steht.
     const hinweis = liste.some(
-      (e) => !regieBeantwortet(e) && (hatUeberstunden(e) || (e.tagesmeldung.abweichung_typ !== null && !laengerOhneKunde(e.tagesmeldung))),
+      (e) => !regieBeantwortet(e) && (ueberGelb(e) || (e.tagesmeldung.abweichung_typ !== null && !laengerOhneKunde(e.tagesmeldung))),
     );
     if (hinweis) return 'gelb';
     return 'gruen';
@@ -346,16 +357,18 @@ export function Cockpit() {
       const ausloeser: string[] = [];
       const meldungEintraege = eintraege.filter((x) => x.tagesmeldung.id === tm.id);
       const ueberMin = meldungEintraege.reduce((s, x) => s + x.ueber_min, 0);
+      // Eine Karte erst ab «Gelb markieren ab» — darunter steht die Notiz als «Bemerkung zum Tag» da
+      const ueberHinweis = meldungEintraege.some(ueberGelb);
       // «länger» ohne Kunden (alte Meldungen): die Erklärung für den langen Tag — als ruhige Infokarte
       const info = laengerOhneKunde(tm);
       if (tm.abweichung_typ && !info) ausloeser.push(`Team meldet «${ABWEICHUNG_KURZ[tm.abweichung_typ] ?? tm.abweichung_typ}»`);
       if (tm.wer_hats_gewollt === 'kunde') ausloeser.push('Team: der Kunde wollte es');
-      if (tm.normalfall && ueberMin > 0) ausloeser.push(`Team meldet ${stunden(ueberMin)} h Überstunden${tm.transkript || tm.audio_pfad ? ' — Sprachnotiz unten' : ''}`);
+      if (ueberHinweis) ausloeser.push(`Team meldet ${stunden(ueberMin)} h Überstunden${tm.transkript || tm.audio_pfad ? ' — Sprachnotiz unten' : ''}`);
       if (laengerOhneKunde(tm)) ausloeser.push('Team meldet «länger gearbeitet»', tm.wer_hats_gewollt === 'chef' ? 'unser Chef wollte es' : 'niemand hat es verlangt');
       if (ausloeser.length === 0) continue;
       // Regie-Modus: hat eine andere Meldung desselben Team-Tags auf derselben Baustelle schon einen Rapport,
       // braucht dieser normale Tag keine eigene Karte mehr — sonst stünde die Frage zweimal.
-      if (regie && tm.normalfall && ueberMin > 0 && (tm.regierapport?.length ?? 0) === 0 && !tm.regie_entscheid
+      if (regie && ueberHinweis && (tm.regierapport?.length ?? 0) === 0 && !tm.regie_entscheid
           && beantwortet.has(`${tm.team?.id}|${tm.datum}|${tm.baustelle?.id}`)) continue;
       gesehen.add(tm.id);
       faelle.push({
@@ -370,7 +383,8 @@ export function Cockpit() {
       });
     }
     return faelle;
-  }, [eintraege, regie, beantwortet]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [eintraege, regie, beantwortet, gelb]);
 
   const wochenTage = useMemo(() => TAGE.map((_, i) => iso(addTage(wochenStart, i))), [wochenStart]);
 
@@ -901,7 +915,8 @@ export function Cockpit() {
                           </p>
                         )}
 
-                        {/* Bemerkung zum Tag: Sprachnotiz ohne Überstunden (seit 20.09. immer möglich). Meldungen mit Überstunden-Karte zeigen die Notiz dort. */}
+                        {/* Bemerkung zum Tag: Sprachnotiz ohne Überstunden-Karte (seit 20.09. immer möglich; seit 09.10. auch Überstunden
+                            unter «Gelb markieren ab»). Meldungen mit Überstunden-Karte zeigen die Notiz dort. */}
                         {[...new Map(detail.filter((e) => (e.tagesmeldung.transkript || e.tagesmeldung.audio_pfad) && !faelle.some((f) => f.meldung.id === e.tagesmeldung.id)).map((e) => [e.tagesmeldung.id, e.tagesmeldung])).values()].map((meldung) => (
                           <div key={meldung.id} className="rounded-[12px] border border-line bg-ground p-3">
                             <p className="font-display text-[14px] font-semibold">

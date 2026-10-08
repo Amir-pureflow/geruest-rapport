@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { aufteilen, ausUhrzeit, mittagMinuten, spannenMinuten, spannenUeberlappen, standardSpannen, uhrzeit, uhrzeitFeld, zeitenText, zuSpalten } from './zeiten';
+import { aufteilen, ausUhrzeit, markiertePersonen, mittagMinuten, spannenMinuten, spannenUeberlappen, standardSpannen, ueberMarkiert, uhrzeit, uhrzeitFeld, zeitenText, zuSpalten } from './zeiten';
 import { NORMALTAG_MIN } from './datum';
 
 describe('Uhrzeit ↔ Minuten', () => {
@@ -97,5 +97,53 @@ describe('aufteilen — normaler Arbeitstag je Firma (08.10.2026)', () => {
   });
   it('ohne Angabe gilt weiter 8.4 h', () => {
     expect(aufteilen(600)).toEqual(aufteilen(600, NORMALTAG_MIN));
+  });
+});
+
+describe('ueberMarkiert — «Gelb markieren ab» je Firma (09.10.2026)', () => {
+  it('Gerüst GmbH ab 9.0 h: 8.4 normal + 0.4 Überstunden = 8.8 h bleibt ruhig', () => {
+    expect(ueberMarkiert(504, 24, 540)).toBe(false);
+  });
+  it('ab 9.0 h Tagestotal wird gelb', () => {
+    expect(ueberMarkiert(504, 36, 540)).toBe(true);
+    expect(ueberMarkiert(504, 96, 540)).toBe(true);
+  });
+  it('ohne Überstunden nie gelb, auch über der Schwelle', () => {
+    expect(ueberMarkiert(540, 0, 540)).toBe(false);
+    expect(ueberMarkiert(600, 0, null)).toBe(false);
+  });
+  it('null = wie bisher: jede Überstunde wird gelb, auch neben weniger Normalstunden', () => {
+    expect(ueberMarkiert(504, 6, null)).toBe(true);
+    expect(ueberMarkiert(240, 60, null)).toBe(true);
+  });
+  it('Schwelle = normaler Arbeitstag: jede Überstunde über 8.4 h wird gelb', () => {
+    expect(ueberMarkiert(NORMALTAG_MIN, 6, NORMALTAG_MIN)).toBe(true);
+    expect(ueberMarkiert(NORMALTAG_MIN, 24, NORMALTAG_MIN)).toBe(true);
+  });
+  it('die Überstunden selbst bleiben, wie sie sind — markiert wird nur die Anzeige', () => {
+    expect(aufteilen(528)).toEqual({ normal_min: 504, ueber_min: 24 });
+    expect(ueberMarkiert(504, 24, 540)).toBe(false);
+  });
+});
+
+describe('markiertePersonen — die Schwelle gilt fürs Tagestotal der Person', () => {
+  it('zählt alle Einträge einer Person zusammen (normaler Tag + Zusatzarbeit)', () => {
+    const tag = [
+      { person: 'p1', normal_min: 504, ueber_min: 24 },
+      { person: 'p1', normal_min: 30, ueber_min: 0 },
+      { person: 'p2', normal_min: 504, ueber_min: 24 },
+    ];
+    expect(markiertePersonen(tag, 540)).toEqual(new Set(['p1']));
+  });
+  it('ohne Schwelle ist jede Person mit Überstunden gelb', () => {
+    const tag = [
+      { person: 'p1', normal_min: 504, ueber_min: 24 },
+      { person: 'p2', normal_min: 504, ueber_min: 0 },
+    ];
+    expect(markiertePersonen(tag, null)).toEqual(new Set(['p1']));
+  });
+  it('Personen ohne Überstunden sind nie gelb', () => {
+    expect(markiertePersonen([{ person: 'p1', normal_min: 600, ueber_min: 0 }], 540).size).toBe(0);
+    expect(markiertePersonen([], 540).size).toBe(0);
   });
 });

@@ -83,6 +83,32 @@ export function aufteilen(total: number, normalMin: number = NORMALTAG_MIN): { n
   return { normal_min: Math.min(t, n), ueber_min: Math.max(0, t - n) };
 }
 
+/**
+ * Gelb markieren (09.10.2026): Überstunden gemeldet UND die Person kommt am Tag auf mindestens `schwelleMin`
+ * (Firmen-Einstellung «Gelb markieren ab», Gerüst GmbH 9.0 h). Darunter sieht der Tag aus wie jeder andere —
+ * gezählt und bezahlt werden die Überstunden trotzdem ab dem normalen Arbeitstag (`aufteilen`).
+ * `schwelleMin` null = wie der normale Arbeitstag: jede Überstunde wird gelb (bisheriges Verhalten).
+ */
+export function ueberMarkiert(normal_min: number, ueber_min: number, schwelleMin: number | null): boolean {
+  return ueber_min > 0 && (schwelleMin === null || normal_min + ueber_min >= schwelleMin);
+}
+
+/**
+ * Welche Personen sind gelb? Alle Einträge einer Person zählen zusammen (normaler Tag + Zusatzarbeit, mehrere
+ * Baustellen) — die Schwelle gilt fürs Tagestotal, nicht für den einzelnen Eintrag. `person` wählt der Aufrufer:
+ * die Mitarbeiter-ID für einen Tag, `id|datum` für eine Woche.
+ */
+export function markiertePersonen(eintraege: { person: string; normal_min: number; ueber_min: number }[], schwelleMin: number | null): Set<string> {
+  const summe = new Map<string, { normal: number; ueber: number }>();
+  for (const e of eintraege) {
+    const s = summe.get(e.person) ?? { normal: 0, ueber: 0 };
+    s.normal += e.normal_min;
+    s.ueber += e.ueber_min;
+    summe.set(e.person, s);
+  }
+  return new Set([...summe].filter(([, s]) => ueberMarkiert(s.normal, s.ueber, schwelleMin)).map(([person]) => person));
+}
+
 /** Spalten des Zeiteintrags (Migration 0016). */
 export interface ZeitSpalten {
   von_min: number | null;

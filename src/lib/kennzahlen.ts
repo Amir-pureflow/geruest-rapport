@@ -8,6 +8,7 @@
  */
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { addTage, iso, montag, WOCHENTAGE, kurz } from './datum';
+import { gelbePersonen } from './einstellungen';
 
 export interface WochenTag {
   label: string;
@@ -72,7 +73,10 @@ export interface TeamStand {
   baustelle: string | null;
   /** Verschiedene Baustellen am selben Tag — dann zählt die Zahl statt eines Namens. */
   anzahlBaustellen: number;
-  /** Überstunden gemeldet (oder eine Abweichung aus alten Daten) — der Bauführer liest die Notiz. */
+  /**
+   * Überstunden gemeldet (oder eine Abweichung aus alten Daten) — der Bauführer liest die Notiz.
+   * Überstunden erst ab «Gelb markieren ab» der Firma (Tagestotal einer Person, 09.10.2026).
+   */
   abweichung: boolean;
 }
 
@@ -86,7 +90,7 @@ export async function teamStand(c: SupabaseClient, datum: Date): Promise<TeamSta
     c.from('team').select('id,bezeichnung,chefmonteur:chefmonteur_id(name)').eq('aktiv', true),
     c
       .from('tagesmeldung')
-      .select('team_id,erfasst_am,normalfall,abweichung_typ,baustelle:baustelle_id(konto_nr,bezeichnung),zeiteintrag(ueber_min)')
+      .select('team_id,erfasst_am,normalfall,abweichung_typ,baustelle:baustelle_id(konto_nr,bezeichnung),zeiteintrag(mitarbeiter_id,normal_min,ueber_min)')
       .eq('datum', tagIso),
   ]);
 
@@ -97,8 +101,12 @@ export async function teamStand(c: SupabaseClient, datum: Date): Promise<TeamSta
     normalfall: boolean;
     abweichung_typ: string | null;
     baustelle: { konto_nr: string; bezeichnung: string | null } | { konto_nr: string; bezeichnung: string | null }[] | null;
-    zeiteintrag: { ueber_min: number }[] | null;
+    zeiteintrag: { mitarbeiter_id: string; normal_min: number; ueber_min: number }[] | null;
   };
+
+  // Gelb erst ab dem Tagestotal einer Person — über alle Meldungen des Tages, auch die anderer Teams
+  const gelb = gelbePersonen(((meldungen.data ?? []) as unknown as MeldZeile[]).flatMap((m) =>
+    (m.zeiteintrag ?? []).map((z) => ({ person: z.mitarbeiter_id, normal_min: z.normal_min, ueber_min: z.ueber_min }))));
 
   const proTeam = new Map<string, MeldZeile[]>();
   for (const m of (meldungen.data ?? []) as unknown as MeldZeile[]) {
@@ -123,7 +131,7 @@ export async function teamStand(c: SupabaseClient, datum: Date): Promise<TeamSta
           : null,
         baustelle: b ? b.bezeichnung || `Konto ${b.konto_nr}` : null,
         anzahlBaustellen: new Set(liste.map((m) => (Array.isArray(m.baustelle) ? m.baustelle[0] : m.baustelle)?.konto_nr ?? '')).size,
-        abweichung: liste.some((m) => !m.normalfall || !!m.abweichung_typ || (m.zeiteintrag ?? []).some((z) => z.ueber_min > 0)),
+        abweichung: liste.some((m) => !m.normalfall || !!m.abweichung_typ || (m.zeiteintrag ?? []).some((z) => z.ueber_min > 0 && gelb.has(z.mitarbeiter_id))),
       };
     })
     .sort((a, b) => a.bezeichnung.localeCompare(b.bezeichnung, 'de', { numeric: true }));

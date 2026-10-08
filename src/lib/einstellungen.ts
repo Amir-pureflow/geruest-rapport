@@ -12,6 +12,7 @@
  */
 import { supabase } from './supabase';
 import { NORMALTAG_MIN } from './datum';
+import { markiertePersonen } from './zeiten';
 
 export interface Einstellungen {
   /** 'wochenblatt' = nur Normal + Überstunden · 'regie' = zusätzlich Symbole, «Wer wollte das?», Stunden je Person */
@@ -20,9 +21,14 @@ export interface Einstellungen {
   sekretariat: 'stunden' | 'voll';
   /** Normaler Arbeitstag in Minuten (Migration 0026) — alles darüber sind Überstunden. Gerüst GmbH 504 = 8.4 h. */
   normaltagMin: number;
+  /**
+   * «Gelb markieren ab» in Minuten (Migration 0028): erst ab diesem Tagestotal einer Person wird ein Tag mit
+   * Überstunden gelb. null = wie der normale Arbeitstag, jede Überstunde wird gelb. Gerüst GmbH 540 = 9.0 h.
+   */
+  markierenAbMin: number | null;
 }
 
-export const STANDARD: Einstellungen = { erfassung: 'wochenblatt', sekretariat: 'stunden', normaltagMin: NORMALTAG_MIN };
+export const STANDARD: Einstellungen = { erfassung: 'wochenblatt', sekretariat: 'stunden', normaltagMin: NORMALTAG_MIN, markierenAbMin: null };
 
 /** Erlaubter Bereich für den normalen Arbeitstag: 6.0 bis 10.0 h, in Schritten von 6 Minuten (0.1 h). */
 export const NORMALTAG_BEREICH = { min: 360, max: 600, schritt: 6 } as const;
@@ -31,16 +37,26 @@ function gueltigerNormaltag(x: unknown): number | null {
   return typeof x === 'number' && Number.isFinite(x) && x >= NORMALTAG_BEREICH.min && x <= NORMALTAG_BEREICH.max ? Math.round(x) : null;
 }
 
+/** Erlaubter Bereich für «Gelb markieren ab»: 6.0 bis 10.0 h — über 10 h bleibt ein Tag damit immer markiert (0028). */
+const MARKIEREN_BEREICH = { min: 360, max: 600 } as const;
+
+function gueltigeMarkierung(x: unknown): number | null {
+  return typeof x === 'number' && Number.isFinite(x) && x >= MARKIEREN_BEREICH.min && x <= MARKIEREN_BEREICH.max ? Math.round(x) : null;
+}
+
 const KEY = 'firma-einstellungen';
 /** Spalte in `firma` je Schalter. */
 const SPALTE = {
   erfassung: 'modus_erfassung',
   sekretariat: 'modus_sekretariat',
   normaltagMin: 'normaltag_min',
+  markierenAbMin: 'markieren_ab_min',
 } as const;
 
 /** Kam der normale Arbeitstag aus der Datenbank? `false` = Migration 0026 fehlt, es gilt der Standard 8.4 h. */
 let normaltagGelesen: boolean | null = null;
+/** Kam «Gelb markieren ab» aus der Datenbank? `false` = Migration 0028 fehlt, jede Überstunde wird gelb. */
+let markierenGelesen: boolean | null = null;
 
 let zwischenspeicher: Einstellungen = lesenLokal();
 /** Hat die Datenbank beim letzten Versuch geliefert? null = noch nicht versucht oder offline. */
@@ -90,7 +106,9 @@ export async function briefkopfSetzen(neu: Briefkopf): Promise<string | null> {
 function lesenLokal(): Einstellungen {
   try {
     const x = JSON.parse(localStorage.getItem(KEY) ?? 'null') as Partial<Einstellungen> | null;
-    return x ? { ...STANDARD, ...x, normaltagMin: gueltigerNormaltag(x.normaltagMin) ?? NORMALTAG_MIN } : STANDARD;
+    return x
+      ? { ...STANDARD, ...x, normaltagMin: gueltigerNormaltag(x.normaltagMin) ?? NORMALTAG_MIN, markierenAbMin: gueltigeMarkierung(x.markierenAbMin) }
+      : STANDARD;
   } catch {
     return STANDARD;
   }
@@ -109,6 +127,27 @@ export function normaltagMin(): number {
 /** Stand die Einstellung «Normaler Arbeitstag» in der Datenbank? `false` = Migration 0026 fehlt noch. */
 export function normaltagAusDatenbank(): boolean | null {
   return normaltagGelesen;
+}
+
+/**
+ * «Gelb markieren ab» dieser Firma in Minuten — null = wie der normale Arbeitstag (jede Überstunde wird gelb).
+ * Nur für die Markierung in Übersicht, Wochen- und Tagesübersicht; Lohn und Export zählen ab `normaltagMin()`.
+ */
+export function markierenAbMin(): number | null {
+  return gueltigeMarkierung(zwischenspeicher.markierenAbMin);
+}
+
+/** Stand «Gelb markieren ab» in der Datenbank? `false` = Migration 0028 fehlt noch. */
+export function markierenAusDatenbank(): boolean | null {
+  return markierenGelesen;
+}
+
+/**
+ * Welche Personen sind gelb — nach der Schwelle dieser Firma. Kurzform von `markiertePersonen` (zeiten.ts):
+ * alle Einträge einer Person am selben Tag zählen zusammen, `person` wählt der Aufrufer.
+ */
+export function gelbePersonen(eintraege: { person: string; normal_min: number; ueber_min: number }[]): Set<string> {
+  return markiertePersonen(eintraege, markierenAbMin());
 }
 
 /**
@@ -159,11 +198,17 @@ export async function einstellungenLaden(): Promise<Einstellungen> {
   const nt = await supabase.from('firma').select('normaltag_min').eq('id', r.id).limit(1);
   const ntWert = !nt.error && nt.data?.[0] ? gueltigerNormaltag((nt.data[0] as { normaltag_min: unknown }).normaltag_min) : null;
   normaltagGelesen = ntWert !== null;
+  // «Gelb markieren ab» (0028) genauso für sich. null ist hier ein echter Wert («wie der Arbeitstag») —
+  // darum zählt, ob die Abfrage geklappt hat, nicht ob ein Wert kam
+  const ma = await supabase.from('firma').select('markieren_ab_min').eq('id', r.id).limit(1);
+  const maZeile = !ma.error && ma.data?.[0] ? (ma.data[0] as { markieren_ab_min: unknown }) : null;
+  markierenGelesen = maZeile !== null;
   const neu: Einstellungen = {
     erfassung: r.modus_erfassung === 'regie' ? 'regie' : 'wochenblatt',
     sekretariat: r.modus_sekretariat === 'voll' ? 'voll' : 'stunden',
     // Fehlt die Spalte noch, kann auch nichts anderes als der Standard gespeichert sein — sonst (kurz kein Netz) der letzte bekannte Wert
     normaltagMin: ntWert ?? zwischenspeicher.normaltagMin,
+    markierenAbMin: maZeile ? gueltigeMarkierung(maZeile.markieren_ab_min) : zwischenspeicher.markierenAbMin,
   };
   zwischenspeicher = neu;
   try { localStorage.setItem(KEY, JSON.stringify(neu)); } catch { /* ohne Speicher läuft es auch */ }
@@ -179,6 +224,9 @@ export async function einstellungSetzen<K extends keyof Einstellungen>(feld: K, 
   if (error) {
     if (feld === 'normaltagMin' && /normaltag_min|does not exist|column/i.test(error.message)) {
       return 'Die Datenbank kennt diese Einstellung noch nicht — Migration 0026 fehlt.';
+    }
+    if (feld === 'markierenAbMin' && /markieren_ab_min|does not exist|column/i.test(error.message) && !/check constraint/i.test(error.message)) {
+      return 'Die Datenbank kennt «Gelb markieren ab» noch nicht — Migration 0028 fehlt.';
     }
     return /row-level security|permission denied|does not exist/i.test(error.message)
       ? 'Die Datenbank lässt das nicht zu. Entweder ist Migration 0019 noch nicht eingespielt, oder dieser Zugang hängt an keiner Firma.'

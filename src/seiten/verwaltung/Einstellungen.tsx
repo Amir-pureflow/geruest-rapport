@@ -4,10 +4,11 @@
  * für alle Geräte dieser Firma. Nach dem Umschalten lädt die App neu, damit Menü und Erfassung passen.
  */
 import { useState } from 'react';
-import { Clock3, Minus, Plus } from 'lucide-react';
+import { Clock3, Highlighter, Minus, Plus } from 'lucide-react';
 import {
   einstellungen, einstellungSetzen, schalterGelesen, eigeneFirma,
   briefkopf, briefkopfSetzen, normaltagMin, normaltagAusDatenbank, NORMALTAG_BEREICH,
+  markierenAbMin, markierenAusDatenbank,
   type Briefkopf, type Einstellungen,
 } from '../../lib/einstellungen';
 import { Segment } from '../../ui/Segment';
@@ -98,6 +99,85 @@ function NormaltagKarte() {
       {ausDatenbank === false && (
         <p className="rounded-[12px] border border-amber/40 bg-amber-soft px-3.5 py-2 text-xs text-amber-deep">
           Die Datenbank kennt diese Einstellung noch nicht (Migration 0026 fehlt) — bis dahin gilt 8.4 h.
+        </p>
+      )}
+    </section>
+  );
+}
+
+/** «Gelb markieren ab»: 0 steht im Umschalter für null = wie der normale Arbeitstag. */
+const MARKIEREN_VORSCHLAEGE = [0, 510, 540, 570, 600];
+
+/**
+ * Gelb markieren ab (09.10.2026): Arbnor will einen Tag erst gelb sehen, wenn eine Person auf 9.0 h kommt —
+ * 8.4 h normal + 0.4 h Überstunden soll aussehen wie ein normaler Tag. Gezählt (Lohn, Export) wird weiter ab dem
+ * normalen Arbeitstag; das hier ändert nur die Markierung. Gilt sofort, auch für schon gemeldete Tage.
+ */
+function MarkierenKarte() {
+  const [wert, setWert] = useState(markierenAbMin);
+  const [speichert, setSpeichert] = useState(false);
+  const [meldung, setMeldung] = useState<{ text: string; art: 'ok' | 'fehler' } | null>(null);
+  const ausDatenbank = markierenAusDatenbank();
+  const normaltag = normaltagMin();
+  // Beispiel knapp unter der Schwelle: der normale Tag plus etwas Überstunden, und trotzdem nicht gelb
+  const beispiel = wert !== null && wert - 6 > normaltag ? wert - 6 : null;
+
+  async function waehlen(neu: number) {
+    const ziel = neu === 0 ? null : neu;
+    if (ziel === wert || speichert) return;
+    setSpeichert(true);
+    setMeldung(null);
+    const f = await einstellungSetzen('markierenAbMin', ziel);
+    setSpeichert(false);
+    if (f) { setMeldung({ text: f, art: 'fehler' }); return; }
+    setWert(ziel);
+    setMeldung({ text: 'Gespeichert ✓', art: 'ok' });
+  }
+
+  return (
+    <section className="card space-y-4">
+      <div className="flex items-start gap-3">
+        <span className="grid h-10 w-10 shrink-0 place-items-center rounded-[12px] bg-amber text-white shadow-[0_4px_10px_-4px_rgb(217_147_15/0.6)]">
+          <Highlighter size={19} strokeWidth={2.2} aria-hidden="true" />
+        </span>
+        <div>
+          <h2 className="font-display text-[15px] font-semibold">Gelb markieren ab</h2>
+          <p className="mt-0.5 text-xs text-ink3">
+            Ein Tag mit Überstunden wird in der Übersicht, der Wochen- und der Tagesübersicht erst gelb, wenn eine Person
+            auf so viele Stunden kommt. Darunter sieht er aus wie jeder andere Tag. Überstunden fürs Lohnbüro zählen
+            weiter ab dem normalen Arbeitstag ({alsStunden(normaltag)} h).
+          </p>
+        </div>
+      </div>
+
+      <Segment
+        label="Gelb markieren ab"
+        optionen={MARKIEREN_VORSCHLAEGE.map((v) => ({ wert: v, text: v === 0 ? 'wie Arbeitstag' : `${alsStunden(v)} h` }))}
+        wert={wert === null ? 0 : MARKIEREN_VORSCHLAEGE.includes(wert) ? wert : -1}
+        aendern={(v) => void waehlen(v)}
+      />
+
+      <p className="rounded-[12px] bg-ground px-3.5 py-2.5 text-xs text-ink2">
+        {beispiel !== null ? (
+          <>
+            Beispiel: {alsStunden(normaltag)} h normal + <b className="text-ink">{alsStunden(beispiel - normaltag)} h Überstunden</b> = {alsStunden(beispiel)} h →
+            nicht gelb. Ab <b className="text-amber-deep">{alsStunden(wert!)} h gelb</b>.
+          </>
+        ) : wert === null ? (
+          <>Jede Überstunde wird <b className="text-amber-deep">gelb</b>, auch eine kurze.</>
+        ) : (
+          <>Gelb ab <b className="text-amber-deep">{alsStunden(wert)} h</b> Tagestotal einer Person.</>
+        )}
+      </p>
+
+      {(meldung || speichert) && (
+        <p className={'text-sm font-semibold ' + (speichert ? 'text-ink3' : meldung?.art === 'ok' ? 'text-good-deep' : 'text-accent-deep')}>
+          {speichert ? 'Speichert …' : meldung?.text}
+        </p>
+      )}
+      {ausDatenbank === false && (
+        <p className="rounded-[12px] border border-amber/40 bg-amber-soft px-3.5 py-2 text-xs text-amber-deep">
+          Die Datenbank kennt diese Einstellung noch nicht (Migration 0028 fehlt) — bis dahin wird jede Überstunde gelb.
         </p>
       )}
     </section>
@@ -228,6 +308,7 @@ export function Einstellungen() {
       {fehler && <p className="rounded-[12px] border border-accent/40 bg-accent-soft px-4 py-2.5 text-sm text-accent-deep">{fehler}</p>}
 
       <NormaltagKarte />
+      <MarkierenKarte />
 
       {WAHLEN.map((w) => (
         <section key={w.feld} className="card space-y-2.5">

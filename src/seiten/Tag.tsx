@@ -12,6 +12,7 @@ import { Shell } from '../ui/Shell';
 import { KennzahlPille } from '../ui/Karten';
 import { supabase } from '../lib/supabase';
 import { addTage, iso, kurz, lang, stunden, WOCHENTAGE } from '../lib/datum';
+import { gelbePersonen } from '../lib/einstellungen';
 
 interface Team { id: string; bezeichnung: string; fahrzeug: string | null; chefmonteur: { name: string } | null }
 interface Meldung {
@@ -26,8 +27,11 @@ interface Plan { team_id: string; baustelle: { konto_nr: string; bezeichnung: st
 const ABWEICHUNG: Record<string, string> = { zusaetzlich: 'zusätzlich gearbeitet', warten: 'warten müssen', kaputt: 'etwas kaputt', laenger: 'länger gearbeitet', ueberstunden: 'Überstunden' };
 const WER: Record<string, string> = { kunde: 'der Kunde wollte es', chef: 'der Chef wollte es', niemand: 'niemand hat es verlangt' };
 
-/** Meldungen eines Teams nach Baustelle bündeln: normale Stunden + Abweichungen je Art, mit Notiz und Fotos. */
-function proBaustelle(ms: Meldung[]) {
+/**
+ * Meldungen eines Teams nach Baustelle bündeln: normale Stunden + Abweichungen je Art, mit Notiz und Fotos.
+ * `gelb` = Personen, deren Überstunden ab «Gelb markieren ab» der Firma gelb werden (09.10.2026).
+ */
+function proBaustelle(ms: Meldung[], gelb: Set<string>) {
   const map = new Map<string, {
     schluessel: string; konto_nr: string | null; bezeichnung: string; zuletzt: string; normalMin: number;
     abweichungen: { typ: string; min: number; wer: string | null; transkript: string | null; audio_sekunden: number | null; id: string }[];
@@ -39,9 +43,10 @@ function proBaustelle(ms: Meldung[]) {
     const min = m.zeiteintrag.reduce((s, z) => s + z.normal_min + z.ueber_min, 0);
     if (m.normalfall) {
       b.normalMin += min;
-      // Überstunden mit Grund am normalen Tag — wie eine Abweichung zeigen, mit wer/Notiz
+      // Überstunden mit Grund am normalen Tag — wie eine Abweichung zeigen, mit wer/Notiz. Erst ab «Gelb markieren ab»
+      // (Tagestotal einer Person); darunter sieht der Tag aus wie jeder andere, die Stunden stehen unten je Person.
       const ueberMin = m.zeiteintrag.reduce((s, z) => s + z.ueber_min, 0);
-      if (ueberMin > 0) b.abweichungen.push({ typ: 'ueberstunden', min: ueberMin, wer: m.wer_hats_gewollt, transkript: m.transkript, audio_sekunden: m.audio_sekunden, id: m.id });
+      if (m.zeiteintrag.some((z) => z.ueber_min > 0 && gelb.has(z.mitarbeiter_id))) b.abweichungen.push({ typ: 'ueberstunden', min: ueberMin, wer: m.wer_hats_gewollt, transkript: m.transkript, audio_sekunden: m.audio_sekunden, id: m.id });
     } else b.abweichungen.push({ typ: m.abweichung_typ ?? 'abweichung', min, wer: m.wer_hats_gewollt, transkript: m.transkript, audio_sekunden: m.audio_sekunden, id: m.id });
     b.fotos += m.foto?.length ?? 0;
     if (m.erfasst_am > b.zuletzt) b.zuletzt = m.erfasst_am;
@@ -115,8 +120,10 @@ export function Tag() {
   }
   const wochenLink = (teamId: string, meldungId?: string) => `/cockpit?woche=${tagIso}&tag=${tagIso}&team=${teamId}${meldungId ? `&meldung=${meldungId}` : ''}`;
 
+  // Gelb erst ab dem Tagestotal einer Person (Firmen-Einstellung «Gelb markieren ab») — über alle Meldungen des Tages
+  const gelb = gelbePersonen(meldungen.flatMap((m) => m.zeiteintrag.map((z) => ({ person: z.mitarbeiter_id, normal_min: z.normal_min, ueber_min: z.ueber_min }))));
   // Was Aufmerksamkeit braucht (Überstunden, Abweichung) zuerst, danach das Neueste
-  const mitHinweis = (teamId: string) => (proTeam.get(teamId) ?? []).some((m) => !m.normalfall || m.zeiteintrag.some((z) => z.ueber_min > 0));
+  const mitHinweis = (teamId: string) => (proTeam.get(teamId) ?? []).some((m) => !m.normalfall || m.zeiteintrag.some((z) => z.ueber_min > 0 && gelb.has(z.mitarbeiter_id)));
   const sortiert = [...gemeldet].sort((a, b) => Number(mitHinweis(b.id)) - Number(mitHinweis(a.id)));
   const anzHinweis = gemeldet.filter((t) => mitHinweis(t.id)).length;
 
@@ -178,7 +185,7 @@ export function Tag() {
                     </div>
 
                     <div className="flex-1 space-y-2.5 px-4 py-3">
-                      {proBaustelle(ms).map((b) => (
+                      {proBaustelle(ms, gelb).map((b) => (
                         <div key={b.schluessel} className="space-y-2">
                           <div className="flex flex-wrap items-center gap-2 text-sm">
                             {b.konto_nr && <span className="knr">{b.konto_nr}</span>}
