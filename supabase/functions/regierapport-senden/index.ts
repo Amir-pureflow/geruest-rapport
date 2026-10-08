@@ -214,7 +214,8 @@ Deno.serve(async (req) => {
     }
     const empfaenger_email = gewuenscht;
 
-    // Fotos zählen (Team-Meldung + nachgereichte) — sie stehen im Kundenlink, nicht als Anhang (Mailgrösse)
+    // Fotos zählen (Team-Meldung + nachgereichte) — seit 08.10.2026 stehen sie im App-PDF (Anhang) und im Kundenlink,
+    // nicht als einzelne Anhänge (Mailgrösse). Mit eigenem Dokument (SORBA) nur im Link.
     const { count: fotoAnzahl } = await supa
       .from('foto')
       .select('id', { count: 'exact', head: true })
@@ -225,9 +226,13 @@ Deno.serve(async (req) => {
     const chf = chfText(r.betrag_rappen);
     const name = rapportName(r);
     const anrede = r.baustelle?.kunde?.ansprechperson && gewuenscht === kundenMail ? `Guten Tag ${r.baustelle.kunde.ansprechperson}` : 'Guten Tag';
-    const fotoSatz = fotoAnzahl && fotoAnzahl > 0
-      ? `<p>Unter dem Link sehen Sie die Positionen und ${fotoAnzahl === 1 ? 'ein Foto' : `${fotoAnzahl} Fotos`} von der Baustelle.</p>`
-      : '<p>Unter dem Link sehen Sie die einzelnen Positionen.</p>';
+    const fotoWort = fotoAnzahl === 1 ? 'Das Foto' : `Die ${fotoAnzahl} Fotos`;
+    const fotoText = fotoAnzahl && fotoAnzahl > 0
+      ? r.anhang_pfad
+        ? `Unter dem Link sehen Sie die Positionen und ${fotoAnzahl === 1 ? 'ein Foto' : `${fotoAnzahl} Fotos`} von der Baustelle.`
+        : `${fotoWort} von der Baustelle ${fotoAnzahl === 1 ? 'ist' : 'sind'} im PDF dabei; unter dem Link sehen Sie zusätzlich die einzelnen Positionen.`
+      : 'Unter dem Link sehen Sie die einzelnen Positionen.';
+    const fotoSatz = `<p>${fotoText}</p>`;
 
     // Gegen Spam-Einstufung: Text-Teil, sichtbarer Link, Antwortadresse einer echten Person, Fusszeile mit Absender.
     const html = `
@@ -249,7 +254,7 @@ Deno.serve(async (req) => {
       '',
       `Anbei erhalten Sie den ${name} zu den ausgeführten Arbeiten auf ${bez} (Objekt ${knr})${chf ? ` über Fr. ${chf}` : ''}.`,
       ...(r.beschrieb ? ['', r.beschrieb, ''] : []),
-      fotoAnzahl && fotoAnzahl > 0 ? `Unter dem Link sehen Sie die Positionen und ${fotoAnzahl} Foto(s) von der Baustelle.` : 'Unter dem Link sehen Sie die einzelnen Positionen.',
+      fotoText,
       '',
       'Bitte bestätigen Sie ihn unter diesem Link — ohne Anmeldung:',
       link,
