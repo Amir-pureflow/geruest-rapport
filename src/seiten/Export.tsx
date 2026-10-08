@@ -54,7 +54,10 @@ type Tab = 'lohn' | 'ueber' | 'bueros' | 'raster';
 const SEITE = 1000;
 const ALLE = 'alle';
 
-/** Woche aus ?woche=JJJJ-MM-TT (Montag der Woche), sonst Vorwoche. */
+/**
+ * Woche aus ?woche=JJJJ-MM-TT (Montag der Woche), sonst die aktuelle Woche — am Montag und Dienstag die Vorwoche,
+ * dann wird sie noch abgeschlossen (09.10.2026, Amir; gleich wie die Startseite des Sekretariats).
+ */
 function startAusUrl(): { wochenStart: Date; zeitraum: Zeitraum } {
   const p = new URLSearchParams(window.location.search);
   const w = p.get('woche');
@@ -63,7 +66,9 @@ function startAusUrl(): { wochenStart: Date; zeitraum: Zeitraum } {
     const d = ausIso(w);
     if (!Number.isNaN(d.getTime())) return { wochenStart: montag(d), zeitraum };
   }
-  return { wochenStart: montag(addTage(new Date(), -7)), zeitraum };
+  const heute = new Date();
+  const vorwoche = heute.getDay() === 1 || heute.getDay() === 2;
+  return { wochenStart: montag(vorwoche ? addTage(heute, -7) : heute), zeitraum };
 }
 
 function zuEintrag(z: Zeile): LohnEintrag {
