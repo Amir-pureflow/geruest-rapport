@@ -751,7 +751,8 @@ export function Cockpit() {
                   <div className="px-4 py-3">
                     <div className="flex items-center justify-between gap-3">
                       <span className="flex min-w-0 items-center gap-2.5">
-                        <span className="grid h-8 w-8 shrink-0 place-items-center rounded-[10px] bg-surface-2 font-display text-[12px] font-semibold tabular-nums text-ink2 ring-1 ring-inset ring-line" aria-hidden="true">{teamKuerzel(z.team.bezeichnung)}</span>
+                        {/* Weisse, leicht erhabene Kachel (09.10.2026, Amir: grau wirkte altmodisch) — farblos, weil Blau/Grün/Bernstein schon den Stand der Tage zeigen */}
+                        <span className="grid h-8 w-8 shrink-0 place-items-center rounded-[10px] bg-gradient-to-b from-white to-[#f4f2ee] font-display text-[13px] font-bold tabular-nums text-ink shadow-[0_1px_2px_rgb(17_17_19/0.08),0_6px_12px_-8px_rgb(17_17_19/0.35),inset_0_1px_0_#fff] ring-1 ring-ink/[0.07]" aria-hidden="true">{teamKuerzel(z.team.bezeichnung)}</span>
                         <span className="min-w-0">
                           <span className="block truncate font-display text-[14px] font-semibold leading-tight">{z.team.bezeichnung}</span>
                           {/* Wochentotal beim Namen, nicht rechts — rechtsbündig wurde es als Sonntagswert gelesen (04.10.2026) */}
