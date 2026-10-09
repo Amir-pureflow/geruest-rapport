@@ -207,8 +207,8 @@ function spannenName(s: Spanne, i: number): string {
  * Zahlt der Bauherr den Znüni nicht, schneidet «− Pause» 9:00–9:30 heraus (09.10.2026, Amir); das × der Zeile «nach Pause» nimmt es zurück.
  */
 function SpannenEditor({ spannen, setSpannen, klein = false }: { spannen: Spanne[]; setSpannen: (s: Spanne[]) => void; klein?: boolean }) {
-  // Auf dem Handy etwas schmaler: mit «Nachmittag» und dem Knopf «− Pause» muss die Zeile in die Karte passen (390 px)
-  const feld = 'rounded-[10px] border bg-surface text-center font-mono font-semibold tabular-nums focus:border-accent focus:outline-none ' + (klein ? 'h-10 w-[5.4rem] text-[14px]' : 'h-12 w-[5.6rem] text-lg sm:w-28');
+  // Auf dem Handy etwas schmaler: mit «Nachmittag» und dem Knopf «− Pause» muss die Zeile in die Karte passen (360–390 px)
+  const feld = 'rounded-[10px] border bg-surface text-center font-mono font-semibold tabular-nums focus:border-accent focus:outline-none ' + (klein ? 'h-10 w-[5rem] text-[14px] min-[380px]:w-[5.4rem]' : 'h-12 w-[5rem] text-lg min-[380px]:w-[5.6rem] sm:w-28');
   const aendern = (i: number, teil: 'von' | 'bis', text: string) => {
     const v = ausUhrzeit(text);
     setSpannen(spannen.map((s, j): Spanne => (j !== i ? s : teil === 'von' ? { ...s, von: v ?? s.von } : { ...s, bis: v })));

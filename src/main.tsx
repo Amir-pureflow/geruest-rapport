@@ -74,10 +74,16 @@ if (supabase) {
 
 // Neue Version holen, auch wenn der Tab den ganzen Tag offen bleibt (Bauführer-PC):
 // stündlich nachschauen; autoUpdate lädt die Seite neu, sobald die neue Version aktiv ist.
+// Handy: die installierte App läuft oft tagelang aus dem Hintergrund weiter, der Stunden-Takt ruht dort —
+// darum auch beim Zurückholen in den Vordergrund nachschauen (09.10.2026: Amir sah noch die alte Erfassung).
 registerSW({
   immediate: true,
   onRegisteredSW(_url, reg) {
-    if (reg) setInterval(() => void reg.update(), 60 * 60 * 1000);
+    if (!reg) return;
+    setInterval(() => void reg.update(), 60 * 60 * 1000);
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible' && navigator.onLine) void reg.update();
+    });
   },
 });
 
