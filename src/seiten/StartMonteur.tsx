@@ -8,6 +8,7 @@ import { Shell } from '../ui/Shell';
 import { supabase } from '../lib/supabase';
 import { addTage, iso, kurz, kw, montag, stunden, WOCHENTAGE } from '../lib/datum';
 import { zeitenText } from '../lib/zeiten';
+import { festeAnsicht } from '../lib/ansicht';
 
 const MONTEUR_KEY = 'monteur-id';
 /** Zuletzt gewählte Teams auf diesem Gerät — gleiche Liste wie Erfassung/Chefmonteur; auf dem eigenen Handy meist leer. */
@@ -184,7 +185,8 @@ export function StartMonteur() {
             <p className="lbl mb-0.5">Meine Woche</p>
             <h1 className="truncate font-display text-2xl font-semibold">{person?.name ?? '…'}</h1>
           </div>
-          <button type="button" className="btn-ghost shrink-0 text-xs" onClick={() => { localStorage.removeItem(MONTEUR_KEY); setPerson(null); setPersonId(null); setTeamId(null); }}>Nicht ich</button>
+          {/* Persönlicher Zugang (0033): die Person kommt aus der Anmeldung, «Nicht ich» heisst dann abmelden */}
+          {!festeAnsicht() && <button type="button" className="btn-ghost shrink-0 text-xs" onClick={() => { localStorage.removeItem(MONTEUR_KEY); setPerson(null); setPersonId(null); setTeamId(null); }}>Nicht ich</button>}
         </header>
 
         {/* Wochenwahl: ein Element, wie in der Wochenübersicht */}

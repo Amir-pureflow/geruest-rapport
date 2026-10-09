@@ -18,7 +18,11 @@
  * Anmeldung bestehen und die Meldungen gehen weiter in die Warteschlange (CLAUDE.md #4).
  */
 import { supabase } from './supabase';
-import { ansichtSetzen } from './ansicht';
+import { ansichtSetzen, FESTE_ANSICHT_KEY, type Ansicht } from './ansicht';
+
+/** Dieselben Schlüssel wie StartMonteur.tsx (Person) und StartChef.tsx / Erfassung.tsx (Team). */
+const MONTEUR_KEY = 'monteur-id';
+const TEAM_KEY = 'teamgeraet-team-id';
 
 /** Anmelden. null heisst geklappt, sonst ein Satz für den Bildschirm. */
 export async function anmelden(email: string, passwort: string): Promise<string | null> {
@@ -37,8 +41,12 @@ export async function anmelden(email: string, passwort: string): Promise<string 
 
 /** Abmelden: Sitzung weg, Rollenwahl weg. Was in der Warteschlange liegt, bleibt auf dem Gerät. */
 export async function abmelden(): Promise<void> {
+  try {
+    localStorage.removeItem('firma-einstellungen');
+    localStorage.removeItem(FESTE_ANSICHT_KEY);
+    localStorage.removeItem(MONTEUR_KEY);
+  } catch { /* egal */ }
   ansichtSetzen(null);
-  try { localStorage.removeItem('firma-einstellungen'); } catch { /* egal */ }
   if (supabase) await supabase.auth.signOut();
 }
 
@@ -51,4 +59,36 @@ export async function angemeldet(): Promise<boolean> {
   const { data } = await supabase.auth.getSession();
   const s = data.session;
   return !!s && s.user.is_anonymous !== true;
+}
+
+/**
+ * Persönlicher Zugang (Migration 0033, 09.10.2026): Gehört die Anmeldung zu einer Person, stehen in
+ * `benutzer` die Person und ihre Ansicht. Dann wählt das Gerät beides selbst — der Chefmonteur landet
+ * direkt bei seinem Team, der Monteur bei «Meine Woche».
+ *
+ * Läuft beim Start nach der Anmeldung. Ohne Netz oder ohne Migration tut es nichts: dann gilt, was
+ * schon im Gerät liegt (Regel #4, gleiches Muster wie die Firmen-Schalter).
+ */
+export async function personLaden(): Promise<void> {
+  if (!supabase) return;
+  const { data: s } = await supabase.auth.getSession();
+  const uid = s.session?.user.id;
+  if (!uid) return;
+  const { data, error } = await supabase.from('benutzer').select('mitarbeiter_id, ansicht').eq('auth_user_id', uid).maybeSingle();
+  if (error) return;
+  const p = data as { mitarbeiter_id: string | null; ansicht: Ansicht | null } | null;
+  if (!p?.ansicht) {
+    try { localStorage.removeItem(FESTE_ANSICHT_KEY); } catch { /* egal */ }
+    return;
+  }
+  try {
+    localStorage.setItem(FESTE_ANSICHT_KEY, p.ansicht);
+    if (p.mitarbeiter_id) localStorage.setItem(MONTEUR_KEY, p.mitarbeiter_id);
+    // Chefmonteur: sein Team vorwählen, wenn er genau eines führt und noch keines gewählt ist.
+    if (p.ansicht === 'chef' && p.mitarbeiter_id && !localStorage.getItem(TEAM_KEY)) {
+      const { data: teams } = await supabase.from('team').select('id').eq('chefmonteur_id', p.mitarbeiter_id).eq('aktiv', true);
+      if (teams?.length === 1) localStorage.setItem(TEAM_KEY, (teams[0] as { id: string }).id);
+    }
+  } catch { /* privater Modus — dann wählt man von Hand */ }
+  ansichtSetzen(p.ansicht);
 }

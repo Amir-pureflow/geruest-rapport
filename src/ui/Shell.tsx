@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { ANSICHT_LABEL, useAnsicht, type Ansicht } from '../lib/ansicht';
+import { ANSICHT_LABEL, festeAnsicht, useAnsicht, type Ansicht } from '../lib/ansicht';
 import { ChevronRight, ChevronDown, LayoutDashboard, CalendarDays, CalendarRange, Download, Settings, PhoneCall, FileText, BarChart3, CalendarPlus, ArrowLeftRight, LogOut, type LucideIcon } from 'lucide-react';
 import { einstellungen } from '../lib/einstellungen';
 import { abmelden } from '../lib/konto';
@@ -100,7 +100,8 @@ function Konto({ ansicht, platz = 'kopf' }: { ansicht: Ansicht; platz?: 'kopf' |
             <p className="text-[11px] text-ink3">angemeldet als {ANSICHT_LABEL[ansicht]}</p>
           </div>
           <div className="my-1 border-t border-line" />
-          <Link
+          {/* Persönlicher Zugang (0033): nur eine Ansicht, also nichts zu wechseln */}
+          {!festeAnsicht() && <Link
             to="/ansicht"
             role="menuitem"
             onClick={() => setOffen(false)}
@@ -108,7 +109,7 @@ function Konto({ ansicht, platz = 'kopf' }: { ansicht: Ansicht; platz?: 'kopf' |
           >
             <ArrowLeftRight size={15} strokeWidth={1.8} className="text-ink3" aria-hidden="true" />
             Ansicht wechseln
-          </Link>
+          </Link>}
           <button
             type="button"
             role="menuitem"

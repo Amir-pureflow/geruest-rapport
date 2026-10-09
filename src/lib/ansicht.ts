@@ -31,7 +31,27 @@ const GRUPPEN_ALLE: { key: Gruppe; titel: string; text: string }[] = [
   * passiert ist, und wäre beim ersten Besuch auf einem neuen Gerät falsch.
   */
 export function gruppen() {
-  return GRUPPEN_ALLE.filter((g) => g.key !== 'extern' || einstellungen().erfassung === 'regie');
+  return GRUPPEN_ALLE
+    .filter((g) => g.key !== 'extern' || einstellungen().erfassung === 'regie')
+    .filter((g) => ansichten().some((a) => a.gruppe === g.key));
+}
+
+/**
+ * Persönlicher Zugang (Migration 0033, 09.10.2026): Steht in `benutzer` eine Ansicht, gibt es auf diesem
+ * Gerät nur diese eine. Der Monteur sieht keine Bauführer-Knöpfe und muss nichts wählen. Gesetzt von
+ * `personLaden()` in konto.ts, gelöscht beim Abmelden. Firmen-Zugänge (Büro) haben keine und wählen frei.
+ *
+ * ⚠ Nur Oberfläche — die Datenbank trennt weiterhin nur zwischen Firmen (CLAUDE.md).
+ */
+export const FESTE_ANSICHT_KEY = 'ansicht-fest';
+
+export function festeAnsicht(): Ansicht | null {
+  try {
+    const a = localStorage.getItem(FESTE_ANSICHT_KEY);
+    return ANSICHTEN_ALLE.some((x) => x.key === a) ? (a as Ansicht) : null;
+  } catch {
+    return null;
+  }
 }
 
 const ANSICHTEN_ALLE: { key: Ansicht; titel: string; text: string; gruppe: Gruppe }[] = [
@@ -44,7 +64,10 @@ const ANSICHTEN_ALLE: { key: Ansicht; titel: string; text: string; gruppe: Grupp
 
 /** Die Ansicht «Kunde» gibt es nur im Regie-Modus (Firmen-Schalter MODUS_ERFASSUNG). Siehe `gruppen()`. */
 export function ansichten() {
-  return ANSICHTEN_ALLE.filter((a) => a.key !== 'kunde' || einstellungen().erfassung === 'regie');
+  const fest = festeAnsicht();
+  return ANSICHTEN_ALLE
+    .filter((a) => a.key !== 'kunde' || einstellungen().erfassung === 'regie')
+    .filter((a) => !fest || a.key === fest);
 }
 
 /** Beschriftung für alle Ansichten — hängt nicht an den Schaltern, darum eine Tabelle. */

@@ -5,7 +5,6 @@ import tarife from '../../../fixtures/tarife_sguv_2026.json';
 import { Avatar, Dialog } from '../../ui/Dialog';
 import { personEntfernen, personPruefen } from '../../lib/entfernen';
 import { LoeschLeiste, Papierkorb, useLoeschFrage } from '../../ui/LoeschFrage';
-import { Zugang } from './Zugang';
 
 interface Person {
   id?: string;
@@ -260,8 +259,6 @@ export function Mitarbeiter() {
               )}
               <label className="flex items-center gap-2"><input type="checkbox" checked={bearbeitet.aktiv} onChange={(e) => f({ aktiv: e.target.checked })} /> aktiv</label>
             </div>
-            {/* Zugang aufs Handy — erst wenn die Person gespeichert ist, sonst gibt es keine id zum Einladen. */}
-            {bearbeitet.id && <Zugang personId={bearbeitet.id} name={bearbeitet.name} telefon={bearbeitet.telefon} />}
             {fehler && <p className="text-sm font-semibold text-accent-deep">{fehler}</p>}
             {frage && frage.ding.id === bearbeitet.id && <LoeschLeiste frage={frage} onAbbrechen={abbrechen} onBestaetigen={loeschFrage.bestaetigen} art="fenster" />}
           </div>

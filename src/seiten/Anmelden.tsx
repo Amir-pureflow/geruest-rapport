@@ -9,7 +9,8 @@
  */
 import { useState } from 'react';
 import { Marke, Wortmarke } from '../ui/Shell';
-import { anmelden } from '../lib/konto';
+import { anmelden, personLaden } from '../lib/konto';
+import { festeAnsicht } from '../lib/ansicht';
 import { supabase } from '../lib/supabase';
 
 export function Anmelden() {
@@ -28,9 +29,11 @@ export function Anmelden() {
     const f = await anmelden(email, passwort);
     setLaeuft(false);
     if (f) { setFehler(f); return; }
-    // Weiter zur Rollenwahl. Ganz neu laden, nicht nur die Adresse wechseln: die App prüft die
-    // Anmeldung beim Start, sonst stünde man nach dem Anmelden wieder vor dem Formular.
-    location.replace('/ansicht');
+    // Persönlicher Zugang (0033): Ansicht steht fest → direkt los. Sonst (Firmen-Zugang) zur Rollenwahl.
+    // Ganz neu laden, nicht nur die Adresse wechseln: die App prüft die Anmeldung beim Start, sonst
+    // stünde man nach dem Anmelden wieder vor dem Formular.
+    await personLaden().catch(() => undefined);
+    location.replace(festeAnsicht() ? '/' : '/ansicht');
   }
 
   return (
@@ -45,11 +48,11 @@ export function Anmelden() {
         <form onSubmit={(e) => void absenden(e)} className="card space-y-3">
           <div>
             <h1 className="font-display text-[17px] font-semibold">Anmelden</h1>
-            <p className="mt-0.5 text-xs text-ink3">Mit dem Zugang eurer Firma. Wer du bist, wählst du gleich danach.</p>
+            <p className="mt-0.5 text-xs text-ink3">Mit deinem Zugang oder dem Zugang der Firma.</p>
           </div>
 
           <div>
-            <label className="lbl" htmlFor="firma-email">E-Mail der Firma</label>
+            <label className="lbl" htmlFor="firma-email">E-Mail</label>
             <input
               id="firma-email"
               type="email"
@@ -60,7 +63,7 @@ export function Anmelden() {
               spellCheck={false}
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              placeholder="firma@beispiel.ch"
+              placeholder="name@beispiel.ch"
               className="field"
             />
           </div>
