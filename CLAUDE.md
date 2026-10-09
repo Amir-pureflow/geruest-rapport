@@ -82,20 +82,24 @@ Teamgerät teilen den Zugang der Firma; im `freigabe_log` steht dann die Firma, 
 und Rechte je Rolle sind der nächste Schritt — `benutzer` ist dafür vorbereitet, mehrere Konten dürfen zu einer Firma
 gehören.
 
-**Persönliche Zugänge für Chefmonteur und Monteur (09.10.2026 `0033`, aus der Verwaltung seit 10.10. `0034`).**
-Der Bauführer legt sie selbst an: Verwaltung → Mitarbeitende → Person → **Benutzerkonto** (`verwaltung/Konto.tsx`).
-Rolle Monteur/Chefmonteur, Passwort vorgeschlagen («Anker-4827», `passwortVorschlag()`), ein Knopf; Adresse und
-Passwort erscheinen **einmal** zum Kopieren. Später: Passwort neu setzen, Konto löschen. Neue Person: nach dem
-Speichern bleibt der Dialog offen, damit das Konto gleich folgt.
+**Persönliche Zugänge für alle Rollen (09.10.2026 `0033`, aus der Verwaltung seit 10.10. `0034`).**
+Das Büro legt sie selbst an: Verwaltung → Mitarbeitende → Person → **Benutzerkonto** (`verwaltung/Konto.tsx`).
+**Vier Rollen**: Monteur, Chefmonteur, Bauführer, Sekretariat (Erin 10.10.: «Was ist, wenn eine Sekretärin kommt?»),
+vorgeschlagen aus der Funktion (`rolleVorschlag()`). Passwort vorgeschlagen («Anker-4827»), ein Knopf; Adresse und
+Passwort erscheinen **einmal** zum Kopieren. Später: Rolle ändern, Passwort neu setzen, Konto löschen. Neue Person:
+nach dem Speichern bleibt der Dialog offen, damit das Konto gleich folgt.
+- **Funktion «Büro / Sekretariat»** (`FUNKTION_BUERO = 'buero'`, kein SGUV-Tarif): für Leute im Büro. Sie erscheinen
+  im Teamgerät nicht als Gast und lassen sich keinem Team zuteilen. Tariflookups fallen auf den Monteursansatz zurück.
+- **Wer darf was** (`konten_recht()` in 0034, gespiegelt in `darfVergeben()`): Firmen-Zugang (Inhaber) und Sekretariat
+  alle Rollen; Bauführer alles **ausser Sekretariat** (sonst könnte er sich Lohn-Zugang geben — «Lohn sieht nur das
+  Sekretariat»); Monteur/Chefmonteur nichts. Das eigene Konto löschen oder die eigene Rolle ändern geht nicht.
 - **Adresse** `vorname.nachname@<firma.mail_domain>` (Erin 10.10.: «vorname.nachname@firma»), Gerüst GmbH `geruest.ch`,
   ohne Domain `rapporto.pureflow-ai.com`. Doppelname → `…2@`. Es geht nie eine Mail raus, die Adresse ist nur der Login.
   Arbnors Firmen-Zugang heisst seit `0034` **`arbnor.arifi@geruest.ch`** (vorher `arbnor@rapporto.pureflow-ai.com`,
   Passwort gleich). Logik + Tests: `src/lib/benutzername.ts`.
 - Angelegt über **Datenbankfunktionen**, nicht Edge Functions (die liessen sich nicht ausliefern, daran scheiterte
-  `0032`): `konto_anlegen`, `konto_passwort`, `konto_loeschen`, `konten_der_firma`. Sie schreiben direkt in
-  `auth.users` + `auth.identities` — ⚠ ändert Supabase dort Pflichtspalten, `konto_anlegen` nachführen.
-- Diese Funktionen prüfen die Rolle **in der Datenbank** (`buero_firma()`): nur Büro-Zugänge (Ansicht leer, `bauf`,
-  `sekretariat`). Ein Monteur-Handy kann keine Konten anlegen.
+  `0032`): `konto_anlegen`, `konto_rolle`, `konto_passwort`, `konto_loeschen`, `konten_der_firma`. Sie schreiben
+  direkt in `auth.users` + `auth.identities` — ⚠ ändert Supabase dort Pflichtspalten, `konto_anlegen` nachführen.
 - **Inaktiv = kein Zugang:** `aktuelle_firma()` liefert für einen Personen-Zugang nur etwas, solange
   `mitarbeiter.aktiv`. Person gelöscht → `benutzer`-Zeile weg (cascade).
 - In `benutzer` stehen `mitarbeiter_id` und `ansicht`; nach der Anmeldung setzt `personLaden()` (`src/lib/konto.ts`)

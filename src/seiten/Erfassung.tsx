@@ -11,6 +11,7 @@ import { kennzeichen } from '../lib/fahrzeug';
 import { einstellungen, normaltagMin } from '../lib/einstellungen';
 import { MAX_SPANNEN, MITTAG_VON_MIN, NACHMITTAG_MIN, ZNUENI_BIS_MIN, ZNUENI_VON_MIN, ausUhrzeit, aufteilen, kannPauseAbziehen, mittagMinuten, pauseAbziehen, pauseZaehlen, spanneVollstaendig, spannenMinuten, spannenUeberlappen, standardSpannen, umfasstPause, uhrzeitFeld, zuSpalten, type Spanne } from '../lib/zeiten';
 import { baustellenSuchen } from '../lib/suche';
+import { FUNKTION_BUERO } from '../lib/benutzername';
 
 /**
  * Phase 2 — das Teamgerät. Ein Chefmonteur meldet für sein Team.
@@ -813,7 +814,8 @@ export function Erfassung() {
   // Gäste: Personen ausserhalb des Teams. Liste wird erst geladen, wenn der Knopf gedrückt wird.
   async function alleLeuteLaden() {
     if (!supabase || alleLeute) return;
-    const { data } = await supabase.from('mitarbeiter').select('id,name,typ,funktion,oev_standard,km_standard').eq('aktiv', true).order('name');
+    // Büro-Leute (Funktion «buero») helfen nie auf der Baustelle — nicht als Gast anbieten
+    const { data } = await supabase.from('mitarbeiter').select('id,name,typ,funktion,oev_standard,km_standard').eq('aktiv', true).neq('funktion', FUNKTION_BUERO).order('name');
     setAlleLeute((data ?? []) as Person[]);
   }
   function gastHinzufuegen(p: Person) {

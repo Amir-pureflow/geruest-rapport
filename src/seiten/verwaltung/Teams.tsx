@@ -5,6 +5,7 @@ import { Plus, Star, Truck, Users } from 'lucide-react';
 import { Avatar, Dialog } from '../../ui/Dialog';
 import { teamEntfernen, teamPruefen } from '../../lib/entfernen';
 import { LoeschLeiste, Papierkorb, useLoeschFrage } from '../../ui/LoeschFrage';
+import { FUNKTION_BUERO } from '../../lib/benutzername';
 
 interface Team { id: string; bezeichnung: string; fahrzeug: string | null; chefmonteur_id: string | null; aktiv: boolean }
 interface Person { id: string; name: string; typ: string; funktion: string }
@@ -23,7 +24,8 @@ export function Teams() {
     const [t, m, p] = await Promise.all([
       supabase.from('team').select('id,bezeichnung,fahrzeug,chefmonteur_id,aktiv').order('bezeichnung'),
       supabase.from('team_mitglied').select('team_id,mitarbeiter_id,von,mitarbeiter:mitarbeiter_id(id,name,typ,funktion)').is('bis', null),
-      supabase.from('mitarbeiter').select('id,name,typ,funktion').eq('aktiv', true).order('name'),
+      // Büro-Leute gehören in kein Team (10.10.2026)
+      supabase.from('mitarbeiter').select('id,name,typ,funktion').eq('aktiv', true).neq('funktion', FUNKTION_BUERO).order('name'),
     ]);
     if (t.error) { setFehler(t.error.message.includes('aktiv') ? 'Migration 0005 fehlt — bitte im SQL-Editor ausführen.' : t.error.message); return; }
     setTeams((t.data ?? []).sort((a, b) => a.bezeichnung.localeCompare(b.bezeichnung, 'de', { numeric: true })));

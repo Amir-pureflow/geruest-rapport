@@ -6,6 +6,7 @@ import { Avatar, Dialog } from '../../ui/Dialog';
 import { personEntfernen, personPruefen } from '../../lib/entfernen';
 import { LoeschLeiste, Papierkorb, useLoeschFrage } from '../../ui/LoeschFrage';
 import { Konto, type KontoInfo } from './Konto';
+import { FUNKTION_BUERO } from '../../lib/benutzername';
 
 interface Person {
   id?: string;
@@ -145,7 +146,7 @@ export function Mitarbeiter() {
   const schliessen = useCallback(() => { setBearbeitet(null); abbrechen(); }, [abbrechen]);
 
   const anzahl = { alle: fest + temp, intern: fest, temporaer: temp, inaktiv: liste.filter((p) => !p.aktiv).length };
-  const funktionText = (code: string) => tarife.personal.find((t) => t.code === code)?.bezeichnung ?? code;
+  const funktionText = (code: string) => code === FUNKTION_BUERO ? 'Büro / Sekretariat' : tarife.personal.find((t) => t.code === code)?.bezeichnung ?? code;
 
   return (
     <div className="space-y-4">
@@ -260,6 +261,8 @@ export function Mitarbeiter() {
                 <span className="lbl">Funktion (Tarif)</span>
                 <select value={bearbeitet.funktion} onChange={(e) => f({ funktion: e.target.value })} className="field">
                   {tarife.personal.map((t) => <option key={t.code} value={t.code}>{t.bezeichnung}</option>)}
+                  {/* Büro-Leute (10.10.2026): ohne Tarif, melden keine Stunden — nicht Gast, nicht im Team */}
+                  <option value={FUNKTION_BUERO}>Büro / Sekretariat (ohne Tarif)</option>
                 </select>
               </label>
               <label className="block">

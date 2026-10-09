@@ -1,5 +1,37 @@
 import { describe, it, expect } from 'vitest';
-import { benutzername, kontoAdresse, passwortVorschlag, ERSATZ_DOMAIN } from './benutzername';
+import { benutzername, kontoAdresse, passwortVorschlag, ERSATZ_DOMAIN, rolleVorschlag, darfVergeben, FUNKTION_BUERO, KONTO_ROLLEN } from './benutzername';
+
+describe('rolleVorschlag', () => {
+  it('leitet die Rolle aus der Funktion ab', () => {
+    expect(rolleVorschlag(FUNKTION_BUERO)).toBe('sekretariat');
+    expect(rolleVorschlag('bauf')).toBe('bauf');
+    expect(rolleVorschlag('gruppe')).toBe('chef');
+    expect(rolleVorschlag('objekt')).toBe('chef');
+    expect(rolleVorschlag('monteur')).toBe('monteur');
+    expect(rolleVorschlag('lern2')).toBe('monteur');
+  });
+});
+
+describe('darfVergeben', () => {
+  it('Firmen-Zugang und Sekretariat dürfen alle vier Rollen', () => {
+    for (const r of KONTO_ROLLEN) {
+      expect(darfVergeben(null, r.key)).toBe(true);
+      expect(darfVergeben('sekretariat', r.key)).toBe(true);
+    }
+  });
+  it('der Bauführer alles ausser Sekretariat — Lohn sieht nur das Sekretariat', () => {
+    expect(darfVergeben('bauf', 'monteur')).toBe(true);
+    expect(darfVergeben('bauf', 'chef')).toBe(true);
+    expect(darfVergeben('bauf', 'bauf')).toBe(true);
+    expect(darfVergeben('bauf', 'sekretariat')).toBe(false);
+  });
+  it('Monteur und Chefmonteur gar nichts', () => {
+    for (const r of KONTO_ROLLEN) {
+      expect(darfVergeben('monteur', r.key)).toBe(false);
+      expect(darfVergeben('chef', r.key)).toBe(false);
+    }
+  });
+});
 
 describe('benutzername', () => {
   it('macht vorname.nachname', () => {
