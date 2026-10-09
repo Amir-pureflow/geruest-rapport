@@ -82,18 +82,30 @@ Teamgerät teilen den Zugang der Firma; im `freigabe_log` steht dann die Firma, 
 und Rechte je Rolle sind der nächste Schritt — `benutzer` ist dafür vorbereitet, mehrere Konten dürfen zu einer Firma
 gehören.
 
-**Persönliche Zugänge für Chefmonteur und Monteur (09.10.2026, Migration `0033`).** Jede Person bekommt einen
-eigenen Zugang (Mail + Passwort), angelegt von Hand im Supabase-Dashboard (Authentication → Users → Add user,
-«Auto Confirm»). Muster: `vorname.nachname@rapporto.pureflow-ai.com`. In `benutzer` stehen dazu `mitarbeiter_id` und
-`ansicht`; nach der Anmeldung setzt `personLaden()` (`src/lib/konto.ts`) Ansicht und Person selbst, der Chefmonteur
-bekommt sein Team vorgewählt (`team.chefmonteur_id`). Mit fester Ansicht gibt es kein «Ansicht wechseln» und kein
-«Nicht ich» (`festeAnsicht()` in `ansicht.ts`). Firmen-Zugänge lassen beide Felder leer und wählen frei.
-Das Gerät bleibt angemeldet (Regel #4) — einmal tippen, nicht jeden Abend.
-- Heute: Nuhi Vaiti (Chefmonteur) und Ismail Vaiti (Monteur), Gerüst GmbH.
-- Der **Einladungslink per WhatsApp** (`0032`, `/e/:token`, Edge Function `einladung`) ist am selben Tag verworfen
+**Persönliche Zugänge für Chefmonteur und Monteur (09.10.2026 `0033`, aus der Verwaltung seit 10.10. `0034`).**
+Der Bauführer legt sie selbst an: Verwaltung → Mitarbeitende → Person → **Benutzerkonto** (`verwaltung/Konto.tsx`).
+Rolle Monteur/Chefmonteur, Passwort vorgeschlagen («Anker-4827», `passwortVorschlag()`), ein Knopf; Adresse und
+Passwort erscheinen **einmal** zum Kopieren. Später: Passwort neu setzen, Konto löschen. Neue Person: nach dem
+Speichern bleibt der Dialog offen, damit das Konto gleich folgt.
+- **Adresse** `vorname.nachname@<firma.mail_domain>` (Erin 10.10.: «vorname.nachname@firma»), Gerüst GmbH `geruest.ch`,
+  ohne Domain `rapporto.pureflow-ai.com`. Doppelname → `…2@`. Es geht nie eine Mail raus, die Adresse ist nur der Login.
+  Arbnors Firmen-Zugang heisst seit `0034` **`arbnor.arifi@geruest.ch`** (vorher `arbnor@rapporto.pureflow-ai.com`,
+  Passwort gleich). Logik + Tests: `src/lib/benutzername.ts`.
+- Angelegt über **Datenbankfunktionen**, nicht Edge Functions (die liessen sich nicht ausliefern, daran scheiterte
+  `0032`): `konto_anlegen`, `konto_passwort`, `konto_loeschen`, `konten_der_firma`. Sie schreiben direkt in
+  `auth.users` + `auth.identities` — ⚠ ändert Supabase dort Pflichtspalten, `konto_anlegen` nachführen.
+- Diese Funktionen prüfen die Rolle **in der Datenbank** (`buero_firma()`): nur Büro-Zugänge (Ansicht leer, `bauf`,
+  `sekretariat`). Ein Monteur-Handy kann keine Konten anlegen.
+- **Inaktiv = kein Zugang:** `aktuelle_firma()` liefert für einen Personen-Zugang nur etwas, solange
+  `mitarbeiter.aktiv`. Person gelöscht → `benutzer`-Zeile weg (cascade).
+- In `benutzer` stehen `mitarbeiter_id` und `ansicht`; nach der Anmeldung setzt `personLaden()` (`src/lib/konto.ts`)
+  Ansicht und Person selbst, der Chefmonteur bekommt sein Team vorgewählt (`team.chefmonteur_id`). Mit fester Ansicht
+  gibt es kein «Ansicht wechseln» und kein «Nicht ich» (`festeAnsicht()` in `ansicht.ts`). Firmen-Zugänge lassen
+  beide Felder leer und wählen frei. Das Gerät bleibt angemeldet (Regel #4).
+- Der **Einladungslink per WhatsApp** (`0032`, `/e/:token`, Edge Function `einladung`) ist am 09.10. verworfen
   worden (Erin: «das wollen wir nicht mehr machen»); `0033` entfernt seine Tabellen wieder. Nicht wieder einbauen.
-- ⚠ **Rechte je Rolle gibt es weiterhin nur in der Oberfläche.** Ein Monteur-Zugang hat an der Datenbank
-  dieselben Rechte wie der Bauführer. `benutzer.ansicht` hält die Rolle schon fest, damit die Regeln später andocken.
+- ⚠ Ausser beim Konten-Verwalten gibt es **Rechte je Rolle nur in der Oberfläche.** Ein Monteur-Zugang darf an der
+  Datenbank sonst dasselbe wie der Bauführer. `benutzer.ansicht` ist da, damit weitere Regeln andocken können.
 - Bauführer: Tagesübersicht, Wochenübersicht (freigeben, korrigieren), SORBA-Raster, Verwaltung, Erfassung (Test).
 - Sekretariat (17.09.): Übersicht Stunden je Mitarbeiter, Export (Lohn, Überstunden, Temporärbüros), Verwaltung —
   nur ansehen im Cockpit. **Lohn sieht nur das Sekretariat** (Bauführer 20.09.: «kein Zugriff hier drauf»).
@@ -270,6 +282,8 @@ src/lib/ansicht.ts                Ansicht lesen/setzen, Seiten je Ansicht (seite
 src/lib/einstellungen.ts          Schalter der angemeldeten Firma: lesen, zwischenspeichern, setzen
 src/lib/konto.ts                  Anmelden, abmelden, «ist jemand angemeldet», personLaden (persönlicher Zugang → feste Ansicht)
 src/seiten/Anmelden.tsx           Anmeldung der Firma — die erste Seite
+src/seiten/verwaltung/Konto.tsx   Im Mitarbeiter-Dialog: Benutzerkonto anlegen, Passwort neu, löschen (RPCs aus 0034)
+src/lib/benutzername.ts           vorname.nachname, Adresse mit Firmen-Domain, Passwortvorschlag (+ Tests)
 src/seiten/verwaltung/Einstellungen.tsx  Die drei Schalter umlegen (lädt die App danach neu)
 src/ui/Karten.tsx                 NavKarte, Kachel, MONATE — gemeinsam für alle Startseiten
 src/seiten/Tag.tsx                Tagesübersicht: welche Teams haben gemeldet, welche nicht
@@ -303,7 +317,7 @@ src/ui/FotoGalerie.tsx            Vorschau aus dem Bucket «anhaenge» (signiert
 src/ui/Sprachnotiz.tsx            Pegelbalken während der Aufnahme, Text-Enthüllung nach dem Speichern
 src/ui/Shell.tsx                  Rahmen: Büro-Ansichten mit Bereichsleiste (md) / Seitenleiste (lg), Baustellen-Ansichten Handy-Spalte
 supabase/functions/transkribieren Sprachnotiz → Text (Mistral)
-supabase/migrations/              0001–0015 historisch (inkl. Regie-Tabellen) · 0016 Zeiten von–bis · 0017 Firmen-Schalter (durch 0019 abgelöst) · 0019 mehrere Firmen, Rechte je Firma · 0020 Dateien und Rapportnummern je Firma · 0021 Briefkopf je Firma · 0026 normaler Arbeitstag je Firma · 0027 Zusatzauftrag «erledigt» ohne Regie · 0028 «Gelb markieren ab» je Firma · 0029 dritte Zeitspanne (Znüni-Pause abziehen) · 0030 absichtlich leer · 0031 Korrekturen nach normalem Arbeitstag der Firma · 0032 Einladung und Gerät (verworfen) · 0033 persönliche Zugänge, entfernt 0032 wieder — **nächste freie Nummer: 0034** (vor dem Anlegen `git pull`, damit nicht zwei dieselbe Nummer nehmen)
+supabase/migrations/              0001–0015 historisch (inkl. Regie-Tabellen) · 0016 Zeiten von–bis · 0017 Firmen-Schalter (durch 0019 abgelöst) · 0019 mehrere Firmen, Rechte je Firma · 0020 Dateien und Rapportnummern je Firma · 0021 Briefkopf je Firma · 0026 normaler Arbeitstag je Firma · 0027 Zusatzauftrag «erledigt» ohne Regie · 0028 «Gelb markieren ab» je Firma · 0029 dritte Zeitspanne (Znüni-Pause abziehen) · 0030 absichtlich leer · 0031 Korrekturen nach normalem Arbeitstag der Firma · 0032 Einladung und Gerät (verworfen) · 0033 persönliche Zugänge, entfernt 0032 wieder · 0034 Konten aus der Verwaltung, Mail-Domain je Firma, inaktiv = kein Zugang — **nächste freie Nummer: 0035** (vor dem Anlegen `git pull`, damit nicht zwei dieselbe Nummer nehmen)
 archiv/regie-und-board/           Stand vom 20.09. als Nachschlagewerk — nicht mehr die Quelle (Regie ist zurück, hinter Schaltern)
 ```
 

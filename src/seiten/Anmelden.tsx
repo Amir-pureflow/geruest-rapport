@@ -48,7 +48,7 @@ export function Anmelden() {
         <form onSubmit={(e) => void absenden(e)} className="card space-y-3">
           <div>
             <h1 className="font-display text-[17px] font-semibold">Anmelden</h1>
-            <p className="mt-0.5 text-xs text-ink3">Mit deinem Zugang oder dem Zugang der Firma.</p>
+            <p className="mt-0.5 text-xs text-ink3">Mit deiner Adresse, z. B. vorname.nachname@firma.ch.</p>
           </div>
 
           <div>
@@ -63,7 +63,7 @@ export function Anmelden() {
               spellCheck={false}
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              placeholder="name@beispiel.ch"
+              placeholder="vorname.nachname@firma.ch"
               className="field"
             />
           </div>

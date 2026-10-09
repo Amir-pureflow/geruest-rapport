@@ -5,6 +5,7 @@ import tarife from '../../../fixtures/tarife_sguv_2026.json';
 import { Avatar, Dialog } from '../../ui/Dialog';
 import { personEntfernen, personPruefen } from '../../lib/entfernen';
 import { LoeschLeiste, Papierkorb, useLoeschFrage } from '../../ui/LoeschFrage';
+import { Konto, type KontoInfo } from './Konto';
 
 interface Person {
   id?: string;
@@ -66,6 +67,19 @@ export function Mitarbeiter() {
   }, []);
   useEffect(() => { void laden(); }, [laden]);
 
+  /** Wer hat ein Benutzerkonto (0034)? null = Migration fehlt oder kein Büro-Zugang → Abschnitt ausblenden. */
+  const [konten, setKonten] = useState<Map<string, KontoInfo> | null>(null);
+  /** Domain der Firma für die Adressen (firma.mail_domain, z. B. «geruest.ch»). */
+  const [domain, setDomain] = useState<string | null>(null);
+  const kontenLaden = useCallback(async () => {
+    if (!supabase) return;
+    void supabase.from('firma').select('mail_domain').maybeSingle().then(({ data }) => setDomain((data as { mail_domain: string | null } | null)?.mail_domain ?? null));
+    const { data, error } = await supabase.rpc('konten_der_firma');
+    if (error) { setKonten(null); return; }
+    setKonten(new Map(((data ?? []) as KontoInfo[]).map((k) => [k.mitarbeiter_id, k])));
+  }, []);
+  useEffect(() => { void kontenLaden(); }, [kontenLaden]);
+
   const sichtbar = useMemo(() => {
     const q = suche.trim().toLowerCase();
     return liste.filter((p) =>
@@ -84,16 +98,23 @@ export function Mitarbeiter() {
     const { telefon, ...rest } = bearbeitet;
     const row: Record<string, unknown> = { ...rest, name: bearbeitet.name.trim(), temporaerbuero: bearbeitet.typ === 'temporaer' ? bearbeitet.temporaerbuero : null };
     if (hatTelefon) row.telefon = telefon?.trim() || null;
-    const { error } = row.id
-      ? await supabase.from('mitarbeiter').update(row).eq('id', row.id as string)
-      : await supabase.from('mitarbeiter').insert(row);
+    const neu = !row.id;
+    const { data, error } = neu
+      ? await supabase.from('mitarbeiter').insert(row).select('id').single()
+      : await supabase.from('mitarbeiter').update(row).eq('id', row.id as string).select('id').single();
     if (error) {
       if (spalteFehlt(error.message, 'telefon')) { setHatTelefon(false); setFehler('Migration 0009 fehlt — die Spalte «telefon» gibt es noch nicht. Bitte supabase/migrations/0009 ausführen, dann nochmals speichern.'); return; }
       setFehler(error.message);
       return;
     }
-    setBearbeitet(null);
     void laden();
+    // Neue Person: Dialog offen lassen, damit der Bauführer gleich das Benutzerkonto anlegen kann.
+    if (neu && konten && data) {
+      setBearbeitet({ ...bearbeitet, name: bearbeitet.name.trim(), id: (data as { id: string }).id });
+      setHinweis(`«${bearbeitet.name.trim()}» ist gespeichert. Jetzt das Benutzerkonto anlegen — oder schliessen.`);
+      return;
+    }
+    setBearbeitet(null);
   }
 
   /**
@@ -156,6 +177,7 @@ export function Mitarbeiter() {
               <th className="hidden px-4 py-2.5 md:table-cell">Funktion</th>
               <th className="hidden px-4 py-2.5 sm:table-cell">Anstellung</th>
               <th className="hidden px-4 py-2.5 lg:table-cell">Sprache</th>
+              {konten && <th className="hidden px-4 py-2.5 sm:table-cell">Konto</th>}
               <th className="px-4 py-2.5 text-right">Weg</th>
               <th className="w-12 py-2.5 pl-0 pr-3"><span className="sr-only">Löschen</span></th>
             </tr>
@@ -180,6 +202,13 @@ export function Mitarbeiter() {
                     : <span className="rounded-full bg-surface-2 px-2.5 py-0.5 text-[11px] font-semibold text-ink2">{p.typ === 'extern' ? 'extern' : 'fest'}</span>}
                 </td>
                 <td className="hidden px-4 py-2.5 text-ink2 lg:table-cell">{SPRACHEN.find(([k]) => k === p.sprache)?.[1]}</td>
+                {konten && (
+                  <td className="hidden px-4 py-2.5 sm:table-cell">
+                    {konten.get(p.id)
+                      ? <span className="font-mono text-xs text-ink2">{konten.get(p.id)!.email}</span>
+                      : <span className="text-xs text-ink3">—</span>}
+                  </td>
+                )}
                 <td className="px-4 py-2.5 text-right text-xs text-ink3">{p.oev_standard ? <span className="rounded-full bg-steel-soft px-2 py-0.5 font-semibold text-steel">öV</span> : p.km_standard > 0 ? <span className="font-mono tabular-nums">{p.km_standard} km</span> : '—'}</td>
                 <td className="py-1 pl-0 pr-3 text-right">
                   {frage?.ding.id !== p.id && <Papierkorb titel={`${p.name} löschen`} onClick={() => loeschenFragen(p)} />}
@@ -187,7 +216,7 @@ export function Mitarbeiter() {
               </tr>
               {frage?.ding.id === p.id && !bearbeitet && (
                 <tr>
-                  <td colSpan={6} className="p-0"><LoeschLeiste frage={frage} onAbbrechen={abbrechen} onBestaetigen={loeschFrage.bestaetigen} art="tabelle" /></td>
+                  <td colSpan={konten ? 7 : 6} className="p-0"><LoeschLeiste frage={frage} onAbbrechen={abbrechen} onBestaetigen={loeschFrage.bestaetigen} art="tabelle" /></td>
                 </tr>
               )}
               </Fragment>
@@ -259,6 +288,12 @@ export function Mitarbeiter() {
               )}
               <label className="flex items-center gap-2"><input type="checkbox" checked={bearbeitet.aktiv} onChange={(e) => f({ aktiv: e.target.checked })} /> aktiv</label>
             </div>
+            {/* Benutzerkonto (0034) — erst wenn die Person gespeichert ist, sonst gibt es keine id */}
+            {bearbeitet.id && konten && hinweis && <p className="text-sm text-ink2" role="status">{hinweis}</p>}
+            {bearbeitet.id && konten && (
+              <Konto key={bearbeitet.id} personId={bearbeitet.id} name={bearbeitet.name} funktion={bearbeitet.funktion}
+                domain={domain} konto={konten.get(bearbeitet.id)} onGeaendert={() => void kontenLaden()} />
+            )}
             {fehler && <p className="text-sm font-semibold text-accent-deep">{fehler}</p>}
             {frage && frage.ding.id === bearbeitet.id && <LoeschLeiste frage={frage} onAbbrechen={abbrechen} onBestaetigen={loeschFrage.bestaetigen} art="fenster" />}
           </div>
