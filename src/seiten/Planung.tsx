@@ -165,16 +165,18 @@ export function Planung() {
         <section className="card overflow-hidden p-0">
           <div className="overflow-x-auto">
             <div className="min-w-[860px]">
-              {/* Kopf: Tage */}
-              <div className="grid border-b border-line bg-surface-2/60" style={{ gridTemplateColumns: '200px minmax(0,1fr)' }}>
-                <span className="px-4 py-2.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-ink3">Team</span>
-                <div className="grid" style={{ gridTemplateColumns: tagSpalten }}>
+              {/* Kopf: Tage — wie die Wochenübersicht (09.10.2026, Amir): Wochentag klein in Versalien, Datum darunter,
+                  heute als rote Pille, Wochenende grau */}
+              <div className="grid border-b border-line" style={{ gridTemplateColumns: '200px minmax(0,1fr)' }}>
+                <span className="flex items-end px-4 pb-3 pt-4 text-[10px] font-semibold uppercase tracking-[0.1em] text-ink3">Team</span>
+                <div className="grid pb-3 pt-4" style={{ gridTemplateColumns: tagSpalten }}>
                   {tage.map((d) => {
                     const istHeute = iso(d) === heuteIso;
+                    const wochenende = (d.getDay() + 6) % 7 >= 5;
                     return (
-                      <span key={iso(d)} className="flex flex-col items-center justify-center py-2 text-[11px] leading-tight">
-                        <span className={'font-semibold ' + (istHeute ? 'text-accent-deep' : 'text-ink3')}>{WOCHENTAGE[(d.getDay() + 6) % 7]}</span>
-                        <span className={'mt-0.5 rounded-full px-1.5 tabular-nums ' + (istHeute ? 'bg-accent text-white' : 'text-ink2')}>{kurz(d)}</span>
+                      <span key={iso(d)} className="flex flex-col items-center gap-1">
+                        <span className={'text-[10px] font-semibold uppercase tracking-[0.1em] ' + (istHeute ? 'text-accent' : wochenende ? 'text-ink3/60' : 'text-ink3')}>{WOCHENTAGE[(d.getDay() + 6) % 7]}</span>
+                        <span className={'rounded-full px-2.5 py-0.5 font-display text-[13px] font-semibold tabular-nums leading-tight ' + (istHeute ? 'bg-accent text-white shadow-[0_4px_10px_-4px_rgb(224_48_30/0.6)]' : wochenende ? 'text-ink3/70' : 'text-ink')}>{kurz(d)}</span>
                       </span>
                     );
                   })}
