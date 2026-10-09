@@ -57,13 +57,14 @@ describe('Demo-Betrieb — Struktur wie im Gespräch mit Arbnor', () => {
     }
   });
 
-  it('Fünf Wochen Meldungen: ältere Wochen freigegeben, Vorwoche und aktuelle Woche offen, Zeit in Integer-Minuten', () => {
+  it('Fünf Wochen Meldungen: ältere Wochen freigegeben, Vorwoche halb (Mo–Mi ohne Notiz), aktuelle Woche offen, Zeit in Integer-Minuten', () => {
     expect(d.meldungen.length).toBeGreaterThan(350);
     expect(d.eintraege.length).toBeGreaterThan(1000);
     for (const m of d.meldungen) {
       expect(m.datum <= '2026-09-03').toBe(true);
-      // Vorwoche bleibt offen — im Video wird sie geprüft und freigegeben
-      const woche = m.datum < '2026-08-24' ? 'freigegeben' : 'offen';
+      // Vorwoche: Mo–Mi geprüft, ausser den Notiz-Tagen; Do/Fr und die aktuelle Woche offen — im Video wird der Rest freigegeben
+      const halb = m.datum >= '2026-08-24' && m.datum <= '2026-08-26' && m.transkript === null;
+      const woche = m.datum < '2026-08-24' || halb ? 'freigegeben' : 'offen';
       expect(m.status).toBe(woche);
     }
     for (const e of d.eintraege) {

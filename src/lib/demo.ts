@@ -7,7 +7,7 @@
  *
  * Video-tauglich (06.10.2026): Baustellen und Kunden sind erfunden — die Demo-Firma zeigt nie die
  * echte Kontenliste eines Kunden. Vorarbeiter sprechen Italienisch, Französisch, Polnisch oder
- * Portugiesisch; ihre Notizen stehen im Original und auf Deutsch. Die Vorwoche ist noch offen
+ * Portugiesisch; ihre Notizen stehen im Original und auf Deutsch. Die Vorwoche ist zur Hälfte geprüft (Mo–Mi frei, Rest offen)
  * (Prüfen und Freigeben lässt sich zeigen), ältere Wochen sind freigegeben. Jeder Eintrag hat
  * echte Zeiten von–bis. Was das Video braucht (Team 3 auf Italienisch, Überstunden heute, eine
  * Vorwoche mit Hinweisen in fünf Sprachen), steht fest; der Rest ist Zufall mit festem Seed.
@@ -498,11 +498,15 @@ export function erzeugeDemoBetrieb(opts: { baustellen: BaustelleQuelle[]; heute:
         // Samstag nur ausnahmsweise und nur in alten Wochen
         if (t === 5 && !(freigegeben && teamIdx === 11 && w === -3)) continue;
         if (tagIso === heuteIso && A.heuteOffen.has(teamIdx)) continue;
-        const status: 'offen' | 'freigegeben' = freigegeben ? 'freigegeben' : 'offen';
-        const bs = baustelleAm(team.id, tagIso);
-
         // Welche Notiz gilt heute für dieses Team?
         const fest = festAm(teamIdx, tag);
+        // Video (gross): Die Vorwoche ist halb geprüft — Mo–Mi freigegeben, Do/Fr und die Notiz-Tage («Zum Anschauen»)
+        // noch offen. 09.10.2026, Amir: «100 Team-Tage warten auf Freigabe» wirkte unausgewogen; so sind es rund 45.
+        const halbGeprueft = umfang === 'gross' && w === -1 && t <= 2 && !fest;
+        const tagFreigegeben = freigegeben || halbGeprueft;
+        const status: 'offen' | 'freigegeben' = tagFreigegeben ? 'freigegeben' : 'offen';
+        const bs = baustelleAm(team.id, tagIso);
+
         let notiz: (typeof NOTIZEN)[number] | null = null;
         let notizIdx = -1;
         let ende = 16 * 60;
@@ -560,7 +564,7 @@ export function erzeugeDemoBetrieb(opts: { baustellen: BaustelleQuelle[]; heute:
             von_min: tagesBeginn, bis_min: 12 * 60, von2_min: 13 * 60, bis2_min: bis2,
           });
         }
-        if (freigegeben) {
+        if (tagFreigegeben) {
           for (const e of eintraege.filter((x) => x.tagesmeldung_id === meldung.id)) {
             freigaben.push({ id: z.uuid(), zeiteintrag_id: e.id, wer: opts.userId, wann: ts(addTage(wStart, 7), 8, z.int(5, 55)), feld: 'status', alt: 'offen', neu: 'freigegeben' });
           }
