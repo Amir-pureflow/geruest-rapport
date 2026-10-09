@@ -87,6 +87,23 @@ export function geraeteName(ua = typeof navigator === 'undefined' ? '' : navigat
 const funktionsUrl = (p: string) => `${supabaseUrl}/functions/v1/einladung${p}`;
 const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
 
+/** Der Dienst selbst antwortet nicht richtig (nicht ausgeliefert, Störung). Der Link ist dann noch gut. */
+export const DIENST_WEG = 'Die Anmeldung ist gerade nicht erreichbar. Bitte später nochmals antippen — der Link gilt weiter.';
+
+/**
+ * Text für eine Antwort, die nicht geklappt hat. Nur was die Funktion selbst als `fehler` schickt, betrifft
+ * den Link (abgelaufen, schon benutzt). Alles andere — 404 ohne Funktion, 500 — ist eine Störung bei uns;
+ * die darf der Monteur nicht für einen kaputten Link halten (09.10.2026: «Dieser Link gilt nicht mehr» bei
+ * fehlender Edge Function).
+ */
+export function antwortFehler(j: { fehler?: string } | null): string {
+  return j?.fehler ?? DIENST_WEG;
+}
+
+async function json<T>(r: Response): Promise<T | null> {
+  try { return (await r.json()) as T; } catch { return null; }
+}
+
 export interface Eingeladener {
   name: string;
   ansicht: Koppelansicht;
@@ -99,8 +116,8 @@ export async function einladungPruefen(token: string): Promise<Eingeladener | { 
     const r = await fetch(funktionsUrl(`?token=${encodeURIComponent(token)}`), {
       headers: { apikey: anonKey, Authorization: `Bearer ${anonKey}` },
     });
-    const j = (await r.json()) as { name?: string; ansicht?: Koppelansicht; fehler?: string };
-    if (!r.ok) return { fehler: j.fehler ?? 'Dieser Link gilt nicht mehr.' };
+    const j = await json<{ name?: string; ansicht?: Koppelansicht; fehler?: string }>(r);
+    if (!r.ok || !j) return { fehler: antwortFehler(j) };
     return { name: j.name ?? '', ansicht: j.ansicht ?? 'monteur' };
   } catch {
     return { fehler: 'Keine Verbindung. Bitte nochmals probieren, wenn du Empfang hast.' };
@@ -125,15 +142,15 @@ export async function koppeln(token: string): Promise<Gekoppelt | { fehler: stri
       headers: { apikey: anonKey, Authorization: `Bearer ${anonKey}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({ token, bezeichnung: geraeteName() }),
     });
-    const j = (await r.json()) as {
+    const j = await json<{
       access_token?: string;
       refresh_token?: string;
       mitarbeiter_id?: string;
       name?: string;
       ansicht?: Koppelansicht;
       fehler?: string;
-    };
-    if (!r.ok || !j.access_token || !j.refresh_token) return { fehler: j.fehler ?? 'Das hat nicht geklappt.' };
+    }>(r);
+    if (!r.ok || !j?.access_token || !j.refresh_token) return { fehler: antwortFehler(j) };
 
     const { error } = await supabase.auth.setSession({ access_token: j.access_token, refresh_token: j.refresh_token });
     if (error) return { fehler: 'Die Anmeldung liess sich nicht speichern.' };

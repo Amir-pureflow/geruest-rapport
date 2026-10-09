@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { einladungsLink, waNummer, waLink, einladungsText, stand, restText, geraeteName, GUELTIG_STUNDEN } from './einladung';
+import { einladungsLink, waNummer, waLink, einladungsText, stand, restText, geraeteName, GUELTIG_STUNDEN, antwortFehler, DIENST_WEG } from './einladung';
 
 describe('einladungsLink', () => {
   it('hängt den Token an die Adresse', () => {
@@ -93,5 +93,15 @@ describe('geraeteName', () => {
   });
   it('fällt auf etwas Harmloses zurück', () => {
     expect(geraeteName('irgendwas')).toBe('Gerät');
+  });
+});
+
+describe('antwortFehler', () => {
+  it('nimmt den Satz der Funktion, wenn sie einen schickt (Link abgelaufen, schon benutzt)', () => {
+    expect(antwortFehler({ fehler: 'Dieser Link wurde schon benutzt.' })).toBe('Dieser Link wurde schon benutzt.');
+  });
+  it('schiebt eine fehlende Funktion (404 ohne eigenen Text) nicht dem Link in die Schuhe', () => {
+    expect(antwortFehler({})).toBe(DIENST_WEG);
+    expect(antwortFehler(null)).toBe(DIENST_WEG);
   });
 });
