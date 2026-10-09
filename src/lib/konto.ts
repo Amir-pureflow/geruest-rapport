@@ -92,3 +92,14 @@ export async function personLaden(): Promise<void> {
   } catch { /* privater Modus — dann wählt man von Hand */ }
   ansichtSetzen(p.ansicht);
 }
+
+/**
+ * Angemeldet, aber ohne Firma? Dann zeigt die App das, statt leerer Listen (10.10.2026).
+ * Nur `true`, wenn die Datenbank wirklich antwortet und null sagt — offline oder bei einem Fehler `false`,
+ * damit ein Teamgerät ohne Netz weiterarbeitet (Regel #4).
+ */
+export async function zugangOhneFirma(): Promise<boolean> {
+  if (!supabase) return false;
+  const { data, error } = await supabase.rpc('aktuelle_firma');
+  return !error && data === null;
+}

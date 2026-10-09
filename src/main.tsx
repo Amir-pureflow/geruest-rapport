@@ -54,7 +54,7 @@ import { startAutoFlush, flushNachSupabase } from './lib/db';
 import { supabase } from './lib/supabase';
 import { seitenFuer, useAnsicht, type Ansicht as AnsichtKey } from './lib/ansicht';
 import { einstellungen, einstellungenLaden } from './lib/einstellungen';
-import { angemeldet, personLaden } from './lib/konto';
+import { abmelden, angemeldet, personLaden, zugangOhneFirma } from './lib/konto';
 
 // Regie, Zusatzaufträge, Kundenlink und Board waren vom 20.09. bis 02.10.2026 ganz draussen (Bauführer: SORBA macht das).
 // Seit 02.10. gibt es sie wieder, aber nur für Firmen, die das wollen — Schalter in der Zeile der Firma
@@ -117,11 +117,28 @@ function FremdeSeite({ ansicht }: { ansicht: AnsichtKey }) {
   );
 }
 
+function OhneFirma() {
+  const [email, setEmail] = useState('');
+  useEffect(() => { void supabase?.auth.getSession().then(({ data }) => setEmail(data.session?.user.email ?? '')); }, []);
+  return (
+    <main className="mx-auto flex min-h-dvh max-w-md flex-col justify-center px-5">
+      <div className="card space-y-3">
+        <p className="font-display text-lg font-bold">Dieser Zugang gehört zu keiner Firma</p>
+        <p className="text-sm text-ink2">Angemeldet als <span className="font-mono">{email || '…'}</span>. Die Datenbank kennt dazu keine Firma, darum gibt es nichts zu sehen und nichts zu speichern.</p>
+        <p className="text-sm text-ink3">Mit einem anderen Zugang anmelden, oder den Zugang in Supabase einer Firma zuordnen (Tabelle «benutzer»).</p>
+        <button type="button" className="btn-ghost" onClick={() => void abmelden().then(() => location.replace('/'))}>Abmelden</button>
+      </div>
+    </main>
+  );
+}
+
 function App() {
   const ansicht = useAnsicht();
   const [bereit, setBereit] = useState(!supabase);
   // Ohne Sitzung liefert die Datenbank leere Listen — dann lieber den Grund zeigen als «Keine Teams».
   const [sitzung, setSitzung] = useState(!supabase);
+  /** Angemeldet, aber die Datenbank kennt keine Firma dazu (10.10.2026: «Team weg», «row-level security»). */
+  const [ohneFirma, setOhneFirma] = useState(false);
 
   /**
    * Beim Start: ist eine Firma angemeldet? Erst dann die Schalter dieser Firma laden.
@@ -135,6 +152,7 @@ function App() {
       if (ok) await einstellungenLaden().catch(() => undefined);
       // Persönlicher Zugang (0033): Ansicht und Person stehen fest, niemand muss wählen.
       if (ok) await personLaden().catch(() => undefined);
+      if (ok) setOhneFirma(await zugangOhneFirma().catch(() => false));
       setBereit(true);
       if (ok) vorladen(einstellungen().erfassung === 'regie');
     })();
@@ -153,6 +171,9 @@ function App() {
       </BrowserRouter>
     );
   }
+
+  // Angemeldet, aber ohne Firma: sonst wären alle Listen leer und jedes Speichern meldete «row-level security».
+  if (sitzung && ohneFirma && !window.location.pathname.startsWith('/b/')) return <OhneFirma />;
 
   const hat = (seite: string) => sitzung && !!ansicht && seitenFuer(ansicht).includes(seite);
   const regieModus = einstellungen().erfassung === 'regie';
