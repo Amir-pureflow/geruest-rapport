@@ -11,3 +11,7 @@ dev-dist/
 fixtures/baustellen.csv
 
 .vercel
+
+# Pro Rechner verschieden — nicht einchecken (blockierte sonst «git pull» beim Partner)
+supabase/.temp/cli-latest
+*.tsbuildinfo

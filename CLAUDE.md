@@ -308,7 +308,7 @@ src/ui/Sprachnotiz.tsx            Pegelbalken während der Aufnahme, Text-Enthü
 src/ui/Shell.tsx                  Rahmen: Büro-Ansichten mit Bereichsleiste (md) / Seitenleiste (lg), Baustellen-Ansichten Handy-Spalte
 supabase/functions/transkribieren Sprachnotiz → Text (Mistral)
 supabase/functions/einladung      Einladungslink einlösen (verify_jwt false) — Zugang je Gerät, Sitzung zurück
-supabase/migrations/              0001–0015 historisch (inkl. Regie-Tabellen) · 0016 Zeiten von–bis · 0017 Firmen-Schalter (durch 0019 abgelöst) · 0019 mehrere Firmen, Rechte je Firma · 0020 Dateien und Rapportnummern je Firma · 0021 Briefkopf je Firma · 0032 Einladung und Gerät (Zugang für Monteur/Chefmonteur)
+supabase/migrations/              0001–0015 historisch (inkl. Regie-Tabellen) · 0016 Zeiten von–bis · 0017 Firmen-Schalter (durch 0019 abgelöst) · 0019 mehrere Firmen, Rechte je Firma · 0020 Dateien und Rapportnummern je Firma · 0021 Briefkopf je Firma · 0026 normaler Arbeitstag je Firma · 0027 Zusatzauftrag «erledigt» ohne Regie · 0028 «Gelb markieren ab» je Firma · 0029 dritte Zeitspanne (Znüni-Pause abziehen) · 0030 absichtlich leer · 0031 Korrekturen nach normalem Arbeitstag der Firma · 0032 Einladung und Gerät (Zugang für Monteur/Chefmonteur) — **nächste freie Nummer: 0033** (vor dem Anlegen `git pull`, damit nicht zwei dieselbe Nummer nehmen)
 archiv/regie-und-board/           Stand vom 20.09. als Nachschlagewerk — nicht mehr die Quelle (Regie ist zurück, hinter Schaltern)
 ```
 
