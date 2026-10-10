@@ -9,9 +9,10 @@ import { addTage, iso, lang, stunden } from '../lib/datum';
 import { fotoVerkleinern } from '../lib/foto';
 import { kennzeichen } from '../lib/fahrzeug';
 import { einstellungen, normaltagMin } from '../lib/einstellungen';
-import { MAX_SPANNEN, MITTAG_VON_MIN, NACHMITTAG_MIN, ZNUENI_BIS_MIN, ZNUENI_VON_MIN, ausUhrzeit, aufteilen, kannPauseAbziehen, mittagMinuten, pauseAbziehen, pauseZaehlen, spanneVollstaendig, spannenMinuten, spannenUeberlappen, standardSpannen, umfasstPause, uhrzeitFeld, zuSpalten, type Spanne } from '../lib/zeiten';
+import { MAX_SPANNEN, MITTAG_VON_MIN, NACHMITTAG_MIN, ZNUENI_BIS_MIN, ZNUENI_VON_MIN, ausUhrzeit, aufteilen, kannPauseAbziehen, mittagMinuten, pauseAbziehen, pauseZaehlen, spanneVollstaendig, spannenMinuten, spannenOffen, spannenUeberlappen, standardSpannen, umfasstPause, uhrzeitFeld, zuSpalten, type Spanne } from '../lib/zeiten';
 import { baustellenSuchen } from '../lib/suche';
 import { FUNKTION_BUERO } from '../lib/benutzername';
+import { vorratLesen, vorratSchreiben } from '../lib/vorrat';
 
 /**
  * Phase 2 — das Teamgerät. Ein Chefmonteur meldet für sein Team.
@@ -621,7 +622,9 @@ export function Erfassung() {
   useEffect(() => {
     if (!supabase) return;
     void supabase.from('team').select('id,bezeichnung,fahrzeug,chefmonteur:chefmonteur_id(id,sprache)').eq('aktiv', true).order('bezeichnung').then(({ data }) => {
-      if (!data) return;
+      // Ohne Netz (Start auf der Baustelle): die Teams vom letzten Mal — siehe lib/vorrat.ts
+      if (!data) { const v = vorratLesen<Team[]>('teams-erfassung'); if (v) setTeams(v); return; }
+      vorratSchreiben('teams-erfassung', data);
       // Der Chefmonteur kommt als einzelnes Objekt (FK) — die generierten Typen behaupten eine Liste
       setTeams(data as unknown as Team[]);
       // Gespeichertes Team gibt es nicht mehr (z. B. nach Demo-Neustart) → Team neu wählen lassen
@@ -680,13 +683,33 @@ export function Erfassung() {
     setLaedtTeam(true);
     setLeute([]); setKacheln([]); setAlleGeplanten([]); setBaustelle(null); setZiffern(''); setSuchTreffer([]);
     setGaeste([]); setZeigeGast(false); setGastFilter('');
+    // Ohne Netz: Leute und Kacheln, wie sie beim letzten Laden mit Netz waren (lib/vorrat.ts)
+    type TeamVorrat = { personen: Person[]; gaeste: Person[]; kacheln: Baustelle[]; geplant: Baustelle[] };
+    const ausVorrat = (): boolean => {
+      const v = vorratLesen<TeamVorrat>(`team:${teamId}`);
+      if (!v) return false;
+      setLeute(v.personen);
+      const a: Record<string, Anwesenheit> = {};
+      for (const p of v.personen) a[p.id] = neueAnwesenheit(p, 'zeit', standardSpannen());
+      setAnw(a);
+      setTeamSpannen(standardSpannen());
+      setZuletztGaeste(v.gaeste);
+      setKacheln(v.kacheln);
+      setAlleGeplanten(v.geplant);
+      setBaustelle(v.kacheln[0] ?? null);
+      return true;
+    };
     void (async () => {
       try {
-      const { data: mg } = await client
+      const { data: mg, error: mgFehler } = await client
         .from('team_mitglied')
         .select('mitarbeiter:mitarbeiter_id(id,name,typ,funktion,oev_standard,km_standard,aktiv)')
         .eq('team_id', teamId)
         .is('bis', null);
+      if (mgFehler || !mg) {
+        if (ausVorrat()) return;
+        throw mgFehler ?? new Error('Team nicht geladen');
+      }
       const personen = ((mg ?? []) as unknown as { mitarbeiter: Person & { aktiv: boolean } }[])
         .map((r) => r.mitarbeiter)
         .filter((p) => p && p.aktiv)
@@ -699,11 +722,13 @@ export function Erfassung() {
 
       // Zuletzt auf diesem Gerät hinzugefügte Gäste — nur die, die es noch gibt und die nicht inzwischen fest im Team sind
       const gastIds = gaesteLesen(teamId).filter((id) => !personen.some((p) => p.id === id));
+      let gaesteListe: Person[] = [];
       if (gastIds.length > 0) {
         const { data: g } = await client.from('mitarbeiter').select('id,name,typ,funktion,oev_standard,km_standard').in('id', gastIds).eq('aktiv', true);
         const gefunden = (g ?? []) as Person[];
-        setZuletztGaeste(gastIds.map((id) => gefunden.find((p) => p.id === id)).filter((p): p is Person => !!p));
-      } else setZuletztGaeste([]);
+        gaesteListe = gastIds.map((id) => gefunden.find((p) => p.id === id)).filter((p): p is Person => !!p);
+      }
+      setZuletztGaeste(gaesteListe);
 
       const [plan, zuletzt] = await Promise.all([
         client.from('jahresplan').select('von,bis,baustelle:baustelle_id(id,konto_nr,bezeichnung)').eq('team_id', teamId).order('von'),
@@ -716,9 +741,11 @@ export function Erfassung() {
       const planRows = (plan.data ?? []) as unknown as { von: string; bis: string; baustelle: Baustelle | null }[];
       for (const p of planRows) if (p.von <= heuteIso && p.bis >= heuteIso) push(p.baustelle);
       for (const p of planRows) push(p.baustelle);
+      const geplant = planRows.map((p) => p.baustelle).filter((b): b is Baustelle => !!b);
       setKacheln(tiles);
-      setAlleGeplanten(planRows.map((p) => p.baustelle).filter((b): b is Baustelle => !!b));
+      setAlleGeplanten(geplant);
       setBaustelle(tiles[0] ?? null);
+      vorratSchreiben(`team:${teamId}`, { personen, gaeste: gaesteListe, kacheln: tiles, geplant });
       } catch {
         setHinweis('Team konnte nicht geladen werden — Netz prüfen und nochmals versuchen.');
       } finally {
@@ -955,9 +982,13 @@ export function Erfassung() {
     if (!baustelle) { setHinweis('Zuerst die Baustelle antippen.'); return; }
     if (dabei.length === 0) { setHinweis('Niemand angehakt.'); return; }
     if (art === 'abweichung' && abLeute.size === 0) { setHinweis('Niemand bei der Zusatzarbeit angehakt.'); return; }
-    // Zeiten von–bis: ohne «bis» gibt es keine Stunden — nichts raten, nachfragen
-    const unvollstaendig = dabei.filter((p) => anw[p.id]?.modus === 'zeit' && !anw[p.id].zeiten.some(spanneVollstaendig));
-    if (unvollstaendig.length > 0) { setHinweis(`Bei ${unvollstaendig.map((p) => p.name).join(', ')} fehlt noch «bis» — Zeit eintragen oder auf Stundenzahl wechseln.`); return; }
+    // Zeiten von–bis: ohne «bis» gibt es keine Stunden — nichts raten, nachfragen. Seit 10.10.2026 jede Zeile: vorher zählte ein
+    // Nachmittag ohne «bis» still 0, sobald der Vormittag stimmte (5 h statt 9 h gemeldet).
+    const wer = (liste: Person[]) => (liste.length === dabei.length ? '' : `Bei ${liste.map((p) => p.name).join(', ')}: `);
+    const ohneBis = dabei.filter((p) => anw[p.id]?.modus === 'zeit' && spannenOffen(anw[p.id].zeiten) === 'fehlt');
+    if (ohneBis.length > 0) { setHinweis(`${wer(ohneBis)}Es fehlt noch «bis» — bitte eintragen, wann ihr fertig wart. Nur am Vormittag gearbeitet? Den Nachmittag mit × entfernen.`); return; }
+    const verkehrt = dabei.filter((p) => anw[p.id]?.modus === 'zeit' && spannenOffen(anw[p.id].zeiten) === 'verkehrt');
+    if (verkehrt.length > 0) { setHinweis(`${wer(verkehrt)}Eine Zeit endet vor ihrem Beginn — bitte prüfen.`); return; }
     const ueberlappt = dabei.filter((p) => anw[p.id]?.modus === 'zeit' && spannenUeberlappen(anw[p.id].zeiten));
     if (ueberlappt.length > 0) { setHinweis(`Bei ${ueberlappt.map((p) => p.name).join(', ')} überschneiden sich Vormittag und Nachmittag — bitte Zeiten prüfen.`); return; }
     const hatUeber = ueberTotal > 0;
@@ -1472,7 +1503,7 @@ export function Erfassung() {
               const t = aufteilen(spannenMinuten(teamSpannen), normaltagMin());
               return (
                 <p className="mt-2 font-mono text-sm tabular-nums">
-                  {teamSpannen.some(spanneVollstaendig) ? <>{stunden(t.normal_min + t.ueber_min)} h{t.ueber_min > 0 && <span className="font-semibold text-amber-deep"> · davon {stunden(t.ueber_min)} h Überstunden</span>}</> : <span className="text-ink3">«bis» eintragen</span>}
+                  {teamSpannen.some(spanneVollstaendig) ? <>{stunden(t.normal_min + t.ueber_min)} h{spannenOffen(teamSpannen) === 'fehlt' ? <span className="font-semibold text-amber-deep"> · Nachmittag: «bis» fehlt noch</span> : t.ueber_min > 0 && <span className="font-semibold text-amber-deep"> · davon {stunden(t.ueber_min)} h Überstunden</span>}</> : <span className="text-ink3">«bis» eintragen</span>}
                 </p>
               );
             })()}

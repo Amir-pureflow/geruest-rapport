@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { MAX_SPANNEN, aufteilen, ausSpalten, ausUhrzeit, kannPauseAbziehen, markiertePersonen, mittagMinuten, pauseAbgezogen, pauseAbziehen, pauseZaehlen, spannenMinuten, spannenUeberlappen, standardSpannen, ueberMarkiert, uhrzeit, uhrzeitFeld, zeitenText, zuSpalten } from './zeiten';
+import { MAX_SPANNEN, aufteilen, ausSpalten, ausUhrzeit, kannPauseAbziehen, markiertePersonen, mittagMinuten, pauseAbgezogen, pauseAbziehen, pauseZaehlen, spannenMinuten, spannenOffen, spannenUeberlappen, standardSpannen, ueberMarkiert, uhrzeit, uhrzeitFeld, zeitenText, zuSpalten } from './zeiten';
 import { NORMALTAG_MIN } from './datum';
 
 describe('Uhrzeit ↔ Minuten', () => {
@@ -30,6 +30,12 @@ describe('spannenMinuten — keine Pausenrechnung', () => {
     expect(spannenMinuten([{ von: 420, bis: null }])).toBe(0);
     expect(spannenMinuten([{ von: 720, bis: 420 }])).toBe(0);
     expect(spannenMinuten([{ von: 420, bis: 420 }])).toBe(0);
+  });
+  it('Nachmittag ohne «bis» wird nicht still weggelassen, sondern gemeldet (10.10.2026)', () => {
+    expect(spannenOffen(standardSpannen())).toBe('fehlt');
+    expect(spannenOffen([{ von: 420, bis: 720 }, { von: 780, bis: 1020 }])).toBeNull();
+    expect(spannenOffen([{ von: 420, bis: 720 }])).toBeNull();
+    expect(spannenOffen([{ von: 420, bis: 720 }, { von: 780, bis: 720 }])).toBe('verkehrt');
   });
   it('erkennt Überschneidungen, egal in welcher Reihenfolge eingetragen', () => {
     expect(spannenUeberlappen([{ von: 420, bis: 720 }, { von: 780, bis: 1020 }])).toBe(false);

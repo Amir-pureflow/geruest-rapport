@@ -46,20 +46,32 @@ export function Teams() {
     setNeu('');
     void laden();
   }
+  // Fehler immer anzeigen (10.10.2026: vorher still — die Person erschien einfach nicht im Team)
   async function aendern(patch: Partial<Team>) {
     if (!supabase || !team) return;
-    await supabase.from('team').update(patch).eq('id', team.id);
+    const { error } = await supabase.from('team').update(patch).eq('id', team.id);
+    if (error) setFehler(error.message);
     void laden();
   }
   async function hinzufuegen(mitarbeiterId: string) {
     if (!supabase || !team) return;
-    await supabase.from('team_mitglied').insert({ team_id: team.id, mitarbeiter_id: mitarbeiterId, von: iso(new Date()) });
+    const heute = iso(new Date());
+    const { error } = await supabase.from('team_mitglied').insert({ team_id: team.id, mitarbeiter_id: mitarbeiterId, von: heute });
+    if (error?.code === '23505') {
+      // Heute schon einmal im Team gewesen und wieder entfernt: denselben Eintrag wieder öffnen
+      const r = await supabase.from('team_mitglied').update({ bis: null }).eq('team_id', team.id).eq('mitarbeiter_id', mitarbeiterId).eq('von', heute);
+      if (r.error) setFehler(r.error.message);
+    } else if (error) setFehler(error.message);
     void laden();
   }
   async function entfernen(m: Mitglied) {
     if (!supabase || !team) return;
-    await supabase.from('team_mitglied').update({ bis: iso(new Date()) }).eq('team_id', m.team_id).eq('mitarbeiter_id', m.mitarbeiter_id).eq('von', m.von);
-    if (team.chefmonteur_id === m.mitarbeiter_id) await supabase.from('team').update({ chefmonteur_id: null }).eq('id', team.id);
+    const r1 = await supabase.from('team_mitglied').update({ bis: iso(new Date()) }).eq('team_id', m.team_id).eq('mitarbeiter_id', m.mitarbeiter_id).eq('von', m.von);
+    if (r1.error) setFehler(r1.error.message);
+    if (!r1.error && team.chefmonteur_id === m.mitarbeiter_id) {
+      const r2 = await supabase.from('team').update({ chefmonteur_id: null }).eq('id', team.id);
+      if (r2.error) setFehler(r2.error.message);
+    }
     void laden();
   }
   /**

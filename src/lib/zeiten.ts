@@ -69,6 +69,16 @@ export function spanneVollstaendig(s: Spanne): s is { von: number; bis: number }
   return s.bis !== null && s.bis > s.von;
 }
 
+/**
+ * Ist eine Zeile nicht fertig? `fehlt` = eine Zeile ohne «bis» (z. B. Nachmittag 13:00 – leer), `verkehrt` = «bis» vor «von».
+ * Vor dem Speichern nachfragen statt die Zeile still mit 0 zu zählen (10.10.2026: Nachmittag ohne «bis» ergab 5 h statt 9 h).
+ */
+export function spannenOffen(spannen: Spanne[]): 'fehlt' | 'verkehrt' | null {
+  if (spannen.some((s) => s.bis === null)) return 'fehlt';
+  if (spannen.some((s) => s.bis !== null && s.bis <= s.von)) return 'verkehrt';
+  return null;
+}
+
 /** Summe der vollständigen Spannen in Minuten — ohne Abzug, ohne Zuschlag. Unvollständige zählen 0. */
 export function spannenMinuten(spannen: Spanne[]): number {
   return spannen.reduce((s, x) => s + (spanneVollstaendig(x) ? x.bis - x.von : 0), 0);

@@ -16,6 +16,7 @@ import { kennzeichen } from '../lib/fahrzeug';
 import { einstellungen } from '../lib/einstellungen';
 import { taetigkeitText } from '../lib/zusatzauftrag';
 import { flushNachSupabase, offeneAnzahl, offeneMeldungen, type MeldungPayload } from '../lib/db';
+import { vorratLesen, vorratSchreiben } from '../lib/vorrat';
 
 export const TEAM_KEY = 'teamgeraet-team-id';
 /** Zuletzt gewählte Teams auf diesem Gerät (max. 5, neuestes vorne) — gleiche Liste wie in der Erfassung. */
@@ -96,7 +97,10 @@ export function StartChef() {
   useEffect(() => {
     if (!supabase) return;
     void supabase.from('team').select('id,bezeichnung,fahrzeug,chefmonteur:chefmonteur_id(name)').eq('aktiv', true).order('bezeichnung').then(({ data }) => {
-      const s = ((data ?? []) as unknown as Team[]).sort((a, b) => a.bezeichnung.localeCompare(b.bezeichnung, 'de', { numeric: true }));
+      // Ohne Netz (Start auf der Baustelle): die Teams vom letzten Mal — siehe lib/vorrat.ts
+      if (!data) { const v = vorratLesen<Team[]>('teams-start'); if (v) setTeams(v); return; }
+      const s = (data as unknown as Team[]).sort((a, b) => a.bezeichnung.localeCompare(b.bezeichnung, 'de', { numeric: true }));
+      vorratSchreiben('teams-start', s);
       setTeams(s);
       const gespeichert = localStorage.getItem(TEAM_KEY);
       if (gespeichert && !s.some((t) => t.id === gespeichert)) { localStorage.removeItem(TEAM_KEY); setTeamId(null); }

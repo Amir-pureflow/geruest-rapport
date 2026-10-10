@@ -140,6 +140,9 @@ export async function personEntfernen(id: string, entscheid: Entscheid): Promise
   if (!supabase) return { fehler: KEINE_VERBINDUNG };
   if (entscheid === 'deaktivieren') return personDeaktivieren(id);
   if (entscheid !== 'loeschen') return { fehler: 'Hier gibt es nichts zu löschen.' };
+  // Zuerst ihr Konto (10.10.2026): sonst bliebe die Anmeldung ohne Firma stehen, und die Adresse wäre für immer besetzt
+  const k = await supabase.rpc('konto_loeschen', { p_mitarbeiter: id });
+  if (k.error && !/kein Konto/i.test(k.error.message)) return { fehler: 'Das Konto der Person konnte nicht gelöscht werden: ' + k.error.message };
   // Erst die Einrichtung, die auf die Person zeigt — sonst hält der Fremdschlüssel das Löschen auf
   const r1 = await supabase.from('team').update({ chefmonteur_id: null }).eq('chefmonteur_id', id);
   if (r1.error) return { fehler: fehlerText(r1.error) };

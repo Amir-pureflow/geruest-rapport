@@ -18,6 +18,7 @@
  * Anmeldung bestehen und die Meldungen gehen weiter in die Warteschlange (CLAUDE.md #4).
  */
 import { supabase } from './supabase';
+import { vorratLeeren } from './vorrat';
 import { ansichtSetzen, FESTE_ANSICHT_KEY, type Ansicht } from './ansicht';
 
 /** Dieselben Schlüssel wie StartMonteur.tsx (Person) und StartChef.tsx / Erfassung.tsx (Team). */
@@ -46,8 +47,11 @@ export async function abmelden(): Promise<void> {
     localStorage.removeItem(FESTE_ANSICHT_KEY);
     localStorage.removeItem(MONTEUR_KEY);
   } catch { /* egal */ }
+  vorratLeeren(); // Teams/Leute vom letzten Mal gehören zum alten Konto
   ansichtSetzen(null);
-  if (supabase) await supabase.auth.signOut();
+  // Nur dieses Gerät (10.10.2026). Ohne `scope: 'local'` meldet Supabase alle Geräte mit demselben Zugang ab — bei geteilten
+  // Zugängen (buero@, pureflow@) schlug dann auf den anderen Geräten jedes Speichern fehl («row-level security»).
+  if (supabase) await supabase.auth.signOut({ scope: 'local' });
 }
 
 /**

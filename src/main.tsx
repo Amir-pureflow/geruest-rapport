@@ -68,6 +68,13 @@ import { abmelden, angemeldet, personLaden, zugangOhneFirma } from './lib/konto'
 if (supabase) {
   const client = supabase;
   startAutoFlush(() => flushNachSupabase(client));
+  // Sitzung weg (abgemeldet, Konto gelöscht, Zugang abgelaufen): zur Anmeldung, statt mit einer Oberfläche weiterzumachen,
+  // in der jedes Speichern scheitert (10.10.2026). Was in der Warteschlange liegt, bleibt auf dem Gerät.
+  let hatteSitzung = false;
+  client.auth.onAuthStateChange((ereignis, sitzung) => {
+    if (sitzung) hatteSitzung = true;
+    if (ereignis === 'SIGNED_OUT' && hatteSitzung) { hatteSitzung = false; location.replace('/'); }
+  });
 }
 
 // Neue Version holen, auch wenn der Tab den ganzen Tag offen bleibt (Bauführer-PC):
