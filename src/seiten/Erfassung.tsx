@@ -26,7 +26,9 @@ import { ArtPille } from '../ui/ArtPille';
  *                 So arbeitet die Gerüst GmbH.
  *   regie       — zusätzlich «War etwas anders?»: Symbol → «Wer wollte das?» → Stunden je Person → Notiz.
  *                 Daraus entsteht beim Bauführer ein Regierapport für den Kunden.
- * Es wird nie gefragt, OB etwas Regie ist — das kann der Monteur nicht wissen.
+ * Ausnahme seit 11.10.2026 (Amir): Hat das Team Überstunden und tippt «Alles wie geplant», fragt die App einmal nach,
+ * ob es Regie war — sonst rutscht Regie als gewöhnliche Überstunden durch. «Ja» führt in den Regie-Ablauf (Überstunden
+ * vorbelegt), «Nein» speichert wie bisher.
  *
  * Feedback Bauführer 20.09.: Stunden wahlweise als Zahl oder als Zeiten von–bis (ohne Pausenrechnung),
  * Sprachnotiz immer als Bemerkung zum Tag, Personen von ausserhalb des Teams hinzufügen, nur Auto (kein öV).
@@ -60,7 +62,7 @@ const GAESTE_KEY = 'teamgeraet-gaeste-';
 /** Die drei Abweichungen als Bild — gelesen wird auf der Baustelle mit Handschuhen und Sonne auf dem Display. */
 const SYMBOLE: { typ: Abweichung; label: string; svg: ReactElement }[] = [
   {
-    typ: 'zusaetzlich', label: 'zusätzlich gearbeitet',
+    typ: 'zusaetzlich', label: 'Regie ausgeführt',
     svg: <svg viewBox="0 0 40 40" className="h-9 w-9" fill="currentColor"><rect x="17" y="8" width="6" height="24" rx="2" /><rect x="8" y="17" width="24" height="6" rx="2" /></svg>,
   },
   {
@@ -74,7 +76,7 @@ const SYMBOLE: { typ: Abweichung; label: string; svg: ReactElement }[] = [
 ];
 
 /** Kurzform für die drei Kacheln im Tag-Schritt — zwei Wörter, die auch allein verständlich sind. */
-const KURZ_LABEL: Record<Abweichung, string> = { zusaetzlich: 'zusätzlich gearbeitet', warten: 'warten müssen', kaputt: 'etwas kaputt', laenger: 'länger gearbeitet' };
+const KURZ_LABEL: Record<Abweichung, string> = { zusaetzlich: 'Regie ausgeführt', warten: 'warten müssen', kaputt: 'etwas kaputt', laenger: 'länger gearbeitet' };
 
 function Helm({ farbe }: { farbe: string }) {
   return (
@@ -133,7 +135,7 @@ interface Gemeldet {
   personen: number;
 }
 type SpeicherModus = 'normal' | 'ersetzen' | 'zusaetzlich';
-const AB_KURZ: Record<Abweichung, string> = { zusaetzlich: 'zusätzlich', warten: 'gewartet', kaputt: 'repariert', laenger: 'länger' };
+const AB_KURZ: Record<Abweichung, string> = { zusaetzlich: 'Regie', warten: 'gewartet', kaputt: 'repariert', laenger: 'länger' };
 
 function Stepper({ wert, setWert, schritt, min, max, format }: { wert: number; setWert: (v: number) => void; schritt: number; min: number; max?: number; format: (v: number) => string }) {
   return (
@@ -480,6 +482,9 @@ export function Erfassung() {
   const [abMinPerson, setAbMinPerson] = useState<Record<string, number>>({});
   const abMinVon = (id: string) => abMinPerson[id] ?? abMin;
   const [abLeute, setAbLeute] = useState<Set<string>>(new Set());
+  /** «Überstunden — war das Regie?» steht offen (nur Regie-Modus, beim Tippen auf «Alles wie geplant») */
+  const [regieFrage, setRegieFrage] = useState(false);
+  const regieFrageRef = useRef<HTMLElement | null>(null);
   // Überstunden: Sprachnotiz als Warum (Pflicht, ausser das Mikrofon fehlt) — hängt an der Tagesmeldung
   const [mikroFehlt, setMikroFehlt] = useState(false);
   const [ueberAufnahme, setUeberAufnahme] = useState<{ blob: Blob; sekunden: number } | null>(null);
@@ -920,6 +925,9 @@ export function Erfassung() {
   const mitExternen = lieferwagenPreis !== null && lieferwagenPreis > 0 && dabei.some((p) => p.typ === 'extern');
   useEffect(() => { setLieferwagen(false); }, [teamId, tagIso]);
   const ueberTotal = dabei.reduce((s, p) => s + wirksam(anw[p.id]).ueber, 0);
+  // Keine Überstunden mehr (Zeit geändert) → die Rückfrage ist hinfällig
+  useEffect(() => { if (ueberTotal === 0) setRegieFrage(false); }, [ueberTotal]);
+  useEffect(() => { if (regieFrage) regieFrageRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' }); }, [regieFrage]);
 
   /** Team-Zeiten setzen alle, die gerade auf Zeiten stehen. */
   function setzeTeamSpannen(s: Spanne[]) {
@@ -962,12 +970,15 @@ export function Erfassung() {
   function abweichungStarten(typ: Abweichung) {
     if (!baustelle) { setHinweis('Zuerst die Baustelle antippen.'); return; }
     if (dabei.length === 0) { setHinweis('Zuerst anhaken, wer dabei war.'); return; }
-    const mitUeber = dabei.filter((p) => (anw[p.id]?.ueber ?? 0) > 0);
+    // Überstunden aus den Zeiten von–bis (wirksam), nicht aus dem alten Stundenzahl-Feld — sonst wurde nichts übernommen
+    const ueberVon = (p: Person) => (anw[p.id] ? wirksam(anw[p.id]).ueber : 0);
+    const mitUeber = dabei.filter((p) => ueberVon(p) > 0);
+    setRegieFrage(false);
     setAbweichung(typ);
     setAbLeute(new Set((mitUeber.length > 0 ? mitUeber : dabei).map((p) => p.id)));
     if (mitUeber.length > 0) {
-      setAbMin(anw[mitUeber[0].id].ueber);
-      setAbMinPerson(Object.fromEntries(mitUeber.map((p) => [p.id, anw[p.id].ueber])));
+      setAbMin(ueberVon(mitUeber[0]));
+      setAbMinPerson(Object.fromEntries(mitUeber.map((p) => [p.id, ueberVon(p)])));
     }
     setHinweis('');
     setSchritt('wer');
@@ -1063,6 +1074,13 @@ export function Erfassung() {
     return gleich
       ? `${stunden(abMinVon(erste))} h ${AB_KURZ[abweichung]} je ${liste.length} Pers.`
       : `${stunden(gesamt)} h ${AB_KURZ[abweichung]} (${liste.length} Pers., unterschiedlich)`;
+  }
+
+  /** Überstunden in Worten, wie der Chefmonteur denkt: «1.6 h Überstunden je Person» — sind sie verschieden, das Teamtotal. */
+  function ueberText(): string {
+    const je = dabei.map((p) => (anw[p.id] ? wirksam(anw[p.id]).ueber : 0)).filter((m) => m > 0);
+    if (je.length > 1 && je.every((m) => m === je[0]) && je.length === dabei.length) return `${stunden(je[0])} h Überstunden je Person`;
+    return `${stunden(ueberTotal)} h Überstunden${je.length > 1 ? ' im Team' : ''}`;
   }
 
   /** Stunden des normalen Tags in Worten: «8.0 h» wenn alle gleich, sonst «7.5–8.5 h». */
@@ -1359,7 +1377,7 @@ export function Erfassung() {
         <div className="space-y-4">
           <p className="lbl mb-0">{SYMBOLE.find((x) => x.typ === abweichung)?.label} · {wer === 'kunde' ? 'Kunde' : wer === 'chef' ? 'unser Chef' : 'niemand'}</p>
           <h1 className="font-display text-2xl font-semibold">Wie lange?</h1>
-          <Stepper wert={abMin} setWert={(v) => { setAbMin(v); setAbMinPerson({}); }} schritt={30} min={30} format={(v) => (v / 60).toFixed(1) + ' h'} />
+          <Stepper wert={abMin} setWert={(v) => { setAbMin(v); setAbMinPerson({}); }} schritt={30} min={30} format={(v) => stunden(v) + ' h'} />
           <p className="-mt-2 text-center text-xs text-ink3">
             {dabei.some((x) => wirksam(anw[x.id]).ueber > 0)
               ? 'Vorbelegt mit den Überstunden — die zählen dann hier, nicht doppelt.'
@@ -1393,7 +1411,7 @@ export function Erfassung() {
             </div>
           </div>
 
-          {fotoLeiste('Bitte Fotos machen — der Bauführer braucht Bilder bei Zusatzarbeit.')}
+          {fotoLeiste('Bitte Fotos machen — der Bauführer braucht Bilder bei Regie.')}
 
           {/* Dieselbe Sprachnotiz wie am Tag: wurde beim Tag schon aufgenommen, ist sie hier schon da */}
           <div className={'rounded-[14px] border-2 border-dashed p-5 text-center ' + (nimmtAuf ? 'border-accent bg-accent-soft' : ueberAufnahme ? 'border-good/50 bg-good-soft/40' : 'border-steel bg-steel-soft')}>
@@ -1854,7 +1872,7 @@ export function Erfassung() {
             </div>
             <p className="text-xs text-ink3">{ueberTotal > 0
               ? modus === 'regie'
-                ? 'War es Zusatzarbeit für den Kunden? Dann unten «zusätzlich gearbeitet» antippen — die Überstunden werden übernommen.'
+                ? 'War es Regie (vom Kunden gewollt)? Beim Melden fragt die App nach — die Überstunden werden dann übernommen.'
                 : 'Der Bauführer sieht die Überstunden mit deiner Notiz und gibt sie frei.'
               : 'Der Bauführer liest die Notiz in der Wochenübersicht — z. B. Material fehlt, Kunde war da, früher Schluss.'}</p>
         </section>
@@ -1890,9 +1908,22 @@ export function Erfassung() {
           </section>
         )}
 
-        <button type="button" disabled={speichert} onClick={() => void speichern()} className="cta cta-good py-5 text-[17px] disabled:opacity-70">
-          <span className="inline-flex items-center gap-2">{gespeichert ? gespeichert : <><CheckCircle2 size={22} strokeWidth={2.2} aria-hidden="true" /> {modus === 'regie' ? 'Alles wie geplant' : 'Tag melden'}</>}</span>
-        </button>
+        {regieFrage ? (
+          <section ref={regieFrageRef} className="card space-y-3 border-amber/40 bg-amber-soft" role="alertdialog" aria-labelledby="regie-frage">
+            <p id="regie-frage" className="text-[17px] font-semibold leading-snug text-ink">{ueberText()} — war das Regie?</p>
+            <p className="-mt-1 text-sm text-ink2">Regie = Arbeit, die der Kunde zusätzlich wollte.</p>
+            <button type="button" disabled={speichert} className="cta py-4 text-[16px] disabled:opacity-70" onClick={() => abweichungStarten('zusaetzlich')}>
+              Ja, Regie ausgeführt
+            </button>
+            <button type="button" disabled={speichert} className="btn-ghost w-full py-3 text-sm disabled:opacity-70" onClick={() => { setRegieFrage(false); void speichern(); }}>
+              Nein, nur länger gearbeitet
+            </button>
+          </section>
+        ) : (
+          <button type="button" disabled={speichert} onClick={() => { if (modus === 'regie' && ueberTotal > 0) { setRegieFrage(true); return; } void speichern(); }} className="cta cta-good py-5 text-[17px] disabled:opacity-70">
+            <span className="inline-flex items-center gap-2">{gespeichert ? gespeichert : <><CheckCircle2 size={22} strokeWidth={2.2} aria-hidden="true" /> {modus === 'regie' ? (ueberTotal > 0 ? 'Tag melden' : 'Alles wie geplant') : 'Tag melden'}</>}</span>
+          </button>
+        )}
         {hinweis && <p className="text-sm font-semibold text-accent-deep">{hinweis}</p>}
 
         {/* Nur im Regie-Modus: der zweite Weg. Im Wochenblatt gibt es ihn nicht — dort entscheidet der Bauführer. */}
@@ -1907,7 +1938,7 @@ export function Erfassung() {
                 </button>
               ))}
             </div>
-            <p className="mt-2 text-center text-xs text-ink3">Abweichung melden speichert den normalen Tag mit. Die Stunden der Zusatzarbeit zählen als Mehrzeit — nicht nochmals bei Überstunden eintragen.</p>
+            <p className="mt-2 text-center text-xs text-ink3">Der normale Tag wird mitgespeichert. Regie-Stunden zählen als Mehrzeit — nicht zusätzlich als Überstunden eintragen.</p>
           </div>
         )}
       </div>

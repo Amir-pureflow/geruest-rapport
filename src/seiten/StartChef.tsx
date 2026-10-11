@@ -9,9 +9,10 @@
  */
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
+import { CheckCircle2, Clock } from 'lucide-react';
 import { Shell } from '../ui/Shell';
 import { supabase } from '../lib/supabase';
-import { addTage, iso, kurz, lang, montag, stunden, WOCHENTAGE } from '../lib/datum';
+import { addTage, iso, kurz, kw, montag, stunden, WOCHENTAGE } from '../lib/datum';
 import { kennzeichen } from '../lib/fahrzeug';
 import { einstellungen } from '../lib/einstellungen';
 import { taetigkeitText } from '../lib/zusatzauftrag';
@@ -37,7 +38,23 @@ interface Korrektur { zeiteintrag_id: string; feld: 'normal_min' | 'ueber_min'; 
 /** Nur im Regie-Modus: was der Kunde für die Baustellen dieses Teams bestellt hat. */
 interface Auftrag { id: string; baustelle_id: string; taetigkeit: string; besteller_name: string; geplant_fuer: string | null; stand: string }
 
-const ABWEICHUNG: Record<string, string> = { zusaetzlich: 'zusätzlich gearbeitet', warten: 'gewartet', kaputt: 'etwas kaputt' };
+const ABWEICHUNG: Record<string, string> = { zusaetzlich: 'Regie', warten: 'gewartet', kaputt: 'kaputt' };
+
+/**
+ * Stunden eines Tages je Person — so denkt der Chefmonteur («8.0 h»), nicht als Teamsumme («24.0 h»).
+ * Alle gleich: eine Zahl; verschieden: von–bis. Zwei Baustellen am Tag zählen pro Person zusammen.
+ */
+function jePerson(eintraege: Zeit[]): string {
+  const je = new Map<string, number>();
+  for (const z of eintraege) {
+    const k = z.mitarbeiter?.name ?? z.id;
+    je.set(k, (je.get(k) ?? 0) + z.normal_min + z.ueber_min);
+  }
+  const werte = [...je.values()];
+  if (werte.length === 0) return '';
+  const lo = Math.min(...werte), hi = Math.max(...werte);
+  return lo === hi ? `${stunden(lo)} h` : `${stunden(lo)}–${stunden(hi)} h`;
+}
 
 function zuletztLesen(): string[] {
   try {
@@ -262,67 +279,86 @@ export function StartChef() {
   const heutige = meldungen.filter((m) => m.datum === heuteIso);
   const planHeute = plan.find((p) => p.von <= heuteIso && p.bis >= heuteIso)?.baustelle ?? null;
   const tage = Array.from({ length: 7 }, (_, i) => addTage(wochenStart, i));
-  const wochenTotal = meldungen.flatMap((m) => m.zeiteintrag).reduce((s, z) => s + z.normal_min + z.ueber_min, 0);
+  // Arbeitstage bis heute (Mo–Fr) und wie viele davon gemeldet sind — statt «120.0 h total» fürs ganze Team
+  const vergangeneWerktage = tage.filter((d, i) => i < 5 && iso(d) <= heuteIso);
+  const gemeldeteWerktage = vergangeneWerktage.filter((d) => meldungen.some((m) => m.datum === iso(d))).length;
 
   return (
     <Shell>
       <div className="space-y-5">
+        {/* Kopf: Team, Chefmonteur, Leute — eine Zeile (11.10.2026, Amir: «zu viel Text auf einen Blick») */}
         <header className="flex items-start justify-between gap-3">
-          <div>
-            <p className="lbl mb-0.5">Chefmonteur</p>
+          <div className="min-w-0">
             <h1 className="font-display text-2xl font-semibold">{team?.bezeichnung ?? 'Team'}</h1>
             <p className="text-sm text-ink3">
-              {team?.chefmonteur?.name ?? 'kein Chefmonteur hinterlegt'}{leute.length > 0 ? ` · ${leute.length} Personen` : ''}{kennzeichen(team?.fahrzeug) ? ` · ${kennzeichen(team?.fahrzeug)}` : ''}
+              {team?.chefmonteur?.name ?? 'kein Chefmonteur'}{leute.length > 0 ? ` · ${leute.length} Leute` : ''}{kennzeichen(team?.fahrzeug) ? ` · ${kennzeichen(team?.fahrzeug)}` : ''}
             </p>
           </div>
           <button type="button" className="btn-ghost shrink-0 text-xs" onClick={() => { localStorage.removeItem(TEAM_KEY); setTeamId(null); }}>Team wechseln</button>
         </header>
 
         {wartend > 0 && (
-          <div className="rounded-[12px] border border-amber/40 bg-amber-soft px-4 py-3 text-sm text-amber-deep">
-            <strong>{wartend} Meldung{wartend === 1 ? '' : 'en'} auf diesem Gerät noch nicht gesendet.</strong> Wird gesendet, sobald Netz da ist.
+          <div className="rounded-[12px] border border-amber/40 bg-amber-soft px-4 py-3 text-sm font-semibold text-amber-deep">
+            {wartend} Meldung{wartend === 1 ? '' : 'en'} noch nicht gesendet — geht automatisch raus.
           </div>
         )}
 
         {fehler && (
           <div className="rounded-[12px] border border-amber/40 bg-amber-soft px-4 py-3 text-sm text-amber-deep">
-            <strong>Woche konnte nicht geladen werden.</strong> {navigator.onLine ? fehler : 'Kein Netz — gezeigt wird nur, was auf diesem Gerät liegt.'}
+            <strong>Woche konnte nicht geladen werden.</strong> {navigator.onLine ? fehler : 'Gezeigt wird, was auf diesem Gerät liegt.'}
             <button type="button" className="btn-ghost mt-2 block w-full" onClick={() => void laden()}>Nochmals</button>
           </div>
         )}
 
-        <section className="card space-y-2">
-          <p className="lbl mb-0">Heute · {lang(heute)}</p>
-          {planHeute
-            ? <p className="text-sm text-ink2">Laut Plan: <span className="knr">{planHeute.konto_nr}</span> {planHeute.bezeichnung ?? ''}</p>
-            : <p className="text-sm text-ink3">Die Baustelle wählst du beim Melden in der Erfassung.</p>}
-          {/* Der Plan ist nur ein Vorschlag — wer woanders war, wechselt die Baustelle in der Erfassung */}
-          <p className="text-xs text-ink3">
-            Woanders gewesen? <Link to="/erfassung?baustelle=wahl" className="font-semibold text-steel">Andere Baustelle wählen ›</Link>
-          </p>
-          {heutige.length > 0 ? (
-            <div className="rounded-[10px] border border-good/40 bg-good-soft px-3 py-2 text-sm text-good-deep">
-              <strong>Heute gemeldet</strong>
-              {heutige.map((m) => (
-                <span key={m.id} className="block">
-                  {m.baustelle?.bezeichnung ?? (m.baustelle ? `Konto-Nr. ${m.baustelle.konto_nr}` : 'Baustelle')} · {stunden(m.zeiteintrag.reduce((s, z) => s + z.normal_min + z.ueber_min, 0))} h · {m.normalfall ? 'wie geplant' : ABWEICHUNG[m.abweichung_typ ?? ''] ?? 'Abweichung'}
-                  {m.lokal ? <span className="ml-1 font-mono text-[11px] text-amber-deep">wartet auf Netz</span> : null}
-                </span>
-              ))}
+        {/* Heute: Baustelle und ein Knopf. Der Plan ist nur ein Vorschlag — wer woanders war, wählt beim Melden. */}
+        {istDieseWoche ? (
+          <section className="card space-y-3">
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-sm font-semibold text-ink">Heute <span className="font-normal text-ink3">· {WOCHENTAGE[(heute.getDay() + 6) % 7]} {kurz(heute)}</span></p>
+              {heutige.length > 0 && (
+                heutige.some((m) => m.lokal)
+                  ? <span className="inline-flex items-center gap-1 text-xs font-semibold text-amber-deep"><Clock size={14} aria-hidden="true" /> wartet</span>
+                  : <span className="inline-flex items-center gap-1 text-xs font-semibold text-good-deep"><CheckCircle2 size={15} aria-hidden="true" /> gemeldet</span>
+              )}
             </div>
-          ) : null}
-          {!istDieseWoche && <p className="text-[11px] text-ink3">Du schaust eine frühere Woche an — ob heute schon gemeldet ist, siehst du mit › bei «Diese Woche».</p>}
-          <Link to="/erfassung" className={heutige.length > 0 || !istDieseWoche ? 'btn-ghost block w-full text-center' : 'cta'}>
-            {heutige.length > 0 ? 'Nochmals melden oder ändern' : 'Tag melden'}
-          </Link>
-        </section>
+            {heutige.length > 0 ? (
+              heutige.map((m) => (
+                <p key={m.id} className="flex items-center gap-2 text-[15px]">
+                  {m.baustelle && <span className="knr">{m.baustelle.konto_nr}</span>}
+                  <span className="min-w-0 flex-1 truncate font-medium">{m.baustelle?.bezeichnung ?? 'Baustelle'}</span>
+                  <span className="shrink-0 font-mono text-sm tabular-nums text-ink2">{jePerson(m.zeiteintrag)}</span>
+                  {!m.normalfall && <span className="shrink-0 rounded-md bg-amber-soft px-1.5 py-0.5 text-[10px] font-semibold text-amber-deep">{ABWEICHUNG[m.abweichung_typ ?? ''] ?? 'Abweichung'}</span>}
+                </p>
+              ))
+            ) : planHeute ? (
+              <p className="flex items-center gap-2 text-[15px]">
+                <span className="knr">{planHeute.konto_nr}</span>
+                <span className="min-w-0 truncate font-medium">{planHeute.bezeichnung ?? ''}</span>
+              </p>
+            ) : (
+              <p className="text-sm text-ink3">Keine Baustelle geplant — du wählst sie beim Melden.</p>
+            )}
+            <Link to="/erfassung" className={heutige.length > 0 ? 'btn-ghost block w-full text-center' : 'cta'}>
+              {heutige.length > 0 ? 'Ändern oder nochmals melden' : 'Tag melden'}
+            </Link>
+            {heutige.length === 0 && planHeute && (
+              <Link to="/erfassung?baustelle=wahl" className="block text-center text-xs font-semibold text-steel">Woanders gewesen? Andere Baustelle ›</Link>
+            )}
+          </section>
+        ) : (
+          <button type="button" onClick={() => setWochenStart(montag(heute))} className="btn-ghost w-full">Zurück zu heute</button>
+        )}
 
+        {/* Woche: ein Tag = eine Zeile, Stunden je Person, Stand als Zeichen statt Wort */}
         <section className="space-y-2">
           <div className="flex items-center justify-between">
             <button type="button" className="btn-ghost" onClick={() => setWochenStart(addTage(wochenStart, -7))} aria-label="Vorwoche">‹</button>
             <span className="text-center">
-              <span className="block text-sm font-semibold">{istDieseWoche ? 'Diese Woche' : `${kurz(wochenStart)} – ${kurz(addTage(wochenStart, 6))}`}</span>
-              <span className="block font-mono text-xs text-ink3">{istDieseWoche ? `${kurz(wochenStart)} – ${kurz(addTage(wochenStart, 6))} · ` : ''}{stunden(wochenTotal)} h total</span>
+              <span className="block text-sm font-semibold">{istDieseWoche ? 'Diese Woche' : `KW ${kw(wochenStart)}`}</span>
+              <span className="block text-xs text-ink3">
+                {kurz(wochenStart)} – {kurz(addTage(wochenStart, 6))}
+                {vergangeneWerktage.length > 0 && <> · {gemeldeteWerktage} von {vergangeneWerktage.length} Tagen gemeldet</>}
+              </span>
             </span>
             <button type="button" className="btn-ghost" disabled={istDieseWoche} onClick={() => setWochenStart(addTage(wochenStart, 7))} aria-label="nächste Woche">›</button>
           </div>
@@ -332,36 +368,38 @@ export function StartChef() {
               const dIso = iso(d);
               const ms = meldungen.filter((m) => m.datum === dIso);
               const zukunft = dIso > heuteIso;
+              // Wochenende nur, wenn gearbeitet wurde
+              if (i >= 5 && ms.length === 0) return null;
               const geplant = plan.find((p) => p.von <= dIso && p.bis >= dIso)?.baustelle ?? null;
               const korr = ms.flatMap((m) => m.zeiteintrag.flatMap((z) => (korrekturJeZeit.get(z.id) ?? []).map((k) => ({ ...k, name: z.mitarbeiter?.name ?? null }))));
               const lokal = ms.some((m) => m.lokal);
+              const frei = ms.some((m) => m.zeiteintrag.some((z) => z.status === 'freigegeben'));
+              const regieTag = ms.find((m) => !m.normalfall);
               return (
-                <div key={dIso} className={'px-4 py-2 text-sm ' + (zukunft ? 'text-ink3' : '')}>
+                <div key={dIso} className={'px-4 py-2.5 text-sm ' + (zukunft ? 'text-ink3' : '')}>
                   <div className="flex items-center gap-3">
-                    <span className="w-16 shrink-0 whitespace-nowrap font-mono text-xs">{WOCHENTAGE[i]} {kurz(d)}</span>
+                    <span className={'w-14 shrink-0 whitespace-nowrap text-xs ' + (dIso === heuteIso ? 'font-semibold text-accent-deep' : 'text-ink3')}>{WOCHENTAGE[i]} {kurz(d)}</span>
                     <span className="min-w-0 flex-1 truncate">
                       {ms.length > 0
-                        ? ms.map((m) => m.baustelle?.bezeichnung ?? (m.baustelle ? m.baustelle.konto_nr : 'Baustelle')).filter((x, j, a) => a.indexOf(x) === j).join(', ')
-                        : geplant ? <span className="text-ink3">{geplant.bezeichnung ?? geplant.konto_nr}</span> : <span className="text-ink3">—</span>}
+                        ? ms.map((m) => m.baustelle?.bezeichnung ?? (m.baustelle ? m.baustelle.konto_nr : 'Baustelle')).filter((x, j, a) => a.indexOf(x) === j).join(' · ')
+                        : <span className="text-ink3">{geplant ? geplant.bezeichnung ?? geplant.konto_nr : '—'}</span>}
                     </span>
-                    <span className="shrink-0 font-mono text-xs tabular-nums">
-                      {ms.length > 0 ? `${stunden(ms.flatMap((m) => m.zeiteintrag).reduce((s, z) => s + z.normal_min + z.ueber_min, 0))} h` : ''}
-                    </span>
-                    <span className="w-24 shrink-0 text-right text-[11px]">
+                    {regieTag && <span className="shrink-0 rounded-md bg-amber-soft px-1.5 py-0.5 text-[10px] font-semibold text-amber-deep">{ABWEICHUNG[regieTag.abweichung_typ ?? ''] ?? 'Abweichung'}</span>}
+                    {ms.length > 0 && <span className="shrink-0 font-mono text-xs tabular-nums text-ink2">{jePerson(ms.flatMap((m) => m.zeiteintrag))}</span>}
+                    <span className="flex w-[4.5rem] shrink-0 justify-end">
                       {ms.length > 0
-                        ? lokal ? <span className="text-amber-deep">wartet auf Netz</span>
-                          : ms.some((m) => m.zeiteintrag.some((z) => z.status === 'freigegeben')) ? <span className="text-good-deep">freigegeben</span>
-                            // gemeldet = liegt beim Bauführer (blau wie «beim Kunden»); grün erst, wenn freigegeben
-                          : ms.every((m) => m.normalfall) ? <span className="text-steel">gemeldet</span> : <span className="text-amber-deep">Abweichung</span>
-                        : zukunft ? '' : i >= 5 ? '' : <Link to={`/erfassung?tag=${dIso}`} className="font-semibold text-steel">nachtragen ›</Link>}
+                        ? lokal ? <span title="noch nicht gesendet" className="inline-flex items-center gap-1 text-[11px] font-semibold text-amber-deep"><Clock size={14} aria-hidden="true" /> wartet</span>
+                          : frei ? <CheckCircle2 size={18} className="text-good" aria-label="vom Bauführer freigegeben" />
+                          : <CheckCircle2 size={18} className="text-steel/70" aria-label="gemeldet" />
+                        : zukunft ? null : <Link to={`/erfassung?tag=${dIso}`} className="text-[11px] font-semibold text-steel">nachtragen ›</Link>}
                     </span>
                   </div>
                   {korr.length > 0 && (
-                    <div className="mt-1 space-y-0.5 pl-[4.75rem] text-xs text-amber-deep">
+                    <div className="mt-1 space-y-0.5 pl-[4.25rem] text-xs text-amber-deep">
                       {korr.map((k, j) => (
                         <p key={j}>
-                          vom Bauführer angepasst{k.name ? ` (${k.name})` : ''}: {k.feld === 'ueber_min' ? 'Überstunden ' : ''}{stunden(k.alt)} → {stunden(k.neu)} h
-                          {k.grund ? <span className="text-ink2"> · Grund: {k.grund}</span> : null}
+                          Bauführer: {k.name ? `${k.name.split(' ')[0]} ` : ''}{k.feld === 'ueber_min' ? 'Überstunden ' : ''}{stunden(k.alt)} → {stunden(k.neu)} h
+                          {k.grund ? <span className="text-ink2"> · {k.grund}</span> : null}
                         </p>
                       ))}
                     </div>
@@ -370,26 +408,29 @@ export function StartChef() {
               );
             })}
           </div>
-          <p className="text-[11px] text-ink3">«freigegeben» heisst: der Bauführer hat die Stunden angeschaut. Änderungen bitte ihm sagen.</p>
+          <p className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-ink3">
+            <span className="inline-flex items-center gap-1"><CheckCircle2 size={13} className="text-steel/70" aria-hidden="true" /> gemeldet</span>
+            <span className="inline-flex items-center gap-1"><CheckCircle2 size={13} className="text-good" aria-hidden="true" /> vom Bauführer freigegeben</span>
+            <span>Stunden je Person</span>
+          </p>
         </section>
 
         {regie && auftraege.length > 0 && (
           <section className="space-y-2">
-            <p className="lbl mb-0">Vom Kunden bestellt — auf euren Baustellen</p>
+            <p className="lbl mb-0">Vom Kunden bestellt</p>
             {auftraege.map((a) => {
               const b = plan.find((x) => x.baustelle?.id === a.baustelle_id)?.baustelle;
               return (
                 <div key={a.id} className="card space-y-0.5 py-3">
-                  <p className="text-sm font-semibold">{taetigkeitText(a.taetigkeit)}</p>
-                  <p className="text-xs text-ink3">
-                    {b ? <><span className="knr">{b.konto_nr}</span> {b.bezeichnung ?? ''} · </> : null}
-                    bestellt von {a.besteller_name}{a.geplant_fuer ? ` · geplant ${kurz(new Date(a.geplant_fuer + 'T12:00:00'))}` : ''}
-                    {a.stand === 'gemeldet' ? ' · schon gemeldet' : ''}
+                  <p className="flex items-baseline justify-between gap-2">
+                    <span className="min-w-0 truncate text-sm"><b className="font-semibold">{taetigkeitText(a.taetigkeit)}</b><span className="text-ink3"> · {a.besteller_name}</span></span>
+                    <span className="shrink-0 text-xs text-ink3">{a.stand === 'gemeldet' ? 'schon gemeldet' : a.geplant_fuer ? `für ${kurz(new Date(a.geplant_fuer + 'T12:00:00'))}` : ''}</span>
                   </p>
+                  {b && <p className="truncate text-xs text-ink3"><span className="knr">{b.konto_nr}</span> {b.bezeichnung ?? ''}</p>}
                 </div>
               );
             })}
-            <p className="text-[11px] text-ink3">Wenn ihr das macht: am Abend «zusätzlich gearbeitet» melden, mit Bild. So wird es Regie.</p>
+            <p className="text-[11px] text-ink3">Gemacht? Am Abend «Regie ausgeführt» melden, mit Foto.</p>
           </section>
         )}
 

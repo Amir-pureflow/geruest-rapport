@@ -24,7 +24,7 @@ interface Meldung {
 }
 interface Plan { team_id: string; baustelle: { konto_nr: string; bezeichnung: string | null } | null }
 
-const ABWEICHUNG: Record<string, string> = { zusaetzlich: 'zusätzlich gearbeitet', warten: 'warten müssen', kaputt: 'etwas kaputt', laenger: 'länger gearbeitet', ueberstunden: 'Überstunden' };
+const ABWEICHUNG: Record<string, string> = { zusaetzlich: 'Regie ausgeführt', warten: 'warten müssen', kaputt: 'etwas kaputt', laenger: 'länger gearbeitet', ueberstunden: 'Überstunden' };
 const WER: Record<string, string> = { kunde: 'der Kunde wollte es', chef: 'der Chef wollte es', niemand: 'niemand hat es verlangt' };
 
 /**

@@ -102,7 +102,7 @@ const GRUENDE = ['Mit Chefmonteur abgeklärt', 'Pause abgezogen', 'Anreise ist k
 const FELD: Record<string, string> = { normal_min: 'Normalzeit', ueber_min: 'Überzeit', zeiten: 'Zeiten' };
 /** Grund im freigabe_log beim Znüni-Abzug (09.10.2026) — fest, wie die übrigen Korrekturgründe. */
 const ZNUENI_GRUND = { ab: 'Pause am Morgen abgezogen', zurueck: 'Pause am Morgen wieder gezählt (Abzug zurückgenommen)' };
-const ABWEICHUNG_KURZ: Record<string, string> = { zusaetzlich: 'zusätzlich gearbeitet', warten: 'warten müssen', kaputt: 'etwas kaputt', laenger: 'länger gearbeitet' };
+const ABWEICHUNG_KURZ: Record<string, string> = { zusaetzlich: 'Regie ausgeführt', warten: 'warten müssen', kaputt: 'etwas kaputt', laenger: 'länger gearbeitet' };
 /** «länger» (alte Daten) erklärt den langen Tag — kein eigener Hinweis. */
 const laengerOhneKunde = (tm: { abweichung_typ: string | null; wer_hats_gewollt: string | null }) => tm.abweichung_typ === 'laenger' && tm.wer_hats_gewollt !== 'kunde';
 /** Überstunden sind der Hinweis: der Bauführer liest die Sprachnotiz und gibt frei. Ob etwas verrechnet wird, entscheidet er in SORBA (20.09.). */
