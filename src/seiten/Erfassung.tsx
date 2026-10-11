@@ -767,20 +767,21 @@ export function Erfassung() {
 
       const seit = new Date(Date.now() - 72 * 3600 * 1000).toISOString();
       const [plan, zuletzt, vl] = await Promise.all([
-        client.from('jahresplan').select('von,bis,baustelle:baustelle_id(id,konto_nr,bezeichnung)').eq('team_id', teamId).order('von'),
+        client.from('jahresplan').select('id,von,bis,baustelle:baustelle_id(id,konto_nr,bezeichnung)').eq('team_id', teamId).order('von'),
         client.from('tagesmeldung').select('datum,baustelle:baustelle_id(id,konto_nr,bezeichnung)').eq('team_id', teamId).gte('datum', iso(addTage(heute, -14))).order('datum', { ascending: false }).limit(40),
         client.from('plan_verlauf').select('tabelle,datensatz_id,aktion,vorher,nachher,zeit').gte('zeit', seit).limit(800),
       ]);
       const gesehen = new Set<string>();
       const tiles: Baustelle[] = [];
       const push = (b: Baustelle | null) => { if (b && !gesehen.has(b.id) && tiles.length < 4) { gesehen.add(b.id); tiles.push(b); } };
-      const planRows = (plan.data ?? []) as unknown as { von: string; bis: string; baustelle: Baustelle | null }[];
+      const planRows = (plan.data ?? []) as unknown as { id: string; von: string; bis: string; baustelle: Baustelle | null }[];
       // Heute Geplantes zuerst (11.10.2026): nach einer Umplanung am Morgen ist sonst die Baustelle von gestern vorgewählt
       const heuteGeplant = planRows.filter((p) => p.von <= heuteIso && p.bis >= heuteIso).map((p) => p.baustelle).filter((b): b is Baustelle => !!b);
       for (const b of heuteGeplant) push(b);
       for (const z of (zuletzt.data ?? []) as unknown as { baustelle: Baustelle | null }[]) push(z.baustelle);
       for (const p of planRows) push(p.baustelle);
-      const umgeplant = !vl.error && planHinweise(teamId, personen.map((p) => p.id), [heuteIso], (vl.data ?? []) as VerlaufZeile[], seit).some((h) => h.art === 'baustelle');
+      const umgeplant = !vl.error && planHinweise(teamId, personen.map((p) => p.id), [heuteIso], (vl.data ?? []) as VerlaufZeile[], seit,
+        planRows.map((p) => ({ id: p.id, team_id: teamId, baustelle_id: p.baustelle?.id ?? null, von: p.von, bis: p.bis })), []).some((h) => h.art === 'baustelle');
       setGeplantHeute({ ids: heuteGeplant.map((b) => b.id), neu: umgeplant });
       const geplant = planRows.map((p) => p.baustelle).filter((b): b is Baustelle => !!b);
       setKacheln(tiles);

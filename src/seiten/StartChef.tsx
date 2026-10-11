@@ -238,16 +238,19 @@ export function StartChef() {
     void (async () => {
       const tageH = heuteUndNaechster(new Date());
       const seit = new Date(Date.now() - 72 * 3600 * 1000).toISOString();
-      const [vl, mg, pl] = await Promise.all([
+      const [vl, mg, pl, ep] = await Promise.all([
         c.from('plan_verlauf').select('tabelle,datensatz_id,aktion,vorher,nachher,zeit').gte('zeit', seit).order('zeit').limit(800),
         c.from('team_mitglied').select('mitarbeiter_id').eq('team_id', teamId).is('bis', null),
-        c.from('jahresplan').select('von,bis,baustelle:baustelle_id(id,konto_nr,bezeichnung)').eq('team_id', teamId).lte('von', tageH[1]).gte('bis', tageH[0]),
+        c.from('jahresplan').select('id,team_id,von,bis,baustelle:baustelle_id(id,konto_nr,bezeichnung)').eq('team_id', teamId).lte('von', tageH[1]).gte('bis', tageH[0]),
+        c.from('einsatz_person').select('mitarbeiter_id,team_id,datum').in('datum', tageH),
       ]);
       if (veraltet || vl.error || !vl.data) return;
       const mitglieder = ((mg.data ?? []) as { mitarbeiter_id: string }[]).map((x) => x.mitarbeiter_id);
-      const roh = planHinweise(teamId, mitglieder, tageH, vl.data as VerlaufZeile[], seit);
+      const plaeneJetzt = (pl.data ?? []) as unknown as { id: string; team_id: string; von: string; bis: string; baustelle: { id: string; konto_nr: string; bezeichnung: string | null } | null }[];
+      const roh = planHinweise(teamId, mitglieder, tageH, vl.data as VerlaufZeile[], seit,
+        plaeneJetzt.map((p) => ({ id: p.id, team_id: p.team_id, baustelle_id: p.baustelle?.id ?? null, von: p.von, bis: p.bis })),
+        ep.error ? [] : ((ep.data ?? []) as { mitarbeiter_id: string; team_id: string; datum: string }[]));
       if (roh.length === 0) return;
-      const plaeneJetzt = (pl.data ?? []) as unknown as { von: string; bis: string; baustelle: { id: string; konto_nr: string; bezeichnung: string | null } | null }[];
       const bsIds = [...new Set(roh.flatMap((h) => h.alt ?? []))];
       const maIds = [...new Set(roh.map((h) => h.mitarbeiter_id).filter((x): x is string => !!x))];
       const [bs, ma, tm] = await Promise.all([

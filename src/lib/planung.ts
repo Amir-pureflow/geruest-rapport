@@ -259,42 +259,53 @@ export interface PlanHinweis {
   team_id?: string | null;
 }
 
-const deckt = (o: Record<string, unknown> | null, tag: string) => !!o && String(o.von) <= tag && String(o.bis) >= tag;
-
 /**
- * Was hat sich seit `seit` für dieses Team an den Tagen `tage` geändert? Baustelle (Einsatz neu, geändert, gelöscht)
- * und Leute (eigene Leute in ein anderes Team, Fremde dazu, zurück). Je Tag und Person nur die jüngste Änderung.
- * Die App zeigt daraus auf der Startseite «Plan geändert» und markiert im Teamgerät die neu geplante Baustelle.
+ * Was hat sich seit `seit` für dieses Team an den Tagen `tage` geändert? Verglichen wird der Stand von damals mit dem
+ * von jetzt — nicht die einzelnen Schritte: Wird ein Einsatz gelöscht und gleich wieder gleich angelegt (z. B. Demo neu
+ * geladen), ist nichts geändert. Baustelle (geplant jetzt ≠ geplant damals) und Leute (eigene Leute in einem anderen
+ * Team, Fremde dazu, zurück). Die App zeigt daraus auf der Startseite «Plan geändert» und markiert im Teamgerät die neu
+ * geplante Baustelle.
+ *
+ * `jetzt` = heutige Einsätze des Teams, `einteilungen` = heutige Einteilungen an diesen Tagen (alle Teams).
  */
-export function planHinweise(teamId: string, mitglieder: string[], tage: string[], verlauf: VerlaufZeile[], seit: string): PlanHinweis[] {
+export function planHinweise(
+  teamId: string, mitglieder: string[], tage: string[], verlauf: VerlaufZeile[], seit: string,
+  jetzt: PlanStand[], einteilungen: { mitarbeiter_id: string; team_id: string; datum: string }[],
+): PlanHinweis[] {
   const grenze = Date.parse(seit);
-  const neu = verlauf.filter((v) => Date.parse(v.zeit) > grenze).sort((a, b) => Date.parse(a.zeit) - Date.parse(b.zeit));
+  const neu = verlauf.filter((v) => Date.parse(v.zeit) > grenze);
+  const damals = planAm(jetzt, verlauf, seit);
+  const zuletzt = (pruef: (v: VerlaufZeile) => boolean) => neu.filter(pruef).reduce((z, v) => (Date.parse(v.zeit) > Date.parse(z) ? v.zeit : z), seit);
+  const deckt = (o: Record<string, unknown> | null, tag: string) => !!o && String(o.von) <= tag && String(o.bis) >= tag;
   const out: PlanHinweis[] = [];
   for (const tag of tage) {
-    // Baustelle: jede Änderung an einem Einsatz dieses Teams, der den Tag vorher oder nachher abdeckt
-    const plan = neu.filter((v) => v.tabelle === 'jahresplan'
-      && ((deckt(v.vorher, tag) && v.vorher?.team_id === teamId) || (deckt(v.nachher, tag) && v.nachher?.team_id === teamId)));
-    if (plan.length > 0) {
-      const alt = [...new Set(plan.filter((v) => deckt(v.vorher, tag) && v.vorher?.team_id === teamId).map((v) => String(v.vorher!.baustelle_id)))];
-      out.push({ tag, art: 'baustelle', zeit: plan[plan.length - 1].zeit, alt });
+    // Baustelle: was jetzt für den Tag geplant ist gegen damals
+    const auf = (liste: PlanStand[]) => [...new Set(liste.filter((p) => p.team_id === teamId && p.von <= tag && p.bis >= tag).map((p) => p.baustelle_id ?? ''))].sort();
+    const vorher = auf(damals), nachher = auf(jetzt);
+    if (vorher.join() !== nachher.join()) {
+      out.push({ tag, art: 'baustelle', zeit: zuletzt((v) => v.tabelle === 'jahresplan' && ((deckt(v.vorher, tag) && v.vorher?.team_id === teamId) || (deckt(v.nachher, tag) && v.nachher?.team_id === teamId))), alt: vorher.filter((x) => !nachher.includes(x)) });
     }
-    // Leute: je Person die jüngste Änderung an diesem Tag
-    const jePerson = new Map<string, VerlaufZeile>();
-    for (const v of neu) {
-      if (v.tabelle !== 'einsatz_person') continue;
+    // Leute: Einteilung damals (rückwärts aus dem Verlauf) gegen jetzt, je Person
+    const jetztTeam = new Map(einteilungen.filter((e) => e.datum === tag).map((e) => [e.mitarbeiter_id, e.team_id] as const));
+    const damalsTeam = new Map(jetztTeam);
+    const geaendertAm = new Map<string, string>();
+    for (const v of [...neu].filter((x) => x.tabelle === 'einsatz_person').sort((x, y) => Date.parse(y.zeit) - Date.parse(x.zeit))) {
       const e = (v.nachher ?? v.vorher) as Record<string, unknown> | null;
       if (!e || String(e.datum) !== tag) continue;
-      jePerson.set(String(e.mitarbeiter_id), v);
+      const ma = String(e.mitarbeiter_id);
+      if (!geaendertAm.has(ma)) geaendertAm.set(ma, v.zeit);
+      if (v.aktion === 'neu') damalsTeam.delete(ma);
+      else if (v.vorher) damalsTeam.set(ma, String(v.vorher.team_id));
     }
-    for (const [ma, v] of jePerson) {
-      const e = (v.nachher ?? v.vorher) as Record<string, unknown>;
+    for (const [ma, zeit] of geaendertAm) {
+      const vor = damalsTeam.get(ma) ?? null, nach = jetztTeam.get(ma) ?? null;
+      if (vor === nach) continue;
       const eigen = mitglieder.includes(ma);
-      const hier = e.team_id === teamId;
-      if (v.aktion === 'geloescht') {
-        if (eigen && !hier) out.push({ tag, art: 'zurueck', zeit: v.zeit, mitarbeiter_id: ma });
-        else if (!eigen && hier) out.push({ tag, art: 'nicht-mehr', zeit: v.zeit, mitarbeiter_id: ma });
-      } else if (eigen && !hier) out.push({ tag, art: 'weg', zeit: v.zeit, mitarbeiter_id: ma, team_id: (e.team_id as string | null) ?? null });
-      else if (!eigen && hier) out.push({ tag, art: 'dazu', zeit: v.zeit, mitarbeiter_id: ma });
+      if (eigen) {
+        if (nach && nach !== teamId) out.push({ tag, art: 'weg', zeit, mitarbeiter_id: ma, team_id: nach });
+        else if (!nach && vor && vor !== teamId) out.push({ tag, art: 'zurueck', zeit, mitarbeiter_id: ma });
+      } else if (nach === teamId) out.push({ tag, art: 'dazu', zeit, mitarbeiter_id: ma });
+      else if (vor === teamId) out.push({ tag, art: 'nicht-mehr', zeit, mitarbeiter_id: ma });
     }
   }
   return out;
