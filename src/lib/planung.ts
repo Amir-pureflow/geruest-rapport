@@ -266,6 +266,10 @@ export interface PlanHinweis {
  * Team, Fremde dazu, zurück). Die App zeigt daraus auf der Startseite «Plan geändert» und markiert im Teamgerät die neu
  * geplante Baustelle.
  *
+ * Baustelle nur, wenn für den Tag damals schon etwas geplant war: Ein Tag, der neu verplant wird, ist keine Umplanung —
+ * sonst hätte jedes Team am Montag «Plan geändert», weil die Woche am Freitag geplant wurde (und nach dem Laden der
+ * Demo, die alle Teams neu anlegt, jedes Teamgerät).
+ *
  * `jetzt` = heutige Einsätze des Teams, `einteilungen` = heutige Einteilungen an diesen Tagen (alle Teams).
  */
 export function planHinweise(
@@ -282,7 +286,7 @@ export function planHinweise(
     // Baustelle: was jetzt für den Tag geplant ist gegen damals
     const auf = (liste: PlanStand[]) => [...new Set(liste.filter((p) => p.team_id === teamId && p.von <= tag && p.bis >= tag).map((p) => p.baustelle_id ?? ''))].sort();
     const vorher = auf(damals), nachher = auf(jetzt);
-    if (vorher.join() !== nachher.join()) {
+    if (vorher.length > 0 && vorher.join() !== nachher.join()) {
       out.push({ tag, art: 'baustelle', zeit: zuletzt((v) => v.tabelle === 'jahresplan' && ((deckt(v.vorher, tag) && v.vorher?.team_id === teamId) || (deckt(v.nachher, tag) && v.nachher?.team_id === teamId))), alt: vorher.filter((x) => !nachher.includes(x)) });
     }
     // Leute: Einteilung damals (rückwärts aus dem Verlauf) gegen jetzt, je Person

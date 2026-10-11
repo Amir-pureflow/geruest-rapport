@@ -201,6 +201,14 @@ describe('planHinweise — Umplanungen fürs Team (Stand damals gegen jetzt)', (
     const v: VerlaufZeile[] = [{ tabelle: 'einsatz_person', datensatz_id: 'x', aktion: 'geloescht', vorher: { mitarbeiter_id: 'kevin', team_id: 't7', datum: '2026-10-09' }, nachher: null, zeit: '2026-10-09T04:50:00Z' }];
     expect(planHinweise('t3', ['kevin'], ['2026-10-09'], v, seit, [], [])).toEqual([{ tag: '2026-10-09', art: 'zurueck', zeit: '2026-10-09T04:50:00Z', mitarbeiter_id: 'kevin' }]);
   });
+  it('Neu verplanter Tag ist keine Umplanung (Woche am Freitag geplant, Demo neu geladen); gestrichener Einsatz schon', () => {
+    const v: VerlaufZeile[] = [
+      { tabelle: 'jahresplan', datensatz_id: 'x', aktion: 'neu', vorher: null, nachher: p('x', 't2', 'eig', '2026-10-05', '2026-10-09'), zeit: '2026-10-06T16:00:00Z' },
+      { tabelle: 'jahresplan', datensatz_id: 'y', aktion: 'geloescht', vorher: p('y', 't9', 'alt', '2026-10-05', '2026-10-09'), nachher: null, zeit: '2026-10-06T16:00:00Z' },
+    ];
+    expect(planHinweise('t2', [], ['2026-10-07'], v, seit, [p('x', 't2', 'eig', '2026-10-05', '2026-10-09')], [])).toEqual([]);
+    expect(planHinweise('t9', [], ['2026-10-07'], v, seit, [], [])).toEqual([{ tag: '2026-10-07', art: 'baustelle', zeit: '2026-10-06T16:00:00Z', alt: ['alt'] }]);
+  });
   it('Änderungen vor «seit» zählen nicht', () => {
     const v: VerlaufZeile[] = [{ tabelle: 'jahresplan', datensatz_id: 'x', aktion: 'neu', vorher: null, nachher: p('x', 't2', 'eig', '2026-10-05', '2026-10-09'), zeit: '2026-10-02T14:00:00Z' }];
     expect(planHinweise('t2', [], ['2026-10-07'], v, seit, [p('x', 't2', 'eig', '2026-10-05', '2026-10-09')], [])).toEqual([]);

@@ -296,7 +296,9 @@ direkt per SQL nur mit abgeschalteten Auslösern einfügen, sonst entstehen Verl
 ändern»), Tageszeile in Worten («+ Marco», «− Luan», «Pedro Ferien» statt +1/−1), Erste-Schritte-Karte (wegklickbar,
 `localStorage planung-hilfe-v1`). **Umplanung erreicht das Team:** `planHinweise()` aus `plan_verlauf` (letzte 72 h, heute +
 nächster Arbeitstag) → Startseite Chefmonteur «Plan geändert» («Montag: Viktoriastrasse — statt Eigerplatz», «Marco ist
-in Team 3»); im Teamgerät steht die heute geplante Baustelle zuerst, nach einer Umplanung «neu geplant».
+in Team 3»); im Teamgerät steht die heute geplante Baustelle zuerst, nach einer Umplanung «neu geplant». Baustellen-Hinweis
+nur, wenn für den Tag vorher schon etwas geplant war — ein neu verplanter Tag ist keine Umplanung (sonst hätte jedes Team
+am Montag «Plan geändert», weil am Freitag geplant wurde, und nach «Demo laden» jedes Teamgerät).
 
 ## iPad (20.09.)
 
