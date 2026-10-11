@@ -255,17 +255,22 @@ function Brotkrumen({ pathname, krume }: { pathname: string; krume?: string }) {
   );
 }
 
-/** App-Rahmen. `schmal`: Formulare und Detailseiten bleiben auch am PC eine Lesespalte. `krume`: Name der Detailseite im Pfad oben. */
+/**
+ * App-Rahmen. `schmal`: Formulare und Detailseiten bleiben auch am PC eine Lesespalte. `breit`: die ganze Breite neben der
+ * Seitenleiste (Planung — Mehmeti 11.10.2026: «ein bisschen breiter»). `krume`: Name der Detailseite im Pfad oben.
+ */
 export function Shell({
   children,
   zurueck = false,
   krume,
   schmal = false,
+  breit = false,
 }: {
   children: ReactNode;
   /** Früher der Knopf «‹ Übersicht» — heute zeigen alle Seiten ausser der Startseite die Brotkrumen. Bleibt für die Aufrufer. */
   zurueck?: boolean;
   schmal?: boolean;
+  breit?: boolean;
   krume?: string;
 }) {
   const ansicht = useAnsicht();
@@ -334,7 +339,9 @@ export function Shell({
           className={
             'mx-auto w-full max-w-md px-5 py-6 ' +
             (buero
-              ? (schmal ? 'md:max-w-2xl md:px-8 md:py-8 lg:px-12 lg:py-12' : 'md:max-w-3xl md:px-8 md:py-8 lg:max-w-5xl lg:px-12 lg:py-12')
+              ? (schmal ? 'md:max-w-2xl md:px-8 md:py-8 lg:px-12 lg:py-12'
+                : breit ? 'md:max-w-none md:px-8 md:py-8 lg:px-10 lg:py-10 2xl:max-w-[1760px]'
+                : 'md:max-w-3xl md:px-8 md:py-8 lg:max-w-5xl lg:px-12 lg:py-12')
               : '')
           }
         >

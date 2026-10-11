@@ -64,3 +64,33 @@ create policy abwesenheit_firma on abwesenheit for all to authenticated
     firma_id = aktuelle_firma()
     and exists (select 1 from mitarbeiter m where m.id = abwesenheit.mitarbeiter_id and m.firma_id = aktuelle_firma())
   );
+
+-- ────────────────────────────────────────────────────────────────────────────────────────────
+-- 4. Einsatz je Person und Tag (Planung)
+-- ────────────────────────────────────────────────────────────────────────────────────────────
+-- Mehmeti (10.10.2026): Die Gruppen sind fix, aber er verschiebt flexibel — «die 3 Namen sehen, Mitarbeiter
+-- rausnehmen, zu Team 7 zusatzplanen, MA von Team 4 wegnehmen und versetzen», meist für einen Tag. Eine Zeile heisst:
+-- an diesem Tag arbeitet die Person in diesem Team (statt in ihrem festen Team aus team_mitglied). Keine Zeile = wie
+-- immer. Das Teamgerät liest es: Versetzte sind abgehakt, Eingeteilte stehen in der Liste.
+create table if not exists einsatz_person (
+  id             uuid primary key default gen_random_uuid(),
+  firma_id       uuid not null default aktuelle_firma() references firma(id) on delete cascade,
+  datum          date not null,
+  mitarbeiter_id uuid not null references mitarbeiter(id) on delete cascade,
+  team_id        uuid not null references team(id) on delete cascade,
+  erfasst_von    uuid default auth.uid(),
+  erfasst_am     timestamptz not null default now(),
+  unique (mitarbeiter_id, datum)
+);
+create index if not exists einsatz_person_firma_datum_idx on einsatz_person (firma_id, datum);
+create index if not exists einsatz_person_team_datum_idx on einsatz_person (team_id, datum);
+
+alter table einsatz_person enable row level security;
+drop policy if exists einsatz_person_firma on einsatz_person;
+create policy einsatz_person_firma on einsatz_person for all to authenticated
+  using (firma_id = aktuelle_firma())
+  with check (
+    firma_id = aktuelle_firma()
+    and exists (select 1 from mitarbeiter m where m.id = einsatz_person.mitarbeiter_id and m.firma_id = aktuelle_firma())
+    and exists (select 1 from team t where t.id = einsatz_person.team_id and t.firma_id = aktuelle_firma())
+  );

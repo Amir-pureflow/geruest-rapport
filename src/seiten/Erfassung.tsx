@@ -33,7 +33,7 @@ import { ArtPille } from '../ui/ArtPille';
  */
 
 interface Team { id: string; bezeichnung: string; fahrzeug: string | null; /** Chefmonteur — in seiner Sprache hört die Sprachnotiz zu, er kann sie am Mikrofon umstellen */ chefmonteur?: { id: string; sprache?: string | null } | null }
-interface Person { id: string; name: string; typ: string; funktion: string; oev_standard: boolean; km_standard: number; /** heute dabei, aber nicht fest im Team */ gast?: boolean }
+interface Person { id: string; name: string; typ: string; funktion: string; oev_standard: boolean; km_standard: number; /** heute dabei, aber nicht fest im Team */ gast?: boolean; /** in der Planung für diesen Tag hierher eingeteilt (0036) */ eingeteilt?: boolean }
 interface Baustelle { id: string; konto_nr: string; bezeichnung: string | null }
 /** Stundenzahl (wie auf dem Wochenblatt) oder Zeiten von–bis — je Person umschaltbar. */
 type ZeitModus = 'stunden' | 'zeit';
@@ -795,6 +795,40 @@ export function Erfassung() {
     });
     return () => { veraltet = true; };
   }, [leute, tagIso]);
+
+  /**
+   * Einteilung des Tages aus der Planung (0036, Mehmeti 10.10.2026): wer an diesem Tag in einem anderen Team arbeitet,
+   * ist hier abgehakt («in Team 4»); wer aus einem anderen Team hierher eingeteilt ist, steht als «eingeteilt» in der
+   * Liste. Ohne Netz oder ohne Migration: die festen Teams wie bisher.
+   */
+  const [versetzt, setVersetzt] = useState<Record<string, string>>({});
+  const autoVersetzt = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    if (!supabase || !teamId) return;
+    const client = supabase;
+    let veraltet = false;
+    const ids = leute.map((p) => p.id);
+    void (async () => {
+      type Zeile = { mitarbeiter_id: string; team_id: string; team: { bezeichnung: string } | null; mitarbeiter: (Person & { aktiv: boolean }) | null };
+      const q = client.from('einsatz_person').select('mitarbeiter_id,team_id,team:team_id(bezeichnung),mitarbeiter:mitarbeiter_id(id,name,typ,funktion,oev_standard,km_standard,aktiv)').eq('datum', tagIso);
+      const { data, error } = await (ids.length > 0 ? q.or(`team_id.eq.${teamId},mitarbeiter_id.in.(${ids.join(',')})`) : q.eq('team_id', teamId));
+      if (veraltet || error) return;
+      const zeilen = (data ?? []) as unknown as Zeile[];
+      const weg: Record<string, string> = Object.fromEntries(zeilen.filter((z) => ids.includes(z.mitarbeiter_id) && z.team_id !== teamId).map((z) => [z.mitarbeiter_id, z.team?.bezeichnung ?? 'anderes Team']));
+      const dazu = zeilen.filter((z) => z.team_id === teamId && !ids.includes(z.mitarbeiter_id) && z.mitarbeiter?.aktiv).map((z) => ({ ...z.mitarbeiter!, gast: true, eingeteilt: true }));
+      const vorher = autoVersetzt.current;
+      autoVersetzt.current = new Set(Object.keys(weg));
+      setVersetzt(weg);
+      setGaeste((alt) => [...alt.filter((g) => !g.eingeteilt && !dazu.some((x) => x.id === g.id)), ...dazu]);
+      setAnw((alt) => {
+        const neu: Record<string, Anwesenheit> = Object.fromEntries(Object.entries(alt).map(([k, a]) => [k, weg[k] ? { ...a, dabei: false } : vorher.has(k) && !autoAbgehakt.current.has(k) ? { ...a, dabei: true } : a]));
+        for (const p of dazu) if (!neu[p.id]) neu[p.id] = neueAnwesenheit(p, 'zeit', teamSpannen);
+        return neu;
+      });
+    })();
+    return () => { veraltet = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [leute, tagIso, teamId]);
 
   /** Baustelle aus «andere Baustelle …» übernehmen: wird die erste Kachel oben (markiert), das Suchfeld geht zu. */
   const [gesuchtId, setGesuchtId] = useState<string | null>(null);
@@ -1678,9 +1712,10 @@ export function Erfassung() {
                     <span className={'min-w-0 flex-1 truncate text-sm ' + (a.dabei ? 'font-medium' : 'text-ink3 line-through')}>
                       {p.name}
                       {p.typ === 'temporaer' && <span className="ml-1 text-[10px] text-ink3">temp</span>}
-                      {p.gast && <span className="ml-1.5 rounded-md bg-steel-soft px-1.5 py-0.5 text-[10px] font-semibold text-steel">Gast</span>}
+                      {p.gast && <span className={'ml-1.5 rounded-md px-1.5 py-0.5 text-[10px] font-semibold ' + (p.eingeteilt ? 'bg-good-soft text-good-deep' : 'bg-steel-soft text-steel')}>{p.eingeteilt ? 'eingeteilt' : 'Gast'}</span>}
                     </span>
                     {abwesend[p.id] && <ArtPille art={abwesend[p.id]} />}
+                    {versetzt[p.id] && <span className="whitespace-nowrap rounded-md bg-amber-soft px-1.5 py-0.5 text-[10px] font-semibold text-amber-deep">in {versetzt[p.id]}</span>}
                     {a.dabei && (
                       <>
                         <span className={'font-mono text-sm tabular-nums ' + (a.modus === 'zeit' && !a.zeiten.some(spanneVollstaendig) ? 'text-amber-deep' : 'text-ink2')}>{a.modus === 'zeit' && !a.zeiten.some(spanneVollstaendig) ? '– h' : `${stunden(w.min + w.ueber)} h`}</span>

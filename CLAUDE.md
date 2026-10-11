@@ -262,6 +262,16 @@ unbezahlt). Wirkung: Teamgerät hakt Abwesende ab (mit Pille, antippen geht trot
 Export: Spalte «Abwesend» im Lohn (nicht im Total), Reiter + Blatt «Abwesenheiten». Logik in `src/lib/abwesenheit.ts`,
 `mitAbwesenheiten()` in lohn.ts.
 
+## Planung je Tag (0036, Mehmeti 10./11.10.2026)
+
+`/planung` volle Breite (`Shell breit`), alle Tage gleich breit, Teamspalte bleibt beim Scrollen stehen und zeigt die
+festen Leute. Unter den Balken je Team eine **Tageszeile**: Leute an dem Tag, +eingeteilt, −in anderem Team, abwesend,
+für vergangene Tage **Plan gegen Ist** (✓ wie geplant, ≠ andere Baustelle, – nichts gemeldet) — alte Wochen = Archiv.
+Antippen öffnet den Tag: Leute versetzen (nur dieser Tag / bis Freitag), dazunehmen, «nur an diesem Tag andere
+Baustelle» (schneidet den Einsatz, `ohneTag()`, Verlauf in `planaenderung`). «+ Team» legt ein Zusatzteam an. Tabelle
+`einsatz_person` (Person × Tag × Team); keine Zeile = festes Team. Das Teamgerät übernimmt die Einteilung (Versetzte
+abgehakt mit «in Team X», Eingeteilte als «eingeteilt»). Rechnerei in `src/lib/planung.ts` (`besetzung`, `planIst`).
+
 ## iPad (20.09.)
 
 Büro-Ansichten: ab `md` (iPad hochkant) quer scrollbare Bereichsleiste unter der Kopfzeile und breitere Spalte
