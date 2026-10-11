@@ -485,6 +485,14 @@ export function Erfassung() {
   /** «Überstunden — war das Regie?» steht offen (nur Regie-Modus, beim Tippen auf «Alles wie geplant») */
   const [regieFrage, setRegieFrage] = useState(false);
   const regieFrageRef = useRef<HTMLElement | null>(null);
+  /**
+   * Die Antwort auf «war das Regie?» — einmal gegeben, gilt sie (Amir 11.10.2026: vorher kam die Frage nach dem
+   * Sprechen ein zweites Mal). Gefragt wird direkt bei den Überstunden, neben dem Mikrofon, oder beim Melden.
+   */
+  const [regieAntwort, setRegieAntwort] = useState<'ja' | 'nein' | null>(null);
+  /** Überstunden ohne Sprachnotiz gemeldet: die Notiz-Karte wird markiert und angesprungen */
+  const [notizFehlt, setNotizFehlt] = useState(false);
+  const notizRef = useRef<HTMLElement | null>(null);
   // Überstunden: Sprachnotiz als Warum (Pflicht, ausser das Mikrofon fehlt) — hängt an der Tagesmeldung
   const [mikroFehlt, setMikroFehlt] = useState(false);
   const [ueberAufnahme, setUeberAufnahme] = useState<{ blob: Blob; sekunden: number } | null>(null);
@@ -926,7 +934,8 @@ export function Erfassung() {
   useEffect(() => { setLieferwagen(false); }, [teamId, tagIso]);
   const ueberTotal = dabei.reduce((s, p) => s + wirksam(anw[p.id]).ueber, 0);
   // Keine Überstunden mehr (Zeit geändert) → die Rückfrage ist hinfällig
-  useEffect(() => { if (ueberTotal === 0) setRegieFrage(false); }, [ueberTotal]);
+  useEffect(() => { if (ueberTotal === 0) { setRegieFrage(false); setRegieAntwort(null); setNotizFehlt(false); } }, [ueberTotal]);
+  useEffect(() => { setRegieAntwort(null); setNotizFehlt(false); }, [teamId, tagIso]);
   useEffect(() => { if (regieFrage) regieFrageRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' }); }, [regieFrage]);
 
   /** Team-Zeiten setzen alle, die gerade auf Zeiten stehen. */
@@ -1122,7 +1131,13 @@ export function Erfassung() {
     const ueberlappt = dabei.filter((p) => anw[p.id]?.modus === 'zeit' && spannenUeberlappen(anw[p.id].zeiten));
     if (ueberlappt.length > 0) { setHinweis(`Bei ${ueberlappt.map((p) => p.name).join(', ')} überschneiden sich Vormittag und Nachmittag — bitte Zeiten prüfen.`); return; }
     const hatUeber = ueberTotal > 0;
-    if (art === 'normal' && hatUeber && !ueberAufnahme && !nimmtAuf && !mikroFehlt) { setHinweis('Bei Überstunden bitte kurz sagen, warum — Mikrofon antippen.'); return; }
+    if (art === 'normal' && hatUeber && !ueberAufnahme && !nimmtAuf && !mikroFehlt) {
+      setHinweis('Bei Überstunden bitte kurz sagen, warum — Mikrofon antippen.');
+      setNotizFehlt(true);
+      setTimeout(() => notizRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 50);
+      return;
+    }
+    setNotizFehlt(false);
     // Zwei Baustellen: beide brauchen Zeit — sonst stimmt die Wechselzeit nicht
     const teile = art === 'normal' && zweite ? [baustelle, zweite] : null;
     if (teile) {
@@ -1838,10 +1853,23 @@ export function Erfassung() {
         )}
 
         {/* Bemerkung zum Tag: die Sprachnotiz ist immer da (Bauführer 20.09.), bei Überstunden Pflicht — kein eigener Bildschirm. */}
-        <section className={'card space-y-2.5 ' + (ueberTotal > 0 ? 'border-amber/30' : '')}>
+        <section ref={notizRef} className={'card space-y-2.5 ' + (notizFehlt && !ueberAufnahme ? 'border-accent ring-2 ring-accent/30' : ueberTotal > 0 ? 'border-amber/30' : '')}>
             <p className="text-sm font-semibold">
-              {ueberTotal > 0 ? <>Überstunden · {stunden(ueberTotal)} h — kurz sagen, warum</> : 'Bemerkung zum Tag — freiwillig'}
+              {ueberTotal > 0 ? <>{ueberText()} — kurz sagen, warum</> : 'Bemerkung zum Tag — freiwillig'}
             </p>
+            {/* Regie-Modus: gleich hier fragen, nicht erst beim Melden — Antwort und Sprachnotiz in einem Zug */}
+            {modus === 'regie' && ueberTotal > 0 && (
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-sm text-ink2">War das Regie?</span>
+                <span className="flex rounded-full border border-ink/10 bg-white p-0.5 text-xs font-semibold" role="group" aria-label="War das Regie?">
+                  <button type="button" aria-pressed={regieAntwort === 'ja'} onClick={() => { setRegieAntwort('ja'); setRegieFrage(false); }} className={'rounded-full px-3 py-1.5 ' + (regieAntwort === 'ja' ? 'bg-ink text-white' : 'text-ink2')}>Ja, Regie</button>
+                  <button type="button" aria-pressed={regieAntwort === 'nein'} onClick={() => { setRegieAntwort('nein'); setRegieFrage(false); }} className={'rounded-full px-3 py-1.5 ' + (regieAntwort === 'nein' ? 'bg-ink text-white' : 'text-ink2')}>Nein, nur länger</button>
+                </span>
+              </div>
+            )}
+            {notizFehlt && !ueberAufnahme && !nimmtAuf && (
+              <p className="text-sm font-semibold text-accent-deep">Zuerst kurz sagen, warum — dann nochmals «Tag melden».</p>
+            )}
             <div className={'rounded-[12px] border-2 border-dashed p-4 text-center ' + (nimmtAuf ? 'border-accent bg-accent-soft' : ueberAufnahme ? 'border-good/50 bg-good-soft/40' : 'border-steel bg-steel-soft')}>
               {ueberAufnahme ? (
                 <div className="space-y-2">
@@ -1872,7 +1900,9 @@ export function Erfassung() {
             </div>
             <p className="text-xs text-ink3">{ueberTotal > 0
               ? modus === 'regie'
-                ? 'War es Regie (vom Kunden gewollt)? Beim Melden fragt die App nach — die Überstunden werden dann übernommen.'
+                ? regieAntwort === 'ja'
+                  ? 'Nach «Weiter zur Regie»: wer wollte es, wie lange — die Überstunden sind schon eingetragen.'
+                  : 'Regie = Arbeit, die der Kunde zusätzlich wollte. Der Bauführer sieht die Überstunden mit deiner Notiz.'
                 : 'Der Bauführer sieht die Überstunden mit deiner Notiz und gibt sie frei.'
               : 'Der Bauführer liest die Notiz in der Wochenübersicht — z. B. Material fehlt, Kunde war da, früher Schluss.'}</p>
         </section>
@@ -1912,16 +1942,27 @@ export function Erfassung() {
           <section ref={regieFrageRef} className="card space-y-3 border-amber/40 bg-amber-soft" role="alertdialog" aria-labelledby="regie-frage">
             <p id="regie-frage" className="text-[17px] font-semibold leading-snug text-ink">{ueberText()} — war das Regie?</p>
             <p className="-mt-1 text-sm text-ink2">Regie = Arbeit, die der Kunde zusätzlich wollte.</p>
-            <button type="button" disabled={speichert} className="cta py-4 text-[16px] disabled:opacity-70" onClick={() => abweichungStarten('zusaetzlich')}>
+            <button type="button" disabled={speichert} className="cta py-4 text-[16px] disabled:opacity-70" onClick={() => { setRegieAntwort('ja'); abweichungStarten('zusaetzlich'); }}>
               Ja, Regie ausgeführt
             </button>
-            <button type="button" disabled={speichert} className="btn-ghost w-full py-3 text-sm disabled:opacity-70" onClick={() => { setRegieFrage(false); void speichern(); }}>
+            <button type="button" disabled={speichert} className="btn-ghost w-full py-3 text-sm disabled:opacity-70" onClick={() => { setRegieAntwort('nein'); setRegieFrage(false); void speichern(); }}>
               Nein, nur länger gearbeitet
             </button>
           </section>
         ) : (
-          <button type="button" disabled={speichert} onClick={() => { if (modus === 'regie' && ueberTotal > 0) { setRegieFrage(true); return; } void speichern(); }} className="cta cta-good py-5 text-[17px] disabled:opacity-70">
-            <span className="inline-flex items-center gap-2">{gespeichert ? gespeichert : <><CheckCircle2 size={22} strokeWidth={2.2} aria-hidden="true" /> {modus === 'regie' ? (ueberTotal > 0 ? 'Tag melden' : 'Alles wie geplant') : 'Tag melden'}</>}</span>
+          <button
+            type="button"
+            disabled={speichert}
+            onClick={() => {
+              if (modus === 'regie' && ueberTotal > 0) {
+                if (regieAntwort === 'ja') { abweichungStarten('zusaetzlich'); return; }
+                if (regieAntwort === null) { setRegieFrage(true); return; }
+              }
+              void speichern();
+            }}
+            className="cta cta-good py-5 text-[17px] disabled:opacity-70"
+          >
+            <span className="inline-flex items-center gap-2">{gespeichert ? gespeichert : <><CheckCircle2 size={22} strokeWidth={2.2} aria-hidden="true" /> {modus === 'regie' ? (ueberTotal > 0 ? (regieAntwort === 'ja' ? 'Weiter zur Regie' : 'Tag melden') : 'Alles wie geplant') : 'Tag melden'}</>}</span>
           </button>
         )}
         {hinweis && <p className="text-sm font-semibold text-accent-deep">{hinweis}</p>}
