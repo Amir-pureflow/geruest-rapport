@@ -19,7 +19,7 @@
 //
 // Das Ohr (Erkennung, 04.10.2026): **Azure AI Speech, schnelle Transkription**, sobald
 // `AZURE_SPEECH_KEY` in `konfiguration` liegt — sonst Mistral Voxtral wie bisher. Azure kann
-// alle Sprachen des Betriebs (Albanisch sq-AL, Arabisch ar-SY, Polnisch, Portugiesisch, Italienisch, dazu
+// alle Sprachen des Betriebs (Albanisch sq-AL, Arabisch ar-SY, Polnisch, Portugiesisch, Italienisch, Spanisch es-ES, dazu
 // Schweizer Hochdeutsch de-CH), Voxtral kann kein Albanisch. Region über `AZURE_SPEECH_REGION`
 // (Standard germanywestcentral = Frankfurt — die schnelle Transkription gibt es laut
 // Regionen-Tabelle vom 30.09.2026 NICHT in switzerlandnorth; Frankfurt ist die nächste,
@@ -43,7 +43,7 @@ function antwort(status: number, body: unknown): Response {
   return new Response(JSON.stringify(body), { status, headers: { ...cors, 'Content-Type': 'application/json' } });
 }
 
-const SPRACHEN: Record<string, string> = { de: 'Deutsch', sq: 'Albanisch', pt: 'Portugiesisch', it: 'Italienisch', fr: 'Französisch', ar: 'Arabisch', pl: 'Polnisch', en: 'Englisch' };
+const SPRACHEN: Record<string, string> = { de: 'Deutsch', sq: 'Albanisch', pt: 'Portugiesisch', it: 'Italienisch', fr: 'Französisch', es: 'Spanisch', ar: 'Arabisch', pl: 'Polnisch', en: 'Englisch' };
 
 const ANWEISUNG =
   'Du bereinigst gesprochene Notizen von einer Gerüstbau-Baustelle zu klarem Schweizer Hochdeutsch («ss» statt «ß»). ' +
@@ -52,12 +52,21 @@ const ANWEISUNG =
   'Zahlen, Uhrzeiten, Stunden, Namen, Baustellen und Mengenangaben wörtlich übernehmen — «ein Feld mehr» bleibt «ein Feld mehr», nicht umdeuten. ' +
   'Eigennamen (Personen, Firmen, Baustellen) unverändert lassen. Ist ein Wort kein bekanntes Wort der Ausgangssprache (Hörfehler der Erkennung), dann NICHT raten, was gemeint sein könnte: das Wort unübersetzt in «…» übernehmen. Beispiel: «Unë çuhem amir» → «Ich "çuhem" Amir» (çuhem gibt es nicht, also stehen lassen). ' +
   'Fachbegriffe des Gerüstbaus beibehalten (Feld, Lage, Treppenturm, Konsole, versetzen). ' +
+  // Glossar (11.10.2026): ein kurzer italienischer Satz ohne Subjekt liess «ponteggio» stehen (07.10.) — die
+  // Baustellenwörter der Sprachen des Betriebs sind hier fest zugeordnet, damit nie ein Fremdwort im Rapport landet.
+  'Gerüstbau-Wörter immer so übersetzen: Gerüst = ponteggio, andaime, andamio, échafaudage, rusztowanie, skelë, scaffolding; ' +
+  'Feld = campata, tramo, travée, przęsło, bay; Lage = piano/livello, nivel/altura, niveau, poziom, lift; ' +
+  'Belag = tavola/impalcato, plataforma/tablón, plancher, podest, deck/board; Geländer = parapetto, barandilla, garde-corps, poręcz, guardrail; ' +
+  'Treppenturm = torre scale, torre de escalera, tour d’escalier, wieża schodowa, stair tower; Konsole = mensola, ménsula, console, konsola, bracket; ' +
+  'Verankerung = ancoraggio, anclaje, ancrage, kotwienie, anchor/tie; Schutznetz = rete, red, filet, siatka, netting; ' +
+  'Bauleitung = direzione lavori, dirección de obra, direction des travaux; Kran = gru, grúa, grue, dźwig, crane. ' +
+  'Eine Höhe am Gerüst heisst «Lage» (dritte Lage), nie «Stock» oder «Etage» — ausser es geht ausdrücklich um das Stockwerk des Gebäudes. ' +
   'Nichts hinzufügen, nichts Wichtiges weglassen, nichts bewerten. Bei Unklarheit die Worte des Sprechers lassen. ' +
   'Kurz und sachlich, wie ein Eintrag im Rapport. Nur den bereinigten Text ausgeben, ohne Anführungszeichen, ohne Erklärung. ' +
   'Ist die Notiz nicht auf Deutsch, zuerst sinngemäss übersetzen, dann bereinigen.';
 
 /** Sprachcode aus dem Profil → Azure-Gebietsschema. Deutsch als de-CH: Hochdeutsch mit Schweizer Zunge. */
-const AZURE_GEBIET: Record<string, string> = { de: 'de-CH', sq: 'sq-AL', pt: 'pt-PT', it: 'it-IT', fr: 'fr-FR', ar: 'ar-SY', pl: 'pl-PL', en: 'en-US' };
+const AZURE_GEBIET: Record<string, string> = { de: 'de-CH', sq: 'sq-AL', pt: 'pt-PT', it: 'it-IT', fr: 'fr-FR', es: 'es-ES', ar: 'ar-SY', pl: 'pl-PL', en: 'en-US' };
 
 /**
  * Das Ohr, Fassung Azure: schnelle Transkription, ein Aufruf, Antwort in Sekunden.

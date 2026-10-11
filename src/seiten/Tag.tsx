@@ -268,5 +268,5 @@ export function Tag() {
   );
 }
 
-const SPRACHE_ADJ: Record<string, string> = { it: 'Italienischen', fr: 'Französischen', pl: 'Polnischen', pt: 'Portugiesischen', sq: 'Albanischen', ar: 'Arabischen', en: 'Englischen' };
+const SPRACHE_ADJ: Record<string, string> = { it: 'Italienischen', fr: 'Französischen', es: 'Spanischen', pl: 'Polnischen', pt: 'Portugiesischen', sq: 'Albanischen', ar: 'Arabischen', en: 'Englischen' };
 

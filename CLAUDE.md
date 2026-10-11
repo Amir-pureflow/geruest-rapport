@@ -239,6 +239,13 @@ Offline oder nicht bestätigt: `db.ts` stösst die nachträgliche Transkription 
 Prüfung — der Monteur ist dann nicht mehr da). Die Aufnahme bleibt der Beleg (Regel #8). Cockpit: Notizen ohne
 Überstunden erscheinen als Karte «Bemerkung zum Tag».
 
+**Sprachen** (Stand 11.10.2026): de, sq, pt, it, fr, **es**, ar, pl, en — eine neue Sprache braucht: Check-Regeln
+`mitarbeiter_sprache_check` + `tagesmeldung_transkript_sprache_check` (Migration), `SPRACHEN` + `AZURE_GEBIET` in der
+Function, `PRUEF_TEXTE` in Erfassung.tsx (Frage + Knopf in der Sprache), die Namenslisten in Mitarbeiter.tsx,
+Cockpit.tsx, Tag.tsx, RegieDetail.tsx, ui/Sprachnotiz.tsx. Die Übersetzung hat ein **Glossar der Gerüstbau-Wörter**
+(andamio/ponteggio/… = Gerüst, nivel = Lage, tablón = Belag …) in `ANWEISUNG`. Spanisch geprüft 11.10. mit Azure-Stimmen
+aus Spanien, Mexiko und Kolumbien: Erkennung wortgenau, Übersetzung fachlich richtig.
+
 Das Ohr ist austauschbar: nur `stt()` in `supabase/functions/transkribieren/index.ts`. Heute Mistral Voxtral
 (kann kein Albanisch, Arabisch/Polnisch schwach); geplant Azure AI Speech, Region Schweiz Nord — siehe
 «Offene Entscheidungen». Die Übersetzung aus bestätigtem Text ist geprüft für sq/pl/pt/ar (04.10.).
@@ -327,7 +334,9 @@ Lesende Prüfung genauso, mit SQL statt `-f` (z. B. `select … from information
 - Eine Datei läuft als ein Block: scheitert eine Zeile, bleibt die ganze Datei draussen. Danach mit einer Abfrage
   bestätigen, nicht glauben.
 - Am Ende einer Migration mit neuen Spalten/Tabellen: `notify pgrst, 'reload schema';`.
-- **Stand:** 0001–0036 sind eingespielt (0034 neue Fassung, 0035, 0036 am 11.10.2026).
+- **Stand:** 0001–0037 sind eingespielt (0034 neue Fassung, 0035, 0036, 0037 am 11.10.2026).
+- Edge Functions genauso: `npx supabase functions deploy <name> --project-ref rilknynqwzamgpimniyz --use-api`. Vorher
+  die laufende Fassung mit `functions download … --workdir <tmp>` holen und mit dem Repo vergleichen.
 
 ## Dateikarte
 
@@ -376,7 +385,7 @@ src/ui/FotoGalerie.tsx            Vorschau aus dem Bucket «anhaenge» (signiert
 src/ui/Sprachnotiz.tsx            Pegelbalken während der Aufnahme, Text-Enthüllung nach dem Speichern
 src/ui/Shell.tsx                  Rahmen: Büro-Ansichten mit Bereichsleiste (md) / Seitenleiste (lg), Baustellen-Ansichten Handy-Spalte
 supabase/functions/transkribieren Sprachnotiz → Text (Mistral)
-supabase/migrations/              0001–0015 historisch (inkl. Regie-Tabellen) · 0016 Zeiten von–bis · 0017 Firmen-Schalter (durch 0019 abgelöst) · 0019 mehrere Firmen, Rechte je Firma · 0020 Dateien und Rapportnummern je Firma · 0021 Briefkopf je Firma · 0026 normaler Arbeitstag je Firma · 0027 Zusatzauftrag «erledigt» ohne Regie · 0028 «Gelb markieren ab» je Firma · 0029 dritte Zeitspanne (Znüni-Pause abziehen) · 0030 absichtlich leer · 0031 Korrekturen nach normalem Arbeitstag der Firma · 0032 Einladung und Gerät (verworfen) · 0033 persönliche Zugänge, entfernt 0032 wieder · 0034 Konten aus der Verwaltung, Mail-Domain je Firma, inaktiv = kein Zugang · 0035 Funktionen nie ohne Anmeldung · 0036 Wünsche Arbnor/Mehmeti 10.10. (Pause je Firma, Lieferwagen, Abwesenheiten, Einsatz je Person) — **nächste freie Nummer: 0037** (vor dem Anlegen `git pull`, damit nicht zwei dieselbe Nummer nehmen)
+supabase/migrations/              0001–0015 historisch (inkl. Regie-Tabellen) · 0016 Zeiten von–bis · 0017 Firmen-Schalter (durch 0019 abgelöst) · 0019 mehrere Firmen, Rechte je Firma · 0020 Dateien und Rapportnummern je Firma · 0021 Briefkopf je Firma · 0026 normaler Arbeitstag je Firma · 0027 Zusatzauftrag «erledigt» ohne Regie · 0028 «Gelb markieren ab» je Firma · 0029 dritte Zeitspanne (Znüni-Pause abziehen) · 0030 absichtlich leer · 0031 Korrekturen nach normalem Arbeitstag der Firma · 0032 Einladung und Gerät (verworfen) · 0033 persönliche Zugänge, entfernt 0032 wieder · 0034 Konten aus der Verwaltung, Mail-Domain je Firma, inaktiv = kein Zugang · 0035 Funktionen nie ohne Anmeldung · 0036 Wünsche Arbnor/Mehmeti 10.10. (Pause je Firma, Lieferwagen, Abwesenheiten, Einsatz je Person) · 0037 Spanisch (es, Azure es-ES) — **nächste freie Nummer: 0038** (vor dem Anlegen `git pull`, damit nicht zwei dieselbe Nummer nehmen)
 archiv/regie-und-board/           Stand vom 20.09. als Nachschlagewerk — nicht mehr die Quelle (Regie ist zurück, hinter Schaltern)
 ```
 

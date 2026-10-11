@@ -331,6 +331,7 @@ const PRUEF_TEXTE: Record<string, { frage: string; knopf: string; name: string }
   pt: { frage: 'Está correto? Se não, corrija aqui.', knopf: 'Está certo ✓', name: 'Portugiesisch' },
   it: { frage: 'È scritto correttamente? Altrimenti correggilo qui.', knopf: 'Va bene ✓', name: 'Italienisch' },
   fr: { frage: 'Est-ce correct? Sinon, corrigez ici.', knopf: 'C’est juste ✓', name: 'Französisch' },
+  es: { frage: '¿Está bien escrito? Si no, corrígelo aquí.', knopf: 'Sí, está bien ✓', name: 'Spanisch' },
   ar:{ frage: 'هل النص صحيح؟ إن لم يكن، صحِّحه هنا.', knopf: 'صحيح ✓', name: 'Arabisch' },
   pl: { frage: 'Czy tekst się zgadza? Jeśli nie, popraw go tutaj.', knopf: 'Zgadza się ✓', name: 'Polnisch' },
   en: { frage: 'Is this correct? If not, fix it here.', knopf: 'Looks right ✓', name: 'Englisch' },
