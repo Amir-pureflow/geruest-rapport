@@ -610,7 +610,15 @@ export async function demoZuruecksetzen(client: SupabaseClient, log: Protokoll):
   const { error } = await client.from('baustelle').update({ kunde_id: null, status: 'aktiv', fertigstellung_am: null }).not('id', 'is', null);
   if (error) throw new Error('baustelle zurücksetzen: ' + error.message);
   await alles('kunde');
+  await verlaufLeeren(client, log);
   log('Alles geleert — die Konten bleiben.');
+}
+
+/** Verlauf der Planung leeren (0039): sonst gilt nach dem Laden jeder Demo-Einsatz als «neu» und eine Umplanung in der
+ *  Vorführung erscheint auf dem Teamgerät nicht als «Plan geändert». Fehlt die Funktion (0039 nicht eingespielt), geht es ohne. */
+async function verlaufLeeren(client: SupabaseClient, log: Protokoll): Promise<void> {
+  const { error } = await client.rpc('demo_verlauf_leeren');
+  if (error) log('Verlauf der Planung nicht geleert: ' + error.message);
 }
 
 export interface DemoZusammenfassung { mitarbeiter: number; teams: number; kunden: number; meldungen: number; eintraege: number; regierapporte?: number }
@@ -647,5 +655,6 @@ export async function demoLaden(client: SupabaseClient, userId: string, log: Pro
     regierapporte = r.rapporte;
   }
 
+  await verlaufLeeren(client, log);
   return { mitarbeiter: d.mitarbeiter.length, teams: d.teams.length, kunden: d.kunden.length, meldungen: d.meldungen.length, eintraege: d.eintraege.length, regierapporte };
 }

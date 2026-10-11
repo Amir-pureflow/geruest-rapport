@@ -298,7 +298,9 @@ direkt per SQL nur mit abgeschalteten Auslösern einfügen, sonst entstehen Verl
 nächster Arbeitstag) → Startseite Chefmonteur «Plan geändert» («Montag: Viktoriastrasse — statt Eigerplatz», «Marco ist
 in Team 3»); im Teamgerät steht die heute geplante Baustelle zuerst, nach einer Umplanung «neu geplant». Baustellen-Hinweis
 nur, wenn für den Tag vorher schon etwas geplant war — ein neu verplanter Tag ist keine Umplanung (sonst hätte jedes Team
-am Montag «Plan geändert», weil am Freitag geplant wurde, und nach «Demo laden» jedes Teamgerät).
+am Montag «Plan geändert», weil am Freitag geplant wurde). «Demo laden» und «Alles leeren» leeren danach den Verlauf
+der Demo-Firma (`demo_verlauf_leeren()`, 0039, nur We-Plan) — sonst wäre jeder Demo-Einsatz 72 h lang «neu» und eine
+Umplanung in der Vorführung erschiene nicht.
 
 ## iPad (20.09.)
 
@@ -350,7 +352,7 @@ Lesende Prüfung genauso, mit SQL statt `-f` (z. B. `select … from information
 - Eine Datei läuft als ein Block: scheitert eine Zeile, bleibt die ganze Datei draussen. Danach mit einer Abfrage
   bestätigen, nicht glauben.
 - Am Ende einer Migration mit neuen Spalten/Tabellen: `notify pgrst, 'reload schema';`.
-- **Stand:** 0001–0038 sind eingespielt (0034 neue Fassung, 0035–0038 am 11.10.2026).
+- **Stand:** 0001–0039 sind eingespielt (0034 neue Fassung, 0035–0039 am 11.10.2026).
 - Edge Functions genauso: `npx supabase functions deploy <name> --project-ref rilknynqwzamgpimniyz --use-api`. Vorher
   die laufende Fassung mit `functions download … --workdir <tmp>` holen und mit dem Repo vergleichen.
 
@@ -401,7 +403,7 @@ src/ui/FotoGalerie.tsx            Vorschau aus dem Bucket «anhaenge» (signiert
 src/ui/Sprachnotiz.tsx            Pegelbalken während der Aufnahme, Text-Enthüllung nach dem Speichern
 src/ui/Shell.tsx                  Rahmen: Büro-Ansichten mit Bereichsleiste (md) / Seitenleiste (lg), Baustellen-Ansichten Handy-Spalte
 supabase/functions/transkribieren Sprachnotiz → Text (Mistral)
-supabase/migrations/              0001–0015 historisch (inkl. Regie-Tabellen) · 0016 Zeiten von–bis · 0017 Firmen-Schalter (durch 0019 abgelöst) · 0019 mehrere Firmen, Rechte je Firma · 0020 Dateien und Rapportnummern je Firma · 0021 Briefkopf je Firma · 0026 normaler Arbeitstag je Firma · 0027 Zusatzauftrag «erledigt» ohne Regie · 0028 «Gelb markieren ab» je Firma · 0029 dritte Zeitspanne (Znüni-Pause abziehen) · 0030 absichtlich leer · 0031 Korrekturen nach normalem Arbeitstag der Firma · 0032 Einladung und Gerät (verworfen) · 0033 persönliche Zugänge, entfernt 0032 wieder · 0034 Konten aus der Verwaltung, Mail-Domain je Firma, inaktiv = kein Zugang · 0035 Funktionen nie ohne Anmeldung · 0036 Wünsche Arbnor/Mehmeti 10.10. (Pause je Firma, Lieferwagen, Abwesenheiten, Einsatz je Person) · 0037 Spanisch (es, Azure es-ES) · 0038 Verlauf der Planung (plan_verlauf + Auslöser) — **nächste freie Nummer: 0039** (vor dem Anlegen `git pull`, damit nicht zwei dieselbe Nummer nehmen)
+supabase/migrations/              0001–0015 historisch (inkl. Regie-Tabellen) · 0016 Zeiten von–bis · 0017 Firmen-Schalter (durch 0019 abgelöst) · 0019 mehrere Firmen, Rechte je Firma · 0020 Dateien und Rapportnummern je Firma · 0021 Briefkopf je Firma · 0026 normaler Arbeitstag je Firma · 0027 Zusatzauftrag «erledigt» ohne Regie · 0028 «Gelb markieren ab» je Firma · 0029 dritte Zeitspanne (Znüni-Pause abziehen) · 0030 absichtlich leer · 0031 Korrekturen nach normalem Arbeitstag der Firma · 0032 Einladung und Gerät (verworfen) · 0033 persönliche Zugänge, entfernt 0032 wieder · 0034 Konten aus der Verwaltung, Mail-Domain je Firma, inaktiv = kein Zugang · 0035 Funktionen nie ohne Anmeldung · 0036 Wünsche Arbnor/Mehmeti 10.10. (Pause je Firma, Lieferwagen, Abwesenheiten, Einsatz je Person) · 0037 Spanisch (es, Azure es-ES) · 0038 Verlauf der Planung (plan_verlauf + Auslöser) · 0039 Demo: Verlauf nach «Demo laden» leeren — **nächste freie Nummer: 0040** (vor dem Anlegen `git pull`, damit nicht zwei dieselbe Nummer nehmen)
 archiv/regie-und-board/           Stand vom 20.09. als Nachschlagewerk — nicht mehr die Quelle (Regie ist zurück, hinter Schaltern)
 ```
 
