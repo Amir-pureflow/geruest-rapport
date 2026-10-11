@@ -155,3 +155,91 @@ export function naechsterTeamName(namen: string[]): string {
   const zahlen = namen.map((n) => /^team\s*(\d+)$/i.exec(n.trim())?.[1]).filter((x): x is string => !!x).map(Number);
   return `Team ${zahlen.length ? Math.max(...zahlen) + 1 : namen.length + 1}`;
 }
+
+// ── Verlauf, Plan vom Montag, Tatsächlich (Migration 0038, Mehmeti 10.10.2026) ─────────────────
+
+/** Ein Eintrag aus `plan_verlauf`: jede Änderung an Einsätzen und Einteilungen, vom Auslöser mitgeschrieben. */
+export interface VerlaufZeile {
+  tabelle: 'jahresplan' | 'einsatz_person';
+  datensatz_id: string;
+  aktion: 'neu' | 'geaendert' | 'geloescht';
+  vorher: Record<string, unknown> | null;
+  nachher: Record<string, unknown> | null;
+  zeit: string;
+}
+
+/** Ein Einsatz, wie er in `jahresplan` steht (ohne verknüpfte Baustelle). */
+export interface PlanStand {
+  id: string;
+  team_id: string | null;
+  baustelle_id: string | null;
+  von: string;
+  bis: string;
+}
+
+function planAus(o: Record<string, unknown>): PlanStand {
+  return { id: String(o.id), team_id: (o.team_id as string | null) ?? null, baustelle_id: (o.baustelle_id as string | null) ?? null, von: String(o.von), bis: String(o.bis) };
+}
+
+/**
+ * Der Plan zu einem früheren Zeitpunkt (z. B. Montag früh): vom heutigen Stand rückwärts durch den Verlauf — was nach
+ * `zeitpunkt` neu kam, fällt weg, Geändertes und Gelöschtes kommt in den alten Zustand zurück. Einsätze von vor dem
+ * Verlauf (vor 0038) bleiben, wie sie sind. Zeiten werden als Zeitpunkte verglichen, nicht als Text.
+ */
+export function planAm(jetzt: PlanStand[], verlauf: VerlaufZeile[], zeitpunkt: string): PlanStand[] {
+  const grenze = Date.parse(zeitpunkt);
+  const stand = new Map(jetzt.map((p) => [p.id, { ...p }]));
+  const spaeter = verlauf
+    .filter((v) => v.tabelle === 'jahresplan' && Date.parse(v.zeit) > grenze)
+    .sort((a, b) => Date.parse(b.zeit) - Date.parse(a.zeit));
+  for (const v of spaeter) {
+    if (v.aktion === 'neu') stand.delete(v.datensatz_id);
+    else if (v.vorher) stand.set(v.datensatz_id, planAus(v.vorher));
+  }
+  return [...stand.values()];
+}
+
+/** Gemeldete Tage → Balken: dieselbe Baustelle an aufeinanderfolgenden Daten ist ein Balken. */
+export function istBalken(tage: { team_id: string; datum: string; baustelle_id: string }[]): PlanStand[] {
+  const einmal = [...new Map(tage.map((t) => [`${t.team_id}|${t.baustelle_id}|${t.datum}`, t])).values()]
+    .sort((a, b) => a.team_id.localeCompare(b.team_id) || a.baustelle_id.localeCompare(b.baustelle_id) || a.datum.localeCompare(b.datum));
+  const out: PlanStand[] = [];
+  for (const t of einmal) {
+    const letzter = out[out.length - 1];
+    if (letzter && letzter.team_id === t.team_id && letzter.baustelle_id === t.baustelle_id && iso(addTage(ausIso(letzter.bis), 1)) === t.datum) {
+      letzter.bis = t.datum;
+    } else {
+      out.push({ id: `ist|${t.team_id}|${t.baustelle_id}|${t.datum}`, team_id: t.team_id, baustelle_id: t.baustelle_id, von: t.datum, bis: t.datum });
+    }
+  }
+  return out;
+}
+
+export interface EinteilungsGruppe {
+  mitarbeiter_id: string;
+  team_id: string | null;
+  aktion: 'neu' | 'geaendert' | 'geloescht';
+  zeit: string;
+  tage: string[];
+}
+
+/**
+ * Einteilungen fürs Lesen bündeln: «bis Freitag» schreibt eine Zeile je Tag — im Verlauf soll es eine Zeile sein
+ * («Luan Do 15.–Fr 16.10.: in Team 7»). Gleiche Person, gleiches Team, gleiche Aktion, gleiche Minute = eine Gruppe.
+ */
+export function einteilungenBuendeln(verlauf: VerlaufZeile[]): EinteilungsGruppe[] {
+  const gruppen = new Map<string, EinteilungsGruppe>();
+  for (const v of verlauf) {
+    if (v.tabelle !== 'einsatz_person') continue;
+    const d = (v.nachher ?? v.vorher) as Record<string, unknown> | null;
+    if (!d) continue;
+    const ma = String(d.mitarbeiter_id);
+    const team = (d.team_id as string | null) ?? null;
+    const minute = new Date(Date.parse(v.zeit)).toISOString().slice(0, 16);
+    const key = `${ma}|${team}|${v.aktion}|${minute}`;
+    const g = gruppen.get(key) ?? { mitarbeiter_id: ma, team_id: team, aktion: v.aktion, zeit: v.zeit, tage: [] };
+    g.tage.push(String(d.datum));
+    gruppen.set(key, g);
+  }
+  return [...gruppen.values()].map((g) => ({ ...g, tage: [...new Set(g.tage)].sort() })).sort((a, b) => Date.parse(a.zeit) - Date.parse(b.zeit));
+}

@@ -284,6 +284,14 @@ Baustelle» (schneidet den Einsatz, `ohneTag()`, Verlauf in `planaenderung`). «
 `einsatz_person` (Person × Tag × Team); keine Zeile = festes Team. Das Teamgerät übernimmt die Einteilung (Versetzte
 abgehakt mit «in Team X», Eingeteilte als «eingeteilt»). Rechnerei in `src/lib/planung.ts` (`besetzung`, `planIst`).
 
+**Entwurf, Archiv, Verlauf** (0038, Mehmeti): Ein Auslöser schreibt jede Änderung an `jahresplan` und
+`einsatz_person` in `plan_verlauf` (neu/geändert/gelöscht, vorher/nachher, Zeit, wer) — die App liest nur. Wochenstatus
+im Kopf: «Entwurf · Woche läuft» / «Archiv» / «Plan». Für Wochen mit vergangenen Tagen drei Ansichten: Aktueller Plan,
+**Plan vom Montag** (`planAm()`: vom heutigen Stand rückwärts durch den Verlauf bis Mo 06:00) und **Tatsächlich**
+(`istBalken()` aus den Meldungen); vergangene Wochen öffnen auf «Tatsächlich». Darunter «Verlauf dieser Woche»
+(Einteilungen gebündelt mit `einteilungenBuendeln()`), mit Trennlinie «Woche beginnt». Testdaten direkt per SQL nur mit
+abgeschalteten Auslösern einfügen, sonst entstehen Verlaufszeilen mit falscher Zeit.
+
 ## iPad (20.09.)
 
 Büro-Ansichten: ab `md` (iPad hochkant) quer scrollbare Bereichsleiste unter der Kopfzeile und breitere Spalte
@@ -334,7 +342,7 @@ Lesende Prüfung genauso, mit SQL statt `-f` (z. B. `select … from information
 - Eine Datei läuft als ein Block: scheitert eine Zeile, bleibt die ganze Datei draussen. Danach mit einer Abfrage
   bestätigen, nicht glauben.
 - Am Ende einer Migration mit neuen Spalten/Tabellen: `notify pgrst, 'reload schema';`.
-- **Stand:** 0001–0037 sind eingespielt (0034 neue Fassung, 0035, 0036, 0037 am 11.10.2026).
+- **Stand:** 0001–0038 sind eingespielt (0034 neue Fassung, 0035–0038 am 11.10.2026).
 - Edge Functions genauso: `npx supabase functions deploy <name> --project-ref rilknynqwzamgpimniyz --use-api`. Vorher
   die laufende Fassung mit `functions download … --workdir <tmp>` holen und mit dem Repo vergleichen.
 
@@ -385,7 +393,7 @@ src/ui/FotoGalerie.tsx            Vorschau aus dem Bucket «anhaenge» (signiert
 src/ui/Sprachnotiz.tsx            Pegelbalken während der Aufnahme, Text-Enthüllung nach dem Speichern
 src/ui/Shell.tsx                  Rahmen: Büro-Ansichten mit Bereichsleiste (md) / Seitenleiste (lg), Baustellen-Ansichten Handy-Spalte
 supabase/functions/transkribieren Sprachnotiz → Text (Mistral)
-supabase/migrations/              0001–0015 historisch (inkl. Regie-Tabellen) · 0016 Zeiten von–bis · 0017 Firmen-Schalter (durch 0019 abgelöst) · 0019 mehrere Firmen, Rechte je Firma · 0020 Dateien und Rapportnummern je Firma · 0021 Briefkopf je Firma · 0026 normaler Arbeitstag je Firma · 0027 Zusatzauftrag «erledigt» ohne Regie · 0028 «Gelb markieren ab» je Firma · 0029 dritte Zeitspanne (Znüni-Pause abziehen) · 0030 absichtlich leer · 0031 Korrekturen nach normalem Arbeitstag der Firma · 0032 Einladung und Gerät (verworfen) · 0033 persönliche Zugänge, entfernt 0032 wieder · 0034 Konten aus der Verwaltung, Mail-Domain je Firma, inaktiv = kein Zugang · 0035 Funktionen nie ohne Anmeldung · 0036 Wünsche Arbnor/Mehmeti 10.10. (Pause je Firma, Lieferwagen, Abwesenheiten, Einsatz je Person) · 0037 Spanisch (es, Azure es-ES) — **nächste freie Nummer: 0038** (vor dem Anlegen `git pull`, damit nicht zwei dieselbe Nummer nehmen)
+supabase/migrations/              0001–0015 historisch (inkl. Regie-Tabellen) · 0016 Zeiten von–bis · 0017 Firmen-Schalter (durch 0019 abgelöst) · 0019 mehrere Firmen, Rechte je Firma · 0020 Dateien und Rapportnummern je Firma · 0021 Briefkopf je Firma · 0026 normaler Arbeitstag je Firma · 0027 Zusatzauftrag «erledigt» ohne Regie · 0028 «Gelb markieren ab» je Firma · 0029 dritte Zeitspanne (Znüni-Pause abziehen) · 0030 absichtlich leer · 0031 Korrekturen nach normalem Arbeitstag der Firma · 0032 Einladung und Gerät (verworfen) · 0033 persönliche Zugänge, entfernt 0032 wieder · 0034 Konten aus der Verwaltung, Mail-Domain je Firma, inaktiv = kein Zugang · 0035 Funktionen nie ohne Anmeldung · 0036 Wünsche Arbnor/Mehmeti 10.10. (Pause je Firma, Lieferwagen, Abwesenheiten, Einsatz je Person) · 0037 Spanisch (es, Azure es-ES) · 0038 Verlauf der Planung (plan_verlauf + Auslöser) — **nächste freie Nummer: 0039** (vor dem Anlegen `git pull`, damit nicht zwei dieselbe Nummer nehmen)
 archiv/regie-und-board/           Stand vom 20.09. als Nachschlagewerk — nicht mehr die Quelle (Regie ist zurück, hinter Schaltern)
 ```
 

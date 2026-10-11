@@ -1,18 +1,18 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowRightLeft, CalendarDays, CalendarPlus, Check, ChevronLeft, ChevronRight, History, Plus, Search, Trash2, Undo2, UserPlus, Users, X } from 'lucide-react';
+import { Archive, ArrowRightLeft, CalendarDays, CalendarPlus, Check, ChevronLeft, ChevronRight, History, PencilLine, Plus, Search, Trash2, Undo2, UserPlus, Users, X } from 'lucide-react';
 import { Shell } from '../ui/Shell';
 import { Dialog, Avatar } from '../ui/Dialog';
 import { ArtPille } from '../ui/ArtPille';
 import { supabase } from '../lib/supabase';
 import { addTage, ausIso, iso, kurz, kw, lang, montag, WOCHENTAGE } from '../lib/datum';
 import {
-  arbeitstage, besetzung, naechsterTeamName, ohneTag, planIst, spuren, ueberschneiden, zeitraumVorschlag,
-  type PlanIst, type Schnellwahl, type TagesBesetzung, type Versetzung, type Zeitraum,
+  arbeitstage, besetzung, einteilungenBuendeln, istBalken, naechsterTeamName, ohneTag, planAm, planIst, spuren, ueberschneiden, zeitraumVorschlag,
+  type EinteilungsGruppe, type PlanIst, type Schnellwahl, type TagesBesetzung, type VerlaufZeile, type Versetzung, type Zeitraum,
 } from '../lib/planung';
 import { werktage } from '../lib/abwesenheit';
 import { FUNKTION_BUERO } from '../lib/benutzername';
 import { DatumWahl } from '../ui/DatumWahl';
-import { Pille } from '../ui/Segment';
+import { Pille, Segment } from '../ui/Segment';
 import { baustellenSuchen } from '../lib/suche';
 
 /**
@@ -28,6 +28,12 @@ import { baustellenSuchen } from '../lib/suche';
  * Geschrieben wird in `jahresplan` (Team × Baustelle × von–bis) und `einsatz_person` (Person × Tag × Team, Migration 0036);
  * Erfassung und Tagesübersicht schlagen daraus die Baustelle vor, das Teamgerät übernimmt die Leute des Tages.
  * Änderungen an bestehenden Einsätzen landen in `planaenderung` (Terminhistorie, im Einsatz als «Verlauf»).
+ *
+ * Entwurf und Archiv (Migration 0038, Mehmeti): «Während der Woche gibt es Änderungen — am Ende sieht die Planung ganz
+ * anders aus als geplant. Solange die Woche läuft, ist sie Entwurf; danach zurückgehen und sehen, wo die Teams waren.»
+ * Die Datenbank schreibt jede Änderung an Einsätzen und Einteilungen in `plan_verlauf`. Daraus: Wochenstatus (Entwurf ·
+ * Archiv), drei Ansichten für Wochen mit vergangenen Tagen — Aktueller Plan, Plan vom Montag (rückwärts aus dem Verlauf),
+ * Tatsächlich (aus den Meldungen) — und der Verlauf der Woche als Liste unter dem Raster.
  */
 
 interface Team { id: string; bezeichnung: string; chefmonteur_id: string | null; chefmonteur: { name: string } | null }
@@ -96,6 +102,11 @@ export function Planung() {
   const [tagWahl, setTagWahl] = useState<{ teamId: string; datum: string } | null>(null);
   const [teamNeu, setTeamNeu] = useState(false);
   const [rueckmeldung, setRueckmeldung] = useState<string | null>(null);
+  /** Verlauf aller Änderungen an Einsätzen und Einteilungen (0038) — für «Plan vom Montag» und die Liste unten */
+  const [verlauf, setVerlauf] = useState<VerlaufZeile[]>([]);
+  /** Baustellen, die nur im Verlauf vorkommen (z. B. inzwischen abgeschlossen) */
+  const [zusatzBaustellen, setZusatzBaustellen] = useState<Baustelle[]>([]);
+  const [ansicht, setAnsicht] = useState<'plan' | 'montag' | 'ist'>('plan');
 
   const tage = useMemo(() => Array.from({ length: anzahlTage }, (_, i) => addTage(start, i)), [start, anzahlTage]);
   const startIso = iso(start);
@@ -115,13 +126,23 @@ export function Planung() {
       c.from('mitarbeiter').select('id,name,funktion').eq('aktiv', true).neq('funktion', FUNKTION_BUERO).order('name'),
     ]);
     // Neu mit 0036 bzw. nur für vergangene Tage — fehlt etwas, bleibt die Planung trotzdem bedienbar
-    const [v, a, i] = await Promise.all([
+    const vorlauf = new Date(ausIso(startIso).getTime() - 14 * 86400000).toISOString();
+    const [v, a, i, vl] = await Promise.all([
       c.from('einsatz_person').select('datum,mitarbeiter_id,team_id').gte('datum', startIso).lte('datum', endeIso),
       c.from('abwesenheit').select('datum,mitarbeiter_id,art').gte('datum', startIso).lte('datum', endeIso),
       startIso <= heuteIso
         ? c.from('tagesmeldung').select('team_id,datum,baustelle:baustelle_id(id,konto_nr,bezeichnung),zeiteintrag(mitarbeiter_id)').gte('datum', startIso).lte('datum', istBis).limit(2000)
         : Promise.resolve({ data: [], error: null }),
+      c.from('plan_verlauf').select('tabelle,datensatz_id,aktion,vorher,nachher,zeit').gte('zeit', vorlauf).order('zeit').limit(4000),
     ]);
+    const verlaufNeu = vl.error ? [] : ((vl.data ?? []) as VerlaufZeile[]);
+    setVerlauf(verlaufNeu);
+    const bekannt = new Set([...((b.data ?? []) as Baustelle[]).map((x) => x.id), ...((p.data ?? []) as unknown as Plan[]).map((x) => x.baustelle?.id)]);
+    const fehlend = [...new Set(verlaufNeu.flatMap((x) => [x.vorher?.baustelle_id, x.nachher?.baustelle_id]).filter((x): x is string => typeof x === 'string' && !bekannt.has(x)))];
+    if (fehlend.length > 0) {
+      const { data: zb } = await c.from('baustelle').select('id,konto_nr,bezeichnung,status').in('id', fehlend.slice(0, 200));
+      setZusatzBaustellen((zb ?? []) as Baustelle[]);
+    } else setZusatzBaustellen([]);
     const err = t.error ?? b.error ?? p.error;
     setFehler(err ? 'Planung konnte nicht geladen werden: ' + err.message : null);
     setTeams(((t.data ?? []) as unknown as Team[]).sort((x, y) => x.bezeichnung.localeCompare(y.bezeichnung, 'de', { numeric: true })));
@@ -194,11 +215,48 @@ export function Planung() {
 
   const geplantAm = useCallback((teamId: string, datum: string) => plaene.filter((p) => p.team_id === teamId && p.von <= datum && p.bis >= datum), [plaene]);
 
+  // Wochenstatus: läuft die Woche, ist der Plan ein Entwurf; ist sie vorbei, ist sie Archiv
+  const status: 'entwurf' | 'archiv' | 'plan' = endeIso < heuteIso ? 'archiv' : startIso > heuteIso ? 'plan' : 'entwurf';
+  const mitVergangenheit = startIso <= heuteIso;
+  // Vergangene Woche öffnet auf «Tatsächlich», alle anderen auf dem aktuellen Plan
+  useEffect(() => { setAnsicht(endeIso < heuteIso ? 'ist' : 'plan'); }, [startIso, endeIso, heuteIso]);
+  /** «Plan vom Montag»: Stand am Montag der ersten Woche um 06:00 */
+  const montagZeit = useMemo(() => new Date(start.getFullYear(), start.getMonth(), start.getDate(), 6, 0, 0).toISOString(), [start]);
+
+  const baustelleVon = useCallback((id: string | null): Baustelle | null => {
+    if (!id) return null;
+    return baustellen.find((b) => b.id === id) ?? zusatzBaustellen.find((b) => b.id === id) ?? plaene.find((p) => p.baustelle?.id === id)?.baustelle
+      ?? (() => { const z = ist.find((x) => x.baustelle?.id === id)?.baustelle; return z ? { ...z, status: null } : null; })();
+  }, [baustellen, zusatzBaustellen, plaene, ist]);
+
+  /** Was das Raster zeigt: aktueller Plan, Plan vom Montag (aus dem Verlauf) oder was gemeldet wurde */
+  const anzeigePlaene: Plan[] = useMemo(() => {
+    if (ansicht === 'plan' || !mitVergangenheit) return plaene;
+    if (ansicht === 'montag') {
+      return planAm(plaene.map((p) => ({ id: p.id, team_id: p.team_id, baustelle_id: p.baustelle?.id ?? null, von: p.von, bis: p.bis })), verlauf, montagZeit)
+        .filter((p) => p.von <= endeIso && p.bis >= startIso)
+        .map((p) => ({ id: p.id, team_id: p.team_id, von: p.von, bis: p.bis, baustelle: baustelleVon(p.baustelle_id) }));
+    }
+    return istBalken(ist.filter((z) => z.team_id && z.baustelle).map((z) => ({ team_id: z.team_id!, datum: z.datum, baustelle_id: z.baustelle!.id })))
+      .map((p) => ({ id: p.id, team_id: p.team_id, von: p.von, bis: p.bis, baustelle: baustelleVon(p.baustelle_id) }));
+  }, [ansicht, mitVergangenheit, plaene, verlauf, montagZeit, startIso, endeIso, ist, baustelleVon]);
+  const lesend = ansicht !== 'plan' && mitVergangenheit;
+
   const proTeam = useMemo(() => {
     const m = new Map<string, ReturnType<typeof spuren<Plan>>>();
-    for (const team of teams) m.set(team.id, spuren(plaene.filter((p) => p.team_id === team.id), startIso, anzahlTage));
+    for (const team of teams) m.set(team.id, spuren(anzeigePlaene.filter((p) => p.team_id === team.id), startIso, anzahlTage));
     return m;
-  }, [teams, plaene, startIso, anzahlTage]);
+  }, [teams, anzeigePlaene, startIso, anzahlTage]);
+
+  // Verlauf dieses Zeitraums: Änderungen an Einsätzen und Einteilungen, die ihn betreffen — chronologisch
+  type Eintrag = { zeit: string; plan?: VerlaufZeile; person?: EinteilungsGruppe };
+  const verlaufFenster: Eintrag[] = useMemo(() => {
+    const drin = (o: Record<string, unknown> | null) => !!o && String(o.von ?? o.datum) <= endeIso && String(o.bis ?? o.datum) >= startIso;
+    const plan = verlauf.filter((x) => x.tabelle === 'jahresplan' && (drin(x.vorher) || drin(x.nachher)));
+    const pers = einteilungenBuendeln(verlauf.filter((x) => x.tabelle === 'einsatz_person' && (drin(x.vorher) || drin(x.nachher))));
+    return [...plan.map((x) => ({ zeit: x.zeit, plan: x })), ...pers.map((g) => ({ zeit: g.zeit, person: g }))].sort((a, b) => Date.parse(a.zeit) - Date.parse(b.zeit));
+  }, [verlauf, startIso, endeIso]);
+  const ersteNachMontag = verlaufFenster.findIndex((e) => Date.parse(e.zeit) > Date.parse(montagZeit));
 
   const ohneEinsatz = teams.filter((t) => (proTeam.get(t.id) ?? []).length === 0);
 
@@ -258,6 +316,9 @@ export function Planung() {
               <button type="button" aria-label="Weiter" onClick={() => setStart(addTage(start, 7))} className="grid h-9 w-9 place-items-center rounded-full text-ink2 hover:text-accent-deep"><ChevronRight size={17} /></button>
             </div>
             <button type="button" className="btn-ghost py-2" onClick={() => setStart(montag(new Date()))}>Heute</button>
+            <span className={'inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold ' + (status === 'entwurf' ? 'bg-amber-soft text-amber-deep' : status === 'archiv' ? 'bg-surface-2 text-ink2' : 'bg-steel-soft text-steel')}>
+              {status === 'entwurf' ? <><PencilLine size={13} aria-hidden="true" /> Entwurf · Woche läuft</> : status === 'archiv' ? <><Archive size={13} aria-hidden="true" /> Archiv</> : <><CalendarDays size={13} aria-hidden="true" /> Plan</>}
+            </span>
           </div>
           <div className="flex rounded-full border border-ink/10 bg-white p-1 shadow-[0_1px_2px_rgb(17_17_19/0.06)]" role="group" aria-label="Zeitraum">
             {([7, 14] as const).map((n) => (
@@ -272,7 +333,22 @@ export function Planung() {
         {fehler && <p className="rounded-[12px] border border-accent/40 bg-accent-soft px-4 py-3 text-sm text-accent-deep">{fehler}</p>}
         {rueckmeldung && <p className="rounded-[12px] border border-good/30 bg-good-soft px-4 py-2.5 text-sm font-medium text-good-deep" role="status">{rueckmeldung}</p>}
 
-        {!laedt && teams.length > 0 && (
+        {mitVergangenheit && (
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+            <Segment label="Ansicht" wert={ansicht} aendern={setAnsicht} optionen={[
+              { wert: 'plan', text: 'Aktueller Plan' },
+              { wert: 'montag', text: `Plan vom Mo ${kurz(start)}` },
+              { wert: 'ist', text: 'Tatsächlich' },
+            ]} />
+            <span className="text-xs text-ink3">
+              {ansicht === 'plan' && (status === 'entwurf' ? 'Entwurf — jederzeit änderbar, bis die Woche vorbei ist.' : 'Der Plan, wie er jetzt steht — mit allen Änderungen.')}
+              {ansicht === 'montag' && `So war ${anzahlTage === 7 ? 'die Woche' : 'es'} am Montag ${kurz(start)} früh geplant — vor allen Änderungen.`}
+              {ansicht === 'ist' && 'Wo die Teams laut Meldungen wirklich waren. Nur lesen — Tag antippen für Einzelheiten.'}
+            </span>
+          </div>
+        )}
+
+        {!laedt && teams.length > 0 && !lesend && (
           <p className="flex flex-wrap items-center gap-2 text-sm text-ink2">
             <span><b className="text-ink">{teams.length - ohneEinsatz.length} von {teams.length}</b> Teams eingeplant</span>
             {ohneEinsatz.length > 0 && (
@@ -315,7 +391,7 @@ export function Planung() {
                 const anzSpuren = Math.max(1, ...balken.map((b) => b.spur + 1));
                 // Freie Felder je Spur und Tag — das «+» erscheint nur dort, nie unter einem Balken
                 const belegt = (spur: number, tag: number) => balken.some((b) => b.spur === spur && b.ab <= tag && b.bis >= tag);
-                const freieFelder = Array.from({ length: anzSpuren }, (_, spur) => tage.map((d, i) => ({ d, i, spur }))).flat().filter((x) => !belegt(x.spur, x.i));
+                const freieFelder = lesend ? [] : Array.from({ length: anzSpuren }, (_, spur) => tage.map((d, i) => ({ d, i, spur }))).flat().filter((x) => !belegt(x.spur, x.i));
                 const fest = basis.get(team.id) ?? [];
                 return (
                   <div key={team.id} className="grid border-b border-line last:border-b-0" style={{ gridTemplateColumns: zeilenRaster }}>
@@ -358,9 +434,11 @@ export function Planung() {
                           <button
                             key={plan.id}
                             type="button"
-                            onClick={() => setEntwurf({ id: plan.id, teamId: team.id, baustelle: plan.baustelle, von: plan.von, bis: plan.bis, tag: plan.von })}
-                            title={`${name} · ${plan.baustelle?.konto_nr ?? ''}`}
-                            aria-label={`${team.bezeichnung}: ${name}, ${lang(ausIso(plan.von))} bis ${lang(ausIso(plan.bis))} — ändern`}
+                            onClick={() => (lesend
+                              ? setTagWahl({ teamId: team.id, datum: plan.von >= startIso ? plan.von : startIso })
+                              : setEntwurf({ id: plan.id, teamId: team.id, baustelle: plan.baustelle, von: plan.von, bis: plan.bis, tag: plan.von }))}
+                            title={`${name} · ${plan.baustelle?.konto_nr ?? ''}${ansicht === 'ist' && lesend ? ' · gemeldet' : ''}`}
+                            aria-label={`${team.bezeichnung}: ${name}, ${lang(ausIso(plan.von))} bis ${lang(ausIso(plan.bis))}${lesend ? '' : ' — ändern'}`}
                             style={{ gridColumn: `${ab + 1} / ${bis + 2}`, gridRow: spur + 1 }}
                             className={
                               'relative z-10 mx-1 flex min-w-0 items-center gap-2 bg-gradient-to-br px-2.5 text-left ring-1 shadow-[0_1px_2px_rgb(17_17_19/0.05),0_6px_14px_-10px_rgb(17_17_19/0.35)] transition hover:-translate-y-px hover:shadow-[0_1px_2px_rgb(17_17_19/0.05),0_12px_22px_-12px_rgb(17_17_19/0.45)] ' +
@@ -391,6 +469,17 @@ export function Planung() {
                         const geplantHier = geplantAm(team.id, dIso).length > 0;
                         // Wochenende ohne Plan, Meldung oder Änderung: leer statt «3» — dort wird selten gearbeitet
                         const leer = (n === 0 || (istWochenende(d) && !geplantHier)) && bz.dazu.length === 0 && bz.weg.length === 0 && abwN === 0 && !zeigeIst;
+                        if (lesend && ansicht === 'ist') {
+                          return (
+                            <button key={'t' + dIso} type="button" onClick={() => setTagWahl({ teamId: team.id, datum: dIso })}
+                              aria-label={`${team.bezeichnung} am ${lang(d)}: gemeldet`} style={{ gridColumn: i + 1, gridRow: anzSpuren + 1 }}
+                              className="z-[1] mx-1 flex items-center justify-center gap-1.5 rounded-[8px] border border-transparent px-1 text-[11px] font-medium tabular-nums transition hover:border-line-strong hover:bg-white">
+                              {gemeldet
+                                ? <><span className="inline-flex items-center gap-0.5 text-ink3" title={`${gemeldet.personen.size} gemeldet`}><Users size={11} aria-hidden="true" />{gemeldet.personen.size}</span>{zeigeIst && <IstZeichen ist={pi} />}</>
+                                : zeigeIst ? <IstZeichen ist={pi} /> : <span className="text-ink3/40" aria-hidden="true">·</span>}
+                            </button>
+                          );
+                        }
                         return (
                           <button
                             key={'t' + dIso}
@@ -420,6 +509,26 @@ export function Planung() {
           </div>
         </section>
 
+        {verlaufFenster.length > 0 && (
+          <section className="card overflow-hidden p-0">
+            <div className="flex flex-wrap items-center gap-2 border-b border-line px-4 py-3">
+              <History size={16} className="text-ink3" aria-hidden="true" />
+              <p className="text-sm font-semibold text-ink">Verlauf {anzahlTage === 7 ? 'dieser Woche' : 'dieser zwei Wochen'}</p>
+              <span className="text-xs text-ink3">· {verlaufFenster.length} {verlaufFenster.length === 1 ? 'Eintrag' : 'Einträge'} — wer wann wohin geplant und umgeplant wurde</span>
+            </div>
+            <ol className="divide-y divide-line">
+              {verlaufFenster.map((e, i) => (
+                <li key={i}>
+                  {i === ersteNachMontag && i > 0 && (
+                    <p className="bg-ground/70 px-4 py-1.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-ink3">Woche beginnt · Mo {kurz(start)} · ab hier Änderungen während der Woche</p>
+                  )}
+                  <VerlaufZeileAnzeige eintrag={e} teams={teams} namen={namen} baustelleVon={baustelleVon} />
+                </li>
+              ))}
+            </ol>
+          </section>
+        )}
+
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[11px] text-ink3">
           <span>Tageszeile antippen = Leute und Baustelle für diesen Tag</span>
           <span className="inline-flex items-center gap-1"><Users size={11} aria-hidden="true" /> Leute an dem Tag</span>
@@ -430,7 +539,7 @@ export function Planung() {
           <span className="inline-flex items-center gap-1"><IstZeichen ist="anders" /> andere Baustelle gemeldet</span>
           <span className="inline-flex items-center gap-1"><IstZeichen ist="nichts" /> nichts gemeldet</span>
         </div>
-        <p className="text-[11px] text-ink3">Laufende und kommende Wochen sind der Plan — jederzeit änderbar. Vergangene Wochen zeigen Plan und gemeldete Baustelle nebeneinander (Archiv). Freien Tag antippen = dort planen · Balken antippen = Einsatz ändern, mit Verlauf.</p>
+        <p className="text-[11px] text-ink3">Die laufende Woche ist ein Entwurf — jederzeit änderbar. Vergangene Wochen sind das Archiv: «Plan vom Montag» zeigt, wie es geplant war, «Tatsächlich», wo die Teams laut Meldungen wirklich waren, der Verlauf jede Änderung dazwischen. Freien Tag antippen = dort planen · Balken antippen = Einsatz ändern.</p>
       </div>
 
       {entwurf && (
@@ -474,6 +583,68 @@ export function Planung() {
         />
       )}
     </Shell>
+  );
+}
+
+/** «Fr 2.10. 16:00» */
+function zeitText(z: string): string {
+  const d = new Date(z);
+  return `${WOCHENTAGE[(d.getDay() + 6) % 7]} ${kurz(d)} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+}
+/** «12.–16.10.» oder «nur Mi 14.10.» */
+function zeitraumText(von: string, bis: string): string {
+  if (von === bis) return `nur ${tagKurz(ausIso(von))}`;
+  const a = ausIso(von), b = ausIso(bis);
+  return a.getMonth() === b.getMonth() ? `${a.getDate()}.–${kurz(b)}` : `${kurz(a)}–${kurz(b)}`;
+}
+/** Tage einer Einteilung: «Do 15.10.», «Do 15.–Fr 16.10.» oder Liste */
+function tageText(tage: string[]): string {
+  if (tage.length === 1) return tagKurz(ausIso(tage[0]));
+  const folge = tage.every((t, i) => i === 0 || iso(addTage(ausIso(tage[i - 1]), 1)) === t);
+  if (folge) { const a = ausIso(tage[0]), b = ausIso(tage[tage.length - 1]); return `${WOCHENTAGE[(a.getDay() + 6) % 7]} ${a.getDate()}.–${tagKurz(b)}`; }
+  return tage.map((t) => tagKurz(ausIso(t))).join(', ');
+}
+
+/** Eine Zeile im Verlauf: wann, was — in Worten, wie Mehmeti es nachlesen will. */
+function VerlaufZeileAnzeige({ eintrag, teams, namen, baustelleVon }: {
+  eintrag: { zeit: string; plan?: VerlaufZeile; person?: EinteilungsGruppe };
+  teams: Team[];
+  namen: Map<string, string>;
+  baustelleVon: (id: string | null) => Baustelle | null;
+}) {
+  const teamName = (id: unknown) => teams.find((t) => t.id === id)?.bezeichnung ?? 'Team';
+  const bs = (o: Record<string, unknown> | null) => { const b = baustelleVon((o?.baustelle_id as string) ?? null); return b ? `${b.bezeichnung ?? 'Baustelle'} (${b.konto_nr})` : 'Baustelle'; };
+  const zr = (o: Record<string, unknown> | null) => (o ? zeitraumText(String(o.von), String(o.bis)) : '');
+  let icon = <CalendarPlus size={14} className="text-good-deep" aria-hidden="true" />;
+  let text: React.ReactNode = null;
+  if (eintrag.plan) {
+    const { aktion, vorher: v, nachher: n } = eintrag.plan;
+    if (aktion === 'neu') {
+      text = <><b className="font-semibold text-ink">{teamName(n?.team_id)}</b> · {bs(n)} · {zr(n)} geplant</>;
+    } else if (aktion === 'geloescht') {
+      icon = <Trash2 size={14} className="text-accent-deep" aria-hidden="true" />;
+      text = <><b className="font-semibold text-ink">{teamName(v?.team_id)}</b> · {bs(v)} · {zr(v)} entfernt</>;
+    } else {
+      icon = <ArrowRightLeft size={14} className="text-amber-deep" aria-hidden="true" />;
+      const teile: string[] = [];
+      if (v?.baustelle_id !== n?.baustelle_id) teile.push(`Baustelle ${bs(v)} → ${bs(n)}`);
+      if (v?.von !== n?.von || v?.bis !== n?.bis) teile.push(`${zr(v)} → ${zr(n)}`);
+      if (v?.team_id !== n?.team_id) teile.push(`${teamName(v?.team_id)} → ${teamName(n?.team_id)}`);
+      text = <><b className="font-semibold text-ink">{teamName(n?.team_id)}</b> · {v?.baustelle_id === n?.baustelle_id ? `${bs(n)}: ` : ''}{teile.join(' · ') || 'geändert'}</>;
+    }
+  } else if (eintrag.person) {
+    const g = eintrag.person;
+    icon = <Users size={14} className="text-steel" aria-hidden="true" />;
+    text = g.aktion === 'geloescht'
+      ? <><b className="font-semibold text-ink">{namen.get(g.mitarbeiter_id) ?? 'Person'}</b> · {tageText(g.tage)}: zurück ins feste Team</>
+      : <><b className="font-semibold text-ink">{namen.get(g.mitarbeiter_id) ?? 'Person'}</b> · {tageText(g.tage)}: in {teamName(g.team_id)}</>;
+  }
+  return (
+    <div className="flex items-start gap-3 px-4 py-2.5 text-sm">
+      <span className="w-[6.5rem] shrink-0 pt-px text-xs tabular-nums text-ink3">{zeitText(eintrag.zeit)}</span>
+      <span className="mt-0.5 shrink-0">{icon}</span>
+      <span className="min-w-0 flex-1 text-ink2">{text}</span>
+    </div>
   );
 }
 

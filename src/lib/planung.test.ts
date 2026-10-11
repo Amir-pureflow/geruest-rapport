@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { arbeitstage, ausschnitt, besetzung, naechsterTeamName, ohneTag, planIst, spuren, tageZwischen, ueberschneiden, zeitraumVorschlag } from './planung';
+import { arbeitstage, ausschnitt, besetzung, einteilungenBuendeln, istBalken, naechsterTeamName, ohneTag, planAm, planIst, spuren, tageZwischen, ueberschneiden, zeitraumVorschlag, type VerlaufZeile } from './planung';
 import { ausIso } from './datum';
 
 describe('planung', () => {
@@ -112,5 +112,52 @@ describe('naechsterTeamName', () => {
     expect(naechsterTeamName(['Team 2', 'Team 10', 'Team 1'])).toBe('Team 11');
     expect(naechsterTeamName(['Gerüst Nord'])).toBe('Team 2');
     expect(naechsterTeamName([])).toBe('Team 1');
+  });
+});
+
+describe('planAm — Plan vom Montag aus dem Verlauf (0038)', () => {
+  const p = (id: string, baustelle: string, von: string, bis: string) => ({ id, team_id: 't3', baustelle_id: baustelle, von, bis });
+  const montag = '2026-10-05T04:00:00.000Z'; // Mo 06:00 Schweizer Zeit
+  // Am Fr 2.10. geplant: Tillierstrasse Mo–Fr. Am Mo 07:10 gekürzt auf Mo–Di, dazu Siedlerstrasse Mi–Fr.
+  const verlauf: VerlaufZeile[] = [
+    { tabelle: 'jahresplan', datensatz_id: 'a', aktion: 'neu', vorher: null, nachher: p('a', 'till', '2026-10-05', '2026-10-09'), zeit: '2026-10-02T14:00:00+00:00' },
+    { tabelle: 'jahresplan', datensatz_id: 'a', aktion: 'geaendert', vorher: p('a', 'till', '2026-10-05', '2026-10-09'), nachher: p('a', 'till', '2026-10-05', '2026-10-06'), zeit: '2026-10-05T05:10:00+00:00' },
+    { tabelle: 'jahresplan', datensatz_id: 'b', aktion: 'neu', vorher: null, nachher: p('b', 'sied', '2026-10-07', '2026-10-09'), zeit: '2026-10-05T05:11:00+00:00' },
+  ];
+  const jetzt = [p('a', 'till', '2026-10-05', '2026-10-06'), p('b', 'sied', '2026-10-07', '2026-10-09')];
+  it('rechnet die Änderungen nach Montag früh zurück', () => {
+    expect(planAm(jetzt, verlauf, montag)).toEqual([p('a', 'till', '2026-10-05', '2026-10-09')]);
+  });
+  it('Einsätze aus der Zeit vor dem Verlauf bleiben', () => {
+    const alt = p('x', 'alt', '2026-10-05', '2026-10-09');
+    expect(planAm([...jetzt, alt], verlauf, montag).map((x) => x.id).sort()).toEqual(['a', 'x']);
+  });
+  it('Gelöschtes kommt zurück; Zeitformate «Z» und «+00:00» gemischt', () => {
+    const weg: VerlaufZeile = { tabelle: 'jahresplan', datensatz_id: 'c', aktion: 'geloescht', vorher: p('c', 'eig', '2026-10-08', '2026-10-09'), nachher: null, zeit: '2026-10-07T09:00:00Z' };
+    expect(planAm([], [weg], montag)).toEqual([p('c', 'eig', '2026-10-08', '2026-10-09')]);
+    expect(planAm([], [weg], '2026-10-08T00:00:00+00:00')).toEqual([]);
+  });
+});
+
+describe('istBalken — gemeldete Tage zu Balken', () => {
+  it('aufeinanderfolgende Tage derselben Baustelle = ein Balken, Wechsel = neuer Balken', () => {
+    const b = istBalken([
+      { team_id: 't2', datum: '2026-10-05', baustelle_id: 'eig' },
+      { team_id: 't2', datum: '2026-10-06', baustelle_id: 'eig' },
+      { team_id: 't2', datum: '2026-10-07', baustelle_id: 'vik' },
+      { team_id: 't2', datum: '2026-10-08', baustelle_id: 'eig' },
+      { team_id: 't2', datum: '2026-10-09', baustelle_id: 'vik' },
+      { team_id: 't2', datum: '2026-10-06', baustelle_id: 'eig' },
+    ]);
+    expect(b.map((x) => `${x.baustelle_id} ${x.von}–${x.bis}`)).toEqual(['eig 2026-10-05–2026-10-06', 'eig 2026-10-08–2026-10-08', 'vik 2026-10-07–2026-10-07', 'vik 2026-10-09–2026-10-09']);
+  });
+});
+
+describe('einteilungenBuendeln — «bis Freitag» als eine Zeile', () => {
+  it('gleiche Person, Team, Aktion und Minute → eine Gruppe mit allen Tagen', () => {
+    const z = (datum: string, zeit: string, team = 't7'): VerlaufZeile => ({ tabelle: 'einsatz_person', datensatz_id: datum, aktion: 'neu', vorher: null, nachher: { mitarbeiter_id: 'luan', team_id: team, datum }, zeit });
+    const g = einteilungenBuendeln([z('2026-10-09', '2026-10-06T14:20:05Z'), z('2026-10-08', '2026-10-06T14:20:04Z'), z('2026-10-08', '2026-10-07T06:00:00Z', 't3')]);
+    expect(g).toHaveLength(2);
+    expect(g[0]).toMatchObject({ mitarbeiter_id: 'luan', team_id: 't7', tage: ['2026-10-08', '2026-10-09'] });
   });
 });
