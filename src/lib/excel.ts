@@ -63,10 +63,19 @@ export interface LohnExportZeile {
   ueber_min: number;
   oevTage: number;
   km: number;
+  /** Ferien, Krank … (0036) — bezahlte Minuten, nicht in total_min */
+  abwesend_min?: number;
 }
 export interface UeberExportZeile { name: string; typ: string; zeitraum_min: number; jahr_min: number }
 /** Ein Tag, an dem ein Team mit Subunternehmern den Lieferwagen der Firma hatte (0036) — pro Team und Tag einmal. */
 export interface LieferwagenExportZeile { datum: string; team: string; baustellen: string; betrag_rp: number }
+/** Abwesenheiten (0036): Summe je Person und Art, darunter die einzelnen Tage. */
+export interface AbwesenheitExport {
+  /** Spaltentitel der Arten, die vorkommen (Ferien, Krank …) */
+  arten: string[];
+  personen: { name: string; typ: string; je: number[]; tage: number; total_min: number }[];
+  tage: { name: string; datum: string; art: string; min: number }[];
+}
 export interface RasterExport {
   personen: { id: string; name: string }[];
   vorgaenge: { konto: string; bezeichnung: string; regie: boolean; min: Map<string, number> }[];
@@ -209,6 +218,8 @@ function neuesBlatt(wb: Workbook, name: string, vergeben: Set<string>, tab: stri
 
 function blattLohn(wb: Workbook, vergeben: Set<string>, unter: Untertitel, spaltenTitel: string[], monat: boolean, zeilen: LohnExportZeile[]): void {
   const ws = neuesBlatt(wb, 'Lohn', vergeben, F.akzent);
+  // Abwesenheiten (0036) als eigene Spalte, nur wenn es welche gibt — gearbeitet und abwesend bleiben getrennt
+  const mitAbw = zeilen.some((l) => (l.abwesend_min ?? 0) > 0);
   const spalten: Spalte[] = [
     { titel: 'Name', breite: 26 },
     { titel: 'Anstellung', breite: 11 },
@@ -216,13 +227,14 @@ function blattLohn(wb: Workbook, vergeben: Set<string>, unter: Untertitel, spalt
     ...spaltenTitel.map((t) => ({ titel: t, breite: monat ? 9 : 8, art: 'h' as const })),
     { titel: monat ? 'Monat h' : 'Total h', breite: 10, art: 'h', fett: true },
     { titel: 'davon Über h', breite: 12, art: 'h' },
+    ...(mitAbw ? [{ titel: 'Abwesend h', breite: 12, art: 'h' as const }] : []),
     { titel: 'öV-Tage', breite: 9, art: 'zahl' },
     { titel: 'km', breite: 8, art: 'zahl' },
   ];
   kopf(ws, `Lohnstunden`, unter, spalten, 1);
   const von = KOPF + 1;
   zeilen.forEach((l, i) => {
-    zeile(ws, von + i, [l.name, anstellung(l.typ), l.buero ?? '', ...l.werte.map(h), h(l.total_min), h(l.ueber_min), l.oevTage, l.km], spalten, { zebra: i % 2 === 1 });
+    zeile(ws, von + i, [l.name, anstellung(l.typ), l.buero ?? '', ...l.werte.map(h), h(l.total_min), h(l.ueber_min), ...(mitAbw ? [h(l.abwesend_min ?? 0)] : []), l.oevTage, l.km], spalten, { zebra: i % 2 === 1 });
   });
   const bis = von + zeilen.length - 1;
   const spaltenSummen = spaltenTitel.map((_, k) => h(zeilen.reduce((s, l) => s + (l.werte[k] ?? 0), 0)));
@@ -230,12 +242,13 @@ function blattLohn(wb: Workbook, vergeben: Set<string>, unter: Untertitel, spalt
     null, null, null, ...spaltenSummen,
     h(zeilen.reduce((s, l) => s + l.total_min, 0)),
     h(zeilen.reduce((s, l) => s + l.ueber_min, 0)),
+    ...(mitAbw ? [h(zeilen.reduce((s, l) => s + (l.abwesend_min ?? 0), 0))] : []),
     zeilen.reduce((s, l) => s + l.oevTage, 0),
     zeilen.reduce((s, l) => s + l.km, 0),
   ]);
   // Filter nur auf den Textspalten — Filterpfeile auf den schmalen Tagesspalten verdecken die Wochentage
   if (zeilen.length > 0) ws.autoFilter = { from: { row: KOPF, column: 1 }, to: { row: bis, column: 3 } };
-  fuss(ws, bis + 3, 'Stunden dezimal: 0.25 = 15 Minuten. Normal- und Überstunden zusammen; Überstunden separat in «davon Über h» und auf dem Blatt «Überstunden».');
+  fuss(ws, bis + 3, 'Stunden dezimal: 0.25 = 15 Minuten. Normal- und Überstunden zusammen; Überstunden separat in «davon Über h» und auf dem Blatt «Überstunden».' + (mitAbw ? ' «Abwesend h» = Ferien, Krank usw. (Blatt «Abwesenheiten»), nicht im Total.' : ''));
   druck(ws, `Lohnstunden ${unter.zeitraum}`);
 }
 
@@ -347,6 +360,51 @@ function blattRaster(wb: Workbook, vergeben: Set<string>, unter: Untertitel, r: 
   druck(ws, `Stundenraster ${unter.zeitraum}`);
 }
 
+/** Abwesenheiten (0036): oben Summe je Person und Art (fürs Lohnbüro), darunter jeder einzelne Tag zum Nachprüfen. */
+function blattAbwesenheiten(wb: Workbook, vergeben: Set<string>, unter: Untertitel, d: AbwesenheitExport): void {
+  const ws = neuesBlatt(wb, 'Abwesenheiten', vergeben, F.bernstein);
+  const spalten: Spalte[] = [
+    { titel: 'Name', breite: 26 },
+    { titel: 'Anstellung', breite: 11 },
+    ...d.arten.map((a) => ({ titel: `${a} h`, breite: 12, art: 'h' as const })),
+    { titel: 'Tage', breite: 7, art: 'zahl' },
+    { titel: 'Total h', breite: 10, art: 'h', fett: true },
+  ];
+  kopf(ws, 'Abwesenheiten', unter, spalten, 1);
+  const von = KOPF + 1;
+  d.personen.forEach((p, i) => zeile(ws, von + i, [p.name, anstellung(p.typ), ...p.je.map(h), p.tage, h(p.total_min)], spalten, { zebra: i % 2 === 1 }));
+  const bis = von + d.personen.length - 1;
+  summe(ws, bis + 1, `Total (${d.personen.length} Personen)`, von, bis, spalten, [
+    null, null, ...d.arten.map((_, k) => h(d.personen.reduce((s, p) => s + (p.je[k] ?? 0), 0))),
+    d.personen.reduce((s, p) => s + p.tage, 0), h(d.personen.reduce((s, p) => s + p.total_min, 0)),
+  ]);
+
+  // Einzelne Tage
+  let nr = bis + 3;
+  const t = ws.getCell(nr, 1);
+  t.value = 'Einzelne Tage';
+  t.font = { name: SCHRIFT, size: 11, bold: true, color: { argb: F.tinte } };
+  nr += 1;
+  const detail: Spalte[] = [spalten[0], { titel: 'Tag', breite: 11 }, { titel: 'Datum', breite: 12, art: 'datum' }, { titel: 'Art', breite: 12 }, { titel: 'h', breite: 12, art: 'h' }];
+  const k = ws.getRow(nr);
+  detail.forEach((s, i) => {
+    const c = k.getCell(i + 1);
+    c.value = s.titel;
+    c.font = { name: SCHRIFT, size: 10, bold: true, color: { argb: F.tinte } };
+    c.fill = fuellung(F.kopfzeile);
+    c.alignment = { horizontal: s.art === 'h' ? 'right' : 'left', vertical: 'middle' };
+    c.border = { ...rand(), bottom: { style: 'medium', color: { argb: F.akzent } } };
+  });
+  nr += 1;
+  d.tage.forEach((x, i) => {
+    const dt = ausIso(x.datum);
+    zeile(ws, nr, [x.name, WOCHENTAG[dt.getDay()], new Date(dt.getFullYear(), dt.getMonth(), dt.getDate(), 12), x.art, h(x.min)], detail, { zebra: i % 2 === 1 });
+    nr += 1;
+  });
+  fuss(ws, nr + 1, 'Vom Sekretariat in der Verwaltung eingetragen. Ein Tag zählt den normalen Arbeitstag der Firma, ausser es wurde anders eingetragen; unbezahlt = 0 h.');
+  druck(ws, `Abwesenheiten ${unter.zeitraum}`);
+}
+
 /** Lieferwagen für Subunternehmer (0036): Tag, Team, Baustelle, Betrag — pro Team und Tag eine Zeile, Total als Formel. */
 function blattLieferwagen(wb: Workbook, vergeben: Set<string>, unter: Untertitel, zeilen: LieferwagenExportZeile[]): void {
   const ws = neuesBlatt(wb, 'Lieferwagen', vergeben, F.stahl);
@@ -397,7 +455,7 @@ export interface RapportExport {
   monat: boolean;
   jahr: string;
   /** null = Bauführer, nur Raster */
-  lohn: { spalten: string[]; zeilen: LohnExportZeile[]; ueber: UeberExportZeile[]; bueros: BueroBlatt[]; lieferwagen?: LieferwagenExportZeile[] } | null;
+  lohn: { spalten: string[]; zeilen: LohnExportZeile[]; ueber: UeberExportZeile[]; bueros: BueroBlatt[]; lieferwagen?: LieferwagenExportZeile[]; abwesenheiten?: AbwesenheitExport } | null;
   raster: RasterExport;
   dateiname: string;
 }
@@ -410,6 +468,7 @@ export async function rapportExcel(d: RapportExport): Promise<void> {
   if (d.lohn) {
     blattLohn(wb, vergeben, d.unter, d.lohn.spalten, d.monat, d.lohn.zeilen);
     blattUeberstunden(wb, vergeben, d.unter, d.monat, d.jahr, d.lohn.ueber);
+    if (d.lohn.abwesenheiten?.personen.length) blattAbwesenheiten(wb, vergeben, d.unter, d.lohn.abwesenheiten);
     for (const b of d.lohn.bueros) blattBuero(wb, vergeben, d.unter, b);
     if (d.lohn.lieferwagen?.length) blattLieferwagen(wb, vergeben, d.unter, d.lohn.lieferwagen);
   }

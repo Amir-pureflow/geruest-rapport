@@ -2,17 +2,19 @@ import { useState } from 'react';
 import { Shell } from '../../ui/Shell';
 import { Mitarbeiter } from './Mitarbeiter';
 import { Teams } from './Teams';
+import { Abwesenheiten } from './Abwesenheiten';
 import { Kunden } from './Kunden';
 import { Baustellen } from './Baustellen';
 import { Demo } from './Demo';
 import { Einstellungen } from './Einstellungen';
 import { istDemoFirma } from '../../lib/demo';
 
-type Tab = 'mitarbeiter' | 'teams' | 'kunden' | 'baustellen' | 'einstellungen' | 'demo';
+type Tab = 'mitarbeiter' | 'teams' | 'abwesenheiten' | 'kunden' | 'baustellen' | 'einstellungen' | 'demo';
 
 const TABS: [Tab, string][] = [
   ['mitarbeiter', 'Mitarbeitende'],
   ['teams', 'Teams'],
+  ['abwesenheiten', 'Abwesenheiten'],
   ['kunden', 'Kunden'],
   ['baustellen', 'Baustellen'],
   ['einstellungen', 'Einstellungen'],
@@ -41,7 +43,7 @@ export function Verwaltung() {
         <header>
           <p className="lbl mb-0.5">Planung &amp; Daten</p>
           <h1 className="font-display text-2xl font-semibold">Verwaltung</h1>
-          <p className="mt-1 text-sm text-ink3">Mitarbeitende, Teams, Kunden und Baustellen — das, was die App braucht, bevor sie mit echten Leuten läuft.</p>
+          <p className="mt-1 text-sm text-ink3">Mitarbeitende, Teams, Abwesenheiten, Kunden und Baustellen — das, was die App braucht, bevor sie mit echten Leuten läuft.</p>
         </header>
         <div className="-mx-1 overflow-x-auto px-1 pb-1">
           <div className="inline-flex rounded-full border border-ink/10 bg-white p-1 shadow-[0_1px_2px_rgb(17_17_19/0.06)]" role="tablist">
@@ -54,6 +56,7 @@ export function Verwaltung() {
         </div>
         {tab === 'mitarbeiter' && <Mitarbeiter />}
         {tab === 'teams' && <Teams />}
+        {tab === 'abwesenheiten' && <Abwesenheiten />}
         {tab === 'kunden' && <Kunden />}
         {tab === 'baustellen' && <Baustellen />}
         {tab === 'einstellungen' && <Einstellungen />}

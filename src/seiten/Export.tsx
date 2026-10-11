@@ -10,8 +10,11 @@ import { MONATE, ZahlKarte } from '../ui/Karten';
 import { Blaettern, Schalter, Segment, SegmentZahl } from '../ui/Segment';
 import { bueroExcel, rapportExcel } from '../lib/excel';
 import { lieferwagenTage, type LieferZeile } from '../lib/lieferwagen';
+import { ARTEN, artText } from '../lib/abwesenheit';
+import { ArtPille } from '../ui/ArtPille';
 import {
   lohnZeilen,
+  mitAbwesenheiten,
   monatsGrenzen,
   monatsSpalten,
   temporaerBueroBlaetter,
@@ -51,7 +54,9 @@ interface JahresZeile {
 interface Team { id: string; bezeichnung: string }
 type Zeitraum = 'woche' | 'monat';
 /** Reiter der Export-Seite (06.10.2026): eine Tabelle auf einmal statt vier Blöcke untereinander */
-type Tab = 'lohn' | 'ueber' | 'bueros' | 'liefer' | 'raster';
+type Tab = 'lohn' | 'ueber' | 'abw' | 'bueros' | 'liefer' | 'raster';
+/** Abwesenheitstag aus der Verwaltung (0036) */
+interface AbwZeile { datum: string; art: string; minuten: number; mitarbeiter: { id: string; name: string; typ: string; temporaerbuero: string | null } }
 
 const SEITE = 1000;
 const ALLE = 'alle';
@@ -102,6 +107,7 @@ export function Export() {
   const [zeilen, setZeilen] = useState<Zeile[]>([]);
   const [jahr, setJahr] = useState<JahresZeile[]>([]);
   const [liefer, setLiefer] = useState<LieferZeile[]>([]);
+  const [abw, setAbw] = useState<AbwZeile[]>([]);
   const [nurFrei, setNurFrei] = useState(true);
   const [laedt, setLaedt] = useState(false);
   const [fehler, setFehler] = useState('');
@@ -181,11 +187,27 @@ export function Export() {
         const { data, error } = await q.order('datum').limit(SEITE);
         setLiefer(error ? [] : ((data ?? []) as unknown as LieferZeile[]));
       } else setLiefer([]);
+      // Abwesenheiten (0036): Ferien, Krank … — bei einem Team nur dessen Leute; fehlt die Tabelle, bleibt es leer
+      if (lohnSichtbar) {
+        let ids: string[] | null = null;
+        if (teamId !== ALLE) {
+          const { data: tm } = await c.from('team_mitglied').select('mitarbeiter_id').eq('team_id', teamId).is('bis', null);
+          ids = ((tm ?? []) as { mitarbeiter_id: string }[]).map((x) => x.mitarbeiter_id);
+        }
+        if (ids && ids.length === 0) setAbw([]);
+        else {
+          let q = c.from('abwesenheit').select('datum,art,minuten,mitarbeiter:mitarbeiter_id(id,name,typ,temporaerbuero)').gte('datum', vonIso).lte('datum', bisIso);
+          if (ids) q = q.in('mitarbeiter_id', ids);
+          const { data, error } = await q.order('datum').limit(10000);
+          setAbw(error ? [] : ((data ?? []) as unknown as AbwZeile[]));
+        }
+      } else setAbw([]);
     } catch (e) {
       setFehler('Laden: ' + (e instanceof Error ? e.message : String(e)));
       setZeilen([]);
       setJahr([]);
       setLiefer([]);
+      setAbw([]);
     }
     setLaedt(false);
   }, [vonIso, bisIso, jahresStart, teamId, nurFrei, lohnSichtbar]);
@@ -195,7 +217,24 @@ export function Export() {
   const tagRp = lieferwagenTagRp();
   const lieferTage = useMemo(() => (tagRp === null ? [] : lieferwagenTage(liefer, tagRp)), [liefer, tagRp]);
   const summeLiefer = lieferTage.reduce((s, t) => s + t.betrag_rp, 0);
-  const lohn = useMemo(() => lohnZeilen(eintraege), [eintraege]);
+  // Wer nur abwesend war (eine Woche Ferien), steht trotzdem im Lohnblatt — mit seinen Abwesenheitsstunden
+  const lohn = useMemo(() => mitAbwesenheiten(lohnZeilen(eintraege), abw.filter((a) => a.mitarbeiter).map((a) => ({ datum: a.datum, mitarbeiter: a.mitarbeiter, art: a.art, minuten: a.minuten }))), [eintraege, abw]);
+  const mitAbw = abw.length > 0;
+  // Abwesenheiten je Person und Art — Reiter und Excel-Blatt
+  const abwArten = useMemo(() => ARTEN.filter((a) => abw.some((x) => x.art === a.wert)).map((a) => a.wert as string), [abw]);
+  const abwPersonen = useMemo(() => {
+    const m = new Map<string, { person: AbwZeile['mitarbeiter']; je: Record<string, number>; tage: number; total: number }>();
+    for (const a of abw) {
+      if (!a.mitarbeiter) continue;
+      const p = m.get(a.mitarbeiter.id) ?? { person: a.mitarbeiter, je: {}, tage: 0, total: 0 };
+      p.je[a.art] = (p.je[a.art] ?? 0) + a.minuten;
+      p.tage += 1;
+      p.total += a.minuten;
+      m.set(a.mitarbeiter.id, p);
+    }
+    return [...m.values()].sort((a, b) => a.person.name.localeCompare(b.person.name, 'de'));
+  }, [abw]);
+  const summeAbw = abwPersonen.reduce((s, p) => s + p.total, 0);
   const alleBueros = useMemo(() => temporaerBueroBlaetter(eintraege), [eintraege]);
   // Nur echte Büros bekommen Karte, Blatt und eigenes Excel; Temporäre ohne Büro stehen im Lohn-Blatt und als Hinweis
   const bueros = useMemo(() => alleBueros.filter((b) => b.buero !== OHNE_BUERO), [alleBueros]);
@@ -264,10 +303,15 @@ export function Export() {
         lohn: lohnSichtbar
           ? {
             spalten,
-            zeilen: lohn.map((l) => ({ name: l.person.name, typ: l.person.typ, buero: l.person.temporaerbuero, werte: werte(l), total_min: l.total_min, ueber_min: l.ueber_min, oevTage: l.oevTage, km: l.km })),
+            zeilen: lohn.map((l) => ({ name: l.person.name, typ: l.person.typ, buero: l.person.temporaerbuero, werte: werte(l), total_min: l.total_min, ueber_min: l.ueber_min, oevTage: l.oevTage, km: l.km, abwesend_min: l.abwesend_min })),
             ueber: ueber.map((u) => ({ name: u.person.name, typ: u.person.typ, zeitraum_min: u.zeitraum_min, jahr_min: u.jahr_min })),
             bueros,
             lieferwagen: lieferTage,
+            abwesenheiten: {
+              arten: abwArten.map(artText),
+              personen: abwPersonen.map((p) => ({ name: p.person.name, typ: p.person.typ, je: abwArten.map((a) => p.je[a] ?? 0), tage: p.tage, total_min: p.total })),
+              tage: [...abw].filter((a) => a.mitarbeiter).sort((a, b) => a.mitarbeiter.name.localeCompare(b.mitarbeiter.name, 'de') || a.datum.localeCompare(b.datum)).map((a) => ({ name: a.mitarbeiter.name, datum: a.datum, art: artText(a.art), min: a.minuten })),
+            },
           }
           : null,
         raster,
@@ -291,6 +335,7 @@ export function Export() {
   const reiter: { wert: Tab; text: string; n: number }[] = [
     { wert: 'lohn', text: 'Lohnstunden', n: lohn.length },
     { wert: 'ueber', text: 'Überstunden', n: ueberListe.length },
+    ...(mitAbw ? [{ wert: 'abw' as const, text: 'Abwesenheiten', n: abwPersonen.length }] : []),
     { wert: 'bueros', text: 'Temporärbüros', n: bueros.length },
     ...((tagRp !== null && tagRp > 0) || lieferTage.length > 0 ? [{ wert: 'liefer' as const, text: 'Lieferwagen', n: lieferTage.length }] : []),
     { wert: 'raster', text: 'Stundenraster', n: raster.vorgaenge.length },
@@ -331,7 +376,7 @@ export function Export() {
             </label>
           )}
           <Schalter an={nurFrei} aendern={setNurFrei} text="nur Freigegebenes" />
-          <button type="button" onClick={() => void excel()} disabled={zeilen.length === 0}
+          <button type="button" onClick={() => void excel()} disabled={zeilen.length === 0 && abw.length === 0 && lieferTage.length === 0}
             className="cta inline-flex w-full items-center justify-center gap-2 rounded-full px-5 py-2.5 text-sm disabled:opacity-50 sm:ml-auto sm:w-auto">
             <Download size={16} strokeWidth={2.4} aria-hidden="true" />
             {lohnSichtbar ? 'Excel herunterladen' : 'Raster als Excel'}
@@ -361,6 +406,7 @@ export function Export() {
                 {tab === 'ueber' && 'Blatt «Überstunden» — Zeitraum und seit 1. Januar'}
                 {tab === 'bueros' && 'Je Büro ein eigenes Blatt — oder ein eigenes Excel zum Weiterschicken'}
                 {tab === 'liefer' && 'Blatt «Lieferwagen» — pro Team und Tag einmal'}
+                {tab === 'abw' && 'Blatt «Abwesenheiten» — vom Sekretariat in der Verwaltung eingetragen'}
                 {tab === 'raster' && 'Zeile Baustelle, Spalte Person'}
               </span>
             </div>
@@ -374,6 +420,7 @@ export function Export() {
                     <th className={kopfZelle + ' pl-5 text-left'}>Person</th>
                     {spalten.map((t) => <th key={t} className={kopfZelle + ' text-right'}>{t}</th>)}
                     <th className={kopfZelle + ' text-right'}>{zeitraum === 'monat' ? 'Monat' : 'Total'}</th>
+                    {mitAbw && <th className={kopfZelle + ' text-right'}>Abwesend</th>}
                     <th className={kopfZelle + ' pr-5 text-right'}>öV / km</th>
                   </tr>
                 </thead>
@@ -384,8 +431,13 @@ export function Export() {
                         <span className="font-medium text-ink">{l.person.name}</span>
                         {l.person.typ === 'temporaer' && l.person.temporaerbuero && <span className="ml-2 rounded-full bg-steel-soft px-2 py-0.5 text-[11px] font-semibold text-steel">{l.person.temporaerbuero}</span>}
                       </td>
-                      {werte(l).map((t, i) => <td key={i} className={'px-3 py-2.5 text-right tabular-nums ' + (t ? 'text-ink2' : 'text-ink/20')}>{t ? stunden(t) : '·'}</td>)}
+                      {werte(l).map((t, i) => {
+                        // Woche: an einem Abwesenheitstag ohne Arbeit steht die Art statt eines Punkts
+                        const ab = zeitraum === 'woche' ? l.abwesendProTag?.[iso(addTage(wochenStart, i))] : undefined;
+                        return <td key={i} className={'px-3 py-2.5 text-right tabular-nums ' + (t ? 'text-ink2' : 'text-ink/20')}>{t ? stunden(t) : ab ? <ArtPille art={ab.art} /> : '·'}</td>;
+                      })}
                       <td className="px-3 py-2.5 text-right font-semibold tabular-nums text-ink">{stunden(l.total_min)}</td>
+                      {mitAbw && <td className={'px-3 py-2.5 text-right tabular-nums ' + (l.abwesend_min ? 'text-ink2' : 'text-ink/20')}>{l.abwesend_min ? stunden(l.abwesend_min) : '·'}</td>}
                       <td className="py-2.5 pl-3 pr-5 text-right text-xs text-ink3">{l.oevTage ? `öV × ${l.oevTage}` : l.km ? `${l.km} km` : ''}</td>
                     </tr>
                   ))}
@@ -395,6 +447,7 @@ export function Export() {
                     <td className="py-3 pl-5 pr-3 text-sm font-semibold text-ink">Total · {lohn.length} Personen</td>
                     {spaltenSummen.map((t, i) => <td key={i} className="px-3 py-3 text-right text-sm font-semibold tabular-nums text-ink2">{t ? stunden(t) : ''}</td>)}
                     <td className="px-3 py-3 text-right text-sm font-bold tabular-nums text-ink">{stunden(summeLohn)}</td>
+                    {mitAbw && <td className="px-3 py-3 text-right text-sm font-semibold tabular-nums text-ink2">{stunden(summeAbw)}</td>}
                     <td className="pr-5" />
                   </tr>
                 </tfoot>
@@ -468,6 +521,39 @@ export function Export() {
             </div>
           ))}
 
+          {tab === 'abw' && (abwPersonen.length === 0 ? leer('Abwesenheiten') : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="bg-surface-2/60">
+                  <tr>
+                    <th className={kopfZelle + ' pl-5 text-left'}>Person</th>
+                    {abwArten.map((a) => <th key={a} className={kopfZelle + ' text-right'}>{artText(a)}</th>)}
+                    <th className={kopfZelle + ' text-right'}>Tage</th>
+                    <th className={kopfZelle + ' pr-5 text-right'}>Total h</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {abwPersonen.map((p) => (
+                    <tr key={p.person.id} className="border-t border-line transition-colors hover:bg-surface-2/40">
+                      <td className="whitespace-nowrap py-2.5 pl-5 pr-3 font-medium text-ink">{p.person.name}</td>
+                      {abwArten.map((a) => <td key={a} className={'px-3 py-2.5 text-right tabular-nums ' + (p.je[a] ? 'text-ink2' : 'text-ink/20')}>{p.je[a] !== undefined ? stunden(p.je[a]) : '·'}</td>)}
+                      <td className="px-3 py-2.5 text-right tabular-nums text-ink2">{p.tage}</td>
+                      <td className="py-2.5 pl-3 pr-5 text-right font-semibold tabular-nums text-ink">{stunden(p.total)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot>
+                  <tr className="border-t-2 border-line-strong bg-surface-2/60">
+                    <td className="py-3 pl-5 pr-3 text-sm font-semibold text-ink">Total · {abwPersonen.length} Personen</td>
+                    {abwArten.map((a) => <td key={a} className="px-3 py-3 text-right text-sm font-semibold tabular-nums text-ink2">{stunden(abwPersonen.reduce((s, p) => s + (p.je[a] ?? 0), 0))}</td>)}
+                    <td className="px-3 py-3 text-right text-sm font-semibold tabular-nums text-ink2">{abwPersonen.reduce((s, p) => s + p.tage, 0)}</td>
+                    <td className="py-3 pl-3 pr-5 text-right text-sm font-bold tabular-nums text-ink">{stunden(summeAbw)}</td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+          ))}
+
           {tab === 'liefer' && (lieferTage.length === 0 ? (
             <p className="px-5 py-10 text-center text-sm text-ink3">{laedt ? 'Lädt …' : `Kein Team hat ${zeitraumText} den Lieferwagen angetippt (${teamName(teamId)}).`}</p>
           ) : (
@@ -526,7 +612,7 @@ export function Export() {
         <p className="flex items-center gap-2 text-xs text-ink3">
           <FileSpreadsheet size={14} aria-hidden="true" />
           {lohnSichtbar
-            ? <>Das Excel enthält: Lohn, Überstunden, je Temporärbüro ein Blatt (Person × Tag × Konto-Nr.){bueros.length > 0 ? ` — ${bueros.map((b) => b.buero).join(', ')}` : ''}{lieferTage.length > 0 ? ', Lieferwagen' : ''}, Stundenraster.</>
+            ? <>Das Excel enthält: Lohn, Überstunden, je Temporärbüro ein Blatt (Person × Tag × Konto-Nr.){bueros.length > 0 ? ` — ${bueros.map((b) => b.buero).join(', ')}` : ''}{mitAbw ? ', Abwesenheiten' : ''}{lieferTage.length > 0 ? ', Lieferwagen' : ''}, Stundenraster.</>
             : <>Lohnstunden und Temporärbüro-Abrechnung liegen beim Sekretariat.</>}
         </p>
       </div>

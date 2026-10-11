@@ -40,6 +40,18 @@ export interface LohnZeile {
   oevTage: number;
   /** km, pro Tag einmal gezählt */
   km: number;
+  /** Abwesenheiten (0036): bezahlte Minuten je ISO-Datum mit Art — nicht in total_min enthalten */
+  abwesendProTag?: Record<string, { art: string; min: number }>;
+  /** Summe der Abwesenheits-Minuten (Ferien, Krank …), getrennt von den gearbeiteten Stunden */
+  abwesend_min?: number;
+}
+
+/** Ein Abwesenheitstag mit Person — wie er aus `abwesenheit` + `mitarbeiter` kommt. */
+export interface LohnAbwesenheit {
+  datum: string;
+  mitarbeiter: LohnPerson;
+  art: string;
+  minuten: number;
 }
 
 function mussInt(wert: number, name: string): void {
@@ -84,6 +96,23 @@ export function lohnZeilen(eintraege: LohnEintrag[]): LohnZeile[] {
     }
   }
   return [...zeilen.values()].sort((a, b) => nameSort(a.person, b.person));
+}
+
+/**
+ * Abwesenheiten zu den Lohnzeilen legen (0036): je Person Minuten je Tag und Summe. Wer nur abwesend war (eine Woche
+ * Ferien), bekommt eine eigene Zeile ohne gearbeitete Stunden — sonst fehlte er im Lohnblatt. Sortiert nach Name.
+ */
+export function mitAbwesenheiten(zeilen: LohnZeile[], abwesend: LohnAbwesenheit[]): LohnZeile[] {
+  if (abwesend.length === 0) return zeilen;
+  const je = new Map(zeilen.map((z) => [z.person.id, { ...z, abwesendProTag: { ...(z.abwesendProTag ?? {}) }, abwesend_min: z.abwesend_min ?? 0 }]));
+  for (const a of abwesend) {
+    mussInt(a.minuten, 'minuten');
+    const z = je.get(a.mitarbeiter.id) ?? { person: a.mitarbeiter, proTag: {}, normal_min: 0, ueber_min: 0, total_min: 0, oevTage: 0, km: 0, abwesendProTag: {}, abwesend_min: 0 };
+    z.abwesendProTag[a.datum] = { art: a.art, min: a.minuten };
+    z.abwesend_min += a.minuten;
+    je.set(a.mitarbeiter.id, z);
+  }
+  return [...je.values()].sort((a, b) => nameSort(a.person, b.person));
 }
 
 /** Sieben Werte Mo–So (Minuten) für eine Lohnzeile. */

@@ -13,6 +13,7 @@ import { MAX_SPANNEN, MITTAG_VON_MIN, NACHMITTAG_MIN, ausUhrzeit, aufteilen, kan
 import { baustellenSuchen } from '../lib/suche';
 import { FUNKTION_BUERO } from '../lib/benutzername';
 import { vorratLesen, vorratSchreiben } from '../lib/vorrat';
+import { ArtPille } from '../ui/ArtPille';
 
 /**
  * Phase 2 — das Teamgerät. Ein Chefmonteur meldet für sein Team.
@@ -763,6 +764,27 @@ export function Erfassung() {
   }, [teamId]);
 
   useEffect(() => { void heutigeLaden(); }, [heutigeLaden]);
+
+  /**
+   * Abwesenheiten des Tages (0036, Arbnor 10.10.2026): wer laut Sekretariat Ferien, Krank, Unfall … hat, ist abgehakt
+   * und trägt eine Pille. Antippen geht trotzdem (z. B. kam doch zur Arbeit). Wechselt der Tag, kommen die nur
+   * deswegen Abgehakten wieder dazu. Ohne Netz oder ohne Migration: nichts davon, alles wie bisher.
+   */
+  const [abwesend, setAbwesend] = useState<Record<string, string>>({});
+  const autoAbgehakt = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    if (!supabase || leute.length === 0) { setAbwesend({}); return; }
+    let veraltet = false;
+    void supabase.from('abwesenheit').select('mitarbeiter_id,art').eq('datum', tagIso).in('mitarbeiter_id', leute.map((p) => p.id)).then(({ data, error }) => {
+      if (veraltet || error) return;
+      const m: Record<string, string> = Object.fromEntries(((data ?? []) as { mitarbeiter_id: string; art: string }[]).map((r) => [r.mitarbeiter_id, r.art]));
+      const vorher = autoAbgehakt.current;
+      autoAbgehakt.current = new Set(Object.keys(m));
+      setAbwesend(m);
+      setAnw((alt) => Object.fromEntries(Object.entries(alt).map(([k, a]) => [k, m[k] ? { ...a, dabei: false } : vorher.has(k) ? { ...a, dabei: true } : a])));
+    });
+    return () => { veraltet = true; };
+  }, [leute, tagIso]);
 
   /** Baustelle aus «andere Baustelle …» übernehmen: wird die erste Kachel oben (markiert), das Suchfeld geht zu. */
   const [gesuchtId, setGesuchtId] = useState<string | null>(null);
@@ -1547,6 +1569,7 @@ export function Erfassung() {
                       {p.typ === 'temporaer' && <span className="ml-1 text-[10px] text-ink3">temp</span>}
                       {p.gast && <span className="ml-1.5 rounded-md bg-steel-soft px-1.5 py-0.5 text-[10px] font-semibold text-steel">Gast</span>}
                     </span>
+                    {abwesend[p.id] && <ArtPille art={abwesend[p.id]} />}
                     {a.dabei && (
                       <>
                         <span className={'font-mono text-sm tabular-nums ' + (a.modus === 'zeit' && !a.zeiten.some(spanneVollstaendig) ? 'text-amber-deep' : 'text-ink2')}>{a.modus === 'zeit' && !a.zeiten.some(spanneVollstaendig) ? '– h' : `${stunden(w.min + w.ueber)} h`}</span>

@@ -8,6 +8,7 @@ import {
   temporaerBueroBlaetter,
   ueberstunden,
   blattName,
+  mitAbwesenheiten,
   type LohnEintrag,
   type LohnPerson,
 } from './lohn';
@@ -131,5 +132,27 @@ describe('blattName', () => {
     expect(blattName('Adecco', v)).toBe('Adecco 2');
     expect(blattName('Man/power: Bern [AG]', v)).toBe('Man power  Bern  AG');
     expect(blattName('Ein sehr langer Name eines Temporärbüros AG', v).length).toBeLessThanOrEqual(31);
+  });
+});
+
+describe('mitAbwesenheiten — Ferien, Krank … im Lohnblatt (0036)', () => {
+  it('legt Abwesenheit neben die gearbeiteten Stunden, total_min bleibt die Arbeit', () => {
+    const z = mitAbwesenheiten(lohnZeilen([e(huber, MO, 504)]), [{ datum: DI, mitarbeiter: huber, art: 'krank', minuten: 504 }]);
+    expect(z).toHaveLength(1);
+    expect(z[0].total_min).toBe(504);
+    expect(z[0].abwesend_min).toBe(504);
+    expect(z[0].abwesendProTag?.[DI]).toEqual({ art: 'krank', min: 504 });
+  });
+  it('wer nur Ferien hatte, bekommt eine eigene Zeile — sortiert nach Name', () => {
+    const z = mitAbwesenheiten(lohnZeilen([e(huber, MO, 504)]), [MO, DI, MI].map((d) => ({ datum: d, mitarbeiter: ali, art: 'ferien', minuten: 504 })));
+    expect(z.map((x) => x.person.name)).toEqual(['Ali Kamal', 'Huber Peter']);
+    expect(z[0]).toMatchObject({ total_min: 0, abwesend_min: 1512 });
+  });
+  it('ohne Abwesenheiten unverändert', () => {
+    const l = lohnZeilen([e(huber, MO, 504)]);
+    expect(mitAbwesenheiten(l, [])).toBe(l);
+  });
+  it('Minuten müssen ganzzahlig sein', () => {
+    expect(() => mitAbwesenheiten([], [{ datum: MO, mitarbeiter: huber, art: 'ferien', minuten: 4.5 }])).toThrow();
   });
 });

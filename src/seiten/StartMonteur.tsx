@@ -9,6 +9,8 @@ import { supabase } from '../lib/supabase';
 import { addTage, iso, kurz, kw, montag, stunden, WOCHENTAGE } from '../lib/datum';
 import { zeitenText } from '../lib/zeiten';
 import { festeAnsicht } from '../lib/ansicht';
+import { artText } from '../lib/abwesenheit';
+import { ArtPille } from '../ui/ArtPille';
 
 const MONTEUR_KEY = 'monteur-id';
 /** Zuletzt gewählte Teams auf diesem Gerät — gleiche Liste wie Erfassung/Chefmonteur; auf dem eigenen Handy meist leer. */
@@ -22,6 +24,8 @@ interface Eintrag {
   von_min?: number | null; bis_min?: number | null; von2_min?: number | null; bis2_min?: number | null; von3_min?: number | null; bis3_min?: number | null;
   tagesmeldung: { datum: string; normalfall: boolean; baustelle: { konto_nr: string; bezeichnung: string | null } | null; team: { bezeichnung: string } | null };
 }
+/** Vom Sekretariat eingetragen (0036): Ferien, Krank, Unfall … */
+interface Abwesend { datum: string; art: string; minuten: number }
 interface Korrektur { zeiteintrag_id: string; feld: 'normal_min' | 'ueber_min'; alt: string | null; neu: string | null; begruendung: string | null; wann: string }
 
 function zuletztLesen(): string[] {
@@ -62,6 +66,7 @@ export function StartMonteur() {
   const [wochenStart, setWochenStart] = useState<Date>(() => montag(new Date()));
   const [eintraege, setEintraege] = useState<Eintrag[]>([]);
   const [korrekturen, setKorrekturen] = useState<Korrektur[]>([]);
+  const [abwesend, setAbwesend] = useState<Abwesend[]>([]);
   const [laedt, setLaedt] = useState(true);
   const heuteIso = iso(new Date());
   const vonIso = iso(wochenStart);
@@ -115,6 +120,9 @@ export function StartMonteur() {
         const { data: k } = await c.from('freigabe_log').select('zeiteintrag_id,feld,alt,neu,begruendung,wann').in('zeiteintrag_id', liste.map((e) => e.id)).in('feld', ['normal_min', 'ueber_min']).order('wann');
         setKorrekturen((k ?? []) as Korrektur[]);
       } else setKorrekturen([]);
+      // Abwesenheiten (0036) — fehlt die Tabelle noch, bleibt die Liste leer
+      const ab = await c.from('abwesenheit').select('datum,art,minuten').eq('mitarbeiter_id', personId).gte('datum', vonIso).lte('datum', bisIso);
+      setAbwesend(ab.error ? [] : ((ab.data ?? []) as Abwesend[]));
       setLaedt(false);
     })();
   }, [personId, vonIso, bisIso]);
@@ -176,6 +184,8 @@ export function StartMonteur() {
   const offen = eintraege.filter((e) => e.status !== 'freigegeben').length;
   const dieseWoche = vonIso === iso(montag(new Date()));
   const tageMitEintrag = new Set(eintraege.map((e) => e.tagesmeldung.datum)).size;
+  const abwesendMin = abwesend.reduce((s, a) => s + a.minuten, 0);
+  const abwesendArten = [...new Set(abwesend.map((a) => artText(a.art)))].join(', ');
 
   return (
     <Shell>
@@ -210,6 +220,9 @@ export function StartMonteur() {
                   {ueber > 0 && <> + <span className="font-semibold text-amber-deep">{stunden(ueber)} h Überstunden</span></>}
                   {tageMitEintrag > 0 && <span className="text-ink3"> · {tageMitEintrag} {tageMitEintrag === 1 ? 'Tag' : 'Tage'}</span>}
                 </p>
+                {abwesend.length > 0 && (
+                  <p className="mt-0.5 text-sm text-ink2">+ {stunden(abwesendMin)} h {abwesendArten} <span className="text-ink3">· {abwesend.length} {abwesend.length === 1 ? 'Tag' : 'Tage'}, vom Büro eingetragen</span></p>
+                )}
                 {(km > 0 || oevTage > 0) && (
                   <p className="mt-0.5 text-xs text-ink3">{km > 0 ? `${km} km Anreise` : ''}{km > 0 && oevTage > 0 ? ' · ' : ''}{oevTage > 0 ? `öV an ${oevTage} ${oevTage === 1 ? 'Tag' : 'Tagen'}` : ''}</p>
                 )}
@@ -229,20 +242,22 @@ export function StartMonteur() {
             const dIso = iso(d);
             const es = eintraege.filter((e) => e.tagesmeldung.datum === dIso);
             const zukunft = dIso > heuteIso;
-            if (zukunft) return null;
-            if (es.length === 0 && i >= 5) return null;
+            const ab = abwesend.find((a) => a.datum === dIso);
+            if (zukunft && !ab) return null;
+            if (es.length === 0 && !ab && i >= 5) return null;
             const tagMin = es.reduce((s, e) => s + e.normal_min + e.ueber_min, 0);
             const tagUeber = es.reduce((s, e) => s + e.ueber_min, 0);
             const tagFrei = es.length > 0 && es.every((e) => e.status === 'freigegeben');
             return (
-              <div key={dIso} className={'card flex gap-3 px-4 py-3 ' + (es.length === 0 ? 'bg-surface/60' : '')}>
+              <div key={dIso} className={'card flex gap-3 px-4 py-3 ' + (es.length === 0 && !ab ? 'bg-surface/60' : '')}>
                 <div className="w-11 shrink-0 text-center">
                   <span className={'block text-[15px] font-semibold ' + (dIso === heuteIso ? 'text-accent-deep' : '')}>{WOCHENTAGE[i]}</span>
                   <span className="block text-[11px] tabular-nums text-ink3">{kurz(d)}</span>
                 </div>
                 <div className="min-w-0 flex-1">
+                  {ab && <p className={'flex items-center gap-2 text-sm ' + (es.length > 0 ? 'mb-1.5' : 'py-1')}><ArtPille art={ab.art} gross /><span className="text-ink3">vom Büro eingetragen</span></p>}
                   {es.length === 0 ? (
-                    <p className="py-1 text-sm text-ink3">nichts gemeldet</p>
+                    !ab && <p className="py-1 text-sm text-ink3">nichts gemeldet</p>
                   ) : (
                     <>
                       {es.map((e) => {
@@ -273,6 +288,11 @@ export function StartMonteur() {
                     </>
                   )}
                 </div>
+                {es.length === 0 && ab && (
+                  <div className="shrink-0 text-right">
+                    <p className="font-mono text-[17px] font-semibold tabular-nums text-ink2">{stunden(ab.minuten)} h</p>
+                  </div>
+                )}
                 {es.length > 0 && (
                   <div className="shrink-0 text-right">
                     <p className="font-mono text-[17px] font-semibold tabular-nums">{stunden(tagMin)} h</p>

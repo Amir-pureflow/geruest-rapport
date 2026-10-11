@@ -35,3 +35,32 @@ create index if not exists tagesmeldung_lieferwagen_idx on tagesmeldung (datum) 
 
 update firma set lieferwagen_tag_rp = 10000
  where id = 'd356f4a2-2d1e-4624-92c1-57b08cc67b13' and lieferwagen_tag_rp = 0;  -- Gerüst GmbH
+
+-- ────────────────────────────────────────────────────────────────────────────────────────────
+-- 3. Abwesenheiten
+-- ────────────────────────────────────────────────────────────────────────────────────────────
+-- Arbnor (10.10.2026): Das Sekretariat trägt Ferien, Krankheit, Unfall, Todesfall usw. je Mitarbeiter ein — mit
+-- Wirkung auf Stunden und Lohn. Eine Zeile pro Person und Tag (Zeiträume legt die App als einzelne Werktage an).
+-- `minuten` = bezahlte Zeit des Tages, Vorschlag ist der normale Arbeitstag der Firma (normaltag_min, z. B. 8.4 h);
+-- halber Tag oder unbezahlt (0) gehen auch. Das Teamgerät hakt Abwesende an dem Tag ab.
+create table if not exists abwesenheit (
+  id             uuid primary key default gen_random_uuid(),
+  firma_id       uuid not null default aktuelle_firma() references firma(id) on delete cascade,
+  mitarbeiter_id uuid not null references mitarbeiter(id) on delete cascade,
+  datum          date not null,
+  art            text not null check (art in ('ferien','krank','unfall','militaer','feiertag','todesfall','freitag','unbezahlt')),
+  minuten        int  not null default 0 check (minuten between 0 and 720),
+  erfasst_von    uuid default auth.uid(),
+  erfasst_am     timestamptz not null default now(),
+  unique (mitarbeiter_id, datum)
+);
+create index if not exists abwesenheit_firma_datum_idx on abwesenheit (firma_id, datum);
+
+alter table abwesenheit enable row level security;
+drop policy if exists abwesenheit_firma on abwesenheit;
+create policy abwesenheit_firma on abwesenheit for all to authenticated
+  using (firma_id = aktuelle_firma())
+  with check (
+    firma_id = aktuelle_firma()
+    and exists (select 1 from mitarbeiter m where m.id = abwesenheit.mitarbeiter_id and m.firma_id = aktuelle_firma())
+  );

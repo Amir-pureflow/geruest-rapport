@@ -245,6 +245,17 @@ Temporärbüro-Blatt: nach Person gruppiert mit Zwischensumme, darunter «Summe 
 senkrechten Personennamen und Totalspalte. ExcelJS (~1 MB) wird per dynamischem Import erst beim Klick geladen. SheetJS
 (`xlsx`) ist raus — die freie Ausgabe kann keine Formatierung schreiben.
 
+**Lieferwagen für Subunternehmer** (0036, Arbnor 10.10.2026): Sind Leute mit Anstellung «extern» dabei, zeigt das
+Teamgerät den Haken «Lieferwagen der Firma gebraucht» (`tagesmeldung.lieferwagen`). Betrag pro Tag in Verwaltung →
+Einstellungen (`firma.lieferwagen_tag_rp`, 0 = aus; Gerüst GmbH Fr. 100). Export: Reiter + Blatt «Lieferwagen», pro Team
+und Tag einmal (`src/lib/lieferwagen.ts`).
+
+**Abwesenheiten** (0036, Arbnor 10.10.2026): Verwaltung → Abwesenheiten (Sekretariat/Bauführer). Tabelle `abwesenheit`,
+eine Zeile je Person und Werktag (Zeitraum → Mo–Fr), `minuten` = bezahlte Zeit (Vorschlag `normaltagMin()`, halb, 0 bei
+unbezahlt). Wirkung: Teamgerät hakt Abwesende ab (mit Pille, antippen geht trotzdem), «Meine Woche» zeigt den Tag,
+Export: Spalte «Abwesend» im Lohn (nicht im Total), Reiter + Blatt «Abwesenheiten». Logik in `src/lib/abwesenheit.ts`,
+`mitAbwesenheiten()` in lohn.ts.
+
 ## iPad (20.09.)
 
 Büro-Ansichten: ab `md` (iPad hochkant) quer scrollbare Bereichsleiste unter der Kopfzeile und breitere Spalte
