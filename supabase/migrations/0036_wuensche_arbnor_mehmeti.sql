@@ -94,3 +94,16 @@ create policy einsatz_person_firma on einsatz_person for all to authenticated
     and exists (select 1 from mitarbeiter m where m.id = einsatz_person.mitarbeiter_id and m.firma_id = aktuelle_firma())
     and exists (select 1 from team t where t.id = einsatz_person.team_id and t.firma_id = aktuelle_firma())
   );
+
+-- ────────────────────────────────────────────────────────────────────────────────────────────
+-- 5. Rechte und Schema neu laden
+-- ────────────────────────────────────────────────────────────────────────────────────────────
+-- Ausdrücklich, falls das Projekt neuen Tabellen keine Standardrechte mehr gibt; wer was sieht, regeln die Policies
+-- oben (nur angemeldet, nur die eigene Firma). `anon` bekommt nichts (vgl. 0035).
+grant select, insert, update, delete on abwesenheit    to authenticated;
+grant select, insert, update, delete on einsatz_person to authenticated;
+revoke all on abwesenheit    from anon;
+revoke all on einsatz_person from anon;
+
+-- Die App kennt die neuen Spalten und Tabellen sofort, ohne auf den Schema-Cache zu warten
+notify pgrst, 'reload schema';
