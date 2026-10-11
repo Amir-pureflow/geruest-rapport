@@ -158,6 +158,39 @@ export function aufteilen(total: number, normalMin: number = NORMALTAG_MIN): { n
 }
 
 /**
+ * Mehrere Baustellen am Tag (Arbnor 10.10.2026: «bequemer, auf einmal»): die Zeiten an Wechselzeiten teilen. Teil i läuft
+ * von `schnitte[i-1]` bis `schnitte[i]` — bei einem Wechsel um 13:00 ist Teil 0 alles vor 13:00, Teil 1 alles danach.
+ * Eine Spanne über die Wechselzeit wird geteilt (7:00–15:00, Wechsel 12:00 → 7:00–12:00 | 12:00–15:00). Nur
+ * vollständige Spannen; jeder Teil sortiert.
+ */
+export function spannenTeilen(spannen: Spanne[], schnitte: number[]): { von: number; bis: number }[][] {
+  const grenzen = [-Infinity, ...[...schnitte].sort((x, y) => x - y), Infinity];
+  return grenzen.slice(0, -1).map((lo, i) => {
+    const hi = grenzen[i + 1];
+    return spannen
+      .filter(spanneVollstaendig)
+      .map((s) => ({ von: Math.max(s.von, lo), bis: Math.min(s.bis, hi) }))
+      .filter((s) => s.bis > s.von)
+      .sort((x, y) => x.von - y.von);
+  });
+}
+
+/**
+ * Normal und Überstunden über die Teile eines Tages verteilen (mehrere Baustellen): der normale Arbeitstag füllt sich in
+ * der Reihenfolge der Teile, was darüber geht, sind Überstunden des späteren Teils. So zählt ein Tag auf zwei Baustellen
+ * genau wie derselbe Tag auf einer — vorher rechnete jede Meldung für sich und Überstunden fielen unter den Tisch.
+ */
+export function teileAufteilen(minuten: number[], normalMin: number = NORMALTAG_MIN): { normal_min: number; ueber_min: number }[] {
+  let rest = Math.max(0, Math.round(normalMin));
+  return minuten.map((m) => {
+    const t = Math.max(0, Math.round(m));
+    const n = Math.min(t, rest);
+    rest -= n;
+    return { normal_min: n, ueber_min: t - n };
+  });
+}
+
+/**
  * Gelb markieren (09.10.2026): Überstunden gemeldet UND die Person kommt am Tag auf mindestens `schwelleMin`
  * (Firmen-Einstellung «Gelb markieren ab», Gerüst GmbH 9.0 h). Darunter sieht der Tag aus wie jeder andere —
  * gezählt und bezahlt werden die Überstunden trotzdem ab dem normalen Arbeitstag (`aufteilen`).

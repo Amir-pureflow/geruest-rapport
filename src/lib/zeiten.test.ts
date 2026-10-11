@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { MAX_SPANNEN, ZNUENI_STANDARD, aufteilen, ausSpalten, ausUhrzeit, kannPauseAbziehen, markiertePersonen, mittagMinuten, pauseAbgezogen, pauseAbziehen, pauseZaehlen, spannenMinuten, spannenOffen, spannenUeberlappen, standardSpannen, ueberMarkiert, uhrzeit, uhrzeitFeld, zeitenText, zuSpalten } from './zeiten';
+import { MAX_SPANNEN, ZNUENI_STANDARD, aufteilen, ausSpalten, ausUhrzeit, kannPauseAbziehen, markiertePersonen, mittagMinuten, pauseAbgezogen, pauseAbziehen, pauseZaehlen, spannenMinuten, spannenOffen, spannenUeberlappen, standardSpannen, ueberMarkiert, uhrzeit, uhrzeitFeld, zeitenText, zuSpalten, spannenTeilen, teileAufteilen } from './zeiten';
 import { NORMALTAG_MIN } from './datum';
 
 describe('Uhrzeit ↔ Minuten', () => {
@@ -258,5 +258,45 @@ describe('markiertePersonen — die Schwelle gilt fürs Tagestotal der Person', 
   it('Personen ohne Überstunden sind nie gelb', () => {
     expect(markiertePersonen([{ person: 'p1', normal_min: 600, ueber_min: 0 }], 540).size).toBe(0);
     expect(markiertePersonen([], 540).size).toBe(0);
+  });
+});
+
+describe('Mehrere Baustellen am Tag — Zeiten teilen (0036)', () => {
+  const tag = [{ von: 420, bis: 540 }, { von: 555, bis: 720 }, { von: 780, bis: 1020 }]; // 7–9, 9:15–12, 13–17
+  it('Wechsel um 13:00: Vormittag auf Baustelle 1, Nachmittag auf Baustelle 2', () => {
+    const [a, b] = spannenTeilen(tag, [780]);
+    expect(a).toEqual([{ von: 420, bis: 540 }, { von: 555, bis: 720 }]);
+    expect(b).toEqual([{ von: 780, bis: 1020 }]);
+  });
+  it('Wechsel mitten in einer Spanne teilt sie', () => {
+    const [a, b] = spannenTeilen([{ von: 420, bis: 900 }], [720]);
+    expect(a).toEqual([{ von: 420, bis: 720 }]);
+    expect(b).toEqual([{ von: 720, bis: 900 }]);
+  });
+  it('ohne Zeit im Teil → leer; offene Spannen zählen nicht', () => {
+    const [a, b] = spannenTeilen([{ von: 420, bis: 720 }, { von: 780, bis: null }], [780]);
+    expect(a).toEqual([{ von: 420, bis: 720 }]);
+    expect(b).toEqual([]);
+  });
+  it('Summe der Teile = ganzer Tag', () => {
+    const teile = spannenTeilen(tag, [600]);
+    expect(teile.map(spannenMinuten).reduce((s, m) => s + m, 0)).toBe(spannenMinuten(tag));
+  });
+});
+
+describe('teileAufteilen — Überstunden über den ganzen Tag', () => {
+  it('4.75 h + 4.0 h = 8.75 h: 8.4 normal, 0.35 Überstunden auf der zweiten Baustelle', () => {
+    expect(teileAufteilen([285, 240], 504)).toEqual([{ normal_min: 285, ueber_min: 0 }, { normal_min: 219, ueber_min: 21 }]);
+  });
+  it('unter dem normalen Tag: keine Überstunden', () => {
+    expect(teileAufteilen([200, 200], 504)).toEqual([{ normal_min: 200, ueber_min: 0 }, { normal_min: 200, ueber_min: 0 }]);
+  });
+  it('erster Teil schon über dem Tag: Rest nur Überstunden', () => {
+    expect(teileAufteilen([540, 60], 504)).toEqual([{ normal_min: 504, ueber_min: 36 }, { normal_min: 0, ueber_min: 60 }]);
+  });
+  it('gleiche Summe wie aufteilen() für den ganzen Tag', () => {
+    const t = teileAufteilen([285, 240, 90], 504);
+    expect(t.reduce((s, x) => s + x.normal_min, 0)).toBe(aufteilen(615, 504).normal_min);
+    expect(t.reduce((s, x) => s + x.ueber_min, 0)).toBe(aufteilen(615, 504).ueber_min);
   });
 });

@@ -204,6 +204,12 @@ bezahlt, Abzug nur auf Knopfdruck «− Pause»; Gerüst GmbH 9:00–9:15, immer
 da — als **Bemerkung zum Tag**, freiwillig. Der Bauführer sieht Überstunden gelb in der Wochenübersicht, liest die Notiz,
 gibt frei. Ob etwas dem Kunden verrechnet wird, entscheidet er in SORBA — die App fragt das nicht.
 
+**Zwei Baustellen am Tag** (0036-Paket, Arbnor 10.10.2026: «bequemer, auf einmal»): «+ Zweite Baustelle heute» unter den
+Kacheln, Wechselzeit (Standard 13:00). Die Zeiten bleiben für den ganzen Tag eingetragen; beim Speichern teilt
+`spannenTeilen()` sie am Wechsel, `teileAufteilen()` füllt den normalen Tag in der Reihenfolge und gibt den Rest als
+Überstunden dem späteren Teil — so zählt der Tag gleich wie auf einer Baustelle. Zwei Meldungen, ein Durchgang; Anreise
+nur am ersten Teil der Person, Notiz/Fotos an die Meldung mit den Überstunden. Keine Migration nötig.
+
 **Gäste** (20.09.): «Person hinzufügen» — aus der Mitarbeiterliste, Name ab 2 Buchstaben, max. 5 Treffer, dazu
 «Zuletzt dabei» je Team (`localStorage teamgeraet-gaeste-<teamId>`). Gäste landen nur im `zeiteintrag`, nicht in
 `team_mitglied`.

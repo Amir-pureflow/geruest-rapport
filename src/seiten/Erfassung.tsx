@@ -9,7 +9,7 @@ import { addTage, iso, lang, stunden } from '../lib/datum';
 import { fotoVerkleinern } from '../lib/foto';
 import { kennzeichen } from '../lib/fahrzeug';
 import { einstellungen, lieferwagenTagRp, normaltagMin, znueni } from '../lib/einstellungen';
-import { MAX_SPANNEN, MITTAG_VON_MIN, NACHMITTAG_MIN, ausUhrzeit, aufteilen, kannPauseAbziehen, mittagMinuten, pauseAbziehen, pauseZaehlen, spanneVollstaendig, spannenMinuten, spannenOffen, spannenUeberlappen, standardSpannen, umfasstPause, uhrzeit, uhrzeitFeld, zuSpalten, type Spanne } from '../lib/zeiten';
+import { MAX_SPANNEN, MITTAG_VON_MIN, NACHMITTAG_MIN, ausUhrzeit, aufteilen, kannPauseAbziehen, mittagMinuten, pauseAbziehen, pauseZaehlen, spanneVollstaendig, spannenMinuten, spannenOffen, spannenTeilen, spannenUeberlappen, standardSpannen, teileAufteilen, umfasstPause, uhrzeit, uhrzeitFeld, zuSpalten, type Spanne } from '../lib/zeiten';
 import { baustellenSuchen } from '../lib/suche';
 import { FUNKTION_BUERO } from '../lib/benutzername';
 import { vorratLesen, vorratSchreiben } from '../lib/vorrat';
@@ -451,6 +451,13 @@ export function Erfassung() {
   const [zuletzt, setZuletzt] = useState<string[]>(zuletztLesen);
   const [weitereTeams, setWeitereTeams] = useState(0);
   const [baustelle, setBaustelle] = useState<Baustelle | null>(null);
+  /**
+   * Zweite Baustelle am selben Tag (Arbnor 10.10.2026: «mehrere Baustellen bequemer, auf einmal»): ab der Wechselzeit
+   * zählt die Zeit auf die zweite. Gespeichert in einem Durchgang als zwei Meldungen, Überstunden über den ganzen Tag.
+   */
+  const [zweite, setZweite] = useState<Baustelle | null>(null);
+  const [wechsel, setWechsel] = useState<number>(NACHMITTAG_MIN);
+  const [wahlZweite, setWahlZweite] = useState(false);
   const [anw, setAnw] = useState<Record<string, Anwesenheit>>({});
   const [anreiseOffen, setAnreiseOffen] = useState<string | null>(null);
   // Zeiten von–bis, fürs Team gemeinsam — je Person unten anpassbar (Stundenzahl-Modus entfernt 04.10.2026)
@@ -564,6 +571,8 @@ export function Erfassung() {
    */
   const entwurfRef = useRef<string | null>(null);
   const entwurfAbRef = useRef<string | null>(null);
+  /** Entwürfe je Baustelle, wenn zwei Baustellen in einem Durchgang gemeldet werden */
+  const entwurfTeileRef = useRef<Record<string, string | null>>({});
 
   /** In die Warteschlange legen — oder den wartenden Entwurf überschreiben und nochmals versuchen. */
   async function inWarteschlange(
@@ -691,6 +700,7 @@ export function Erfassung() {
     setLaedtTeam(true);
     setLeute([]); setKacheln([]); setAlleGeplanten([]); setBaustelle(null); setZiffern(''); setSuchTreffer([]);
     setGaeste([]); setZeigeGast(false); setGastFilter('');
+    setZweite(null); setWahlZweite(false); setWechsel(NACHMITTAG_MIN);
     // Ohne Netz: Leute und Kacheln, wie sie beim letzten Laden mit Netz waren (lib/vorrat.ts)
     type TeamVorrat = { personen: Person[]; gaeste: Person[]; kacheln: Baustelle[]; geplant: Baustelle[] };
     const ausVorrat = (): boolean => {
@@ -798,6 +808,15 @@ export function Erfassung() {
   }
 
   function andereWaehlen(b: Baustelle) {
+    if (wahlZweite) {
+      if (b.id !== baustelle?.id) setZweite(b);
+      setWahlZweite(false);
+      setZeigeAndere(false);
+      setZiffern('');
+      setSuchTreffer([]);
+      return;
+    }
+    if (b.id === zweite?.id) setZweite(null);
     setGesuchtId(b.id);
     setBaustelle(b);
     setKacheln((k) => [b, ...k.filter((x) => x.id !== b.id)].slice(0, 5));
@@ -811,7 +830,10 @@ export function Erfassung() {
   useEffect(() => {
     entwurfRef.current = null;
     entwurfAbRef.current = null;
-  }, [teamId, tagIso, baustelle?.id]);
+    entwurfTeileRef.current = {};
+  }, [teamId, tagIso, baustelle?.id, zweite?.id]);
+  // Gleiche Baustelle zweimal gibt es nicht
+  useEffect(() => { if (zweite && zweite.id === baustelle?.id) setZweite(null); }, [baustelle?.id, zweite]);
 
   // Ausnahme für den Chefmonteur: Konto-Nr. oder Name, falls die Kacheln nicht reichen (ab 2 Zeichen, max. 5 Treffer).
   // Volle Nummer mit genau einem Treffer → direkt übernehmen, ohne zweiten Tipp.
@@ -928,6 +950,14 @@ export function Erfassung() {
     }
   }
 
+  /** Minuten einer Person im Teil `i` des Tages (zwei Baustellen, Wechsel um `wechsel`). Ohne Zeiten: alles im ersten Teil. */
+  function teilMin(p: Person, i: number): number {
+    const a = anw[p.id];
+    if (!a) return 0;
+    if (a.modus !== 'zeit') return i === 0 ? 1 : 0;
+    return spannenMinuten(spannenTeilen(a.zeiten, [wechsel])[i] ?? []);
+  }
+
   /**
    * Meldung für die gewählte Baustelle bauen.
    *
@@ -943,9 +973,11 @@ export function Erfassung() {
     notiz: { blob: Blob; sekunden: number } | null,
     art: 'normal' | 'abweichung' = 'normal',
     ohneUeberFuer: Set<string> = new Set(),
+    teil: number | null = null,
   ): MeldungPayload {
     const normal = art === 'normal';
-    const beteiligt = normal ? dabei : dabei.filter((p) => abLeute.has(p.id));
+    // Zwei Baustellen: nur wer in diesem Teil des Tages Zeit hat
+    const beteiligt = (normal ? dabei : dabei.filter((p) => abLeute.has(p.id))).filter((p) => teil === null || teilMin(p, teil) > 0);
     const ueberVon = (p: Person) => (ohneUeberFuer.has(p.id) ? 0 : wirksam(anw[p.id]).ueber);
     const nz = notiz;
     const vs = ueberVorschau;
@@ -959,9 +991,20 @@ export function Erfassung() {
       transkript_quelle: textOk ? vs!.quelle : null,
       transkript_sprache: textOk ? vs!.sprache : null,
       // nur wenn ja — so geht jede andere Meldung auch ohne Migration 0036 durch
-      ...(normal && lieferwagen && mitExternen ? { lieferwagen: true } : {}),
+      ...(normal && lieferwagen && mitExternen && !teil ? { lieferwagen: true } : {}),
       eintraege: beteiligt.map((p) => {
         const a = anw[p.id];
+        if (teil !== null && a.modus === 'zeit') {
+          // Teil des Tages: Zeiten bis/ab Wechsel, Normal füllt sich über den ganzen Tag (teileAufteilen), Anreise am ersten Teil
+          const t = spannenTeilen(a.zeiten, [wechsel]);
+          const v = teileAufteilen(t.map(spannenMinuten), standardMin())[teil];
+          const erster = t.findIndex((x) => spannenMinuten(x) > 0);
+          return {
+            id: crypto.randomUUID(), mitarbeiter_id: p.id, normal_min: v.normal_min, ueber_min: v.ueber_min,
+            oev: teil === erster ? a.oev : false, km: teil === erster ? a.km : 0, baustelle_id: b.id, konto_nr: b.konto_nr,
+            ...zuSpalten(t[teil]),
+          };
+        }
         const w = wirksam(a);
         const min = normal ? w.min : abMinVon(p.id);
         return {
@@ -1028,6 +1071,12 @@ export function Erfassung() {
     if (ueberlappt.length > 0) { setHinweis(`Bei ${ueberlappt.map((p) => p.name).join(', ')} überschneiden sich Vormittag und Nachmittag — bitte Zeiten prüfen.`); return; }
     const hatUeber = ueberTotal > 0;
     if (art === 'normal' && hatUeber && !ueberAufnahme && !nimmtAuf && !mikroFehlt) { setHinweis('Bei Überstunden bitte kurz sagen, warum — Mikrofon antippen.'); return; }
+    // Zwei Baustellen: beide brauchen Zeit — sonst stimmt die Wechselzeit nicht
+    const teile = art === 'normal' && zweite ? [baustelle, zweite] : null;
+    if (teile) {
+      const leer = teile.findIndex((_, i) => dabei.every((p) => teilMin(p, i) === 0));
+      if (leer >= 0) { setHinweis(`Auf ${anzeigeName(teile[leer].bezeichnung) || teile[leer].konto_nr} hat niemand Zeit — die Wechselzeit ${uhrzeit(wechsel)} prüfen.`); return; }
+    }
     setHinweis('');
     const clientUuids: string[] = [];
     /** Steht nur bei der Abweichung: ob der normale Tag gleich mitgespeichert wurde */
@@ -1074,12 +1123,31 @@ export function Erfassung() {
       if (modus === 'ersetzen') await fruehereEntfernen(bisher);
       // Sprachnotiz geht immer mit, wenn eine da ist — Bemerkung zum Tag (Bauführer 20.09.)
       const notiz = await aufnahmeAbschliessen();
-      const uuidNormal = await inWarteschlange(entwurfRef, meldungBauen(baustelle, notiz), notiz?.blob, fotos.map((f) => f.blob));
-      clientUuids.push(uuidNormal);
-      if (notiz) notizUuid = uuidNormal;
+      if (teile) {
+        // Zwei Baustellen in einem Durchgang: je Baustelle eine Meldung. Notiz und Fotos an die Meldung mit den
+        // Überstunden (dort fragt der Bauführer nach dem Warum), sonst an die erste.
+        const ueberJeTeil = teile.map((_, i) => dabei.reduce((s, p) => {
+          const a = anw[p.id];
+          if (!a || a.modus !== 'zeit') return s;
+          return s + teileAufteilen(spannenTeilen(a.zeiten, [wechsel]).map(spannenMinuten), standardMin())[i].ueber_min;
+        }, 0));
+        const mitNotiz = ueberJeTeil.some((u) => u > 0) ? ueberJeTeil.indexOf(Math.max(...ueberJeTeil)) : 0;
+        for (let i = 0; i < teile.length; i++) {
+          const b = teile[i];
+          const merker = { get current() { return entwurfTeileRef.current[b.id] ?? null; }, set current(v: string | null) { entwurfTeileRef.current[b.id] = v; } };
+          const n = i === mitNotiz ? notiz : null;
+          const uuid = await inWarteschlange(merker, meldungBauen(b, n, 'normal', new Set(), i), n?.blob, i === mitNotiz ? fotos.map((f) => f.blob) : []);
+          clientUuids.push(uuid);
+          if (n) notizUuid = uuid;
+        }
+      } else {
+        const uuidNormal = await inWarteschlange(entwurfRef, meldungBauen(baustelle, notiz), notiz?.blob, fotos.map((f) => f.blob));
+        clientUuids.push(uuidNormal);
+        if (notiz) notizUuid = uuidNormal;
+      }
     }
     const zusammenfassung = art === 'normal'
-      ? `Gespeichert: ${normalStundenText()}${lieferwagen && mitExternen ? ' · Lieferwagen gebraucht' : ''}`
+      ? `Gespeichert: ${normalStundenText()}${teile ? ` · ${teile.map((b, i) => `${b.konto_nr} ${i === 0 ? 'bis' : 'ab'} ${uhrzeit(wechsel)}`).join(', ')}` : ''}${lieferwagen && mitExternen ? ' · Lieferwagen gebraucht' : ''}`
       : normalMitgespeichert
         ? `Gespeichert: normaler Tag ${normalStundenText()} + ${abweichungText()}`
         : `Gespeichert: ${abweichungText()} (normaler Tag war schon gemeldet)`;
@@ -1093,6 +1161,7 @@ export function Erfassung() {
         // Durch: der nächste Druck meint eine neue Meldung
         entwurfRef.current = null;
         entwurfAbRef.current = null;
+        entwurfTeileRef.current = {};
         setGespeichert(art === 'normal' ? 'Gespeichert ✓' : 'Abweichung gespeichert ✓');
         setBestaetigung(zusammenfassung + ' ✓');
         setFertig({ text: zusammenfassung, stand: 'gesendet', notizUuid });
@@ -1445,9 +1514,9 @@ export function Erfassung() {
           {!(laedtTeam && kacheln.length === 0) && (
           <div className="grid grid-cols-2 gap-2">
             {kacheln.map((b, i) => (
-              <button key={b.id} type="button" onClick={() => setBaustelle(b)} className={'chip flex min-h-[4.5rem] flex-col items-start justify-center py-2.5 text-left ' + (baustelle?.id === b.id ? 'chip-on' : '')}>
+              <button key={b.id} type="button" onClick={() => setBaustelle(b)} className={'chip flex min-h-[4.5rem] flex-col items-start justify-center py-2.5 text-left ' + (baustelle?.id === b.id ? 'chip-on' : zweite?.id === b.id ? 'border-ink/30 bg-surface-2' : '')}>
                 <span className="break-words text-sm font-semibold leading-tight">{anzeigeName(b.bezeichnung)}</span>
-                <span className="mt-1 flex items-center gap-1.5"><span className="knr">{b.konto_nr}</span>{i === 0 && <span className="text-[10px] text-ink3">{b.id === gesuchtId ? 'eingegeben' : 'zuletzt'}</span>}</span>
+                <span className="mt-1 flex items-center gap-1.5"><span className="knr">{b.konto_nr}</span>{zweite?.id === b.id ? <span className="text-[10px] font-semibold text-ink2">2. Baustelle</span> : i === 0 && <span className="text-[10px] text-ink3">{b.id === gesuchtId ? 'eingegeben' : 'zuletzt'}</span>}</span>
               </button>
             ))}
             <button type="button" onClick={() => setZeigeAndere((v) => !v)} className="chip flex min-h-[4.5rem] items-center justify-center text-ink3">andere Baustelle …</button>
@@ -1455,7 +1524,13 @@ export function Erfassung() {
           )}
           {zeigeAndere && (
             <div className="card mt-2 space-y-2 p-3">
-              {alleGeplanten.filter((b) => !kacheln.some((k) => k.id === b.id)).slice(0, 5).map((b) => (
+              {wahlZweite && (
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-sm font-semibold text-ink">Zweite Baustelle wählen</p>
+                  <button type="button" onClick={() => { setWahlZweite(false); setZeigeAndere(false); }} className="text-xs font-semibold text-ink3">Abbrechen</button>
+                </div>
+              )}
+              {(wahlZweite ? kacheln.concat(alleGeplanten).filter((b, i, a) => b.id !== baustelle?.id && a.findIndex((x) => x.id === b.id) === i).slice(0, 6) : alleGeplanten.filter((b) => !kacheln.some((k) => k.id === b.id)).slice(0, 5)).map((b) => (
                 <button key={b.id} type="button" onClick={() => andereWaehlen(b)} className="flex w-full items-center justify-between rounded-lg px-2 py-2 text-left text-sm hover:bg-ground">
                   <span>{anzeigeName(b.bezeichnung)}</span><span className="knr">{b.konto_nr}</span>
                 </button>
@@ -1526,6 +1601,42 @@ export function Erfassung() {
                   <p className="mt-1.5 text-[11px] text-ink3">{alleBaustellen.length} aktive Baustellen, alphabetisch — oben tippen zum Filtern.</p>
                 )}
               </div>
+            </div>
+          )}
+          {/* Zweite Baustelle am selben Tag — in einem Durchgang statt zweimal melden */}
+          {baustelle && !zweite && !wahlZweite && !abweichung && (
+            <button type="button" onClick={() => { setWahlZweite(true); setZeigeAndere(true); setZiffern(''); }}
+              className="mt-2 flex w-full items-center justify-center gap-2 rounded-[14px] border border-dashed border-line-strong px-3 py-3 text-sm font-semibold text-steel active:bg-surface-2">
+              <Plus size={16} strokeWidth={2.4} aria-hidden="true" /> Zweite Baustelle heute
+            </button>
+          )}
+          {baustelle && zweite && (
+            <div className="card mt-2 space-y-3 p-3">
+              <p className="text-sm font-semibold text-ink">Zwei Baustellen heute</p>
+              {[baustelle, zweite].map((b, i) => {
+                const min = spannenMinuten(spannenTeilen(teamSpannen, [wechsel])[i] ?? []);
+                return (
+                  <div key={b.id} className="flex items-center gap-2.5">
+                    <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-ink text-xs font-semibold text-white">{i + 1}</span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-sm font-semibold leading-tight">{anzeigeName(b.bezeichnung) || 'Baustelle'}</span>
+                      <span className="mt-0.5 flex items-center gap-1.5 text-[11px] text-ink3"><span className="knr">{b.konto_nr}</span>{i === 0 ? `bis ${uhrzeit(wechsel)}` : `ab ${uhrzeit(wechsel)}`}</span>
+                    </span>
+                    <span className={'font-mono text-sm tabular-nums ' + (min > 0 ? 'text-ink2' : 'font-semibold text-amber-deep')}>{min > 0 ? `${stunden(min)} h` : '0 h'}</span>
+                    {i === 1
+                      ? <button type="button" onClick={() => setZweite(null)} aria-label="Zweite Baustelle entfernen" className="grid h-9 w-9 shrink-0 place-items-center rounded-[10px] text-ink3 active:bg-surface-2"><X size={16} /></button>
+                      : <span className="w-9 shrink-0" aria-hidden="true" />}
+                  </div>
+                );
+              })}
+              <div className="flex flex-wrap items-center gap-2 border-t border-line pt-3">
+                <span className="text-sm text-ink2">Wechsel um</span>
+                <ZeitFeld wert={uhrzeitFeld(wechsel)} aendern={(t) => { const v = ausUhrzeit(t); if (v !== null) setWechsel(v); }} label="Wechselzeit" klasse="h-10 w-[5.4rem] rounded-[10px] border border-line bg-surface text-center font-mono text-[15px] font-semibold tabular-nums focus:border-accent focus:outline-none" />
+                {[MITTAG_VON_MIN, NACHMITTAG_MIN].filter((v, i, a) => a.indexOf(v) === i && v !== wechsel).map((v) => (
+                  <button key={v} type="button" onClick={() => setWechsel(v)} className="chip px-2.5 py-1.5 text-xs">{uhrzeit(v)}</button>
+                ))}
+              </div>
+              <p className="text-[11px] text-ink3">Die Zeiten unten gelten für den ganzen Tag — die App teilt sie beim Wechsel auf die zwei Baustellen auf. Überstunden zählen über den ganzen Tag.</p>
             </div>
           )}
         </section>
