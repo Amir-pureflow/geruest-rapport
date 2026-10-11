@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { CalendarDays, CalendarPlus, Check, ChevronLeft, ChevronRight, History, Plus, Search, Trash2, UserPlus, Users, X } from 'lucide-react';
+import { ArrowRightLeft, CalendarDays, CalendarPlus, Check, ChevronLeft, ChevronRight, History, Plus, Search, Trash2, Undo2, UserPlus, Users, X } from 'lucide-react';
 import { Shell } from '../ui/Shell';
 import { Dialog, Avatar } from '../ui/Dialog';
 import { ArtPille } from '../ui/ArtPille';
@@ -620,7 +620,20 @@ function TagDialog({
     onGeaendert(`${team.bezeichnung} ist ${tagKurz(d)} auf ${b.bezeichnung ?? b.konto_nr}.`);
   }
 
+  // Statt der Browser-Auswahllisten (11.10.2026, Amir: «mach das schöner»): Teams als Pillen unter der Person,
+  // «Person dazunehmen» als Liste mit Suche, nach Team gruppiert
+  const [offenFuer, setOffenFuer] = useState<string | null>(null);
+  const [dazuOffen, setDazuOffen] = useState(false);
+  const [dazuSuche, setDazuSuche] = useState('');
+  const anzahlHeute = (teamId: string) => besetzungen.get(teamId)?.ids.length ?? 0;
   const dazuWahl = personen.filter((p) => !bz.ids.includes(p.id));
+  const dazuGruppen = useMemo(() => {
+    const q = dazuSuche.trim().toLowerCase();
+    const passend = dazuWahl.filter((p) => !q || p.name.toLowerCase().includes(q));
+    const gruppen = teams.filter((t) => t.id !== team.id).map((t) => ({ id: t.id, name: t.bezeichnung, leute: passend.filter((p) => woHeute.get(p.id) === t.id) }));
+    gruppen.push({ id: '', name: 'Ohne Team', leute: passend.filter((p) => !woHeute.get(p.id)) });
+    return gruppen.filter((g) => g.leute.length > 0);
+  }, [dazuWahl, dazuSuche, teams, team.id, woHeute]);
 
   return (
     <Dialog titel={`${team.bezeichnung} · ${tagKurz(d)}`} untertitel={vergangen ? 'Plan und was gemeldet wurde' : 'Baustelle und Leute für diesen Tag'} icon={CalendarDays} onSchliessen={onSchliessen} breit>
@@ -690,23 +703,42 @@ function TagDialog({
               const art = abwesend.get(id);
               const dazu = bz.dazu.includes(id);
               return (
-                <li key={id} className="flex items-center gap-2.5 px-3 py-2">
-                  <Avatar name={namen.get(id) ?? '?'} />
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate text-sm font-medium text-ink">{namen.get(id) ?? '—'}</span>
-                    <span className="flex flex-wrap items-center gap-1.5 text-[11px] text-ink3">
-                      {id === team.chefmonteur_id && <span>Chefmonteur</span>}
-                      {dazu && <span className="font-semibold text-good-deep">eingeteilt{stamm.get(id) ? ` · sonst ${teamName(stamm.get(id)!)}` : ''}</span>}
-                      {art && <ArtPille art={art} />}
+                <li key={id}>
+                  <div className="flex items-center gap-2.5 px-3 py-2">
+                    <Avatar name={namen.get(id) ?? '?'} />
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-sm font-medium text-ink">{namen.get(id) ?? '—'}</span>
+                      <span className="flex flex-wrap items-center gap-1.5 text-[11px] text-ink3">
+                        {id === team.chefmonteur_id && <span>Chefmonteur</span>}
+                        {dazu && <span className="font-semibold text-good-deep">eingeteilt{stamm.get(id) ? ` · sonst ${teamName(stamm.get(id)!)}` : ''}</span>}
+                        {art && <ArtPille art={art} />}
+                      </span>
                     </span>
-                  </span>
-                  <label className="sr-only" htmlFor={`team-${id}`}>Team für {namen.get(id)}</label>
-                  <select id={`team-${id}`} value={team.id} disabled={laeuft || einsatzFehlt} onChange={(e) => void versetzen(id, e.target.value)}
-                    className="max-w-[9.5rem] rounded-full border border-ink/10 bg-white py-1.5 pl-3 pr-7 text-xs font-semibold text-ink shadow-[0_1px_2px_rgb(17_17_19/0.06)] disabled:opacity-50">
-                    {teams.map((t) => <option key={t.id} value={t.id}>{t.id === team.id ? `${t.bezeichnung} (hier)` : `→ ${t.bezeichnung}`}</option>)}
-                  </select>
-                  {dazu && stamm.get(id) && (
-                    <button type="button" disabled={laeuft} onClick={() => void versetzen(id, stamm.get(id)!)} className="shrink-0 text-xs font-semibold text-steel disabled:opacity-50">zurück</button>
+                    {dazu && stamm.get(id) && (
+                      <button type="button" disabled={laeuft} onClick={() => void versetzen(id, stamm.get(id)!)} title={`zurück zu ${teamName(stamm.get(id)!)}`}
+                        className="inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-1.5 text-xs font-semibold text-steel hover:bg-steel-soft disabled:opacity-50">
+                        <Undo2 size={13} aria-hidden="true" /> zurück
+                      </button>
+                    )}
+                    <button type="button" disabled={laeuft || einsatzFehlt} aria-expanded={offenFuer === id} onClick={() => { setOffenFuer(offenFuer === id ? null : id); setDazuOffen(false); }}
+                      className={'inline-flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-semibold transition disabled:opacity-50 ' + (offenFuer === id ? 'border-ink bg-ink text-white' : 'border-ink/10 bg-white text-ink2 shadow-[0_1px_2px_rgb(17_17_19/0.06)] hover:text-ink')}>
+                      <ArrowRightLeft size={13} aria-hidden="true" /> Versetzen
+                    </button>
+                  </div>
+                  {offenFuer === id && (
+                    <div className="border-t border-line bg-ground/70 px-3 pb-3 pt-2.5">
+                      <p className="mb-2 text-[11px] text-ink3">{(namen.get(id) ?? '').split(' ')[0]} {bereich === 'woche' && mehrTage ? `${tagKurz(d)} bis Freitag` : `am ${tagKurz(d)}`} in:</p>
+                      <div className="flex flex-wrap gap-1.5">
+                        {teams.filter((t) => t.id !== team.id).map((t) => (
+                          <button key={t.id} type="button" disabled={laeuft} onClick={() => { setOffenFuer(null); void versetzen(id, t.id); }}
+                            className="inline-flex items-center gap-2 rounded-full border border-ink/10 bg-white px-3 py-1.5 text-xs font-semibold text-ink shadow-[0_1px_2px_rgb(17_17_19/0.06)] transition hover:border-accent/40 hover:text-accent-deep disabled:opacity-50">
+                            {t.bezeichnung}
+                            <span className="inline-flex items-center gap-0.5 text-[10px] font-medium text-ink3"><Users size={10} aria-hidden="true" />{anzahlHeute(t.id)}</span>
+                            {stamm.get(id) === t.id && <span className="rounded-full bg-good-soft px-1.5 text-[10px] font-semibold text-good-deep">festes Team</span>}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
                   )}
                 </li>
               );
@@ -723,17 +755,38 @@ function TagDialog({
             ))}
             {bz.ids.length === 0 && bz.weg.length === 0 && <li className="px-3 py-3 text-sm text-ink3">Niemand — unten Leute dazunehmen.</li>}
           </ul>
-          <label className="flex items-center gap-2">
-            <UserPlus size={16} className="shrink-0 text-ink3" aria-hidden="true" />
-            <select value="" disabled={laeuft || einsatzFehlt} onChange={(e) => { if (e.target.value) void versetzen(e.target.value, team.id); }}
-              className="field py-2 text-sm disabled:opacity-50" aria-label="Person dazunehmen">
-              <option value="">Person dazunehmen …</option>
-              {dazuWahl.map((p) => {
-                const wo = woHeute.get(p.id);
-                return <option key={p.id} value={p.id}>{p.name}{wo ? ` · ${teamName(wo)}` : ' · ohne Team'}{abwesend.has(p.id) ? ' · abwesend' : ''}</option>;
-              })}
-            </select>
-          </label>
+          {!dazuOffen ? (
+            <button type="button" disabled={laeuft || einsatzFehlt || dazuWahl.length === 0} onClick={() => { setDazuOffen(true); setOffenFuer(null); }}
+              className="flex w-full items-center justify-center gap-2 rounded-[14px] border border-dashed border-line-strong px-3 py-2.5 text-sm font-semibold text-steel transition hover:bg-ground disabled:opacity-50">
+              <UserPlus size={16} aria-hidden="true" /> Person dazunehmen
+            </button>
+          ) : (
+            <div className="overflow-hidden rounded-[14px] border border-line-strong bg-white">
+              <div className="flex items-center gap-2 border-b border-line px-3 py-2.5">
+                <Search size={15} className="shrink-0 text-ink3" aria-hidden="true" />
+                <input autoFocus value={dazuSuche} onChange={(e) => setDazuSuche(e.target.value)} placeholder="Name suchen …" aria-label="Person suchen"
+                  className="w-full bg-transparent text-sm outline-none placeholder:text-ink3" />
+                <button type="button" onClick={() => { setDazuOffen(false); setDazuSuche(''); }} aria-label="Schliessen" className="grid h-7 w-7 shrink-0 place-items-center rounded-full text-ink3 hover:bg-surface-2 hover:text-ink"><X size={15} /></button>
+              </div>
+              <div className="max-h-64 overflow-y-auto pb-1">
+                {dazuGruppen.map((g) => (
+                  <div key={g.id || 'ohne'}>
+                    <p className="sticky top-0 bg-white/95 px-3 pb-1 pt-2.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-ink3 backdrop-blur">{g.name}</p>
+                    {g.leute.map((p) => (
+                      <button key={p.id} type="button" disabled={laeuft} onClick={() => { setDazuOffen(false); setDazuSuche(''); void versetzen(p.id, team.id); }}
+                        className="group/p flex w-full items-center gap-2.5 px-3 py-2 text-left transition hover:bg-ground disabled:opacity-50">
+                        <Avatar name={p.name} />
+                        <span className="min-w-0 flex-1 truncate text-sm text-ink">{p.name}</span>
+                        {abwesend.get(p.id) && <ArtPille art={abwesend.get(p.id)!} />}
+                        <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full text-accent transition group-hover/p:bg-accent-soft"><Plus size={15} aria-hidden="true" /></span>
+                      </button>
+                    ))}
+                  </div>
+                ))}
+                {dazuGruppen.length === 0 && <p className="px-3 py-3 text-sm text-ink3">Niemand gefunden.</p>}
+              </div>
+            </div>
+          )}
           <p className="text-[11px] text-ink3">
             Gilt {bereich === 'woche' && mehrTage ? `${tagKurz(d)} bis Freitag (nur Werktage)` : `nur am ${tagKurz(d)}`} — das feste Team bleibt, wie es ist (Verwaltung → Teams).
             Das Teamgerät übernimmt die Leute des Tages: Versetzte sind dort abgehakt, Eingeteilte stehen in der Liste.
