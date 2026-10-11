@@ -4,11 +4,11 @@
  * für alle Geräte dieser Firma. Nach dem Umschalten lädt die App neu, damit Menü und Erfassung passen.
  */
 import { useState } from 'react';
-import { Clock3, Highlighter, Minus, Plus } from 'lucide-react';
+import { Clock3, Coffee, Highlighter, Minus, Plus } from 'lucide-react';
 import {
   einstellungen, einstellungSetzen, schalterGelesen, eigeneFirma,
   briefkopf, briefkopfSetzen, normaltagMin, normaltagAusDatenbank, NORMALTAG_BEREICH,
-  markierenAbMin, markierenAusDatenbank,
+  markierenAbMin, markierenAusDatenbank, znueni, znueniAusDatenbank,
   type Briefkopf, type Einstellungen,
 } from '../../lib/einstellungen';
 import { Segment } from '../../ui/Segment';
@@ -184,6 +184,87 @@ function MarkierenKarte() {
   );
 }
 
+/**
+ * Znüni (Migration 0036, Arbnor 10.10.2026): Bei der Gerüst GmbH dauert er 9:00–9:15 und wird immer abgezogen —
+ * vom Vormittag 7–12 werden 4.75 h bezahlt. Andere Firmen zählen ihn mit und ziehen ihn nur ab, wenn der Bauherr
+ * ihn nicht zahlt («− Pause»). Gilt für neue Meldungen; was gemeldet ist, bleibt.
+ */
+function ZnueniKarte() {
+  const [z, setZ] = useState(znueni);
+  const [speichert, setSpeichert] = useState(false);
+  const [meldung, setMeldung] = useState<{ text: string; art: 'ok' | 'fehler' } | null>(null);
+  const ausDatenbank = znueniAusDatenbank();
+  const dauer = z.bis - z.von;
+
+  async function setzen<K extends 'znueniImmer' | 'znueniBisMin'>(feld: K, wert: Einstellungen[K]) {
+    if (speichert) return;
+    setSpeichert(true);
+    setMeldung(null);
+    const f = await einstellungSetzen(feld, wert);
+    setSpeichert(false);
+    if (f) { setMeldung({ text: f, art: 'fehler' }); return; }
+    setZ(znueni());
+    setMeldung({ text: 'Gespeichert ✓', art: 'ok' });
+  }
+
+  return (
+    <section className="card space-y-4">
+      <div className="flex items-start gap-3">
+        <span className="grid h-10 w-10 shrink-0 place-items-center rounded-[12px] bg-good text-white shadow-[0_4px_10px_-4px_rgb(31_157_85/0.6)]">
+          <Coffee size={19} strokeWidth={2.2} aria-hidden="true" />
+        </span>
+        <div>
+          <h2 className="font-display text-[15px] font-semibold">Pause am Morgen</h2>
+          <p className="mt-0.5 text-xs text-ink3">
+            Wie lange die Pause am Morgen dauert und ob sie immer abgezogen wird. Im Teamgerät steht der Vormittag dann
+            schon geteilt da — gezählt wird, was dasteht.
+          </p>
+        </div>
+      </div>
+
+      <div className="grid gap-3 sm:grid-cols-2">
+        <div className="space-y-1.5">
+          <p className="lbl">Abziehen</p>
+          <Segment
+            label="Pause abziehen"
+            optionen={[{ wert: 1, text: 'immer' }, { wert: 0, text: 'nur wenn der Bauherr nicht zahlt' }]}
+            wert={z.immer ? 1 : 0}
+            aendern={(v) => void setzen('znueniImmer', v === 1)}
+          />
+        </div>
+        <div className="space-y-1.5">
+          <p className="lbl">Dauer</p>
+          <Segment
+            label="Dauer der Pause"
+            optionen={[{ wert: 555, text: '9:00–9:15' }, { wert: 570, text: '9:00–9:30' }]}
+            wert={z.bis === 555 || z.bis === 570 ? z.bis : -1}
+            aendern={(v) => void setzen('znueniBisMin', v)}
+          />
+        </div>
+      </div>
+
+      <p className="rounded-[12px] bg-ground px-3.5 py-2.5 text-xs text-ink2">
+        {z.immer ? (
+          <>Vormittag 7:00–12:00 → <b className="text-ink">{alsStunden(300 - dauer)} h bezahlt</b> (Pause {dauer} Min. abgezogen). Das Teamgerät zeigt 7:00–9:00 und {Math.floor(z.bis / 60)}:{String(z.bis % 60).padStart(2, '0')}–12:00.</>
+        ) : (
+          <>Vormittag 7:00–12:00 → <b className="text-ink">5.0 h</b>. Zahlt der Bauherr die Pause nicht, tippt der Chefmonteur «− Pause» → {alsStunden(300 - dauer)} h.</>
+        )}
+      </p>
+
+      {(meldung || speichert) && (
+        <p className={'text-sm font-semibold ' + (speichert ? 'text-ink3' : meldung?.art === 'ok' ? 'text-good-deep' : 'text-accent-deep')}>
+          {speichert ? 'Speichert …' : meldung?.text}
+        </p>
+      )}
+      {ausDatenbank === false && (
+        <p className="rounded-[12px] border border-amber/40 bg-amber-soft px-3.5 py-2 text-xs text-amber-deep">
+          Die Datenbank kennt diese Einstellung noch nicht (Migration 0036 fehlt) — bis dahin gilt 9:00–9:30, abgezogen nur auf Knopfdruck.
+        </p>
+      )}
+    </section>
+  );
+}
+
 /** Die Felder des Briefkopfs in der Reihenfolge, in der sie auf dem Rapport stehen. */
 const BRIEFKOPF_FELDER: { feld: keyof Briefkopf; label: string; platzhalter: string; breit?: boolean }[] = [
   { feld: 'name', label: 'Firmenname', platzhalter: 'Gerüst GmbH', breit: true },
@@ -309,6 +390,7 @@ export function Einstellungen() {
 
       <NormaltagKarte />
       <MarkierenKarte />
+      <ZnueniKarte />
 
       {WAHLEN.map((w) => (
         <section key={w.feld} className="card space-y-2.5">

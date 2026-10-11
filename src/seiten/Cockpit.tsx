@@ -6,8 +6,8 @@ import { FotoGalerie } from '../ui/FotoGalerie';
 import { supabase } from '../lib/supabase';
 import { addTage, iso, kurz as ch, kw, montag, stunden } from '../lib/datum';
 import { aufteilen as aufteilenTag } from '../lib/zeiten';
-import { gelbePersonen, normaltagMin } from '../lib/einstellungen';
-import { ausSpalten, kannPauseAbziehen, pauseAbgezogen, pauseAbziehen, pauseZaehlen, spannenMinuten, zeitenText, zuSpalten } from '../lib/zeiten';
+import { gelbePersonen, normaltagMin, znueni } from '../lib/einstellungen';
+import { ausSpalten, kannPauseAbziehen, pauseAbgezogen, pauseAbziehen, pauseZaehlen, spannenMinuten, uhrzeit, zeitenText, zuSpalten } from '../lib/zeiten';
 import { useAnsicht } from '../lib/ansicht';
 import { einstellungen } from '../lib/einstellungen';
 import { minutenBetrag, formatChf, tarifNachCode, RUECKFALL_ANSATZ_RAPPEN } from '../lib/tarif';
@@ -101,7 +101,7 @@ function teamKuerzel(bezeichnung: string): string {
 const GRUENDE = ['Mit Chefmonteur abgeklärt', 'Pause abgezogen', 'Anreise ist keine Arbeitszeit', 'Tippfehler im Teamgerät'];
 const FELD: Record<string, string> = { normal_min: 'Normalzeit', ueber_min: 'Überzeit', zeiten: 'Zeiten' };
 /** Grund im freigabe_log beim Znüni-Abzug (09.10.2026) — fest, wie die übrigen Korrekturgründe. */
-const ZNUENI_GRUND = { ab: 'Znüni-Pause abgezogen (Bauherr zahlt sie nicht)', zurueck: 'Znüni-Pause wieder gezählt (Abzug zurückgenommen)' };
+const ZNUENI_GRUND = { ab: 'Pause am Morgen abgezogen', zurueck: 'Pause am Morgen wieder gezählt (Abzug zurückgenommen)' };
 const ABWEICHUNG_KURZ: Record<string, string> = { zusaetzlich: 'zusätzlich gearbeitet', warten: 'warten müssen', kaputt: 'etwas kaputt', laenger: 'länger gearbeitet' };
 /** «länger» (alte Daten) erklärt den langen Tag — kein eigener Hinweis. */
 const laengerOhneKunde = (tm: { abweichung_typ: string | null; wer_hats_gewollt: string | null }) => tm.abweichung_typ === 'laenger' && tm.wer_hats_gewollt !== 'kunde';
@@ -573,9 +573,11 @@ export function Cockpit() {
    */
   async function pauseUmschalten(e: Eintrag) {
     if (!supabase || !userId || speichert || e.status !== 'offen') return;
+    // Znüni der Firma (0036): Standard 9:00–9:30, Gerüst GmbH 9:00–9:15
+    const z = znueni();
     const alt = ausSpalten(e);
-    const abziehen = !pauseAbgezogen(alt);
-    const neu = abziehen ? pauseAbziehen(alt) : pauseZaehlen(alt);
+    const abziehen = !pauseAbgezogen(alt, z);
+    const neu = abziehen ? pauseAbziehen(alt, z) : pauseZaehlen(alt, z);
     if (neu === alt) return;
     const altTotal = e.normal_min + e.ueber_min;
     const neuTotal = Math.max(0, altTotal + spannenMinuten(neu) - spannenMinuten(alt));
@@ -920,18 +922,21 @@ export function Cockpit() {
                                         {zeitenText(e) && <span className="font-mono tabular-nums text-ink2">· {zeitenText(e)}</span>}
                                         {/* Znüni 9:00–9:30: bezahlt, zählt mit — zahlt der Bauherr sie nicht, hier abziehen (09.10.2026). Nur mit Zeiten. */}
                                         {darfFreigeben && e.status === 'offen' && (() => {
+                                          const z = znueni();
                                           const sp = ausSpalten(e);
-                                          const ab = pauseAbgezogen(sp);
-                                          if (!ab && !kannPauseAbziehen(sp)) return null;
+                                          const ab = pauseAbgezogen(sp, z);
+                                          // Zieht die Firma den Znüni immer ab (0036), gibt es kein «wieder zählen» — nur das Nachholen, falls er fehlt
+                                          if ((ab && z.immer) || (!ab && !kannPauseAbziehen(sp, z))) return null;
+                                          const zeit = `${uhrzeit(z.von)}–${uhrzeit(z.bis)}`;
                                           return (
                                             <button
                                               type="button"
                                               disabled={!userId || speichert}
                                               onClick={() => void pauseUmschalten(e)}
-                                              title={ab ? 'Pause 9:00–9:30 wieder als Arbeitszeit zählen' : 'Der Bauherr zahlt die Pause 9:00–9:30 nicht — 30 Minuten abziehen'}
+                                              title={ab ? `Pause ${zeit} wieder als Arbeitszeit zählen` : `Pause ${zeit} abziehen — ${z.bis - z.von} Minuten`}
                                               className="font-semibold text-steel underline underline-offset-2 hover:text-ink disabled:opacity-60"
                                             >
-                                              {ab ? 'Pause wieder zählen' : 'Pause abziehen (9:00–9:30)'}
+                                              {ab ? 'Pause wieder zählen' : `Pause abziehen (${zeit})`}
                                             </button>
                                           );
                                         })()}

@@ -65,6 +65,9 @@ geraten) — die Ausgabe ist immer Deutsch. **Kein Dialekt-Thema: es geht um Hoc
 8. Audio und Fotos werden nie gelöscht — sie sind der Beleg. Transkript ist Arbeitshilfe, nicht Ersatz.
 9. Sprachcode kommt aus dem Mitarbeiterprofil (`sprache`), wird nie automatisch pro Aufnahme geraten.
 10. **Die App rechnet keine Pausen** (20.09.). Sie zählt, was eingetragen ist — kein stiller Abzug, kein Zuschlag.
+    Ausnahme je Firma (Migration 0036, Arbnor 10.10.2026): Die Pause am Morgen wird bei der Gerüst GmbH **immer**
+    abgezogen (9:00–9:15, Vormittag 7–12 = 4.75 h). Auch das sichtbar: der Vormittag steht schon geteilt da
+    (7:00–9:00, 9:15–12:00), gezählt wird weiter, was dasteht. In Texten heisst sie «Pause», nie «Znüni» (Amir 11.10.).
 
 ## Ansichten und Rechte (09.09., Anmeldung zurück am 02.10.)
 
@@ -193,7 +196,8 @@ ist unbezahlt (Amir 20.09., «denke ich» — mit Arbnor bestätigen) und darum 
 «bis» lässt sich nicht speichern; überlappende Spannen auch nicht. Zählt der Mittag mit, sagt es ein Hinweis (kein
 Abzug). Summe → Normal (bis 8.4 h) + Überstunden. Spalten `zeiteintrag.von_min/bis_min/von2_min/bis2_min`
 (Migration 0016), nur gesetzt, wenn Zeiten eingetragen wurden; Cockpit und «Meine Woche» zeigen sie. Logik + Tests in
-`src/lib/zeiten.ts`. Arbeitszeit laut Bauführer 7:00–17:00; bezahlte Pause 9:00–9:30 freiwillig (kein Thema für die App).
+`src/lib/zeiten.ts`. Arbeitszeit laut Bauführer 7:00–17:00. Pause am Morgen je Firma (0036, `znueni()` in einstellungen.ts): Standard 9:00–9:30
+bezahlt, Abzug nur auf Knopfdruck «− Pause»; Gerüst GmbH 9:00–9:15, immer abgezogen.
 **Offen mit Arbnor:** Mittag wirklich 12–13 und unbezahlt? Weitere Pausen? Trägt der Chefmonteur für alle ein?
 
 **Überstunden** brauchen ein Warum: die **Sprachnotiz** (Pflicht, ausser das Mikrofon fehlt). Seit 20.09. ist sie immer
@@ -262,7 +266,7 @@ kennen heute nur de/ar/pl/en (Check-Constraint). Kommt mit dem Transkriptions-Sp
 - Automatische Freigabe «plausibler» Stunden
 - Mitarbeiter-Scoring oder -Bewertung
 - Laufende Standortverfolgung (GPS nur punktuell, freiwillig, optional)
-- Automatische Kürzung von Stunden, automatischer Pausenabzug
+- Automatische Kürzung von Stunden, stiller Pausenabzug (die Pause am Morgen je Firma, 0036, steht sichtbar als eigene Zeile da)
 - Eigenes Backend-Framework, native Apps, Microservices
 
 ## Arbeitsweise
@@ -321,7 +325,7 @@ src/ui/FotoGalerie.tsx            Vorschau aus dem Bucket «anhaenge» (signiert
 src/ui/Sprachnotiz.tsx            Pegelbalken während der Aufnahme, Text-Enthüllung nach dem Speichern
 src/ui/Shell.tsx                  Rahmen: Büro-Ansichten mit Bereichsleiste (md) / Seitenleiste (lg), Baustellen-Ansichten Handy-Spalte
 supabase/functions/transkribieren Sprachnotiz → Text (Mistral)
-supabase/migrations/              0001–0015 historisch (inkl. Regie-Tabellen) · 0016 Zeiten von–bis · 0017 Firmen-Schalter (durch 0019 abgelöst) · 0019 mehrere Firmen, Rechte je Firma · 0020 Dateien und Rapportnummern je Firma · 0021 Briefkopf je Firma · 0026 normaler Arbeitstag je Firma · 0027 Zusatzauftrag «erledigt» ohne Regie · 0028 «Gelb markieren ab» je Firma · 0029 dritte Zeitspanne (Znüni-Pause abziehen) · 0030 absichtlich leer · 0031 Korrekturen nach normalem Arbeitstag der Firma · 0032 Einladung und Gerät (verworfen) · 0033 persönliche Zugänge, entfernt 0032 wieder · 0034 Konten aus der Verwaltung, Mail-Domain je Firma, inaktiv = kein Zugang — **nächste freie Nummer: 0035** (vor dem Anlegen `git pull`, damit nicht zwei dieselbe Nummer nehmen)
+supabase/migrations/              0001–0015 historisch (inkl. Regie-Tabellen) · 0016 Zeiten von–bis · 0017 Firmen-Schalter (durch 0019 abgelöst) · 0019 mehrere Firmen, Rechte je Firma · 0020 Dateien und Rapportnummern je Firma · 0021 Briefkopf je Firma · 0026 normaler Arbeitstag je Firma · 0027 Zusatzauftrag «erledigt» ohne Regie · 0028 «Gelb markieren ab» je Firma · 0029 dritte Zeitspanne (Znüni-Pause abziehen) · 0030 absichtlich leer · 0031 Korrekturen nach normalem Arbeitstag der Firma · 0032 Einladung und Gerät (verworfen) · 0033 persönliche Zugänge, entfernt 0032 wieder · 0034 Konten aus der Verwaltung, Mail-Domain je Firma, inaktiv = kein Zugang · 0035 Funktionen nie ohne Anmeldung · 0036 Wünsche Arbnor/Mehmeti 10.10. (Pause je Firma, Lieferwagen, Abwesenheiten, Einsatz je Person) — **nächste freie Nummer: 0037** (vor dem Anlegen `git pull`, damit nicht zwei dieselbe Nummer nehmen)
 archiv/regie-und-board/           Stand vom 20.09. als Nachschlagewerk — nicht mehr die Quelle (Regie ist zurück, hinter Schaltern)
 ```
 

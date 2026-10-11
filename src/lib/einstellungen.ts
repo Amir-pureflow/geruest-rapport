@@ -12,7 +12,7 @@
  */
 import { supabase } from './supabase';
 import { NORMALTAG_MIN } from './datum';
-import { markiertePersonen } from './zeiten';
+import { ZNUENI_STANDARD, markiertePersonen, type Znueni } from './zeiten';
 
 export interface Einstellungen {
   /** 'wochenblatt' = nur Normal + Überstunden · 'regie' = zusätzlich Symbole, «Wer wollte das?», Stunden je Person */
@@ -26,9 +26,23 @@ export interface Einstellungen {
    * Überstunden gelb. null = wie der normale Arbeitstag, jede Überstunde wird gelb. Gerüst GmbH 540 = 9.0 h.
    */
   markierenAbMin: number | null;
+  /** Ende des Znüni in Minuten (Migration 0036; Beginn immer 9:00). Standard 570 = 9:30, Gerüst GmbH 555 = 9:15. */
+  znueniBisMin: number;
+  /** Znüni immer abziehen (Gerüst GmbH, Arbnor 10.10.2026) statt nur auf Knopfdruck. */
+  znueniImmer: boolean;
 }
 
-export const STANDARD: Einstellungen = { erfassung: 'wochenblatt', sekretariat: 'stunden', normaltagMin: NORMALTAG_MIN, markierenAbMin: null };
+export const STANDARD: Einstellungen = {
+  erfassung: 'wochenblatt', sekretariat: 'stunden', normaltagMin: NORMALTAG_MIN, markierenAbMin: null,
+  znueniBisMin: ZNUENI_STANDARD.bis, znueniImmer: false,
+};
+
+/** Erlaubtes Ende des Znüni: 9:05 bis 10:00 (Migration 0036). */
+const ZNUENI_BIS_BEREICH = { min: 545, max: 600 } as const;
+
+function gueltigesZnueniBis(x: unknown): number | null {
+  return typeof x === 'number' && Number.isFinite(x) && x >= ZNUENI_BIS_BEREICH.min && x <= ZNUENI_BIS_BEREICH.max ? Math.round(x) : null;
+}
 
 /** Erlaubter Bereich für den normalen Arbeitstag: 6.0 bis 10.0 h, in Schritten von 6 Minuten (0.1 h). */
 export const NORMALTAG_BEREICH = { min: 360, max: 600, schritt: 6 } as const;
@@ -51,7 +65,12 @@ const SPALTE = {
   sekretariat: 'modus_sekretariat',
   normaltagMin: 'normaltag_min',
   markierenAbMin: 'markieren_ab_min',
+  znueniBisMin: 'znueni_bis_min',
+  znueniImmer: 'znueni_immer',
 } as const;
+
+/** Kam der Znüni aus der Datenbank? `false` = Migration 0036 fehlt, es gilt 9:00–9:30 auf Knopfdruck. */
+let znueniGelesen: boolean | null = null;
 
 /** Kam der normale Arbeitstag aus der Datenbank? `false` = Migration 0026 fehlt, es gilt der Standard 8.4 h. */
 let normaltagGelesen: boolean | null = null;
@@ -107,7 +126,10 @@ function lesenLokal(): Einstellungen {
   try {
     const x = JSON.parse(localStorage.getItem(KEY) ?? 'null') as Partial<Einstellungen> | null;
     return x
-      ? { ...STANDARD, ...x, normaltagMin: gueltigerNormaltag(x.normaltagMin) ?? NORMALTAG_MIN, markierenAbMin: gueltigeMarkierung(x.markierenAbMin) }
+      ? {
+          ...STANDARD, ...x, normaltagMin: gueltigerNormaltag(x.normaltagMin) ?? NORMALTAG_MIN, markierenAbMin: gueltigeMarkierung(x.markierenAbMin),
+          znueniBisMin: gueltigesZnueniBis(x.znueniBisMin) ?? STANDARD.znueniBisMin, znueniImmer: x.znueniImmer === true,
+        }
       : STANDARD;
   } catch {
     return STANDARD;
@@ -140,6 +162,16 @@ export function markierenAbMin(): number | null {
 /** Stand «Gelb markieren ab» in der Datenbank? `false` = Migration 0028 fehlt noch. */
 export function markierenAusDatenbank(): boolean | null {
   return markierenGelesen;
+}
+
+/** Znüni dieser Firma: 9:00 bis `znueniBisMin`, und ob er immer abgezogen wird. Erfassung und Wochenübersicht rechnen damit. */
+export function znueni(): Znueni {
+  return { von: ZNUENI_STANDARD.von, bis: gueltigesZnueniBis(zwischenspeicher.znueniBisMin) ?? ZNUENI_STANDARD.bis, immer: zwischenspeicher.znueniImmer === true };
+}
+
+/** Stand der Znüni in der Datenbank? `false` = Migration 0036 fehlt noch. */
+export function znueniAusDatenbank(): boolean | null {
+  return znueniGelesen;
 }
 
 /**
@@ -203,12 +235,18 @@ export async function einstellungenLaden(): Promise<Einstellungen> {
   const ma = await supabase.from('firma').select('markieren_ab_min').eq('id', r.id).limit(1);
   const maZeile = !ma.error && ma.data?.[0] ? (ma.data[0] as { markieren_ab_min: unknown }) : null;
   markierenGelesen = maZeile !== null;
+  // Znüni (0036) genauso für sich
+  const zn = await supabase.from('firma').select('znueni_bis_min,znueni_immer').eq('id', r.id).limit(1);
+  const znZeile = !zn.error && zn.data?.[0] ? (zn.data[0] as { znueni_bis_min: unknown; znueni_immer: unknown }) : null;
+  znueniGelesen = znZeile !== null;
   const neu: Einstellungen = {
     erfassung: r.modus_erfassung === 'regie' ? 'regie' : 'wochenblatt',
     sekretariat: r.modus_sekretariat === 'voll' ? 'voll' : 'stunden',
     // Fehlt die Spalte noch, kann auch nichts anderes als der Standard gespeichert sein — sonst (kurz kein Netz) der letzte bekannte Wert
     normaltagMin: ntWert ?? zwischenspeicher.normaltagMin,
     markierenAbMin: maZeile ? gueltigeMarkierung(maZeile.markieren_ab_min) : zwischenspeicher.markierenAbMin,
+    znueniBisMin: znZeile ? gueltigesZnueniBis(znZeile.znueni_bis_min) ?? STANDARD.znueniBisMin : zwischenspeicher.znueniBisMin,
+    znueniImmer: znZeile ? znZeile.znueni_immer === true : zwischenspeicher.znueniImmer,
   };
   zwischenspeicher = neu;
   try { localStorage.setItem(KEY, JSON.stringify(neu)); } catch { /* ohne Speicher läuft es auch */ }
@@ -227,6 +265,9 @@ export async function einstellungSetzen<K extends keyof Einstellungen>(feld: K, 
     }
     if (feld === 'markierenAbMin' && /markieren_ab_min|does not exist|column/i.test(error.message) && !/check constraint/i.test(error.message)) {
       return 'Die Datenbank kennt «Gelb markieren ab» noch nicht — Migration 0028 fehlt.';
+    }
+    if ((feld === 'znueniBisMin' || feld === 'znueniImmer') && /znueni|does not exist|column/i.test(error.message) && !/check constraint/i.test(error.message)) {
+      return 'Die Datenbank kennt die Pause-Einstellung noch nicht — Migration 0036 fehlt.';
     }
     return /row-level security|permission denied|does not exist/i.test(error.message)
       ? 'Die Datenbank lässt das nicht zu. Entweder ist Migration 0019 noch nicht eingespielt, oder dieser Zugang hängt an keiner Firma.'

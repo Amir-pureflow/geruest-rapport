@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { MAX_SPANNEN, aufteilen, ausSpalten, ausUhrzeit, kannPauseAbziehen, markiertePersonen, mittagMinuten, pauseAbgezogen, pauseAbziehen, pauseZaehlen, spannenMinuten, spannenOffen, spannenUeberlappen, standardSpannen, ueberMarkiert, uhrzeit, uhrzeitFeld, zeitenText, zuSpalten } from './zeiten';
+import { MAX_SPANNEN, ZNUENI_STANDARD, aufteilen, ausSpalten, ausUhrzeit, kannPauseAbziehen, markiertePersonen, mittagMinuten, pauseAbgezogen, pauseAbziehen, pauseZaehlen, spannenMinuten, spannenOffen, spannenUeberlappen, standardSpannen, ueberMarkiert, uhrzeit, uhrzeitFeld, zeitenText, zuSpalten } from './zeiten';
 import { NORMALTAG_MIN } from './datum';
 
 describe('Uhrzeit ↔ Minuten', () => {
@@ -167,6 +167,37 @@ describe('Znüni 9:00–9:30 — abziehen nur auf Knopfdruck, rückgängig machb
     expect(aufteilen(spannenMinuten(tag()))).toEqual({ normal_min: 504, ueber_min: 36 });
     expect(aufteilen(spannenMinuten(pauseAbziehen(tag())))).toEqual({ normal_min: 504, ueber_min: 6 });
     expect(aufteilen(spannenMinuten(pauseAbziehen(tag())), 540)).toEqual({ normal_min: 510, ueber_min: 0 });
+  });
+});
+
+describe('Znüni je Firma (0036) — Gerüst GmbH: 9:00–9:15, immer abgezogen', () => {
+  const geruest = { von: 540, bis: 555, immer: true };
+  const tag = () => [{ von: 420, bis: 720 }, { von: 780, bis: 1020 }];
+
+  it('ohne Einstellung bleibt alles wie bisher (9:00–9:30, nur auf Knopfdruck)', () => {
+    expect(ZNUENI_STANDARD).toEqual({ von: 540, bis: 570, immer: false });
+    expect(standardSpannen()).toEqual([{ von: 420, bis: 720 }, { von: 780, bis: null }]);
+    expect(standardSpannen(ZNUENI_STANDARD)).toEqual(standardSpannen());
+  });
+  it('immer abziehen: der Vormittag steht schon geteilt da — 7:00–9:00 und 9:15–12:00 = 4.75 h', () => {
+    const s = standardSpannen(geruest);
+    expect(s).toEqual([{ von: 420, bis: 540 }, { von: 555, bis: 720 }, { von: 780, bis: null }]);
+    expect(spannenMinuten(s)).toBe(285); // 4.75 h, der Nachmittag ist noch offen
+    expect(pauseAbgezogen(s, geruest)).toBe(true);
+    expect(kannPauseAbziehen(s, geruest)).toBe(false);
+  });
+  it('7–12 und 13–17 Uhr mit Znüni 15 Min. = 8.75 h → 8.4 h normal + 0.35 h Überstunden', () => {
+    const s = pauseAbziehen(tag(), geruest);
+    expect(s).toEqual([{ von: 420, bis: 540 }, { von: 555, bis: 720 }, { von: 780, bis: 1020 }]);
+    expect(spannenMinuten(s)).toBe(525);
+    expect(aufteilen(spannenMinuten(s), 504)).toEqual({ normal_min: 504, ueber_min: 21 });
+  });
+  it('die Firmenwerte gelten auch beim Wiederzählen und Erkennen', () => {
+    const geteilt = pauseAbziehen(tag(), geruest);
+    expect(pauseZaehlen(geteilt, geruest)).toEqual(tag());
+    // Mit dem Standard (9:30) gilt der 9:15-Schnitt nicht als Znüni — die Lücke bleibt, wie sie ist
+    expect(pauseAbgezogen(geteilt)).toBe(false);
+    expect(pauseZaehlen(geteilt)).toBe(geteilt);
   });
 });
 

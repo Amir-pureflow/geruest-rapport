@@ -53,6 +53,11 @@ export function kw(d: Date): number {
  */
 export const NORMALTAG_MIN = 504;
 
+/**
+ * Minuten → Stunden für die Anzeige: eine Nachkommastelle (8.4), bei Viertelstunden zwei (4.75, 0.35) —
+ * seit die Pause 9:00–9:15 abgezogen wird (11.10.2026), wäre «4.8 h» für 4.75 h falsch gerundet.
+ */
 export function stunden(min: number): string {
-  return (min / 60).toFixed(1);
+  const h = Math.round((min / 60) * 100) / 100;
+  return Math.abs(h * 10 - Math.round(h * 10)) < 1e-6 ? h.toFixed(1) : h.toFixed(2);
 }

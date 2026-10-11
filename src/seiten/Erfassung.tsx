@@ -8,8 +8,8 @@ import { enqueueMeldung, aktualisiereMeldung, belegFehlerVon, flushNachSupabase,
 import { addTage, iso, lang, stunden } from '../lib/datum';
 import { fotoVerkleinern } from '../lib/foto';
 import { kennzeichen } from '../lib/fahrzeug';
-import { einstellungen, normaltagMin } from '../lib/einstellungen';
-import { MAX_SPANNEN, MITTAG_VON_MIN, NACHMITTAG_MIN, ZNUENI_BIS_MIN, ZNUENI_VON_MIN, ausUhrzeit, aufteilen, kannPauseAbziehen, mittagMinuten, pauseAbziehen, pauseZaehlen, spanneVollstaendig, spannenMinuten, spannenOffen, spannenUeberlappen, standardSpannen, umfasstPause, uhrzeitFeld, zuSpalten, type Spanne } from '../lib/zeiten';
+import { einstellungen, normaltagMin, znueni } from '../lib/einstellungen';
+import { MAX_SPANNEN, MITTAG_VON_MIN, NACHMITTAG_MIN, ausUhrzeit, aufteilen, kannPauseAbziehen, mittagMinuten, pauseAbziehen, pauseZaehlen, spanneVollstaendig, spannenMinuten, spannenOffen, spannenUeberlappen, standardSpannen, umfasstPause, uhrzeit, uhrzeitFeld, zuSpalten, type Spanne } from '../lib/zeiten';
 import { baustellenSuchen } from '../lib/suche';
 import { FUNKTION_BUERO } from '../lib/benutzername';
 import { vorratLesen, vorratSchreiben } from '../lib/vorrat';
@@ -207,8 +207,11 @@ function spannenName(s: Spanne, i: number): string {
  * Zeiten von–bis: Vormittag und Nachmittag, nach einem Znüni-Abzug dazwischen «nach Pause». Native Uhrzeit-Wahl statt Tastatur (Regel 2).
  * Kein stiller Pausenabzug — die App zählt, was dasteht; der Mittag 12–13 (unbezahlt) ist als Lücke vorgegeben.
  * Zahlt der Bauherr den Znüni nicht, schneidet «− Pause» 9:00–9:30 heraus (09.10.2026, Amir); das × der Zeile «nach Pause» nimmt es zurück.
+ * Zieht die Firma den Znüni immer ab (0036, Gerüst GmbH 9:00–9:15), steht der Vormittag schon geteilt da — ohne Knopf und ohne ×.
  */
 function SpannenEditor({ spannen, setSpannen, klein = false }: { spannen: Spanne[]; setSpannen: (s: Spanne[]) => void; klein?: boolean }) {
+  const z = znueni();
+  const znueniText = `${uhrzeit(z.von)}–${uhrzeit(z.bis)}`;
   // Auf dem Handy etwas schmaler: mit «Nachmittag» und dem Knopf «− Pause» muss die Zeile in die Karte passen (360–390 px)
   const feld = 'rounded-[10px] border bg-surface text-center font-mono font-semibold tabular-nums focus:border-accent focus:outline-none ' + (klein ? 'h-10 w-[5rem] text-[14px] min-[380px]:w-[5.4rem]' : 'h-12 w-[5rem] text-lg min-[380px]:w-[5.6rem] sm:w-28');
   const aendern = (i: number, teil: 'von' | 'bis', text: string) => {
@@ -219,7 +222,7 @@ function SpannenEditor({ spannen, setSpannen, klein = false }: { spannen: Spanne
   // lag das Zeitfeld über dem Wort (Amir, 09.10.2026: «sieht nicht clean aus»). Die Felder stehen trotzdem bündig untereinander.
   const mitLabel = spannen.length > 1;
   // Der Pausen-Knopf steht in der Zelle, in der spätere Zeilen ihr × haben — gleich breit, damit das Raster nicht wächst
-  const pauseMoeglich = kannPauseAbziehen(spannen);
+  const pauseMoeglich = !z.immer && kannPauseAbziehen(spannen, z);
   // «+ Nachmittag» wie bisher bis zwei Zeilen — eine Zeile «nach Pause» zählt nicht mit, für sie gibt es die dritte
   const nachmittagMoeglich = spannen.length < MAX_SPANNEN && spannen.filter((s, i) => spannenName(s, i) !== 'nach Pause').length < 2;
   return (
@@ -227,7 +230,7 @@ function SpannenEditor({ spannen, setSpannen, klein = false }: { spannen: Spanne
       <div className={'grid items-center justify-start gap-x-1.5 gap-y-1.5 ' + (mitLabel ? 'grid-cols-[auto_auto_auto_auto_auto]' : 'grid-cols-[auto_auto_auto_auto]')}>
         {spannen.map((s, i) => {
           // genau der Schnitt von «− Pause»: × fügt die beiden Zeilen wieder zusammen, statt die Zeit zu löschen
-          const nachPause = i > 0 && spannen[i - 1].bis === ZNUENI_VON_MIN && s.von === ZNUENI_BIS_MIN;
+          const nachPause = i > 0 && spannen[i - 1].bis === z.von && s.von === z.bis;
           return (
             <div key={i} className="contents">
               {mitLabel && <span className="whitespace-nowrap pr-1 text-[11px] font-medium leading-none text-ink3">{spannenName(s, i)}</span>}
@@ -236,14 +239,16 @@ function SpannenEditor({ spannen, setSpannen, klein = false }: { spannen: Spanne
               <ZeitFeld wert={uhrzeitFeld(s.bis)} aendern={(t) => aendern(i, 'bis', t)} label="bis" klasse={feld + (s.bis === null ? ' border-amber/70' : ' border-line')} />
               {i > 0 ? (
                 nachPause
-                  ? <button type="button" onClick={() => setSpannen(pauseZaehlen(spannen))} aria-label="Pause 9:00–9:30 wieder zählen" title="Pause 9:00–9:30 wieder zählen" className="grid h-9 w-9 shrink-0 place-items-center rounded-[10px] text-ink3 active:bg-surface-2"><X size={16} /></button>
+                  ? (z.immer
+                    ? <span aria-hidden="true" />
+                    : <button type="button" onClick={() => setSpannen(pauseZaehlen(spannen, z))} aria-label={`Pause ${znueniText} wieder zählen`} title={`Pause ${znueniText} wieder zählen`} className="grid h-9 w-9 shrink-0 place-items-center rounded-[10px] text-ink3 active:bg-surface-2"><X size={16} /></button>)
                   : <button type="button" onClick={() => setSpannen(spannen.filter((_, j) => j !== i))} aria-label="Zeit entfernen" className="grid h-9 w-9 shrink-0 place-items-center rounded-[10px] text-ink3 active:bg-surface-2"><X size={16} /></button>
-              ) : pauseMoeglich && umfasstPause(s) ? (
+              ) : pauseMoeglich && umfasstPause(s, z) ? (
                 <button
                   type="button"
-                  onClick={() => setSpannen(pauseAbziehen(spannen))}
-                  aria-label="Pause 9:00–9:30 abziehen"
-                  title="Pause 9:00–9:30 abziehen"
+                  onClick={() => setSpannen(pauseAbziehen(spannen, z))}
+                  aria-label={`Pause ${znueniText} abziehen`}
+                  title={`Pause ${znueniText} abziehen`}
                   className="chip flex h-10 w-9 shrink-0 flex-col items-center justify-center gap-0.5 p-0 font-semibold leading-none text-steel"
                 >
                   <span className="text-[14px]" aria-hidden="true">−</span>
@@ -446,7 +451,7 @@ export function Erfassung() {
   const [anw, setAnw] = useState<Record<string, Anwesenheit>>({});
   const [anreiseOffen, setAnreiseOffen] = useState<string | null>(null);
   // Zeiten von–bis, fürs Team gemeinsam — je Person unten anpassbar (Stundenzahl-Modus entfernt 04.10.2026)
-  const [teamSpannen, setTeamSpannen] = useState<Spanne[]>(standardSpannen());
+  const [teamSpannen, setTeamSpannen] = useState<Spanne[]>(standardSpannen(znueni()));
   // Personen, die heute mithelfen, aber nicht fest zum Team gehören (Bauführer 20.09.: «Mitarbeiter hinzufüge»)
   const [gaeste, setGaeste] = useState<Person[]>([]);
   const [zeigeGast, setZeigeGast] = useState(false);
@@ -690,9 +695,9 @@ export function Erfassung() {
       if (!v) return false;
       setLeute(v.personen);
       const a: Record<string, Anwesenheit> = {};
-      for (const p of v.personen) a[p.id] = neueAnwesenheit(p, 'zeit', standardSpannen());
+      for (const p of v.personen) a[p.id] = neueAnwesenheit(p, 'zeit', standardSpannen(znueni()));
       setAnw(a);
-      setTeamSpannen(standardSpannen());
+      setTeamSpannen(standardSpannen(znueni()));
       setZuletztGaeste(v.gaeste);
       setKacheln(v.kacheln);
       setAlleGeplanten(v.geplant);
@@ -716,9 +721,9 @@ export function Erfassung() {
         .sort((a, b) => a.name.localeCompare(b.name));
       setLeute(personen);
       const a: Record<string, Anwesenheit> = {};
-      for (const p of personen) a[p.id] = neueAnwesenheit(p, 'zeit', standardSpannen());
+      for (const p of personen) a[p.id] = neueAnwesenheit(p, 'zeit', standardSpannen(znueni()));
       setAnw(a);
-      setTeamSpannen(standardSpannen());
+      setTeamSpannen(standardSpannen(znueni()));
 
       // Zuletzt auf diesem Gerät hinzugefügte Gäste — nur die, die es noch gibt und die nicht inzwischen fest im Team sind
       const gastIds = gaesteLesen(teamId).filter((id) => !personen.some((p) => p.id === id));
@@ -1507,7 +1512,11 @@ export function Erfassung() {
                 </p>
               );
             })()}
-            <p className="mt-1 text-[11px] text-ink3">Die App zieht von sich aus keine Pause ab — was hier steht, zählt. Mittag 12–13 ist als Lücke vorgegeben. Zahlt der Bauherr die Pause 9:00–9:30 nicht: «− Pause» tippen. Unten kann jede Person anders sein.</p>
+            <p className="mt-1 text-[11px] text-ink3">
+              {znueni().immer
+                ? `Was hier steht, zählt. Die Pause ${uhrzeit(znueni().von)}–${uhrzeit(znueni().bis)} ist schon abgezogen, Mittag 12–13 ist als Lücke vorgegeben. Unten kann jede Person anders sein.`
+                : `Die App zieht von sich aus keine Pause ab — was hier steht, zählt. Mittag 12–13 ist als Lücke vorgegeben. Zahlt der Bauherr die Pause ${uhrzeit(znueni().von)}–${uhrzeit(znueni().bis)} nicht: «− Pause» tippen. Unten kann jede Person anders sein.`}
+            </p>
             <MittagHinweis spannen={teamSpannen} />
           </div>
         </section>

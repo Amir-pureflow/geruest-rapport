@@ -8,7 +8,11 @@
  *
  * Znüni (09.10.2026, Amir): Die Pause 9:00–9:30 ist bezahlt und zählt mit. Zahlt der Bauherr sie nicht,
  * zieht man sie auf Knopfdruck ab — Teamgerät oder Bauführer: der Vormittag wird geteilt (7:00–9:00 und
- * 9:30–12:00), darum bis zu drei Spannen. Rückgängig = wieder zusammenfügen. Nie automatisch.
+ * 9:30–12:00), darum bis zu drei Spannen. Rückgängig = wieder zusammenfügen.
+ *
+ * Znüni je Firma (Migration 0036, Arbnor 10.10.2026): Bei der Gerüst GmbH dauert der Znüni 9:00–9:15 und wird
+ * IMMER abgezogen (Vormittag 7–12 = 4.75 h bezahlt). Auch dann kein stiller Abzug: der Vormittag steht schon
+ * geteilt da (7:00–9:00 und 9:15–12:00) — gezählt wird weiterhin genau, was dasteht.
  */
 import { NORMALTAG_MIN } from './datum';
 
@@ -31,9 +35,23 @@ export const ZNUENI_BIS_MIN = 9 * 60 + 30;
 /** Vormittag, nach der Pause, Nachmittag (Migration 0029) — die dritte Spanne gibt es nur wegen des Znüni-Abzugs. */
 export const MAX_SPANNEN = 3;
 
-/** Vorgabe beim Umschalten auf von–bis: Vormittag 7:00–12:00 fertig, Nachmittag ab 13:00 mit offenem Ende — das «bis» muss das Team eintragen. Immer frische Objekte. */
-export function standardSpannen(): Spanne[] {
-  return [{ von: ARBEITSBEGINN_MIN, bis: MITTAG_VON_MIN }, { von: NACHMITTAG_MIN, bis: null }];
+/** Znüni einer Firma (Migration 0036): von–bis in Minuten seit Mitternacht, und ob er immer abgezogen wird. */
+export interface Znueni {
+  von: number;
+  bis: number;
+  /** true = der Vormittag steht von Anfang an geteilt da (Gerüst GmbH); false = abziehen nur auf Knopfdruck. */
+  immer: boolean;
+}
+/** Bisher und ohne Migration 0036: 9:00–9:30, bezahlt, abgezogen nur auf Knopfdruck. */
+export const ZNUENI_STANDARD: Znueni = { von: ZNUENI_VON_MIN, bis: ZNUENI_BIS_MIN, immer: false };
+
+/**
+ * Vorgabe: Vormittag 7:00–12:00 fertig, Nachmittag ab 13:00 mit offenem Ende — das «bis» muss das Team eintragen.
+ * Zieht die Firma den Znüni immer ab, ist der Vormittag schon geteilt (7:00–9:00, 9:15–12:00). Immer frische Objekte.
+ */
+export function standardSpannen(z: Znueni = ZNUENI_STANDARD): Spanne[] {
+  const s: Spanne[] = [{ von: ARBEITSBEGINN_MIN, bis: MITTAG_VON_MIN }, { von: NACHMITTAG_MIN, bis: null }];
+  return z.immer ? pauseAbziehen(s, z) : s;
 }
 
 /** Wie viele Minuten der (unbezahlten) Mittagspause 12–13 in den eingetragenen Zeiten mitgezählt sind — 0, wenn der Mittag die Lücke ist. Nur Hinweis, kein Abzug. */
@@ -91,40 +109,41 @@ export function spannenUeberlappen(spannen: Spanne[]): boolean {
   return false;
 }
 
-/** Enthält die Spanne den Znüni 9:00–9:30 ganz, mit Arbeit davor und danach? Nur dann lässt er sich herausschneiden. */
-export function umfasstPause(s: Spanne): boolean {
-  return spanneVollstaendig(s) && s.von < ZNUENI_VON_MIN && s.bis > ZNUENI_BIS_MIN;
+/** Enthält die Spanne den Znüni (Standard 9:00–9:30) ganz, mit Arbeit davor und danach? Nur dann lässt er sich herausschneiden. */
+export function umfasstPause(s: Spanne, z: Znueni = ZNUENI_STANDARD): boolean {
+  return spanneVollstaendig(s) && s.von < z.von && s.bis > z.bis;
 }
 
 const sortiert = (spannen: Spanne[]): Spanne[] => [...spannen].sort((a, b) => a.von - b.von);
 
 /** Lässt sich der Znüni abziehen? Eine Spanne enthält ihn ganz, und für die zusätzliche Zeile ist Platz. */
-export function kannPauseAbziehen(spannen: Spanne[]): boolean {
-  return spannen.length < MAX_SPANNEN && spannen.some(umfasstPause);
+export function kannPauseAbziehen(spannen: Spanne[], z: Znueni = ZNUENI_STANDARD): boolean {
+  return spannen.length < MAX_SPANNEN && spannen.some((s) => umfasstPause(s, z));
 }
 
-/** Ist der Znüni abgezogen? Eine Spanne endet um 9:00 und die nächste beginnt um 9:30. */
-export function pauseAbgezogen(spannen: Spanne[]): boolean {
+/** Ist der Znüni abgezogen? Eine Spanne endet bei seinem Beginn und die nächste beginnt bei seinem Ende (Standard 9:00 / 9:30). */
+export function pauseAbgezogen(spannen: Spanne[], z: Znueni = ZNUENI_STANDARD): boolean {
   const s = sortiert(spannen);
-  return s.some((x, i) => i > 0 && s[i - 1].bis === ZNUENI_VON_MIN && x.von === ZNUENI_BIS_MIN);
+  return s.some((x, i) => i > 0 && s[i - 1].bis === z.von && x.von === z.bis);
 }
 
 /**
- * Znüni abziehen (Bauherr zahlt ihn nicht): die Spanne, die 9:00–9:30 ganz enthält, wird zu «von–9:00» und
- * «9:30–bis». 30 Minuten weniger, sonst nichts. Passt es nicht, kommt die Liste unverändert zurück. Sortiert.
+ * Znüni abziehen (Bauherr zahlt ihn nicht, oder die Firma zieht ihn immer ab): die Spanne, die ihn ganz enthält,
+ * wird zu «von–9:00» und «9:30–bis» (bzw. 9:15). Genau die Dauer des Znüni weniger, sonst nichts. Passt es nicht,
+ * kommt die Liste unverändert zurück. Sortiert.
  */
-export function pauseAbziehen(spannen: Spanne[]): Spanne[] {
-  if (!kannPauseAbziehen(spannen)) return spannen;
+export function pauseAbziehen(spannen: Spanne[], z: Znueni = ZNUENI_STANDARD): Spanne[] {
+  if (!kannPauseAbziehen(spannen, z)) return spannen;
   return sortiert(spannen).flatMap((s) =>
-    umfasstPause(s) ? [{ von: s.von, bis: ZNUENI_VON_MIN }, { von: ZNUENI_BIS_MIN, bis: s.bis }] : [{ ...s }],
+    umfasstPause(s, z) ? [{ von: s.von, bis: z.von }, { von: z.bis, bis: s.bis }] : [{ ...s }],
   );
 }
 
 /** Znüni wieder zählen: macht genau den Schnitt von `pauseAbziehen` rückgängig (…–9:00 + 9:30–… → eine Spanne). Sonst unverändert. */
-export function pauseZaehlen(spannen: Spanne[]): Spanne[] {
-  if (!pauseAbgezogen(spannen)) return spannen;
+export function pauseZaehlen(spannen: Spanne[], z: Znueni = ZNUENI_STANDARD): Spanne[] {
+  if (!pauseAbgezogen(spannen, z)) return spannen;
   const s = sortiert(spannen);
-  const i = s.findIndex((x, j) => j > 0 && s[j - 1].bis === ZNUENI_VON_MIN && x.von === ZNUENI_BIS_MIN);
+  const i = s.findIndex((x, j) => j > 0 && s[j - 1].bis === z.von && x.von === z.bis);
   return [...s.slice(0, i - 1).map((x) => ({ ...x })), { von: s[i - 1].von, bis: s[i].bis }, ...s.slice(i + 1).map((x) => ({ ...x }))];
 }
 
