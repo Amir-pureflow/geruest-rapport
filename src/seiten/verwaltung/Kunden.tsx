@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { Plus } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { einstellungen } from '../../lib/einstellungen';
 
@@ -51,7 +52,7 @@ export function Kunden() {
           <b className="text-ink">{liste.length}</b> Kunden
           {regie && ` · ${liste.filter((k) => k.praeferenz === 'sammel').length} mit Sammelabrechnung`}
         </p>
-        <button type="button" onClick={() => setBearbeitet({ ...LEER })} className="btn-ghost">+ Neu</button>
+        <button type="button" onClick={() => setBearbeitet({ ...LEER })} className="btn-ghost"><Plus size={15} strokeWidth={2.4} aria-hidden="true" /> Neu</button>
       </div>
 
       {bearbeitet && (

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, type ChangeEvent } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
+import { ImagePlus } from 'lucide-react';
 import { Shell } from '../ui/Shell';
 import { FotoGalerie } from '../ui/FotoGalerie';
 import { fotoVerkleinern } from '../lib/foto';
@@ -588,8 +589,8 @@ export function RegieDetail() {
             <section className="card space-y-2">
               <div className="flex items-center justify-between gap-3">
                 <p className="lbl mb-0">Bilder zum Rapport</p>
-                <label className="btn-ghost inline-block cursor-pointer">
-                  {fotoLaedt ? 'lädt …' : '+ Bilder nachreichen'}
+                <label className="btn-ghost cursor-pointer">
+                  {fotoLaedt ? 'lädt …' : <><ImagePlus size={15} aria-hidden="true" /> Bilder nachreichen</>}
                   <input type="file" accept="image/*" multiple className="hidden" onChange={(e) => void fotosNachreichen(e)} />
                 </label>
               </div>

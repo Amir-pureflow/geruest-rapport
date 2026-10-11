@@ -12,6 +12,7 @@ import {
 import { werktage } from '../lib/abwesenheit';
 import { FUNKTION_BUERO } from '../lib/benutzername';
 import { DatumWahl } from '../ui/DatumWahl';
+import { Pille } from '../ui/Segment';
 import { baustellenSuchen } from '../lib/suche';
 
 /**
@@ -235,8 +236,8 @@ export function Planung() {
             <p className="mt-1 text-sm text-ink3">Welches Team wann auf welcher Baustelle ist — und wer an welchem Tag in welchem Team arbeitet.</p>
           </div>
           <span className="flex flex-wrap items-center gap-2">
-            <button type="button" onClick={() => setTeamNeu(true)} className="btn-ghost inline-flex items-center gap-1.5 py-2.5">
-              <Users size={15} aria-hidden="true" /> + Team
+            <button type="button" onClick={() => setTeamNeu(true)} className="btn-ghost py-2.5">
+              <Plus size={15} strokeWidth={2.4} aria-hidden="true" /> Team
             </button>
             <button
               type="button"
@@ -278,9 +279,7 @@ export function Planung() {
               <>
                 <span className="text-ink3">· noch frei:</span>
                 {ohneEinsatz.map((t) => (
-                  <button key={t.id} type="button" onClick={() => neu(t.id, new Date(Math.max(Date.now(), start.getTime())))} className="chip rounded-full px-3 py-1 text-xs font-semibold">
-                    + {t.bezeichnung}
-                  </button>
+                  <Pille key={t.id} plus onClick={() => neu(t.id, new Date(Math.max(Date.now(), start.getTime())))}>{t.bezeichnung}</Pille>
                 ))}
               </>
             )}
@@ -653,8 +652,8 @@ function TagDialog({
           ))}
           <div className="flex flex-wrap gap-2">
             {geplant.length === 0
-              ? <button type="button" onClick={onNeuerEinsatz} className="chip rounded-full px-3 py-1.5 text-xs font-semibold">+ Einsatz planen</button>
-              : <button type="button" onClick={() => setAndereBaustelle((v) => !v)} className={'chip rounded-full px-3 py-1.5 text-xs font-semibold ' + (andereBaustelle ? 'chip-on' : '')}>Nur {tagKurz(d)} andere Baustelle …</button>}
+              ? <Pille plus onClick={onNeuerEinsatz}>Einsatz planen</Pille>
+              : <Pille an={andereBaustelle} onClick={() => setAndereBaustelle((v) => !v)}>Nur {tagKurz(d)} andere Baustelle …</Pille>}
           </div>
           {andereBaustelle && (
             <div className="space-y-1.5">
@@ -976,9 +975,7 @@ function EinsatzDialog({
                 const z = zeitraumVorschlag(s.art, tag);
                 const an = z.von === von && z.bis === bis;
                 return (
-                  <button key={s.art} type="button" onClick={() => { setVon(z.von); setBis(z.bis); }} className={'chip rounded-full px-3 py-1.5 text-xs font-semibold ' + (an ? 'chip-on' : '')}>
-                    {s.label}
-                  </button>
+                  <Pille key={s.art} an={an} onClick={() => { setVon(z.von); setBis(z.bis); }}>{s.label}</Pille>
                 );
               })}
             </div>

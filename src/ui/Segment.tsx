@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Plus } from 'lucide-react';
 
 /**
  * Segment-Umschalter (06.10.2026): weisse Pillen-Schiene, gewählt = dunkle Pille — dieselbe Form wie in
@@ -83,5 +83,26 @@ export function Blaettern({
       <span className="min-w-[170px] px-1 text-center text-sm font-semibold tabular-nums text-ink">{titel}</span>
       <button type="button" aria-label={labelVor} onClick={vor} disabled={vorGesperrt} className="grid h-9 w-9 place-items-center rounded-full text-ink2 hover:text-accent-deep disabled:opacity-30"><ChevronRight size={17} /></button>
     </div>
+  );
+}
+
+/**
+ * Kleine Aktions-Pille (11.10.2026): «+ Team 2», «+ Einsatz planen», Schnellwahl «Bis Freitag». `plus` setzt das Plus
+ * im roten Hauch-Kreis davor, `an` markiert die gewählte (dunkel). Für Auswahl aus wenigen Werten lieber `Segment`.
+ */
+export function Pille({ children, onClick, plus = false, an, disabled = false, title }: {
+  children: ReactNode;
+  onClick: () => void;
+  plus?: boolean;
+  an?: boolean;
+  disabled?: boolean;
+  title?: string;
+}) {
+  return (
+    <button type="button" onClick={onClick} disabled={disabled} title={title} aria-pressed={an}
+      className={'pille' + (plus ? ' pille-plus' : '') + (an ? ' pille-an' : '')}>
+      {plus && <span className="pille-icon" aria-hidden="true"><Plus size={12} strokeWidth={2.8} /></span>}
+      {children}
+    </button>
   );
 }

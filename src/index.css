@@ -352,6 +352,64 @@
     color: var(--color-ink2);
   }
 
+  /* Kleine Aktions-Pille (11.10.2026, Amir: die weissen Chips «sehen zu browsermässig aus»): warmer Verlauf
+     statt reinem Weiss, das Plus im roten Hauch-Kreis, beim Darüberfahren Firmenrot. Gewählt = dunkel wie im
+     Segment-Umschalter. Für «+ Team», «+ Einsatz planen», Schnellwahl — nicht für die grossen Kacheln (.chip). */
+  .pille {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    border: 1px solid rgb(26 25 23 / 0.08);
+    border-radius: 999px;
+    padding: 0.375rem 0.85rem;
+    font-size: 0.75rem;
+    font-weight: 600;
+    line-height: 1.2;
+    color: var(--color-ink);
+    white-space: nowrap;
+    background: linear-gradient(180deg, #ffffff 0%, #f6f3ee 100%);
+    box-shadow: 0 1px 2px rgb(17 17 19 / 0.05), inset 0 1px 0 rgb(255 255 255 / 0.9);
+    transition: background 150ms ease, color 150ms ease, border-color 150ms ease, transform 150ms ease, box-shadow 150ms ease;
+  }
+  .pille-plus {
+    padding-left: 0.3rem;
+  }
+  .pille-icon {
+    display: grid;
+    place-items: center;
+    width: 1.25rem;
+    height: 1.25rem;
+    border-radius: 999px;
+    background: var(--color-accent-soft);
+    color: var(--color-accent);
+    transition: background 150ms ease, color 150ms ease;
+  }
+  .pille:hover {
+    border-color: rgb(224 48 30 / 0.28);
+    color: var(--color-accent-deep);
+    background: linear-gradient(180deg, #fff7f5 0%, var(--color-accent-soft) 100%);
+    transform: translateY(-1px);
+    box-shadow: 0 1px 2px rgb(17 17 19 / 0.05), 0 8px 16px -10px rgb(224 48 30 / 0.45);
+  }
+  .pille:hover .pille-icon {
+    background: var(--color-accent);
+    color: #ffffff;
+  }
+  .pille:active {
+    transform: translateY(0) scale(0.98);
+  }
+  .pille:disabled {
+    opacity: 0.5;
+    transform: none;
+  }
+  .pille-an,
+  .pille-an:hover {
+    border-color: var(--color-ink);
+    color: #ffffff;
+    background: var(--color-ink);
+    box-shadow: 0 1px 2px rgb(17 17 19 / 0.15), 0 6px 14px -8px rgb(17 17 19 / 0.5);
+  }
+
   .field {
     width: 100%;
     border: 1px solid var(--color-line-strong);

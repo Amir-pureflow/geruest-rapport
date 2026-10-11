@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Plus } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { ausIso, iso, lang } from '../../lib/datum';
 import { baustellenSuchen } from '../../lib/suche';
@@ -66,7 +67,7 @@ export function Baustellen() {
         <div className="flex gap-2">
           <input value={neuNr} onChange={(e) => setNeuNr(e.target.value)} placeholder="Konto-Nr." inputMode="numeric" className="field w-28 font-mono" />
           <input value={neuBez} onChange={(e) => setNeuBez(e.target.value)} placeholder="Ort Strasse Nr." className="field" />
-          <button type="button" onClick={() => void anlegen()} className="btn-ghost whitespace-nowrap">+ Anlegen</button>
+          <button type="button" onClick={() => void anlegen()} className="btn-ghost whitespace-nowrap"><Plus size={15} strokeWidth={2.4} aria-hidden="true" /> Anlegen</button>
         </div>
         {fehler && <p className="text-sm font-semibold text-accent-deep">{fehler}</p>}
       </section>
