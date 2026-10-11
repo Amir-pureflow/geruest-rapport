@@ -122,6 +122,8 @@ export interface MeldungPayload {
   transkript?: string | null;
   transkript_quelle?: string | null;
   transkript_sprache?: string | null;
+  /** Subunternehmer hatten den Lieferwagen der Firma (Migration 0036) — nur gesetzt, wenn ja; sonst fehlt das Feld ganz. */
+  lieferwagen?: boolean;
   eintraege: {
     id: string;
     mitarbeiter_id: string;

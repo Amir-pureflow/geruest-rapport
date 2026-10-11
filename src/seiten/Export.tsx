@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { AlarmClock, Building2, ChevronDown, Clock, Download, FileSpreadsheet, HardHat, Users } from 'lucide-react';
+import { lieferwagenTagRp } from '../lib/einstellungen';
 import { Shell } from '../ui/Shell';
 import { supabase } from '../lib/supabase';
 import { addTage, ausIso, iso, kw, montag, stunden, WOCHENTAGE } from '../lib/datum';
@@ -8,6 +9,7 @@ import { useAnsicht } from '../lib/ansicht';
 import { MONATE, ZahlKarte } from '../ui/Karten';
 import { Blaettern, Schalter, Segment, SegmentZahl } from '../ui/Segment';
 import { bueroExcel, rapportExcel } from '../lib/excel';
+import { lieferwagenTage, type LieferZeile } from '../lib/lieferwagen';
 import {
   lohnZeilen,
   monatsGrenzen,
@@ -49,7 +51,7 @@ interface JahresZeile {
 interface Team { id: string; bezeichnung: string }
 type Zeitraum = 'woche' | 'monat';
 /** Reiter der Export-Seite (06.10.2026): eine Tabelle auf einmal statt vier Blöcke untereinander */
-type Tab = 'lohn' | 'ueber' | 'bueros' | 'raster';
+type Tab = 'lohn' | 'ueber' | 'bueros' | 'liefer' | 'raster';
 
 const SEITE = 1000;
 const ALLE = 'alle';
@@ -99,6 +101,7 @@ export function Export() {
   const [teamId, setTeamId] = useState<string>(ALLE);
   const [zeilen, setZeilen] = useState<Zeile[]>([]);
   const [jahr, setJahr] = useState<JahresZeile[]>([]);
+  const [liefer, setLiefer] = useState<LieferZeile[]>([]);
   const [nurFrei, setNurFrei] = useState(true);
   const [laedt, setLaedt] = useState(false);
   const [fehler, setFehler] = useState('');
@@ -170,16 +173,28 @@ export function Export() {
       ]);
       setZeilen(z);
       setJahr(j);
+      // Lieferwagen (0036): eigene Abfrage — fehlt die Spalte noch, bleibt der Reiter leer statt den Export zu blockieren
+      if (lohnSichtbar && lieferwagenTagRp() !== null) {
+        let q = c.from('tagesmeldung').select('datum,team_id,team:team_id(bezeichnung),baustelle:baustelle_id(konto_nr,bezeichnung)')
+          .eq('lieferwagen', true).gte('datum', vonIso).lte('datum', bisIso);
+        if (teamId !== ALLE) q = q.eq('team_id', teamId);
+        const { data, error } = await q.order('datum').limit(SEITE);
+        setLiefer(error ? [] : ((data ?? []) as unknown as LieferZeile[]));
+      } else setLiefer([]);
     } catch (e) {
       setFehler('Laden: ' + (e instanceof Error ? e.message : String(e)));
       setZeilen([]);
       setJahr([]);
+      setLiefer([]);
     }
     setLaedt(false);
   }, [vonIso, bisIso, jahresStart, teamId, nurFrei, lohnSichtbar]);
   useEffect(() => { void laden(); }, [laden]);
 
   const eintraege = useMemo(() => zeilen.map(zuEintrag), [zeilen]);
+  const tagRp = lieferwagenTagRp();
+  const lieferTage = useMemo(() => (tagRp === null ? [] : lieferwagenTage(liefer, tagRp)), [liefer, tagRp]);
+  const summeLiefer = lieferTage.reduce((s, t) => s + t.betrag_rp, 0);
   const lohn = useMemo(() => lohnZeilen(eintraege), [eintraege]);
   const alleBueros = useMemo(() => temporaerBueroBlaetter(eintraege), [eintraege]);
   // Nur echte Büros bekommen Karte, Blatt und eigenes Excel; Temporäre ohne Büro stehen im Lohn-Blatt und als Hinweis
@@ -252,6 +267,7 @@ export function Export() {
             zeilen: lohn.map((l) => ({ name: l.person.name, typ: l.person.typ, buero: l.person.temporaerbuero, werte: werte(l), total_min: l.total_min, ueber_min: l.ueber_min, oevTage: l.oevTage, km: l.km })),
             ueber: ueber.map((u) => ({ name: u.person.name, typ: u.person.typ, zeitraum_min: u.zeitraum_min, jahr_min: u.jahr_min })),
             bueros,
+            lieferwagen: lieferTage,
           }
           : null,
         raster,
@@ -276,6 +292,7 @@ export function Export() {
     { wert: 'lohn', text: 'Lohnstunden', n: lohn.length },
     { wert: 'ueber', text: 'Überstunden', n: ueberListe.length },
     { wert: 'bueros', text: 'Temporärbüros', n: bueros.length },
+    ...((tagRp !== null && tagRp > 0) || lieferTage.length > 0 ? [{ wert: 'liefer' as const, text: 'Lieferwagen', n: lieferTage.length }] : []),
     { wert: 'raster', text: 'Stundenraster', n: raster.vorgaenge.length },
   ];
   const kopfZelle = 'px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-ink3';
@@ -343,6 +360,7 @@ export function Export() {
                 {tab === 'lohn' && 'Ein Blatt «Lohn» im Excel — Stunden je Person und Tag'}
                 {tab === 'ueber' && 'Blatt «Überstunden» — Zeitraum und seit 1. Januar'}
                 {tab === 'bueros' && 'Je Büro ein eigenes Blatt — oder ein eigenes Excel zum Weiterschicken'}
+                {tab === 'liefer' && 'Blatt «Lieferwagen» — pro Team und Tag einmal'}
                 {tab === 'raster' && 'Zeile Baustelle, Spalte Person'}
               </span>
             </div>
@@ -450,6 +468,39 @@ export function Export() {
             </div>
           ))}
 
+          {tab === 'liefer' && (lieferTage.length === 0 ? (
+            <p className="px-5 py-10 text-center text-sm text-ink3">{laedt ? 'Lädt …' : `Kein Team hat ${zeitraumText} den Lieferwagen angetippt (${teamName(teamId)}).`}</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="bg-surface-2/60">
+                  <tr>
+                    <th className={kopfZelle + ' pl-5 text-left'}>Tag</th>
+                    <th className={kopfZelle + ' text-left'}>Team</th>
+                    <th className={kopfZelle + ' text-left'}>Baustelle</th>
+                    <th className={kopfZelle + ' pr-5 text-right'}>Fr.</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {lieferTage.map((t) => (
+                    <tr key={t.datum + t.team} className="border-t border-line transition-colors hover:bg-surface-2/40">
+                      <td className="whitespace-nowrap py-2.5 pl-5 pr-3 tabular-nums text-ink2">{ausIso(t.datum).toLocaleDateString('de-CH', { weekday: 'short', day: '2-digit', month: '2-digit' })}</td>
+                      <td className="whitespace-nowrap px-3 py-2.5 font-medium text-ink">{t.team}</td>
+                      <td className="px-3 py-2.5 text-ink2">{t.baustellen || '—'}</td>
+                      <td className="py-2.5 pl-3 pr-5 text-right tabular-nums text-ink">{(t.betrag_rp / 100).toFixed(2)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot>
+                  <tr className="border-t-2 border-line-strong bg-surface-2/60">
+                    <td colSpan={3} className="py-3 pl-5 pr-3 text-sm font-semibold text-ink">Total · {lieferTage.length} {lieferTage.length === 1 ? 'Tag' : 'Tage'}</td>
+                    <td className="py-3 pl-3 pr-5 text-right text-sm font-bold tabular-nums text-ink">{(summeLiefer / 100).toFixed(2)}</td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+          ))}
+
           {tab === 'raster' && (raster.vorgaenge.length === 0 ? leer('Einträge') : (
             <div className="overflow-x-auto">
               <table className="w-full text-xs">
@@ -475,7 +526,7 @@ export function Export() {
         <p className="flex items-center gap-2 text-xs text-ink3">
           <FileSpreadsheet size={14} aria-hidden="true" />
           {lohnSichtbar
-            ? <>Das Excel enthält: Lohn, Überstunden, je Temporärbüro ein Blatt (Person × Tag × Konto-Nr.){bueros.length > 0 ? ` — ${bueros.map((b) => b.buero).join(', ')}` : ''}, Stundenraster.</>
+            ? <>Das Excel enthält: Lohn, Überstunden, je Temporärbüro ein Blatt (Person × Tag × Konto-Nr.){bueros.length > 0 ? ` — ${bueros.map((b) => b.buero).join(', ')}` : ''}{lieferTage.length > 0 ? ', Lieferwagen' : ''}, Stundenraster.</>
             : <>Lohnstunden und Temporärbüro-Abrechnung liegen beim Sekretariat.</>}
         </p>
       </div>

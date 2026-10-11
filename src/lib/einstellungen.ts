@@ -30,12 +30,22 @@ export interface Einstellungen {
   znueniBisMin: number;
   /** Znüni immer abziehen (Gerüst GmbH, Arbnor 10.10.2026) statt nur auf Knopfdruck. */
   znueniImmer: boolean;
+  /**
+   * Lieferwagen für Subunternehmer: Rappen pro Tag (Migration 0036, Arbnor 10.10.2026: Fr. 100). null = die Datenbank
+   * kennt die Spalte noch nicht — dann gibt es den Haken beim Melden nicht (sonst bliebe die Meldung in der Warteschlange).
+   */
+  lieferwagenTagRp: number | null;
 }
 
 export const STANDARD: Einstellungen = {
   erfassung: 'wochenblatt', sekretariat: 'stunden', normaltagMin: NORMALTAG_MIN, markierenAbMin: null,
-  znueniBisMin: ZNUENI_STANDARD.bis, znueniImmer: false,
+  znueniBisMin: ZNUENI_STANDARD.bis, znueniImmer: false, lieferwagenTagRp: null,
 };
+
+/** Erlaubter Betrag pro Tag: Fr. 0 bis 1000 (Migration 0036). */
+function gueltigerBetrag(x: unknown): number | null {
+  return typeof x === 'number' && Number.isInteger(x) && x >= 0 && x <= 100000 ? x : null;
+}
 
 /** Erlaubtes Ende des Znüni: 9:05 bis 10:00 (Migration 0036). */
 const ZNUENI_BIS_BEREICH = { min: 545, max: 600 } as const;
@@ -67,6 +77,7 @@ const SPALTE = {
   markierenAbMin: 'markieren_ab_min',
   znueniBisMin: 'znueni_bis_min',
   znueniImmer: 'znueni_immer',
+  lieferwagenTagRp: 'lieferwagen_tag_rp',
 } as const;
 
 /** Kam der Znüni aus der Datenbank? `false` = Migration 0036 fehlt, es gilt 9:00–9:30 auf Knopfdruck. */
@@ -129,6 +140,7 @@ function lesenLokal(): Einstellungen {
       ? {
           ...STANDARD, ...x, normaltagMin: gueltigerNormaltag(x.normaltagMin) ?? NORMALTAG_MIN, markierenAbMin: gueltigeMarkierung(x.markierenAbMin),
           znueniBisMin: gueltigesZnueniBis(x.znueniBisMin) ?? STANDARD.znueniBisMin, znueniImmer: x.znueniImmer === true,
+          lieferwagenTagRp: gueltigerBetrag(x.lieferwagenTagRp),
         }
       : STANDARD;
   } catch {
@@ -167,6 +179,14 @@ export function markierenAusDatenbank(): boolean | null {
 /** Znüni dieser Firma: 9:00 bis `znueniBisMin`, und ob er immer abgezogen wird. Erfassung und Wochenübersicht rechnen damit. */
 export function znueni(): Znueni {
   return { von: ZNUENI_STANDARD.von, bis: gueltigesZnueniBis(zwischenspeicher.znueniBisMin) ?? ZNUENI_STANDARD.bis, immer: zwischenspeicher.znueniImmer === true };
+}
+
+/**
+ * Lieferwagen für Subunternehmer: Rappen pro Tag — null, solange die Datenbank die Spalte nicht kennt (Migration 0036).
+ * Dann zeigt die Erfassung keinen Haken; eine Meldung mit einer unbekannten Spalte bliebe sonst in der Warteschlange.
+ */
+export function lieferwagenTagRp(): number | null {
+  return gueltigerBetrag(zwischenspeicher.lieferwagenTagRp);
 }
 
 /** Stand der Znüni in der Datenbank? `false` = Migration 0036 fehlt noch. */
@@ -236,8 +256,8 @@ export async function einstellungenLaden(): Promise<Einstellungen> {
   const maZeile = !ma.error && ma.data?.[0] ? (ma.data[0] as { markieren_ab_min: unknown }) : null;
   markierenGelesen = maZeile !== null;
   // Znüni (0036) genauso für sich
-  const zn = await supabase.from('firma').select('znueni_bis_min,znueni_immer').eq('id', r.id).limit(1);
-  const znZeile = !zn.error && zn.data?.[0] ? (zn.data[0] as { znueni_bis_min: unknown; znueni_immer: unknown }) : null;
+  const zn = await supabase.from('firma').select('znueni_bis_min,znueni_immer,lieferwagen_tag_rp').eq('id', r.id).limit(1);
+  const znZeile = !zn.error && zn.data?.[0] ? (zn.data[0] as { znueni_bis_min: unknown; znueni_immer: unknown; lieferwagen_tag_rp: unknown }) : null;
   znueniGelesen = znZeile !== null;
   const neu: Einstellungen = {
     erfassung: r.modus_erfassung === 'regie' ? 'regie' : 'wochenblatt',
@@ -247,6 +267,8 @@ export async function einstellungenLaden(): Promise<Einstellungen> {
     markierenAbMin: maZeile ? gueltigeMarkierung(maZeile.markieren_ab_min) : zwischenspeicher.markierenAbMin,
     znueniBisMin: znZeile ? gueltigesZnueniBis(znZeile.znueni_bis_min) ?? STANDARD.znueniBisMin : zwischenspeicher.znueniBisMin,
     znueniImmer: znZeile ? znZeile.znueni_immer === true : zwischenspeicher.znueniImmer,
+    // Antwortet die Datenbank, aber ohne Spalte (Migration fehlt), heisst das: null — kein Haken beim Melden
+    lieferwagenTagRp: znZeile ? gueltigerBetrag(znZeile.lieferwagen_tag_rp) : zn.error && !/fetch|network|kein Netz/i.test(zn.error.message) ? null : zwischenspeicher.lieferwagenTagRp,
   };
   zwischenspeicher = neu;
   try { localStorage.setItem(KEY, JSON.stringify(neu)); } catch { /* ohne Speicher läuft es auch */ }
@@ -266,7 +288,7 @@ export async function einstellungSetzen<K extends keyof Einstellungen>(feld: K, 
     if (feld === 'markierenAbMin' && /markieren_ab_min|does not exist|column/i.test(error.message) && !/check constraint/i.test(error.message)) {
       return 'Die Datenbank kennt «Gelb markieren ab» noch nicht — Migration 0028 fehlt.';
     }
-    if ((feld === 'znueniBisMin' || feld === 'znueniImmer') && /znueni|does not exist|column/i.test(error.message) && !/check constraint/i.test(error.message)) {
+    if ((feld === 'znueniBisMin' || feld === 'znueniImmer' || feld === 'lieferwagenTagRp') && /znueni|lieferwagen|does not exist|column/i.test(error.message) && !/check constraint/i.test(error.message)) {
       return 'Die Datenbank kennt die Pause-Einstellung noch nicht — Migration 0036 fehlt.';
     }
     return /row-level security|permission denied|does not exist/i.test(error.message)

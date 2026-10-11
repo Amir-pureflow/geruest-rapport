@@ -7,7 +7,7 @@
 -- werden erst sichtbar, wenn sie eingespielt ist.
 
 -- ────────────────────────────────────────────────────────────────────────────────────────────
--- 1. Znüni je Firma
+-- 1. Pause am Morgen je Firma (Spalten heissen «znueni_…» wie im Code)
 -- ────────────────────────────────────────────────────────────────────────────────────────────
 -- Standard (wie bisher): 9:00–9:30, bezahlt, abgezogen nur auf Knopfdruck («− Pause»).
 -- Gerüst GmbH (Arbnor, 10./11.10.2026): 9:00–9:15, wird IMMER abgezogen — Vormittag 7–12 = 4.75 h bezahlt.
@@ -19,3 +19,19 @@ alter table firma add constraint firma_znueni_bis_chk check (znueni_bis_min betw
 
 update firma set znueni_bis_min = 555, znueni_immer = true
  where id = 'd356f4a2-2d1e-4624-92c1-57b08cc67b13';  -- Gerüst GmbH
+
+-- ────────────────────────────────────────────────────────────────────────────────────────────
+-- 2. Lieferwagen für Subunternehmer
+-- ────────────────────────────────────────────────────────────────────────────────────────────
+-- Arbnor (10.10.2026): Nimmt ein Team mit Subunternehmern (Anstellung «extern») den Lieferwagen der Firma mit,
+-- kostet das pro Tag einen festen Betrag (Gerüst GmbH: Fr. 100). Beim Melden ein Haken «Lieferwagen der Firma
+-- gebraucht»; das Sekretariat sieht die Tage im Export (Blatt «Lieferwagen», pro Team und Tag einmal).
+-- Betrag in Rappen, 0 = aus (kein Haken). Andere Firmen starten mit «aus».
+alter table firma add column if not exists lieferwagen_tag_rp int not null default 0;
+alter table firma drop constraint if exists firma_lieferwagen_tag_rp_chk;
+alter table firma add constraint firma_lieferwagen_tag_rp_chk check (lieferwagen_tag_rp between 0 and 100000);
+alter table tagesmeldung add column if not exists lieferwagen boolean not null default false;
+create index if not exists tagesmeldung_lieferwagen_idx on tagesmeldung (datum) where lieferwagen;
+
+update firma set lieferwagen_tag_rp = 10000
+ where id = 'd356f4a2-2d1e-4624-92c1-57b08cc67b13' and lieferwagen_tag_rp = 0;  -- Gerüst GmbH

@@ -4,11 +4,11 @@
  * für alle Geräte dieser Firma. Nach dem Umschalten lädt die App neu, damit Menü und Erfassung passen.
  */
 import { useState } from 'react';
-import { Clock3, Coffee, Highlighter, Minus, Plus } from 'lucide-react';
+import { Clock3, Coffee, Highlighter, Minus, Plus, Truck } from 'lucide-react';
 import {
   einstellungen, einstellungSetzen, schalterGelesen, eigeneFirma,
   briefkopf, briefkopfSetzen, normaltagMin, normaltagAusDatenbank, NORMALTAG_BEREICH,
-  markierenAbMin, markierenAusDatenbank, znueni, znueniAusDatenbank,
+  markierenAbMin, markierenAusDatenbank, znueni, znueniAusDatenbank, lieferwagenTagRp,
   type Briefkopf, type Einstellungen,
 } from '../../lib/einstellungen';
 import { Segment } from '../../ui/Segment';
@@ -265,6 +265,65 @@ function ZnueniKarte() {
   );
 }
 
+/** Häufige Beträge pro Tag in Rappen; 0 = aus (kein Haken beim Melden). */
+const LIEFERWAGEN_VORSCHLAEGE = [0, 5000, 8000, 10000, 12000, 15000];
+
+/**
+ * Lieferwagen für Subunternehmer (Migration 0036, Arbnor 10.10.2026): Nehmen Subunternehmer den Lieferwagen der Firma
+ * mit, kostet das pro Tag einen festen Betrag. Beim Melden tippen sie an, ob sie ihn hatten; das Sekretariat sieht die
+ * Tage im Export (Blatt «Lieferwagen»).
+ */
+function LieferwagenKarte() {
+  const [rp, setRp] = useState(lieferwagenTagRp);
+  const [speichert, setSpeichert] = useState(false);
+  const [meldung, setMeldung] = useState<{ text: string; art: 'ok' | 'fehler' } | null>(null);
+
+  async function waehlen(neu: number) {
+    if (neu === rp || speichert) return;
+    setSpeichert(true);
+    setMeldung(null);
+    const f = await einstellungSetzen('lieferwagenTagRp', neu);
+    setSpeichert(false);
+    if (f) { setMeldung({ text: f, art: 'fehler' }); return; }
+    setRp(neu);
+    setMeldung({ text: 'Gespeichert ✓', art: 'ok' });
+  }
+
+  return (
+    <section className="card space-y-4">
+      <div className="flex items-start gap-3">
+        <span className="grid h-10 w-10 shrink-0 place-items-center rounded-[12px] bg-steel text-white shadow-[0_4px_10px_-4px_rgb(43_108_176/0.6)]">
+          <Truck size={19} strokeWidth={2.2} aria-hidden="true" />
+        </span>
+        <div>
+          <h2 className="font-display text-[15px] font-semibold">Lieferwagen für Subunternehmer</h2>
+          <p className="mt-0.5 text-xs text-ink3">
+            Teams mit Leuten der Anstellung «extern» sehen beim Melden einen Haken «Lieferwagen der Firma gebraucht». Pro Tag
+            und Team zählt der Betrag einmal — im Export als eigenes Blatt.
+          </p>
+        </div>
+      </div>
+      {rp === null ? (
+        <p className="rounded-[12px] border border-amber/40 bg-amber-soft px-3.5 py-2 text-xs text-amber-deep">
+          Die Datenbank kennt diese Einstellung noch nicht (Migration 0036 fehlt) — bis dahin gibt es den Haken beim Melden nicht.
+        </p>
+      ) : (
+        <Segment
+          label="Betrag pro Tag"
+          optionen={LIEFERWAGEN_VORSCHLAEGE.map((v) => ({ wert: v, text: v === 0 ? 'aus' : `Fr. ${v / 100}` }))}
+          wert={LIEFERWAGEN_VORSCHLAEGE.includes(rp) ? rp : -1}
+          aendern={(v) => void waehlen(v)}
+        />
+      )}
+      {(meldung || speichert) && (
+        <p className={'text-sm font-semibold ' + (speichert ? 'text-ink3' : meldung?.art === 'ok' ? 'text-good-deep' : 'text-accent-deep')}>
+          {speichert ? 'Speichert …' : meldung?.text}
+        </p>
+      )}
+    </section>
+  );
+}
+
 /** Die Felder des Briefkopfs in der Reihenfolge, in der sie auf dem Rapport stehen. */
 const BRIEFKOPF_FELDER: { feld: keyof Briefkopf; label: string; platzhalter: string; breit?: boolean }[] = [
   { feld: 'name', label: 'Firmenname', platzhalter: 'Gerüst GmbH', breit: true },
@@ -391,6 +450,7 @@ export function Einstellungen() {
       <NormaltagKarte />
       <MarkierenKarte />
       <ZnueniKarte />
+      <LieferwagenKarte />
 
       {WAHLEN.map((w) => (
         <section key={w.feld} className="card space-y-2.5">

@@ -1,4 +1,4 @@
-import { Check, CheckCircle2, ChevronLeft, ChevronRight, Flag, Minus, Plus, Car, UserPlus, X } from 'lucide-react';
+import { Check, CheckCircle2, ChevronLeft, ChevronRight, Flag, Minus, Plus, Car, Truck, UserPlus, X } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
 import { Link } from 'react-router-dom';
 import { Shell } from '../ui/Shell';
@@ -8,7 +8,7 @@ import { enqueueMeldung, aktualisiereMeldung, belegFehlerVon, flushNachSupabase,
 import { addTage, iso, lang, stunden } from '../lib/datum';
 import { fotoVerkleinern } from '../lib/foto';
 import { kennzeichen } from '../lib/fahrzeug';
-import { einstellungen, normaltagMin, znueni } from '../lib/einstellungen';
+import { einstellungen, lieferwagenTagRp, normaltagMin, znueni } from '../lib/einstellungen';
 import { MAX_SPANNEN, MITTAG_VON_MIN, NACHMITTAG_MIN, ausUhrzeit, aufteilen, kannPauseAbziehen, mittagMinuten, pauseAbziehen, pauseZaehlen, spanneVollstaendig, spannenMinuten, spannenOffen, spannenUeberlappen, standardSpannen, umfasstPause, uhrzeit, uhrzeitFeld, zuSpalten, type Spanne } from '../lib/zeiten';
 import { baustellenSuchen } from '../lib/suche';
 import { FUNKTION_BUERO } from '../lib/benutzername';
@@ -434,6 +434,8 @@ export function Erfassung() {
   const [teams, setTeams] = useState<Team[]>([]);
   const [teamId, setTeamId] = useState<string | null>(() => localStorage.getItem(TEAM_KEY));
   const [leute, setLeute] = useState<Person[]>([]);
+  /** Subunternehmer hatten heute den Lieferwagen der Firma (0036, Arbnor 10.10.2026: Fr. 100 pro Tag). */
+  const [lieferwagen, setLieferwagen] = useState(false);
   const [kacheln, setKacheln] = useState<Baustelle[]>([]);
   const [alleGeplanten, setAlleGeplanten] = useState<Baustelle[]>([]);
   // /erfassung?baustelle=wahl öffnet direkt «andere Baustelle …» (Sprung von der Chefmonteur-Startseite)
@@ -835,6 +837,10 @@ export function Erfassung() {
   /** Feste Mitglieder plus heutige Gäste — in dieser Reihenfolge, so steht es auch in der Liste. */
   const alleImTeam = useMemo(() => leute.concat(gaeste), [leute, gaeste]);
   const dabei = useMemo(() => alleImTeam.filter((p) => anw[p.id]?.dabei), [alleImTeam, anw]);
+  // Lieferwagen-Haken nur, wenn Subunternehmer (Anstellung «extern») dabei sind und die Datenbank die Spalte kennt (0036)
+  const lieferwagenPreis = lieferwagenTagRp();
+  const mitExternen = lieferwagenPreis !== null && lieferwagenPreis > 0 && dabei.some((p) => p.typ === 'extern');
+  useEffect(() => { setLieferwagen(false); }, [teamId, tagIso]);
   const ueberTotal = dabei.reduce((s, p) => s + wirksam(anw[p.id]).ueber, 0);
 
   /** Team-Zeiten setzen alle, die gerade auf Zeiten stehen. */
@@ -930,6 +936,8 @@ export function Erfassung() {
       transkript: textOk ? vs!.text.trim() : null,
       transkript_quelle: textOk ? vs!.quelle : null,
       transkript_sprache: textOk ? vs!.sprache : null,
+      // nur wenn ja — so geht jede andere Meldung auch ohne Migration 0036 durch
+      ...(normal && lieferwagen && mitExternen ? { lieferwagen: true } : {}),
       eintraege: beteiligt.map((p) => {
         const a = anw[p.id];
         const w = wirksam(a);
@@ -1049,7 +1057,7 @@ export function Erfassung() {
       if (notiz) notizUuid = uuidNormal;
     }
     const zusammenfassung = art === 'normal'
-      ? `Gespeichert: ${normalStundenText()}`
+      ? `Gespeichert: ${normalStundenText()}${lieferwagen && mitExternen ? ' · Lieferwagen gebraucht' : ''}`
       : normalMitgespeichert
         ? `Gespeichert: normaler Tag ${normalStundenText()} + ${abweichungText()}`
         : `Gespeichert: ${abweichungText()} (normaler Tag war schon gemeldet)`;
@@ -1622,6 +1630,25 @@ export function Erfassung() {
             </div>
           )}
         </section>
+
+        {/* Lieferwagen (0036, Arbnor 10.10.2026): Subunternehmer tippen an, ob sie den Lieferwagen der Firma heute hatten — Fr. 100 pro Tag. */}
+        {mitExternen && (
+          <button
+            type="button"
+            role="checkbox"
+            aria-checked={lieferwagen}
+            onClick={() => setLieferwagen((v) => !v)}
+            className={'card flex w-full items-center gap-3 text-left transition ' + (lieferwagen ? 'border-good/40 bg-good-soft/40' : '')}
+          >
+            <span className={'grid h-10 w-10 shrink-0 place-items-center rounded-[12px] border-2 transition ' + (lieferwagen ? 'border-good bg-good text-white' : 'border-line bg-surface text-transparent')}>
+              <Check size={20} strokeWidth={3} aria-hidden="true" />
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="flex items-center gap-2 text-sm font-semibold text-ink"><Truck size={16} className="text-steel" aria-hidden="true" /> Lieferwagen der Firma gebraucht</span>
+              <span className="mt-0.5 block text-[11px] text-ink3">Nur antippen, wenn ihr ihn heute hattet — {`Fr. ${((lieferwagenPreis ?? 0) / 100).toFixed(0)}`} pro Tag.</span>
+            </span>
+          </button>
+        )}
 
         {/* Bemerkung zum Tag: die Sprachnotiz ist immer da (Bauführer 20.09.), bei Überstunden Pflicht — kein eigener Bildschirm. */}
         <section className={'card space-y-2.5 ' + (ueberTotal > 0 ? 'border-amber/30' : '')}>

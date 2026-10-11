@@ -39,8 +39,8 @@ const KOPF = 4; // Zeile der Spaltenüberschriften; 1 Titel, 2 Untertitel, 3 Luf
 export interface Spalte {
   titel: string;
   breite: number;
-  /** text (links), h (Stunden, rechts, 0.00), zahl (rechts, ganz), datum (dd.mm.yyyy) */
-  art?: 'text' | 'h' | 'zahl' | 'datum';
+  /** text (links), h (Stunden, rechts, 0.00), zahl (rechts, ganz), fr (Franken, rechts, 0.00), datum (dd.mm.yyyy) */
+  art?: 'text' | 'h' | 'zahl' | 'fr' | 'datum';
   /** Spalte hervorheben (Totalspalte) */
   fett?: boolean;
   /** Kopf senkrecht (Personen im Raster — sonst wird das Blatt meterbreit) */
@@ -65,6 +65,8 @@ export interface LohnExportZeile {
   km: number;
 }
 export interface UeberExportZeile { name: string; typ: string; zeitraum_min: number; jahr_min: number }
+/** Ein Tag, an dem ein Team mit Subunternehmern den Lieferwagen der Firma hatte (0036) — pro Team und Tag einmal. */
+export interface LieferwagenExportZeile { datum: string; team: string; baustellen: string; betrag_rp: number }
 export interface RasterExport {
   personen: { id: string; name: string }[];
   vorgaenge: { konto: string; bezeichnung: string; regie: boolean; min: Map<string, number> }[];
@@ -143,7 +145,7 @@ function zeile(ws: Worksheet, nr: number, werte: (string | number | Date | null 
   spalten.forEach((s, i) => {
     const c = r.getCell(i + 1);
     const v = werte[i];
-    const leer = v == null || v === '' || ((s.art === 'h' || s.art === 'zahl') && v === 0);
+    const leer = v == null || v === '' || ((s.art === 'h' || s.art === 'zahl' || s.art === 'fr') && v === 0);
     c.value = leer ? null : (v as Excel.CellValue);
     c.font = { name: SCHRIFT, size: 10, bold: !!o.fett || !!s.fett, color: { argb: o.farbe ?? F.tinte } };
     c.border = rand();
@@ -151,6 +153,7 @@ function zeile(ws: Worksheet, nr: number, werte: (string | number | Date | null 
     else if (o.zebra) c.fill = fuellung(F.zebra);
     if (s.art === 'h') { c.numFmt = STUNDEN; c.alignment = { horizontal: 'right' }; }
     else if (s.art === 'zahl') { c.numFmt = '0'; c.alignment = { horizontal: 'right' }; }
+    else if (s.art === 'fr') { c.numFmt = '#,##0.00'; c.alignment = { horizontal: 'right' }; }
     else if (s.art === 'datum') { c.numFmt = 'dd.mm.yyyy'; c.alignment = { horizontal: 'left' }; }
     else c.alignment = { horizontal: 'left', vertical: 'middle' };
   });
@@ -162,7 +165,7 @@ function summe(ws: Worksheet, nr: number, beschriftung: string, von: number, bis
   const r = ws.getRow(nr);
   spalten.forEach((s, i) => {
     const c = r.getCell(i + 1);
-    const summierbar = (s.art === 'h' || s.art === 'zahl') && ergebnisse[i] != null;
+    const summierbar = (s.art === 'h' || s.art === 'zahl' || s.art === 'fr') && ergebnisse[i] != null;
     if (i === 0) c.value = beschriftung;
     else if (summierbar && bis >= von) c.value = { formula: `SUM(${buchstabe(i + 1)}${von}:${buchstabe(i + 1)}${bis})`, result: ergebnisse[i] ?? 0 };
     else if (summierbar) c.value = ergebnisse[i];
@@ -172,6 +175,7 @@ function summe(ws: Worksheet, nr: number, beschriftung: string, von: number, bis
     c.border = { ...rand(), top: { style: 'medium', color: { argb: F.tinte2 } } };
     if (s.art === 'h') { c.numFmt = STUNDEN; c.alignment = { horizontal: 'right' }; }
     else if (s.art === 'zahl') { c.numFmt = '0'; c.alignment = { horizontal: 'right' }; }
+    else if (s.art === 'fr') { c.numFmt = '#,##0.00'; c.alignment = { horizontal: 'right' }; }
   });
   r.height = 19;
 }
@@ -343,6 +347,29 @@ function blattRaster(wb: Workbook, vergeben: Set<string>, unter: Untertitel, r: 
   druck(ws, `Stundenraster ${unter.zeitraum}`);
 }
 
+/** Lieferwagen für Subunternehmer (0036): Tag, Team, Baustelle, Betrag — pro Team und Tag eine Zeile, Total als Formel. */
+function blattLieferwagen(wb: Workbook, vergeben: Set<string>, unter: Untertitel, zeilen: LieferwagenExportZeile[]): void {
+  const ws = neuesBlatt(wb, 'Lieferwagen', vergeben, F.stahl);
+  const spalten: Spalte[] = [
+    { titel: 'Tag', breite: 5 },
+    { titel: 'Datum', breite: 12, art: 'datum' },
+    { titel: 'Team', breite: 16 },
+    { titel: 'Baustelle', breite: 40 },
+    { titel: 'Fr.', breite: 11, art: 'fr', fett: true },
+  ];
+  kopf(ws, 'Lieferwagen für Subunternehmer', unter, spalten, 0);
+  const von = KOPF + 1;
+  zeilen.forEach((z, i) => {
+    const d = ausIso(z.datum);
+    zeile(ws, von + i, [WOCHENTAG[d.getDay()], new Date(d.getFullYear(), d.getMonth(), d.getDate(), 12), z.team, z.baustellen, z.betrag_rp / 100], spalten, { zebra: i % 2 === 1 });
+  });
+  const bis = von + zeilen.length - 1;
+  summe(ws, bis + 1, `Total (${zeilen.length} Tage)`, von, bis, spalten, [null, null, null, null, zeilen.reduce((s, z) => s + z.betrag_rp, 0) / 100]);
+  if (zeilen.length > 0) ws.autoFilter = { from: { row: KOPF, column: 1 }, to: { row: bis, column: 4 } };
+  fuss(ws, bis + 3, 'Beim Melden angetippt: «Lieferwagen der Firma gebraucht». Pro Team und Tag einmal, auch bei zwei Baustellen.');
+  druck(ws, `Lieferwagen ${unter.zeitraum}`);
+}
+
 // ── Öffentliche Funktionen ─────────────────────────────────────────────────
 
 async function herunterladen(wb: Workbook, dateiname: string): Promise<void> {
@@ -370,7 +397,7 @@ export interface RapportExport {
   monat: boolean;
   jahr: string;
   /** null = Bauführer, nur Raster */
-  lohn: { spalten: string[]; zeilen: LohnExportZeile[]; ueber: UeberExportZeile[]; bueros: BueroBlatt[] } | null;
+  lohn: { spalten: string[]; zeilen: LohnExportZeile[]; ueber: UeberExportZeile[]; bueros: BueroBlatt[]; lieferwagen?: LieferwagenExportZeile[] } | null;
   raster: RasterExport;
   dateiname: string;
 }
@@ -384,6 +411,7 @@ export async function rapportExcel(d: RapportExport): Promise<void> {
     blattLohn(wb, vergeben, d.unter, d.lohn.spalten, d.monat, d.lohn.zeilen);
     blattUeberstunden(wb, vergeben, d.unter, d.monat, d.jahr, d.lohn.ueber);
     for (const b of d.lohn.bueros) blattBuero(wb, vergeben, d.unter, b);
+    if (d.lohn.lieferwagen?.length) blattLieferwagen(wb, vergeben, d.unter, d.lohn.lieferwagen);
   }
   blattRaster(wb, vergeben, d.unter, d.raster);
   await herunterladen(wb, d.dateiname);
