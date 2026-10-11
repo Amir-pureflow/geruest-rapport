@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { arbeitstage, ausschnitt, besetzung, einteilungenBuendeln, istBalken, naechsterTeamName, ohneTag, planAm, planIst, spuren, tageZwischen, ueberschneiden, zeitraumVorschlag, type VerlaufZeile } from './planung';
+import { arbeitstage, ausschnitt, besetzung, einteilungenBuendeln, heuteUndNaechster, istBalken, naechsterTeamName, ohneTag, planAm, planHinweise, planIst, spuren, tageZwischen, ueberschneiden, zeitraumVorschlag, type VerlaufZeile } from './planung';
 import { ausIso } from './datum';
 
 describe('planung', () => {
@@ -159,5 +159,44 @@ describe('einteilungenBuendeln — «bis Freitag» als eine Zeile', () => {
     const g = einteilungenBuendeln([z('2026-10-09', '2026-10-06T14:20:05Z'), z('2026-10-08', '2026-10-06T14:20:04Z'), z('2026-10-08', '2026-10-07T06:00:00Z', 't3')]);
     expect(g).toHaveLength(2);
     expect(g[0]).toMatchObject({ mitarbeiter_id: 'luan', team_id: 't7', tage: ['2026-10-08', '2026-10-09'] });
+  });
+});
+
+describe('planHinweise — Umplanungen fürs Team', () => {
+  const p = (id: string, team: string, bs: string, von: string, bis: string) => ({ id, team_id: team, baustelle_id: bs, von, bis });
+  const seit = '2026-10-06T00:00:00Z';
+  it('Notfall: Einsatz gekürzt, für Mi neue Baustelle → Hinweis mit der alten Baustelle', () => {
+    const v: VerlaufZeile[] = [
+      { tabelle: 'jahresplan', datensatz_id: 'p1', aktion: 'geaendert', vorher: p('p1', 't2', 'eig', '2026-10-05', '2026-10-09'), nachher: p('p1', 't2', 'eig', '2026-10-05', '2026-10-06'), zeit: '2026-10-07T04:45:00Z' },
+      { tabelle: 'jahresplan', datensatz_id: 'p5', aktion: 'neu', vorher: null, nachher: p('p5', 't2', 'vik', '2026-10-07', '2026-10-07'), zeit: '2026-10-07T04:45:02Z' },
+    ];
+    const h = planHinweise('t2', [], ['2026-10-07', '2026-10-08'], v, seit);
+    expect(h).toEqual([
+      { tag: '2026-10-07', art: 'baustelle', zeit: '2026-10-07T04:45:02Z', alt: ['eig'] },
+      { tag: '2026-10-08', art: 'baustelle', zeit: '2026-10-07T04:45:00Z', alt: ['eig'] },
+    ]);
+  });
+  it('Leute: eigene weg, fremde dazu, jüngste Änderung zählt, zurück', () => {
+    const e = (id: string, ma: string, team: string, datum: string, aktion: VerlaufZeile['aktion'], zeit: string): VerlaufZeile =>
+      ({ tabelle: 'einsatz_person', datensatz_id: id, aktion, vorher: aktion === 'geloescht' ? { mitarbeiter_id: ma, team_id: team, datum } : null, nachher: aktion === 'geloescht' ? null : { mitarbeiter_id: ma, team_id: team, datum }, zeit });
+    const v = [
+      e('a', 'luan', 't7', '2026-10-08', 'neu', '2026-10-06T14:21:00Z'),
+      e('b', 'marco', 't3', '2026-10-08', 'neu', '2026-10-08T05:30:00Z'),
+      e('c', 'kevin', 't7', '2026-10-09', 'neu', '2026-10-06T14:21:00Z'),
+      e('c', 'kevin', 't7', '2026-10-09', 'geloescht', '2026-10-09T04:50:00Z'),
+    ];
+    expect(planHinweise('t2', ['luan', 'marco'], ['2026-10-08'], v, seit).map((x) => `${x.art} ${x.mitarbeiter_id}`)).toEqual(['weg luan', 'weg marco']);
+    expect(planHinweise('t3', ['kevin'], ['2026-10-08', '2026-10-09'], v, seit).map((x) => `${x.tag} ${x.art} ${x.mitarbeiter_id}`)).toEqual(['2026-10-08 dazu marco', '2026-10-09 zurueck kevin']);
+  });
+  it('Änderungen vor «seit» zählen nicht', () => {
+    const v: VerlaufZeile[] = [{ tabelle: 'jahresplan', datensatz_id: 'x', aktion: 'neu', vorher: null, nachher: p('x', 't2', 'eig', '2026-10-05', '2026-10-09'), zeit: '2026-10-02T14:00:00Z' }];
+    expect(planHinweise('t2', [], ['2026-10-07'], v, seit)).toEqual([]);
+  });
+});
+
+describe('heuteUndNaechster', () => {
+  it('Freitag → Montag, Mittwoch → Donnerstag', () => {
+    expect(heuteUndNaechster(new Date(2026, 9, 9, 12))).toEqual(['2026-10-09', '2026-10-12']);
+    expect(heuteUndNaechster(new Date(2026, 9, 7, 12))).toEqual(['2026-10-07', '2026-10-08']);
   });
 });

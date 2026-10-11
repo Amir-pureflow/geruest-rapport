@@ -288,9 +288,15 @@ abgehakt mit «in Team X», Eingeteilte als «eingeteilt»). Rechnerei in `src/l
 `einsatz_person` in `plan_verlauf` (neu/geändert/gelöscht, vorher/nachher, Zeit, wer) — die App liest nur. Wochenstatus
 im Kopf: «Entwurf · Woche läuft» / «Archiv» / «Plan». Für Wochen mit vergangenen Tagen drei Ansichten: Aktueller Plan,
 **Plan vom Montag** (`planAm()`: vom heutigen Stand rückwärts durch den Verlauf bis Mo 06:00) und **Tatsächlich**
-(`istBalken()` aus den Meldungen); vergangene Wochen öffnen auf «Tatsächlich». Darunter «Verlauf dieser Woche»
-(Einteilungen gebündelt mit `einteilungenBuendeln()`), mit Trennlinie «Woche beginnt». Testdaten direkt per SQL nur mit
-abgeschalteten Auslösern einfügen, sonst entstehen Verlaufszeilen mit falscher Zeit.
+(`istBalken()` aus den Meldungen); vergangene Wochen öffnen auf «Wirklich gewesen», darunter gestrichelt, was am Montag
+anders geplant war. Die Verlaufsliste unter dem Raster gab es kurz und ist wieder weg (Amir 11.10.: verwirrend). Testdaten
+direkt per SQL nur mit abgeschalteten Auslösern einfügen, sonst entstehen Verlaufszeilen mit falscher Zeit.
+
+**Einfacher (11.10.2026, Amir):** ein Klick pro Tag (Balken antippen öffnet den angetippten Tag, dort «Ganzen Einsatz
+ändern»), Tageszeile in Worten («+ Marco», «− Luan», «Pedro Ferien» statt +1/−1), Erste-Schritte-Karte (wegklickbar,
+`localStorage planung-hilfe-v1`). **Umplanung erreicht das Team:** `planHinweise()` aus `plan_verlauf` (letzte 72 h, heute +
+nächster Arbeitstag) → Startseite Chefmonteur «Plan geändert» («Montag: Viktoriastrasse — statt Eigerplatz», «Marco ist
+in Team 3»); im Teamgerät steht die heute geplante Baustelle zuerst, nach einer Umplanung «neu geplant».
 
 ## iPad (20.09.)
 

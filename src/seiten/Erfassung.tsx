@@ -14,6 +14,7 @@ import { baustellenSuchen } from '../lib/suche';
 import { FUNKTION_BUERO } from '../lib/benutzername';
 import { vorratLesen, vorratSchreiben } from '../lib/vorrat';
 import { ArtPille } from '../ui/ArtPille';
+import { planHinweise, type VerlaufZeile } from '../lib/planung';
 
 /**
  * Phase 2 — das Teamgerät. Ein Chefmonteur meldet für sein Team.
@@ -454,6 +455,8 @@ export function Erfassung() {
   const [zuletzt, setZuletzt] = useState<string[]>(zuletztLesen);
   const [weitereTeams, setWeitereTeams] = useState(0);
   const [baustelle, setBaustelle] = useState<Baustelle | null>(null);
+  /** Heute laut Planung — diese Baustelle steht zuerst; «neu geplant», wenn sie in den letzten Tagen umgeplant wurde */
+  const [geplantHeute, setGeplantHeute] = useState<{ ids: string[]; neu: boolean }>({ ids: [], neu: false });
   /**
    * Zweite Baustelle am selben Tag (Arbnor 10.10.2026: «mehrere Baustellen bequemer, auf einmal»): ab der Wechselzeit
    * zählt die Zeit auf die zweite. Gespeichert in einem Durchgang als zwei Meldungen, Überstunden über den ganzen Tag.
@@ -762,17 +765,23 @@ export function Erfassung() {
       }
       setZuletztGaeste(gaesteListe);
 
-      const [plan, zuletzt] = await Promise.all([
+      const seit = new Date(Date.now() - 72 * 3600 * 1000).toISOString();
+      const [plan, zuletzt, vl] = await Promise.all([
         client.from('jahresplan').select('von,bis,baustelle:baustelle_id(id,konto_nr,bezeichnung)').eq('team_id', teamId).order('von'),
         client.from('tagesmeldung').select('datum,baustelle:baustelle_id(id,konto_nr,bezeichnung)').eq('team_id', teamId).gte('datum', iso(addTage(heute, -14))).order('datum', { ascending: false }).limit(40),
+        client.from('plan_verlauf').select('tabelle,datensatz_id,aktion,vorher,nachher,zeit').gte('zeit', seit).limit(800),
       ]);
       const gesehen = new Set<string>();
       const tiles: Baustelle[] = [];
       const push = (b: Baustelle | null) => { if (b && !gesehen.has(b.id) && tiles.length < 4) { gesehen.add(b.id); tiles.push(b); } };
-      for (const z of (zuletzt.data ?? []) as unknown as { baustelle: Baustelle | null }[]) push(z.baustelle);
       const planRows = (plan.data ?? []) as unknown as { von: string; bis: string; baustelle: Baustelle | null }[];
-      for (const p of planRows) if (p.von <= heuteIso && p.bis >= heuteIso) push(p.baustelle);
+      // Heute Geplantes zuerst (11.10.2026): nach einer Umplanung am Morgen ist sonst die Baustelle von gestern vorgewählt
+      const heuteGeplant = planRows.filter((p) => p.von <= heuteIso && p.bis >= heuteIso).map((p) => p.baustelle).filter((b): b is Baustelle => !!b);
+      for (const b of heuteGeplant) push(b);
+      for (const z of (zuletzt.data ?? []) as unknown as { baustelle: Baustelle | null }[]) push(z.baustelle);
       for (const p of planRows) push(p.baustelle);
+      const umgeplant = !vl.error && planHinweise(teamId, personen.map((p) => p.id), [heuteIso], (vl.data ?? []) as VerlaufZeile[], seit).some((h) => h.art === 'baustelle');
+      setGeplantHeute({ ids: heuteGeplant.map((b) => b.id), neu: umgeplant });
       const geplant = planRows.map((p) => p.baustelle).filter((b): b is Baustelle => !!b);
       setKacheln(tiles);
       setAlleGeplanten(geplant);
@@ -1584,7 +1593,9 @@ export function Erfassung() {
             {kacheln.map((b, i) => (
               <button key={b.id} type="button" onClick={() => setBaustelle(b)} className={'chip flex min-h-[4.5rem] flex-col items-start justify-center py-2.5 text-left ' + (baustelle?.id === b.id ? 'chip-on' : zweite?.id === b.id ? 'border-ink/30 bg-surface-2' : '')}>
                 <span className="break-words text-sm font-semibold leading-tight">{anzeigeName(b.bezeichnung)}</span>
-                <span className="mt-1 flex items-center gap-1.5"><span className="knr">{b.konto_nr}</span>{zweite?.id === b.id ? <span className="text-[10px] font-semibold text-ink2">2. Baustelle</span> : i === 0 && <span className="text-[10px] text-ink3">{b.id === gesuchtId ? 'eingegeben' : 'zuletzt'}</span>}</span>
+                <span className="mt-1 flex items-center gap-1.5"><span className="knr">{b.konto_nr}</span>{zweite?.id === b.id ? <span className="text-[10px] font-semibold text-ink2">2. Baustelle</span>
+                  : geplantHeute.ids.includes(b.id) ? <span className={'text-[10px] ' + (geplantHeute.neu ? 'rounded-md bg-amber-soft px-1.5 py-px font-semibold text-amber-deep' : 'text-ink3')}>{geplantHeute.neu ? 'neu geplant' : 'geplant'}</span>
+                  : i === 0 && <span className="text-[10px] text-ink3">{b.id === gesuchtId ? 'eingegeben' : 'zuletzt'}</span>}</span>
               </button>
             ))}
             <button type="button" onClick={() => setZeigeAndere((v) => !v)} className="chip flex min-h-[4.5rem] items-center justify-center text-ink3">andere Baustelle …</button>

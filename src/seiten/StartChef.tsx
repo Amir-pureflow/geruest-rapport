@@ -9,7 +9,7 @@
  */
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { CheckCircle2, Clock } from 'lucide-react';
+import { BellRing, CheckCircle2, Clock } from 'lucide-react';
 import { Shell } from '../ui/Shell';
 import { supabase } from '../lib/supabase';
 import { addTage, iso, kurz, kw, montag, stunden, WOCHENTAGE } from '../lib/datum';
@@ -18,6 +18,7 @@ import { einstellungen } from '../lib/einstellungen';
 import { taetigkeitText } from '../lib/zusatzauftrag';
 import { flushNachSupabase, offeneAnzahl, offeneMeldungen, type MeldungPayload } from '../lib/db';
 import { vorratLesen, vorratSchreiben } from '../lib/vorrat';
+import { heuteUndNaechster, planHinweise, type VerlaufZeile } from '../lib/planung';
 
 export const TEAM_KEY = 'teamgeraet-team-id';
 /** Zuletzt gewählte Teams auf diesem Gerät (max. 5, neuestes vorne) — gleiche Liste wie in der Erfassung. */
@@ -223,6 +224,62 @@ export function StartChef() {
 
   const korrekturJeZeit = useMemo(() => korrekturenZusammenfassen(korrekturen), [korrekturen]);
 
+  /**
+   * Plan geändert (11.10.2026, Amir): Umplanungen müssen das Team erreichen — «heute Viktoriastrasse statt Eigerplatz»,
+   * «morgen ist Marco in Team 3». Aus dem Verlauf der Planung (0038), für heute und den nächsten Arbeitstag, Änderungen
+   * der letzten drei Tage. Ohne Netz oder ohne Migration: nichts.
+   */
+  const [hinweise, setHinweise] = useState<{ key: string; tag: string; text: string; wann: string }[]>([]);
+  useEffect(() => {
+    setHinweise([]);
+    if (!supabase || !teamId) return;
+    const c = supabase;
+    let veraltet = false;
+    void (async () => {
+      const tageH = heuteUndNaechster(new Date());
+      const seit = new Date(Date.now() - 72 * 3600 * 1000).toISOString();
+      const [vl, mg, pl] = await Promise.all([
+        c.from('plan_verlauf').select('tabelle,datensatz_id,aktion,vorher,nachher,zeit').gte('zeit', seit).order('zeit').limit(800),
+        c.from('team_mitglied').select('mitarbeiter_id').eq('team_id', teamId).is('bis', null),
+        c.from('jahresplan').select('von,bis,baustelle:baustelle_id(id,konto_nr,bezeichnung)').eq('team_id', teamId).lte('von', tageH[1]).gte('bis', tageH[0]),
+      ]);
+      if (veraltet || vl.error || !vl.data) return;
+      const mitglieder = ((mg.data ?? []) as { mitarbeiter_id: string }[]).map((x) => x.mitarbeiter_id);
+      const roh = planHinweise(teamId, mitglieder, tageH, vl.data as VerlaufZeile[], seit);
+      if (roh.length === 0) return;
+      const plaeneJetzt = (pl.data ?? []) as unknown as { von: string; bis: string; baustelle: { id: string; konto_nr: string; bezeichnung: string | null } | null }[];
+      const bsIds = [...new Set(roh.flatMap((h) => h.alt ?? []))];
+      const maIds = [...new Set(roh.map((h) => h.mitarbeiter_id).filter((x): x is string => !!x))];
+      const [bs, ma, tm] = await Promise.all([
+        bsIds.length ? c.from('baustelle').select('id,konto_nr,bezeichnung').in('id', bsIds) : Promise.resolve({ data: [] }),
+        maIds.length ? c.from('mitarbeiter').select('id,name').in('id', maIds) : Promise.resolve({ data: [] }),
+        c.from('team').select('id,bezeichnung'),
+      ]);
+      if (veraltet) return;
+      const bsName = new Map(((bs.data ?? []) as { id: string; konto_nr: string; bezeichnung: string | null }[]).map((b) => [b.id, b.bezeichnung ?? b.konto_nr]));
+      const maName = new Map(((ma.data ?? []) as { id: string; name: string }[]).map((m) => [m.id, m.name]));
+      const tmName = new Map(((tm.data ?? []) as { id: string; bezeichnung: string }[]).map((t) => [t.id, t.bezeichnung]));
+      const heuteIsoH = tageH[0];
+      const tagText = (t: string) => (t === heuteIsoH ? 'Heute' : ['Sonntag', 'Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag'][new Date(t + 'T12:00:00').getDay()] + (iso(addTage(new Date(heuteIsoH + 'T12:00:00'), 1)) === t ? ' (morgen)' : ''));
+      const wann = (z: string) => { const d = new Date(z); return `geändert ${WOCHENTAGE[(d.getDay() + 6) % 7]} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`; };
+      setHinweise(roh.map((h, i) => {
+        const jetzt = plaeneJetzt.filter((p) => p.von <= h.tag && p.bis >= h.tag && p.baustelle);
+        const jetztIds = jetzt.map((p) => p.baustelle!.id);
+        const vorname = h.mitarbeiter_id ? (maName.get(h.mitarbeiter_id) ?? 'Jemand') : '';
+        let text = '';
+        if (h.art === 'baustelle') {
+          const alt = (h.alt ?? []).filter((id) => !jetztIds.includes(id)).map((id) => bsName.get(id) ?? 'andere Baustelle');
+          text = (jetzt.length ? jetzt.map((p) => p.baustelle!.bezeichnung ?? p.baustelle!.konto_nr).join(', ') : 'keine Baustelle geplant') + (alt.length ? ` — statt ${alt.join(', ')}` : '');
+        } else if (h.art === 'weg') text = `${vorname} ist in ${tmName.get(h.team_id ?? '') ?? 'einem anderen Team'}`;
+        else if (h.art === 'dazu') text = `${vorname} kommt zu euch`;
+        else if (h.art === 'zurueck') text = `${vorname} ist wieder bei euch`;
+        else text = `${vorname} kommt doch nicht`;
+        return { key: `${h.tag}-${h.art}-${h.mitarbeiter_id ?? ''}-${i}`, tag: tagText(h.tag), text, wann: wann(h.zeit) };
+      }));
+    })();
+    return () => { veraltet = true; };
+  }, [teamId]);
+
   if (!teamId || (teams.length > 0 && !team)) {
     return (
       <Shell>
@@ -296,6 +353,17 @@ export function StartChef() {
           </div>
           <button type="button" className="btn-ghost shrink-0 text-xs" onClick={() => { localStorage.removeItem(TEAM_KEY); setTeamId(null); }}>Team wechseln</button>
         </header>
+
+        {hinweise.length > 0 && (
+          <section className="rounded-[16px] border border-amber/40 bg-amber-soft px-4 py-3" role="status">
+            <p className="flex items-center gap-2 text-sm font-semibold text-amber-deep"><BellRing size={16} aria-hidden="true" /> Plan geändert</p>
+            <ul className="mt-1.5 space-y-1 text-sm text-ink">
+              {hinweise.map((h) => (
+                <li key={h.key}><b className="font-semibold">{h.tag}:</b> {h.text} <span className="whitespace-nowrap text-[11px] text-ink3">· {h.wann}</span></li>
+              ))}
+            </ul>
+          </section>
+        )}
 
         {wartend > 0 && (
           <div className="rounded-[12px] border border-amber/40 bg-amber-soft px-4 py-3 text-sm font-semibold text-amber-deep">

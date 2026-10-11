@@ -243,3 +243,66 @@ export function einteilungenBuendeln(verlauf: VerlaufZeile[]): EinteilungsGruppe
   }
   return [...gruppen.values()].map((g) => ({ ...g, tage: [...new Set(g.tage)].sort() })).sort((a, b) => Date.parse(a.zeit) - Date.parse(b.zeit));
 }
+
+// ── Änderungshinweis für den Chefmonteur (11.10.2026, Amir: Umplanungen müssen das Team erreichen) ──────────
+
+export type HinweisArt = 'baustelle' | 'weg' | 'dazu' | 'zurueck' | 'nicht-mehr';
+export interface PlanHinweis {
+  tag: string;
+  art: HinweisArt;
+  /** jüngste Änderung, die zu diesem Hinweis gehört */
+  zeit: string;
+  /** baustelle: Baustellen, die vorher für den Tag geplant waren */
+  alt?: string[];
+  mitarbeiter_id?: string;
+  /** weg: in welches Team */
+  team_id?: string | null;
+}
+
+const deckt = (o: Record<string, unknown> | null, tag: string) => !!o && String(o.von) <= tag && String(o.bis) >= tag;
+
+/**
+ * Was hat sich seit `seit` für dieses Team an den Tagen `tage` geändert? Baustelle (Einsatz neu, geändert, gelöscht)
+ * und Leute (eigene Leute in ein anderes Team, Fremde dazu, zurück). Je Tag und Person nur die jüngste Änderung.
+ * Die App zeigt daraus auf der Startseite «Plan geändert» und markiert im Teamgerät die neu geplante Baustelle.
+ */
+export function planHinweise(teamId: string, mitglieder: string[], tage: string[], verlauf: VerlaufZeile[], seit: string): PlanHinweis[] {
+  const grenze = Date.parse(seit);
+  const neu = verlauf.filter((v) => Date.parse(v.zeit) > grenze).sort((a, b) => Date.parse(a.zeit) - Date.parse(b.zeit));
+  const out: PlanHinweis[] = [];
+  for (const tag of tage) {
+    // Baustelle: jede Änderung an einem Einsatz dieses Teams, der den Tag vorher oder nachher abdeckt
+    const plan = neu.filter((v) => v.tabelle === 'jahresplan'
+      && ((deckt(v.vorher, tag) && v.vorher?.team_id === teamId) || (deckt(v.nachher, tag) && v.nachher?.team_id === teamId)));
+    if (plan.length > 0) {
+      const alt = [...new Set(plan.filter((v) => deckt(v.vorher, tag) && v.vorher?.team_id === teamId).map((v) => String(v.vorher!.baustelle_id)))];
+      out.push({ tag, art: 'baustelle', zeit: plan[plan.length - 1].zeit, alt });
+    }
+    // Leute: je Person die jüngste Änderung an diesem Tag
+    const jePerson = new Map<string, VerlaufZeile>();
+    for (const v of neu) {
+      if (v.tabelle !== 'einsatz_person') continue;
+      const e = (v.nachher ?? v.vorher) as Record<string, unknown> | null;
+      if (!e || String(e.datum) !== tag) continue;
+      jePerson.set(String(e.mitarbeiter_id), v);
+    }
+    for (const [ma, v] of jePerson) {
+      const e = (v.nachher ?? v.vorher) as Record<string, unknown>;
+      const eigen = mitglieder.includes(ma);
+      const hier = e.team_id === teamId;
+      if (v.aktion === 'geloescht') {
+        if (eigen && !hier) out.push({ tag, art: 'zurueck', zeit: v.zeit, mitarbeiter_id: ma });
+        else if (!eigen && hier) out.push({ tag, art: 'nicht-mehr', zeit: v.zeit, mitarbeiter_id: ma });
+      } else if (eigen && !hier) out.push({ tag, art: 'weg', zeit: v.zeit, mitarbeiter_id: ma, team_id: (e.team_id as string | null) ?? null });
+      else if (!eigen && hier) out.push({ tag, art: 'dazu', zeit: v.zeit, mitarbeiter_id: ma });
+    }
+  }
+  return out;
+}
+
+/** Heute und der nächste Arbeitstag (Fr → Mo) — die Tage, für die der Chefmonteur Änderungen sehen muss. */
+export function heuteUndNaechster(heute: Date): string[] {
+  let n = addTage(heute, 1);
+  while (n.getDay() === 0 || n.getDay() === 6) n = addTage(n, 1);
+  return [iso(heute), iso(n)];
+}
