@@ -305,6 +305,25 @@ kennen heute nur de/ar/pl/en (Check-Constraint). Kommt mit dem Transkriptions-Sp
 - Auf Amirs PC (bayan) gibt es weder Node noch git: Typecheck/Tests laufen dort nicht — vor dem Push auf einem Gerät
   mit Node `npm run build` und `npm test` ausführen.
 
+## Migrationen einspielen (seit 11.10.2026 per CLI, kein SQL-Editor nötig)
+
+Wer Mitglied der Supabase-Organisation ist und sich einmal mit `npx supabase login` angemeldet hat (Windows-PowerShell:
+`npx.cmd`), spielt eine Migration so ein — über die Management-API, ohne die Migrationshistorie anzufassen:
+
+```
+npx supabase db query --linked --project-ref rilknynqwzamgpimniyz -f supabase/migrations/00NN_name.sql
+```
+
+Lesende Prüfung genauso, mit SQL statt `-f` (z. B. `select … from information_schema.columns …`). Regeln:
+- **Nie `supabase db push`** — die Historie der Datenbank kennt die früheren Migrationen nicht (sie liefen im
+  SQL-Editor); `push` würde ab 0001 alles nochmals ausführen.
+- Jede Migration wiederholbar schreiben (`if not exists`, `create or replace`, `drop … if exists`) und vorher lesend
+  prüfen, was sie antrifft (z. B. Funktionen mit anderen Parameternamen → `create or replace` scheitert).
+- Eine Datei läuft als ein Block: scheitert eine Zeile, bleibt die ganze Datei draussen. Danach mit einer Abfrage
+  bestätigen, nicht glauben.
+- Am Ende einer Migration mit neuen Spalten/Tabellen: `notify pgrst, 'reload schema';`.
+- **Stand:** 0001–0036 sind eingespielt (0034 neue Fassung, 0035, 0036 am 11.10.2026).
+
 ## Dateikarte
 
 ```
