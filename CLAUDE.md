@@ -267,7 +267,8 @@ senkrechten Personennamen und Totalspalte. ExcelJS (~1 MB) wird per dynamischem 
 Teamgerät den Haken «Lieferwagen der Firma gebraucht» (`tagesmeldung.lieferwagen`). Betrag pro Tag in Verwaltung →
 Einstellungen (`firma.lieferwagen_tag_rp`, 0 = aus; Gerüst GmbH Fr. 100). Export: Reiter + Blatt «Lieferwagen», pro Team
 und Tag einmal (`src/lib/lieferwagen.ts`), mit Spalte «Subunternehmer» = die Externen, die an dem Tag in der Meldung
-standen (13.10.2026, Amir). Offen bei Arbnor: Firma der Subunternehmer (Feld fehlt) und wer zahlt, wenn zwei im Team sind.
+standen (13.10.2026, Amir), und Spalte «Firma» = `mitarbeiter.subunternehmer_firma` (0040, Verwaltung → Mitarbeitende, nur bei
+«extern»; schon erfasste Firmen als Vorschlag zum Antippen). Offen bei Arbnor: wer zahlt, wenn zwei Subunternehmer im Team sind.
 
 **Abwesenheiten** (0036, Arbnor 10.10.2026): Verwaltung → Abwesenheiten (Sekretariat/Bauführer). Tabelle `abwesenheit`,
 eine Zeile je Person und Werktag (Zeitraum → Mo–Fr), `minuten` = bezahlte Zeit (Vorschlag `normaltagMin()`, halb, 0 bei
@@ -368,7 +369,7 @@ Lesende Prüfung genauso, mit SQL statt `-f` (z. B. `select … from information
 - Eine Datei läuft als ein Block: scheitert eine Zeile, bleibt die ganze Datei draussen. Danach mit einer Abfrage
   bestätigen, nicht glauben.
 - Am Ende einer Migration mit neuen Spalten/Tabellen: `notify pgrst, 'reload schema';`.
-- **Stand:** 0001–0039 sind eingespielt (0034 neue Fassung, 0035–0039 am 11.10.2026).
+- **Stand:** 0001–0040 sind eingespielt (0034 neue Fassung, 0035–0039 am 11.10.2026, 0040 am 13.10.2026).
 - Edge Functions genauso: `npx supabase functions deploy <name> --project-ref rilknynqwzamgpimniyz --use-api`. Vorher
   die laufende Fassung mit `functions download … --workdir <tmp>` holen und mit dem Repo vergleichen.
 
@@ -419,7 +420,7 @@ src/ui/FotoGalerie.tsx            Vorschau aus dem Bucket «anhaenge» (signiert
 src/ui/Sprachnotiz.tsx            Pegelbalken während der Aufnahme, Text-Enthüllung nach dem Speichern
 src/ui/Shell.tsx                  Rahmen: Büro-Ansichten mit Bereichsleiste (md) / Seitenleiste (lg), Baustellen-Ansichten Handy-Spalte
 supabase/functions/transkribieren Sprachnotiz → Text (Mistral)
-supabase/migrations/              0001–0015 historisch (inkl. Regie-Tabellen) · 0016 Zeiten von–bis · 0017 Firmen-Schalter (durch 0019 abgelöst) · 0019 mehrere Firmen, Rechte je Firma · 0020 Dateien und Rapportnummern je Firma · 0021 Briefkopf je Firma · 0026 normaler Arbeitstag je Firma · 0027 Zusatzauftrag «erledigt» ohne Regie · 0028 «Gelb markieren ab» je Firma · 0029 dritte Zeitspanne (Znüni-Pause abziehen) · 0030 absichtlich leer · 0031 Korrekturen nach normalem Arbeitstag der Firma · 0032 Einladung und Gerät (verworfen) · 0033 persönliche Zugänge, entfernt 0032 wieder · 0034 Konten aus der Verwaltung, Mail-Domain je Firma, inaktiv = kein Zugang · 0035 Funktionen nie ohne Anmeldung · 0036 Wünsche Arbnor/Mehmeti 10.10. (Pause je Firma, Lieferwagen, Abwesenheiten, Einsatz je Person) · 0037 Spanisch (es, Azure es-ES) · 0038 Verlauf der Planung (plan_verlauf + Auslöser) · 0039 Demo: Verlauf nach «Demo laden» leeren — **nächste freie Nummer: 0040** (vor dem Anlegen `git pull`, damit nicht zwei dieselbe Nummer nehmen)
+supabase/migrations/              0001–0015 historisch (inkl. Regie-Tabellen) · 0016 Zeiten von–bis · 0017 Firmen-Schalter (durch 0019 abgelöst) · 0019 mehrere Firmen, Rechte je Firma · 0020 Dateien und Rapportnummern je Firma · 0021 Briefkopf je Firma · 0026 normaler Arbeitstag je Firma · 0027 Zusatzauftrag «erledigt» ohne Regie · 0028 «Gelb markieren ab» je Firma · 0029 dritte Zeitspanne (Znüni-Pause abziehen) · 0030 absichtlich leer · 0031 Korrekturen nach normalem Arbeitstag der Firma · 0032 Einladung und Gerät (verworfen) · 0033 persönliche Zugänge, entfernt 0032 wieder · 0034 Konten aus der Verwaltung, Mail-Domain je Firma, inaktiv = kein Zugang · 0035 Funktionen nie ohne Anmeldung · 0036 Wünsche Arbnor/Mehmeti 10.10. (Pause je Firma, Lieferwagen, Abwesenheiten, Einsatz je Person) · 0037 Spanisch (es, Azure es-ES) · 0038 Verlauf der Planung (plan_verlauf + Auslöser) · 0039 Demo: Verlauf nach «Demo laden» leeren · 0040 Firma der Subunternehmer — **nächste freie Nummer: 0041** (vor dem Anlegen `git pull`, damit nicht zwei dieselbe Nummer nehmen)
 archiv/regie-und-board/           Stand vom 20.09. als Nachschlagewerk — nicht mehr die Quelle (Regie ist zurück, hinter Schaltern)
 ```
 

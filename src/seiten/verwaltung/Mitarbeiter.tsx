@@ -8,7 +8,7 @@ import { LoeschLeiste, Papierkorb, useLoeschFrage } from '../../ui/LoeschFrage';
 import { Konto, type KontoInfo } from './Konto';
 import { FUNKTION_BUERO } from '../../lib/benutzername';
 import { Auswahl } from '../../ui/Auswahl';
-import { Segment } from '../../ui/Segment';
+import { Pille, Segment } from '../../ui/Segment';
 
 interface Person {
   id?: string;
@@ -17,6 +17,8 @@ interface Person {
   funktion: string;
   sprache: 'de' | 'sq' | 'pt' | 'it' | 'fr' | 'es' | 'ar' | 'pl' | 'en';
   temporaerbuero: string | null;
+  /** Firma eines Subunternehmers (0040) — nur bei «extern», z. B. für den Lieferwagen-Abzug */
+  subunternehmer_firma: string | null;
   aktiv: boolean;
   oev_standard: boolean;
   km_standard: number;
@@ -24,7 +26,7 @@ interface Person {
   telefon?: string | null;
 }
 
-const LEER: Person = { name: '', typ: 'intern', funktion: 'monteur', sprache: 'de', temporaerbuero: null, aktiv: true, oev_standard: false, km_standard: 0, telefon: null };
+const LEER: Person = { name: '', typ: 'intern', funktion: 'monteur', sprache: 'de', temporaerbuero: null, subunternehmer_firma: null, aktiv: true, oev_standard: false, km_standard: 0, telefon: null };
 /**
  * Sprache für die Sprachnotiz: in ihr spricht der Chefmonteur, daraus entsteht der deutsche Text.
  * Reihenfolge nach Häufigkeit im Betrieb — Albanisch, Portugiesisch und Italienisch kamen am 04.10.2026 dazu.
@@ -40,7 +42,7 @@ const SPRACHEN: [Person['sprache'], string][] = [
   ['pl', 'Polnisch'],
   ['en', 'Englisch'],
 ];
-const BASIS_SPALTEN = 'id,name,typ,funktion,sprache,temporaerbuero,aktiv,oev_standard,km_standard';
+const BASIS_SPALTEN = 'id,name,typ,funktion,sprache,temporaerbuero,subunternehmer_firma,aktiv,oev_standard,km_standard';
 
 const spalteFehlt = (msg: string, spalte: string) => new RegExp(`column .*${spalte}.* does not exist`).test(msg) || (msg.includes(spalte) && /does not exist|schema cache/.test(msg));
 
@@ -88,7 +90,7 @@ export function Mitarbeiter() {
     const q = suche.trim().toLowerCase();
     return liste.filter((p) =>
       (filter === 'alle' ? p.aktiv : filter === 'inaktiv' ? !p.aktiv : p.aktiv && p.typ === filter) &&
-      (!q || p.name.toLowerCase().includes(q) || (p.temporaerbuero ?? '').toLowerCase().includes(q) || (p.telefon ?? '').includes(q)),
+      (!q || p.name.toLowerCase().includes(q) || (p.temporaerbuero ?? '').toLowerCase().includes(q) || (p.subunternehmer_firma ?? '').toLowerCase().includes(q) || (p.telefon ?? '').includes(q)),
     );
   }, [liste, suche, filter]);
 
@@ -100,7 +102,11 @@ export function Mitarbeiter() {
     if (!bearbeitet.name.trim()) { setFehler('Name fehlt.'); return; }
     setFehler('');
     const { telefon, ...rest } = bearbeitet;
-    const row: Record<string, unknown> = { ...rest, name: bearbeitet.name.trim(), temporaerbuero: bearbeitet.typ === 'temporaer' ? bearbeitet.temporaerbuero : null };
+    const row: Record<string, unknown> = {
+      ...rest, name: bearbeitet.name.trim(),
+      temporaerbuero: bearbeitet.typ === 'temporaer' ? bearbeitet.temporaerbuero : null,
+      subunternehmer_firma: bearbeitet.typ === 'extern' ? bearbeitet.subunternehmer_firma?.trim() || null : null,
+    };
     if (hatTelefon) row.telefon = telefon?.trim() || null;
     const neu = !row.id;
     const { data, error } = neu
@@ -146,6 +152,8 @@ export function Mitarbeiter() {
   }
 
   const f = (patch: Partial<Person>) => setBearbeitet((b) => (b ? { ...b, ...patch } : b));
+  /** Schon erfasste Subunternehmer-Firmen (für die Vorschläge im Dialog) */
+  const firmen = useMemo(() => [...new Set(liste.map((p) => p.subunternehmer_firma?.trim()).filter((x): x is string => !!x))].sort((a, b) => a.localeCompare(b, 'de')), [liste]);
   const schliessen = useCallback(() => { setBearbeitet(null); abbrechen(); }, [abbrechen]);
 
   const anzahl = { alle: fest + temp, intern: fest, temporaer: temp, inaktiv: liste.filter((p) => !p.aktiv).length };
@@ -203,7 +211,7 @@ export function Mitarbeiter() {
                 <td className="hidden px-4 py-2.5 sm:table-cell">
                   {p.typ === 'temporaer'
                     ? <span className="rounded-full bg-amber-soft px-2.5 py-0.5 text-[11px] font-semibold text-amber-deep">temporär{p.temporaerbuero ? ` · ${p.temporaerbuero}` : ''}</span>
-                    : <span className="rounded-full bg-surface-2 px-2.5 py-0.5 text-[11px] font-semibold text-ink2">{p.typ === 'extern' ? 'extern' : 'fest'}</span>}
+                    : <span className="rounded-full bg-surface-2 px-2.5 py-0.5 text-[11px] font-semibold text-ink2">{p.typ === 'extern' ? `extern${p.subunternehmer_firma ? ` · ${p.subunternehmer_firma}` : ''}` : 'fest'}</span>}
                 </td>
                 <td className="hidden px-4 py-2.5 text-ink2 lg:table-cell">{SPRACHEN.find(([k]) => k === p.sprache)?.[1]}</td>
                 {konten && (
@@ -279,6 +287,20 @@ export function Mitarbeiter() {
                   <span className="lbl">Temporärbüro</span>
                   <input value={bearbeitet.temporaerbuero ?? ''} onChange={(e) => f({ temporaerbuero: e.target.value || null })} placeholder="z. B. Adecco" className="field" />
                 </label>
+              )}
+              {bearbeitet.typ === 'extern' && (
+                <div>
+                  <label className="lbl" htmlFor="ma-firma">Firma (Subunternehmer)</label>
+                  <input id="ma-firma" value={bearbeitet.subunternehmer_firma ?? ''} onChange={(e) => f({ subunternehmer_firma: e.target.value || null })} placeholder="z. B. Muster Gerüstbau GmbH" className="field" />
+                  {/* Schon erfasste Firmen antippen — so heisst dieselbe Firma überall gleich (Export zählt nach Firma) */}
+                  {firmen.filter((x) => x !== bearbeitet.subunternehmer_firma).length > 0 && (
+                    <div className="mt-1.5 flex flex-wrap gap-1.5">
+                      {firmen.filter((x) => x !== bearbeitet.subunternehmer_firma).slice(0, 6).map((x) => (
+                        <Pille key={x} onClick={() => f({ subunternehmer_firma: x })}>{x}</Pille>
+                      ))}
+                    </div>
+                  )}
+                </div>
               )}
             </div>
             <div className="flex flex-wrap items-center gap-x-5 gap-y-3 rounded-[14px] bg-surface-2/70 px-4 py-3 text-sm">
