@@ -167,13 +167,23 @@ describe('ersetzen — Meldung auf dem Gerät', () => {
     const cu = await enqueueMeldung(meldung(1));
     let los: () => void = () => undefined;
     const bremse = new Promise<void>((r) => { los = r; });
+    // Auf Ereignisse warten, nicht auf feste Millisekunden — unter Last (alle Tests parallel) war 5 ms zu knapp
+    let unterwegs: () => void = () => undefined;
+    const zeilenUnterwegs = new Promise<void>((r) => { unterwegs = r; });
     const { client, tabellen } = speicherClient({ freigabe_log: [], foto: [], regierapport: [] }, {
-      warten: (t, op) => (t === 'zeiteintrag' && op === 'upsert' ? bremse : Promise.resolve()),
+      warten: (t, op) => {
+        if (t !== 'zeiteintrag' || op !== 'upsert') return Promise.resolve();
+        unterwegs();
+        return bremse;
+      },
     });
+    const bis = async (bedingung: () => Promise<boolean>) => {
+      for (let i = 0; i < 200 && !(await bedingung()); i++) await new Promise((r) => setTimeout(r, 5));
+    };
     const senden = flushNachSupabase(client);
-    await new Promise((r) => setTimeout(r, 5));                          // Kopf ist drin, Zeilen hängen im Netz
+    await zeilenUnterwegs;                                               // Kopf ist drin, Zeilen hängen im Netz
     const ersetzt = ersetzen(client, [{ lokal: true, schluessel: cu, bezeichnung: 'Aarstrasse' }]);
-    await new Promise((r) => setTimeout(r, 5));
+    await bis(async () => !!(await db.meldungen.get(cu))?.zurueckgezogen);
     expect((await db.meldungen.get(cu))?.zurueckgezogen).toBeTruthy();   // das Senden soll aufhören
     los();
     expect(await senden).toMatchObject({ gesendet: 0 });                  // nicht als gesendet markiert
