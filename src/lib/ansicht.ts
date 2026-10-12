@@ -41,7 +41,8 @@ export function gruppen() {
  * Gerät nur diese eine. Der Monteur sieht keine Bauführer-Knöpfe und muss nichts wählen. Gesetzt von
  * `personLaden()` in konto.ts, gelöscht beim Abmelden. Firmen-Zugänge (Büro) haben keine und wählen frei.
  *
- * ⚠ Nur Oberfläche — die Datenbank trennt weiterhin nur zwischen Firmen (CLAUDE.md).
+ * Die Datenbank setzt die Rolle seit 0041 selbst durch (Chefmonteur meldet, Monteur liest, Büro alles — CLAUDE.md);
+ * die feste Ansicht hier ist nur noch die passende Oberfläche dazu.
  */
 export const FESTE_ANSICHT_KEY = 'ansicht-fest';
 

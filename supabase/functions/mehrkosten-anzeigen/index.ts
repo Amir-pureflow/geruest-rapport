@@ -8,6 +8,8 @@
 //
 // Quelle der Wahrheit: supabase/functions/mehrkosten-anzeigen/index.ts im Repo. Deploy: verify_jwt true.
 import { createClient } from 'npm:@supabase/supabase-js@2';
+// Seit 13.10.2026: nur das Büro, nur Zusatzaufträge der eigenen Firma (vorher reichte irgendein Schlüssel und eine Id).
+import { aufrufer } from '../_shared/zugang.ts';
 
 const cors = {
   'Access-Control-Allow-Origin': '*',
@@ -66,8 +68,13 @@ Deno.serve(async (req) => {
     const body = await req.json();
     const id: string | undefined = body?.zusatzauftrag_id;
     if (!id) return antwort(400, { fehler: 'zusatzauftrag_id nötig' });
+    const wer = await aufrufer(req);
+    if (!wer) return antwort(401, { fehler: 'Nicht angemeldet oder kein aktiver Zugang.' });
+    if (wer.rolle !== 'buero') return antwort(403, { fehler: 'Mehrkosten zeigt das Büro an.' });
 
     const supa = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
+    const { data: eigen } = await supa.from('zusatzauftrag').select('firma_id').eq('id', id).maybeSingle();
+    if (!eigen || eigen.firma_id !== wer.firma) return antwort(404, { fehler: 'Zusatzauftrag nicht gefunden' });
 
     let absender: { email: string | null; name: string | null } = { email: null, name: null };
     const jwt = (req.headers.get('Authorization') ?? '').replace(/^Bearer\s+/i, '');

@@ -6,6 +6,7 @@
 // Beim Deploy über den MCP liegt die Datei neben index.ts als `./rapport_pdf.ts` (Import wird beim Deploy umgeschrieben).
 import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFImage } from 'npm:pdf-lib@1.17.1';
 import type { SupabaseClient } from 'npm:@supabase/supabase-js@2';
+import { pfadPasst } from './zugang.ts';
 
 /** Tarifcodes → Kundenbezeichnung, Einheit, Gruppe (Quelle: fixtures/tarife_sguv_2026.json). */
 const TARIF: Record<string, { text: string; me: string; gruppe: 'personal' | 'fahrzeuge' | 'zuschlag' }> = {
@@ -279,7 +280,7 @@ export async function pdfBauen(d: RapportDaten): Promise<Uint8Array> {
 export async function rapportPdfErzeugen(supa: SupabaseClient, regierapportId: string, opts: { basisUrl?: string; sachbearbeiter?: string | null } = {}) {
   const { data: rRoh, error } = await supa
     .from('regierapport')
-    .select('id, nummer, betrag_rappen, beschrieb, erstellt_am, link_token, tagesmeldung_id, firma:firma_id(name, briefkopf_name, briefkopf_slogan, briefkopf_adresse, briefkopf_tel, briefkopf_fax, briefkopf_mail, briefkopf_web, briefkopf_bank, briefkopf_mwst), baustelle:baustelle_id(bezeichnung, konto_nr, strasse, plz, ort, kunde:kunde_id(name, adresse, ansprechperson, frist_tage)), tagesmeldung:tagesmeldung_id(datum)')
+    .select('id, nummer, betrag_rappen, beschrieb, erstellt_am, link_token, tagesmeldung_id, firma:firma_id(name, briefkopf_name, briefkopf_slogan, briefkopf_adresse, briefkopf_tel, briefkopf_fax, briefkopf_mail, briefkopf_web, briefkopf_bank, briefkopf_mwst), baustelle:baustelle_id(bezeichnung, konto_nr, strasse, plz, ort, kunde:kunde_id(name, adresse, ansprechperson, frist_tage)), tagesmeldung:tagesmeldung_id(datum, client_uuid)')
     .eq('id', regierapportId)
     .single();
   if (error || !rRoh) throw new Error('Regierapport nicht gefunden');
@@ -292,7 +293,7 @@ export async function rapportPdfErzeugen(supa: SupabaseClient, regierapportId: s
       briefkopf_web: string | null; briefkopf_bank: string | null; briefkopf_mwst: string | null;
     } | null;
     baustelle: { bezeichnung: string | null; konto_nr: string; strasse: string | null; plz: string | null; ort: string | null; kunde: { name: string; adresse: string | null; ansprechperson: string | null; frist_tage: number | null } | null } | null;
-    tagesmeldung: { datum: string } | null;
+    tagesmeldung: { datum: string; client_uuid: string } | null;
   };
   const [{ data: pos }, { data: conf }, { data: fotoZeilen }] = await Promise.all([
     supa.from('regie_position').select('tarif_code, bezeichnung, menge_hundertstel, ansatz_rappen, betrag_rappen').eq('regierapport_id', r.id),
@@ -303,7 +304,9 @@ export async function rapportPdfErzeugen(supa: SupabaseClient, regierapportId: s
       .order('erstellt_am')
       .limit(MAX_FOTOS),
   ]);
-  const fotos = (await Promise.all(((fotoZeilen ?? []) as { pfad: string }[]).map(async (f) => {
+  // Nur Dateien aus dem Ordner dieser Meldung bzw. dieses Rapports (Pfade schreibt die App, siehe zugang.ts)
+  const eigeneOrdner = [`fotos/rapport/${r.id}/`, r.tagesmeldung ? `fotos/${r.tagesmeldung.client_uuid}/` : ''];
+  const fotos = (await Promise.all(((fotoZeilen ?? []) as { pfad: string }[]).filter((f) => pfadPasst(f.pfad, ...eigeneOrdner)).map(async (f) => {
     const { data } = await supa.storage.from('anhaenge').download(f.pfad);
     return data ? new Uint8Array(await data.arrayBuffer()) : null;
   }))).filter((b): b is Uint8Array => !!b);

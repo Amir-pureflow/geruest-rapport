@@ -154,7 +154,7 @@ export function RegieDetail() {
     if (!supabase || !rapport || pdfLaeuft) return;
     setPdfLaeuft(true);
     const fenster = window.open('', '_blank');
-    const { data, error } = await supabase.functions.invoke('regierapport-pdf', { body: { regierapport_id: rapport.id, basis_url: window.location.origin } });
+    const { data, error } = await supabase.functions.invoke('regierapport-pdf', { body: { regierapport_id: rapport.id } });
     setPdfLaeuft(false);
     if (error || !data?.url) { fenster?.close(); setFehler('PDF konnte nicht erstellt werden: ' + (data?.fehler ?? error?.message ?? '')); return; }
     if (fenster) fenster.location.href = data.url; else window.open(data.url, '_blank');
@@ -398,13 +398,18 @@ export function RegieDetail() {
     const datei = e.target.files?.[0];
     if (!supabase || !id || !datei) return;
     // Eindeutiger Pfad pro Upload: der Bucket erlaubt kein Überschreiben (Belege bleiben).
-    const pfad = `${id}/${Date.now()}-${datei.name}`;
+    // Im Ordner des Rapports (0042) — `<id>/…` direkt im Eimer liess die Speicher-Regel nie zu.
+    const pfad = `rapporte/${id}/${Date.now()}-${datei.name.replace(/[^\w.-]+/g, '_')}`;
     const { error } = await supabase.storage.from('anhaenge').upload(pfad, datei, { upsert: false });
     if (error && !/already exists|409/i.test(error.message)) {
       setFehler('Anhang: ' + error.message);
       return;
     }
-    await supabase.from('regierapport').update({ anhang_pfad: pfad }).eq('id', id);
+    const { error: vermerk } = await supabase.from('regierapport').update({ anhang_pfad: pfad }).eq('id', id);
+    if (vermerk) {
+      setFehler('Anhang hochgeladen, aber nicht am Rapport vermerkt: ' + vermerk.message);
+      return;
+    }
     void laden();
   }
 
@@ -417,7 +422,7 @@ export function RegieDetail() {
     }
     setSendet(true);
     const { data, error } = await supabase.functions.invoke('regierapport-senden', {
-      body: { regierapport_id: id, empfaenger_email: empfaenger.trim(), basis_url: window.location.origin },
+      body: { regierapport_id: id, empfaenger_email: empfaenger.trim() },
     });
     setSendet(false);
     let antwortFehler = (data as { fehler?: string } | null)?.fehler;

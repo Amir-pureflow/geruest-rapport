@@ -4,18 +4,24 @@
 // (RLS ohne Policies — nur die Service-Role hier drin kann sie lesen).
 //
 // Zwei Modi (Body-Feld `modus`, Standard 'senden'):
-//   senden      { regierapport_id, empfaenger_email?, basis_url }
+//   senden      { regierapport_id, empfaenger_email? }
 //               Der Empfänger wird SERVERSEITIG geprüft: erlaubt ist nur die beim Kunden der Baustelle
 //               hinterlegte Mail (kunde.email) oder eine Adresse aus konfiguration.MAIL_TESTEMPFAENGER
 //               (kommagetrennt). Fehlt empfaenger_email, gilt kunde.email. Sonst 403.
 //   erinnerung  { regierapport_id }
 //               Erinnerungsmail an die gespeicherte empfaenger_email, Chronik 'erinnert', Status bleibt.
-//               Wird täglich von regie_erinnerungen_anstossen() (pg_cron + pg_net) oder von n8n aufgerufen.
+//               Aus der App (Büro) oder mit dem Service-Schlüssel (Zeitplan). `regie_erinnerungen_anstossen()` schickt
+//               noch den anon-Schlüssel und ist ohne SUPABASE_URL/SUPABASE_ANON_KEY in `konfiguration` ohnehin aus.
+//
+// Seit 13.10.2026 (0041): nur das Büro der eigenen Firma. Der Link in der Mail zeigt immer auf `APP_URL` aus
+// `konfiguration` (vorher kam die Basis aus der Anfrage — damit liess sich ein fremder Link in eine echte Mail setzen),
+// alle Texte aus der Datenbank sind HTML-entschärft, die Frist ist ein Schweizer Datum.
 //
 // Quelle der Wahrheit ist DIESE Datei im Repo. Deploy: Supabase-MCP `deploy_edge_function`
 // (verify_jwt: true) oder `supabase functions deploy regierapport-senden`.
 import { createClient } from 'npm:@supabase/supabase-js@2';
 import { rapportPdfErzeugen } from '../_shared/rapport_pdf.ts';
+import { aufrufer, html as h, istServer, pfadPasst, zuerichDatum } from '../_shared/zugang.ts';
 
 const cors = {
   'Access-Control-Allow-Origin': '*',
@@ -36,6 +42,7 @@ function mailNorm(s: unknown): string {
 
 interface Rapport {
   id: string;
+  firma_id: string;
   status: string;
   nummer: string | null;
   link_token: string;
@@ -76,16 +83,21 @@ Deno.serve(async (req) => {
     if (!regierapport_id) return antwort(400, { fehler: 'regierapport_id nötig' });
     if (modus !== 'senden' && modus !== 'erinnerung') return antwort(400, { fehler: 'modus muss senden oder erinnerung sein' });
 
+    const server = modus === 'erinnerung' && istServer(req);
+    const wer = server ? null : await aufrufer(req);
+    if (!server && !wer) return antwort(401, { fehler: 'Nicht angemeldet oder kein aktiver Zugang.' });
+    if (wer && wer.rolle !== 'buero') return antwort(403, { fehler: 'Regierapporte verschickt das Büro.' });
+
     const supa = createClient(
       Deno.env.get('SUPABASE_URL')!,
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
     );
 
     // Wer sendet? Der angemeldete Bauführer — Antworten des Kunden sollen direkt zu ihm.
-    // Bei anonymer Sitzung oder Cron-Aufruf (anon key) bleibt das leer.
+    // Beim Zeitplan (Service-Schlüssel) bleibt das leer.
     let absender: Absender = { email: null, name: null };
     const jwt = (req.headers.get('Authorization') ?? '').replace(/^Bearer\s+/i, '');
-    if (jwt) {
+    if (jwt && !server) {
       const { data: u } = await supa.auth.getUser(jwt);
       absender = { email: u.user?.email ?? null, name: (u.user?.user_metadata?.name as string | undefined) ?? null };
     }
@@ -98,11 +110,15 @@ Deno.serve(async (req) => {
 
     const { data: rRoh } = await supa
       .from('regierapport')
-      .select('id, status, nummer, link_token, betrag_rappen, frist_bis, anhang_pfad, tagesmeldung_id, empfaenger_email, versendet_am, beschrieb, firma:firma_id(name, briefkopf_name, briefkopf_mail), baustelle:baustelle_id(bezeichnung, konto_nr, kunde:kunde_id(email, ansprechperson, frist_tage, weitere_emails))')
+      .select('id, firma_id, status, nummer, link_token, betrag_rappen, frist_bis, anhang_pfad, tagesmeldung_id, empfaenger_email, versendet_am, beschrieb, firma:firma_id(name, briefkopf_name, briefkopf_mail), baustelle:baustelle_id(bezeichnung, konto_nr, kunde:kunde_id(email, ansprechperson, frist_tage, weitere_emails))')
       .eq('id', regierapport_id)
       .single();
     if (!rRoh) return antwort(404, { fehler: 'Regierapport nicht gefunden' });
     const r = rRoh as unknown as Rapport;
+    if (wer && r.firma_id !== wer.firma) return antwort(404, { fehler: 'Regierapport nicht gefunden' });
+    // Der Link führt immer in die App aus der Konfiguration, nie an eine Adresse aus der Anfrage
+    const basis = String(k.APP_URL ?? '').replace(/\/$/, '');
+    if (!basis) return antwort(500, { fehler: 'APP_URL fehlt in konfiguration' });
 
     const bez = r.baustelle?.bezeichnung ?? 'Baustelle';
     const knr = r.baustelle?.konto_nr ?? '';
@@ -114,7 +130,7 @@ Deno.serve(async (req) => {
     // Die Adresse bleibt die verifizierte Absenderdomain — alles andere lehnt Resend ab.
     const eigene = (r as unknown as { firma?: { name: string; briefkopf_name: string | null; briefkopf_mail: string | null } | null }).firma;
     const firma = eigene?.briefkopf_name ?? eigene?.name ?? k.MAIL_FIRMA ?? 'Rapporto';
-    const gruss = absender.name ? `Freundliche Grüsse<br>${absender.name}` : 'Freundliche Grüsse';
+    const gruss = absender.name ? `Freundliche Grüsse<br>${h(absender.name)}` : 'Freundliche Grüsse';
     const grussText = absender.name ? `Freundliche Grüsse\n${absender.name}` : 'Freundliche Grüsse';
     const fuss = `${firma}${absender.email ? ` · Rückfragen an ${absender.email}` : ''}`;
     // Absender: der Anzeigename ist die Firma, die Adresse die verifizierte aus `konfiguration`.
@@ -138,8 +154,7 @@ Deno.serve(async (req) => {
       if (r.status === 'entwurf') return antwort(400, { fehler: 'Entwurf — noch nicht versendet, keine Erinnerung' });
       if (r.status === 'bestaetigt') return antwort(200, { ok: false, grund: 'schon bestätigt' });
 
-      const basis = String(body?.basis_url ?? k.APP_URL ?? '').replace(/\/$/, '');
-      const link = basis ? `${basis}/b/${r.link_token}` : null;
+      const link = `${basis}/b/${r.link_token}`;
       const chf = chfText(r.betrag_rappen);
       const name = rapportName(r);
       const versandTag = r.versendet_am ? new Date(r.versendet_am).toLocaleDateString('de-CH', { timeZone: 'Europe/Zurich' }) : null;
@@ -148,14 +163,14 @@ Deno.serve(async (req) => {
       const html = `
         <div style="${STIL}">
         <p>Guten Tag</p>
-        <p>Wir haben noch keine Rückmeldung zum <strong>${name}</strong> für <strong>${bez}</strong> (Konto ${knr})${chf ? ` über Fr. ${chf}` : ''}${versandTag ? `, den wir Ihnen am ${versandTag} zugestellt haben` : ''}.</p>
+        <p>Wir haben noch keine Rückmeldung zum <strong>${h(name)}</strong> für <strong>${h(bez)}</strong> (Konto ${h(knr)})${chf ? ` über Fr. ${chf}` : ''}${versandTag ? `, den wir Ihnen am ${versandTag} zugestellt haben` : ''}.</p>
         <p>${fristSatz}${r.frist_bis ? ` — die Frist war der ${new Date(r.frist_bis).toLocaleDateString('de-CH')}` : ''}.</p>
         ${link ? `<p>Bitte bestätigen Sie ihn unter diesem Link — ohne Anmeldung:</p>
-        <p><a href="${link}" style="${KNOPF}">${name} ansehen &amp; bestätigen</a></p>
-        <p style="${LEISE}">Oder den Link kopieren: ${link}</p>` : ''}
+        <p><a href="${h(link)}" style="${KNOPF}">${h(name)} ansehen &amp; bestätigen</a></p>
+        <p style="${LEISE}">Oder den Link kopieren: ${h(link)}</p>` : ''}
         <p>Bei Fragen antworten Sie einfach auf diese Mail.</p>
         <p>${gruss}</p>
-        <p style="font-size:12px;color:#6C7B81;border-top:1px solid #dfe5e4;padding-top:8px">${fuss}</p>
+        <p style="font-size:12px;color:#6C7B81;border-top:1px solid #dfe5e4;padding-top:8px">${h(fuss)}</p>
         </div>`;
       const text = [
         'Guten Tag',
@@ -222,7 +237,7 @@ Deno.serve(async (req) => {
       .or(`regierapport_id.eq.${r.id}${r.tagesmeldung_id ? `,tagesmeldung_id.eq.${r.tagesmeldung_id}` : ''}`);
 
     const betreff = `${betreffBasis}${r.nummer ? ` · ${r.nummer}` : ''}`;
-    const link = `${String(body?.basis_url ?? k.APP_URL ?? '').replace(/\/$/, '')}/b/${r.link_token}`;
+    const link = `${basis}/b/${r.link_token}`;
     const chf = chfText(r.betrag_rappen);
     const name = rapportName(r);
     const anrede = r.baustelle?.kunde?.ansprechperson && gewuenscht === kundenMail ? `Guten Tag ${r.baustelle.kunde.ansprechperson}` : 'Guten Tag';
@@ -237,16 +252,16 @@ Deno.serve(async (req) => {
     // Gegen Spam-Einstufung: Text-Teil, sichtbarer Link, Antwortadresse einer echten Person, Fusszeile mit Absender.
     const html = `
       <div style="${STIL}">
-      <p>${anrede}</p>
-      <p>Anbei erhalten Sie den <strong>${name}</strong> zu den ausgeführten Arbeiten auf <strong>${bez}</strong> (Objekt ${knr})${chf ? ` über Fr. ${chf}` : ''}.</p>
-      ${r.beschrieb ? `<p style="border-left:3px solid #dfe5e4;padding-left:12px;color:#46565d">${r.beschrieb.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/\n/g, '<br>')}</p>` : ''}
+      <p>${h(anrede)}</p>
+      <p>Anbei erhalten Sie den <strong>${h(name)}</strong> zu den ausgeführten Arbeiten auf <strong>${h(bez)}</strong> (Objekt ${h(knr)})${chf ? ` über Fr. ${chf}` : ''}.</p>
+      ${r.beschrieb ? `<p style="border-left:3px solid #dfe5e4;padding-left:12px;color:#46565d">${h(r.beschrieb).replace(/\n/g, '<br>')}</p>` : ''}
       ${fotoSatz}
       <p>Bitte bestätigen Sie ihn unter diesem Link — ohne Anmeldung:</p>
-      <p><a href="${link}" style="${KNOPF}">${name} ansehen &amp; bestätigen</a></p>
-      <p style="${LEISE}">Oder den Link kopieren: ${link}</p>
+      <p><a href="${h(link)}" style="${KNOPF}">${h(name)} ansehen &amp; bestätigen</a></p>
+      <p style="${LEISE}">Oder den Link kopieren: ${h(link)}</p>
       <p style="${LEISE}">${fristSatz}.</p>
       <p>${gruss}</p>
-      <p style="font-size:12px;color:#6C7B81;border-top:1px solid #dfe5e4;padding-top:8px">${fuss}</p>
+      <p style="font-size:12px;color:#6C7B81;border-top:1px solid #dfe5e4;padding-top:8px">${h(fuss)}</p>
       </div>`;
 
     const text = [
@@ -272,12 +287,16 @@ Deno.serve(async (req) => {
     // Anhang: das SORBA-Dokument, falls hochgeladen — sonst das automatisch erzeugte PDF (wie der SORBA-Ausdruck).
     const b64 = (buf: Uint8Array) => { let bin = ''; for (let i = 0; i < buf.length; i += 0x8000) bin += String.fromCharCode(...buf.subarray(i, i + 0x8000)); return btoa(bin); };
     let pdfInfo = '';
+    // Eigenes Dokument nur aus dem Ordner dieses Rapports (früher `<id>/…`, seit 13.10. `rapporte/<id>/…`)
+    if (r.anhang_pfad && !pfadPasst(r.anhang_pfad, `rapporte/${r.id}/`, `${r.id}/`)) {
+      return antwort(400, { fehler: 'Der Anhang liegt nicht bei diesem Rapport — bitte neu hochladen.' });
+    }
     if (r.anhang_pfad) {
       const { data: datei } = await supa.storage.from('anhaenge').download(r.anhang_pfad);
       if (datei) mail.attachments = [{ filename: r.anhang_pfad.split('/').pop(), content: b64(new Uint8Array(await datei.arrayBuffer())) }];
     } else {
       try {
-        const pdf = await rapportPdfErzeugen(supa, r.id, { basisUrl: body?.basis_url, sachbearbeiter: absender.name });
+        const pdf = await rapportPdfErzeugen(supa, r.id, { basisUrl: basis, sachbearbeiter: absender.name });
         mail.attachments = [{ filename: pdf.dateiname, content: b64(pdf.bytes) }];
         pdfInfo = pdf.pfad;
       } catch (e) {
@@ -289,7 +308,7 @@ Deno.serve(async (req) => {
     if (!erg.ok) return antwort(502, { fehler: erg.fehler });
 
     const jetzt = new Date();
-    const frist = r.frist_bis ?? new Date(jetzt.getTime() + fristTage * 86400000).toISOString().slice(0, 10);
+    const frist = r.frist_bis ?? zuerichDatum(new Date(jetzt.getTime() + fristTage * 86400000));
     await supa
       .from('regierapport')
       .update({ status: 'versendet', versendet_am: jetzt.toISOString(), empfaenger_email, frist_bis: frist })

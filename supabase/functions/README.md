@@ -12,13 +12,22 @@ Die Regie-Functions `regierapport-senden`, `bestaetigung`, `regierapport-pdf`, `
 `beschrieb-vorschlagen` sind aus der App verschwunden (SORBA macht die Regie). Sie sind ggf. noch deployed und können im
 Dashboard gelöscht werden; die Beschreibung steht in `archiv/regie-und-board/original/supabase/functions/README.md`.
 
+## Zugang (seit 13.10.2026)
+
+Jede Function mit Service-Role prüft zuerst `aufrufer(req)` aus `_shared/zugang.ts` (Firma + Rolle der Sitzung) und
+vergleicht die `firma_id` der betroffenen Zeile. Nur `bestaetigung` (Kundenlink) läuft ohne JWT — dort ist der
+`link_token` der Zugang, und Antworten zählen nur, solange der Rapport beim Kunden ist.
+
 ## Deploy
 
 Per Supabase-MCP (`deploy_edge_function`) oder CLI:
 
 ```
-supabase functions deploy transkribieren
+npx supabase functions deploy transkribieren --project-ref rilknynqwzamgpimniyz --use-api
+npx supabase functions deploy bestaetigung --project-ref rilknynqwzamgpimniyz --use-api --no-verify-jwt
 ```
+
+`_shared/*.ts` wird mitgebündelt. Vorher die laufende Fassung mit `functions download` holen und vergleichen.
 
 Ohne CLI/MCP: Dashboard → Edge Functions → Function öffnen → Code aus `index.ts` einfügen → Deploy.
 

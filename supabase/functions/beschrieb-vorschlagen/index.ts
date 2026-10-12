@@ -9,6 +9,8 @@
 // in `konfiguration`. Speichert NICHTS — die Antwort ist ein Vorschlag, gespeichert wird in der App.
 // Deploy: verify_jwt true. Quelle der Wahrheit: supabase/functions/beschrieb-vorschlagen/index.ts.
 import { createClient } from 'npm:@supabase/supabase-js@2';
+// Seit 13.10.2026: nur das Büro, nur Rapporte der eigenen Firma (vorher reichte irgendein Schlüssel und eine Id).
+import { aufrufer } from '../_shared/zugang.ts';
 
 const cors = {
   'Access-Control-Allow-Origin': '*',
@@ -38,8 +40,13 @@ Deno.serve(async (req) => {
   try {
     const { regierapport_id } = await req.json();
     if (!regierapport_id) return antwort(400, { fehler: 'regierapport_id nötig' });
+    const wer = await aufrufer(req);
+    if (!wer) return antwort(401, { fehler: 'Nicht angemeldet oder kein aktiver Zugang.' });
+    if (wer.rolle !== 'buero') return antwort(403, { fehler: 'Regierapporte sind Sache des Büros.' });
 
     const supa = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
+    const { data: eigen } = await supa.from('regierapport').select('firma_id').eq('id', regierapport_id).maybeSingle();
+    if (!eigen || eigen.firma_id !== wer.firma) return antwort(404, { fehler: 'Regierapport nicht gefunden' });
     const { data: conf } = await supa.from('konfiguration').select('schluessel,wert');
     const k: Record<string, string> = Object.fromEntries((conf ?? []).map((r: { schluessel: string; wert: string }) => [r.schluessel, r.wert]));
     if (!k.MISTRAL_API_KEY) return antwort(500, { fehler: 'MISTRAL_API_KEY fehlt in konfiguration' });

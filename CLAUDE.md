@@ -85,10 +85,9 @@ Vom 09.09. bis 02.10. gab es gar keine Anmeldung und die Datenbank bekam eine an
 02.10.: mit nichts als dem öffentlichen Schlüssel aus dem JavaScript liessen sich Mitarbeiternamen, Stunden, Kunden,
 Regiebeträge und das Freigabe-Protokoll lesen. Darum die Anmeldung und `0019`.
 
-**Zwischen Firmen trennt jetzt die Datenbank. Innerhalb einer Firma noch nicht.** Bauführer, Sekretariat und
-Teamgerät teilen den Zugang der Firma; im `freigabe_log` steht dann die Firma, nicht die Person. Persönliche Konten
-und Rechte je Rolle sind der nächste Schritt — `benutzer` ist dafür vorbereitet, mehrere Konten dürfen zu einer Firma
-gehören.
+**Zwischen Firmen trennt die Datenbank, seit `0041` (13.10.2026) auch zwischen Rollen.** Firmen-Zugänge (Teamgerät,
+Inhaber) und persönliche Konten (`0033`/`0034`) gehören über `benutzer` zu einer Firma; im `freigabe_log` steht die
+Sitzung, die freigegeben hat.
 
 **Persönliche Zugänge für alle Rollen (09.10.2026 `0033`, aus der Verwaltung seit 10.10. `0034`).**
 Das Büro legt sie selbst an: Verwaltung → Mitarbeitende → Person → **Benutzerkonto** (`verwaltung/Konto.tsx`).
@@ -116,8 +115,21 @@ nach dem Speichern bleibt der Dialog offen, damit das Konto gleich folgt.
   beide Felder leer und wählen frei. Das Gerät bleibt angemeldet (Regel #4).
 - Der **Einladungslink per WhatsApp** (`0032`, `/e/:token`, Edge Function `einladung`) ist am 09.10. verworfen
   worden (Erin: «das wollen wir nicht mehr machen»); `0033` entfernt seine Tabellen wieder. Nicht wieder einbauen.
-- ⚠ Ausser beim Konten-Verwalten gibt es **Rechte je Rolle nur in der Oberfläche.** Ein Monteur-Zugang darf an der
-  Datenbank sonst dasselbe wie der Bauführer. `benutzer.ansicht` ist da, damit weitere Regeln andocken können.
+- **Rechte je Rolle in der Datenbank** (`0041`, Amir 13.10.: «Die App darf keine Fehler haben»). `aktuelle_rolle()`
+  liefert `buero` (Firmen-Zugang ohne Ansicht, Bauführer, Sekretariat), `chef` oder `monteur` — nur bei aktiver
+  Person. RESTRICTIVE-Regeln zusätzlich zu den Firmen-Regeln, Lesen bleibt für alle Rollen der Firma offen:
+  - **Büro**: alles in der eigenen Firma.
+  - **Chefmonteur**: Tagesmeldung, Zeilen (nur `offen`) und Fotos melden; offene Meldung ersetzen (löschen, solange
+    keine Zeile freigegeben ist); an der Meldung nur `audio_pfad` nachreichen; an sich selbst nur `sprache` ändern
+    (Auslöser `rolle_spalten_pruefen`). Sonst nichts — kein Freigeben, keine Stammdaten, keine Einstellungen.
+  - **Monteur**: nur lesen.
+  - `freigabe_log`/`zustellung_log` nur anhängen; löschen nur in der Demo-Firma (Zurücksetzen).
+  - Jede Zeile zeigt nur auf Zeilen der eigenen Firma (Auslöser `firma_bezuege_pruefen`).
+  - `zeit_freigeben`/`zeit_korrigieren`/`zeit_team_setzen` nur Büro, nur eigene Firma, «wer» = Sitzung.
+  - `firma.name`, `mail_domain`, `aktiv`, `ist_demo` ändert nur PureFlow per SQL (`firma_schutz`). Die Demo erkennt
+    die Datenbank an `firma.ist_demo`, nicht am Namen.
+  - Wer in der App etwas Neues schreiben lässt (neue Tabelle, neue Spalte für den Chefmonteur), muss die Regel in
+    `0041` mitdenken — sonst sagt die Datenbank «row-level security policy» bzw. «Das darf nur das Büro ändern.»
 - Bauführer: Tagesübersicht, Wochenübersicht (freigeben, korrigieren), SORBA-Raster, Verwaltung, Erfassung (Test).
 - Sekretariat (17.09.): Übersicht Stunden je Mitarbeiter, Export (Lohn, Überstunden, Temporärbüros), Verwaltung —
   nur ansehen im Cockpit. **Lohn sieht nur das Sekretariat** (Bauführer 20.09.: «kein Zugriff hier drauf»).
@@ -141,11 +153,16 @@ Amir: «das ist doch gar nicht gut.» Eine neue Firma ist jetzt **eine Zeile und
 - **Anmeldung ist Pflicht.** Keine anonyme Sitzung mehr: ohne Eintrag in `benutzer` gibt es keine Firma und damit
   keine einzige sichtbare Zeile. Einzige Ausnahme ist der Kundenlink `/b/:token`, der über eine Edge Function mit
   Service-Role läuft — die Bauleitung hat kein Konto und soll keines brauchen.
-- Die Edge Functions nutzen die Service-Role und umgehen RLS. Beim Erweitern daran denken: dort muss `firma_id`
-  von Hand stimmen.
+- Die Edge Functions nutzen die Service-Role und umgehen RLS. Seit 13.10.2026 fragt jede zuerst
+  `aufrufer(req)` (`supabase/functions/_shared/zugang.ts`: Firma + Rolle über `aktuelle_firma()`/`aktuelle_rolle()`
+  mit dem JWT des Aufrufers) und vergleicht die `firma_id` der Zeile — `verify_jwt` allein liess auch den
+  öffentlichen anon-Schlüssel durch. Pfade aus Tabellen (`audio_pfad`, `foto.pfad`, `anhang_pfad`, `pdf_pfad`) werden
+  nur gelesen, wenn sie im Ordner ihrer eigenen Zeile liegen (`pfadPasst`). Links in Mails/PDF immer aus
+  `konfiguration.APP_URL`, nie aus der Anfrage. Neue Function: dasselbe Muster.
 - **Dateien** (`0020`): der Eimer `anhaenge` ist über `anhang_gehoert_firma()` abgesichert. Der Pfad verrät den
-  Besitzer (`audio/<client_uuid>`, `fotos/<client_uuid>/`, `rapporte/<rapport_id>`), der hängt an einer Zeile mit
-  Firma. Löschen bleibt gesperrt (Regel #8). Ein neuer Pfad ohne Eintrag in dieser Funktion ist gesperrt — daran
+  Besitzer (`audio/<client_uuid>`, `fotos/<client_uuid>/`, `fotos/rapport/<rapport_id>/`, `rapporte/<rapport_id>.pdf`,
+  `rapporte/<rapport_id>/<eigenes Dokument>` — die beiden Rapport-Pfade erst seit `0042`, vorher scheiterte das
+  Hochladen dort), der hängt an einer Zeile mit Firma; Rapport-Dateien nur fürs Büro. Löschen bleibt gesperrt (Regel #8). Ein neuer Pfad ohne Eintrag in dieser Funktion ist gesperrt — daran
   denken, wer einen neuen Ordner einführt.
 - **Rapportnummern** (`0020`): je Firma ab 1, eindeutig nur innerhalb der Firma.
 - **Briefkopf auf dem PDF** (`0021`): Spalten `briefkopf_*` in `firma`, gepflegt in Verwaltung → Einstellungen
@@ -369,7 +386,10 @@ Lesende Prüfung genauso, mit SQL statt `-f` (z. B. `select … from information
 - Eine Datei läuft als ein Block: scheitert eine Zeile, bleibt die ganze Datei draussen. Danach mit einer Abfrage
   bestätigen, nicht glauben.
 - Am Ende einer Migration mit neuen Spalten/Tabellen: `notify pgrst, 'reload schema';`.
-- **Stand:** 0001–0040 sind eingespielt (0034 neue Fassung, 0035–0039 am 11.10.2026, 0040 am 13.10.2026).
+- **Stand:** 0001–0042 sind eingespielt (0034 neue Fassung, 0035–0039 am 11.10.2026, 0040–0042 am 13.10.2026).
+- Eine Migration mit Rechten zuerst **zurückgerollt testen**: Migration + Testfälle je Rolle (`set local role
+  authenticated` + `request.jwt.claims`) in eine Datei, am Ende `raise exception` mit den Ergebnissen — der Fehler
+  rollt alles zurück und zeigt, was erlaubt/gesperrt war. So geprüft: 0041 (34 Fälle), 0042 (8 Fälle).
 - Edge Functions genauso: `npx supabase functions deploy <name> --project-ref rilknynqwzamgpimniyz --use-api`. Vorher
   die laufende Fassung mit `functions download … --workdir <tmp>` holen und mit dem Repo vergleichen.
 
@@ -430,5 +450,5 @@ archiv/regie-und-board/           Stand vom 20.09. als Nachschlagewerk — nicht
 - Mittag 12–13 unbezahlt — Annahme Amir, mit Arbnor bestätigen; weitere Pausen?
 - öV ganz weg oder nur nicht Vorgabe?
 - Sieht der Bauführer alle Baustellen oder nur seine? (Rechte pro Bauführer)
-- Login pro Rolle vor echten Kundendaten
+- ~~Login pro Rolle vor echten Kundendaten~~ — erledigt: persönliche Konten (0033/0034), Rechte je Rolle (0041)
 - SORBA hat **keinen Import** (Arbnor, 27.08.) — die Rasteransicht ist der Endzustand.

@@ -31,7 +31,10 @@
 // (Standard mistral-small-latest), `AZURE_SPEECH_ENDPOINT` (falls die Ressource einen eigenen
 // Endpunkt hat, sonst wird er aus der Region gebaut).
 // Deploy: verify_jwt true — Aufruf mit der angemeldeten Sitzung der App.
+// Seit 13.10.2026 (0041): nur mit aktivem Zugang (Büro oder Chefmonteur) und nur für die eigene Firma — vorher reichte
+// der öffentliche anon-Schlüssel, um mit einer fremden Meldungs-Id deren Text zu lesen oder neu erzeugen zu lassen.
 import { createClient } from 'npm:@supabase/supabase-js@2';
+import { aufrufer, pfadPasst } from '../_shared/zugang.ts';
 
 const cors = {
   'Access-Control-Allow-Origin': '*',
@@ -190,6 +193,9 @@ function spracheVon(chef: { sprache?: string | null } | null | undefined): strin
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: cors });
+  const wer = await aufrufer(req);
+  if (!wer) return antwort(401, { fehler: 'Nicht angemeldet oder kein aktiver Zugang.' });
+  if (wer.rolle !== 'buero' && wer.rolle !== 'chef') return antwort(403, { fehler: 'Sprachnotizen verarbeitet nur das Teamgerät oder das Büro.' });
   const supa = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
   let meldungId: string | null = null;
   try {
@@ -213,8 +219,10 @@ Deno.serve(async (req) => {
       if (audio_base64.length > 12_000_000) return antwort(413, { fehler: 'Aufnahme zu gross für die Vorschau' });
       let sprache = 'de';
       if (team_id) {
-        const { data: t } = await supa.from('team').select('chefmonteur:chefmonteur_id(sprache)').eq('id', team_id).maybeSingle();
-        sprache = spracheVon((t as unknown as { chefmonteur: { sprache: string } | null } | null)?.chefmonteur);
+        const { data: t } = await supa.from('team').select('firma_id, chefmonteur:chefmonteur_id(sprache)').eq('id', team_id).maybeSingle();
+        const team = t as unknown as { firma_id: string; chefmonteur: { sprache: string } | null } | null;
+        if (!team || team.firma_id !== wer.firma) return antwort(404, { fehler: 'Team nicht gefunden' });
+        sprache = spracheVon(team.chefmonteur);
       }
       const bytes = Uint8Array.from(atob(audio_base64), (c) => c.charCodeAt(0));
       const typ = typeof mime === 'string' && mime ? mime : 'audio/webm';
@@ -235,12 +243,15 @@ Deno.serve(async (req) => {
 
     let abfrage = supa
       .from('tagesmeldung')
-      .select('id, audio_pfad, transkript, team:team_id(chefmonteur:chefmonteur_id(sprache))');
+      .select('id, client_uuid, firma_id, audio_pfad, transkript, team:team_id(chefmonteur:chefmonteur_id(sprache))');
     abfrage = tagesmeldung_id ? abfrage.eq('id', tagesmeldung_id) : abfrage.eq('client_uuid', client_uuid);
-    const { data: m } = await abfrage.single();
-    if (!m) return antwort(404, { fehler: 'Meldung nicht gefunden' });
+    const { data: m } = await abfrage.maybeSingle();
+    // Fremde Firma = gibt es nicht (keine Auskunft, ob die Id existiert)
+    if (!m || m.firma_id !== wer.firma) return antwort(404, { fehler: 'Meldung nicht gefunden' });
+    if (erneut && wer.rolle !== 'buero') return antwort(403, { fehler: 'Den Text neu erstellen kann nur das Büro.' });
     meldungId = m.id;
     if (!m.audio_pfad) return antwort(400, { fehler: 'Diese Meldung hat keine Sprachnotiz' });
+    if (!pfadPasst(m.audio_pfad, `audio/${m.client_uuid}.`)) return antwort(400, { fehler: 'Die Sprachnotiz liegt nicht bei dieser Meldung.' });
     if (m.transkript && !erneut) return antwort(200, { schon: true, transkript: m.transkript });
 
     const team = m.team as unknown as { chefmonteur: { sprache: string } | null } | null;

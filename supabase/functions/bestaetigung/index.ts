@@ -5,7 +5,15 @@
 //
 // Quelle der Wahrheit ist DIESE Datei im Repo. Deploy: Supabase-MCP `deploy_edge_function`
 // (verify_jwt: false!) oder `supabase functions deploy bestaetigung --no-verify-jwt`.
+//
+// Seit 13.10.2026: bestätigen/zurückfragen nur, solange der Rapport beim Kunden ist (versendet, Rückfrage, Frist
+// abgelaufen) — nicht im Entwurf, auch nicht nach «zurück auf Entwurf». Kommentar höchstens 2000 Zeichen.
+// Fotos und PDF nur aus den Ordnern dieses Rapports bzw. seiner Meldung (siehe ../_shared/zugang.ts).
 import { createClient } from 'npm:@supabase/supabase-js@2';
+import { pfadPasst } from '../_shared/zugang.ts';
+
+/** In diesen Ständen liegt der Rapport beim Kunden — nur dann zählt seine Antwort. */
+const BEIM_KUNDEN = ['versendet', 'rueckfrage', 'frist_abgelaufen'];
 
 const cors = {
   'Access-Control-Allow-Origin': '*',
@@ -32,7 +40,7 @@ Deno.serve(async (req) => {
       if (!token) return antwort(400, { fehler: 'token fehlt' });
       const { data: r } = await supa
         .from('regierapport')
-        .select('id, nummer, status, betrag_rappen, versendet_am, frist_bis, empfaenger_email, tagesmeldung_id, beschrieb, pdf_pfad, baustelle:baustelle_id(bezeichnung, konto_nr), tagesmeldung:tagesmeldung_id(datum)')
+        .select('id, nummer, status, betrag_rappen, versendet_am, frist_bis, empfaenger_email, tagesmeldung_id, beschrieb, pdf_pfad, baustelle:baustelle_id(bezeichnung, konto_nr), tagesmeldung:tagesmeldung_id(datum, client_uuid)')
         .eq('link_token', token)
         .single();
       if (!r) return antwort(404, { fehler: 'Dieser Link ist ungültig.' });
@@ -56,10 +64,12 @@ Deno.serve(async (req) => {
         .or(`regierapport_id.eq.${r.id}${r.tagesmeldung_id ? `,tagesmeldung_id.eq.${r.tagesmeldung_id}` : ''}`)
         .order('erstellt_am');
       let fotoUrls: string[] = [];
-      if (fotos && fotos.length > 0) {
+      const meldungUuid = (r.tagesmeldung as unknown as { client_uuid?: string } | null)?.client_uuid;
+      const eigeneFotos = (fotos ?? []).filter((f: { pfad: string }) => pfadPasst(f.pfad, `fotos/rapport/${r.id}/`, meldungUuid ? `fotos/${meldungUuid}/` : ''));
+      if (eigeneFotos.length > 0) {
         const { data: signiert } = await supa.storage
           .from('anhaenge')
-          .createSignedUrls(fotos.map((f: { pfad: string }) => f.pfad), 3600);
+          .createSignedUrls(eigeneFotos.map((f: { pfad: string }) => f.pfad), 3600);
         fotoUrls = (signiert ?? []).map((s: { signedUrl: string | null }) => s.signedUrl).filter((u: string | null): u is string => !!u);
       }
 
@@ -68,7 +78,7 @@ Deno.serve(async (req) => {
       // PDF wie der SORBA-Ausdruck — zum Herunterladen und Ausdrucken, 1 Stunde gültig
       const pdfPfad = (r as { pdf_pfad?: string | null }).pdf_pfad ?? null;
       let pdfUrl: string | null = null;
-      if (pdfPfad) {
+      if (pdfPfad && pfadPasst(pdfPfad, `rapporte/${r.id}.`)) {
         const { data: s } = await supa.storage.from('anhaenge').createSignedUrl(pdfPfad, 3600, { download: `${(r as { nummer?: string | null }).nummer ?? 'Regierapport'}.pdf` });
         pdfUrl = s?.signedUrl ?? null;
       }
@@ -100,6 +110,10 @@ Deno.serve(async (req) => {
         .single();
       if (!r) return antwort(404, { fehler: 'Dieser Link ist ungültig.' });
       if (r.status === 'bestaetigt') return antwort(200, { status: 'bestaetigt' }); // idempotent
+      if (!BEIM_KUNDEN.includes(r.status)) {
+        return antwort(409, { fehler: 'Dieser Rapport wird gerade überarbeitet. Sie erhalten ihn neu per Mail.' });
+      }
+      const notiz = typeof kommentar === 'string' ? kommentar.trim().slice(0, 2000) : '';
 
       const update =
         aktion === 'bestaetigt'
@@ -110,7 +124,7 @@ Deno.serve(async (req) => {
         regierapport_id: r.id,
         an: r.empfaenger_email ?? 'kunde',
         ereignis: aktion,
-        detail: kommentar ? { kommentar } : null,
+        detail: notiz ? { kommentar: notiz } : null,
       });
       return antwort(200, { status: update.status });
     }
