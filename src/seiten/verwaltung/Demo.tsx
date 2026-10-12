@@ -1,7 +1,20 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '../../lib/supabase';
-import { demoLaden, demoZuruecksetzen, type DemoUmfang, type DemoZusammenfassung } from '../../lib/demo';
-import { lokaleWarteschlangeLeeren } from '../../lib/db';
+import { demoLaden, demoZuruecksetzen, istDemoFirma, type DemoUmfang, type DemoZusammenfassung } from '../../lib/demo';
+import { firmaWarteschlangeLeeren } from '../../lib/db';
+import { eigeneFirma } from '../../lib/einstellungen';
+
+/**
+ * Nach dem Neuladen zeigen wartende Meldungen der Demo-Firma ins Leere — nur sie gehen weg. Meldungen einer anderen
+ * Firma auf demselben Gerät (oder alte ohne Firma) bleiben stehen (13.10.2026: vorher wurde die ganze Warteschlange
+ * geleert, auch die wartenden Stunden der Gerüst GmbH).
+ */
+async function warteschlangeDerDemoLeeren(log: (z: string) => void): Promise<void> {
+  const f = eigeneFirma();
+  if (!f || !istDemoFirma()) { log('Warteschlange dieses Geräts nicht angefasst — die Demo-Firma ist nicht bestätigt.'); return; }
+  const n = await firmaWarteschlangeLeeren(f.id);
+  log(n > 0 ? `${n} wartende Einträge der Demo-Firma auf diesem Gerät entfernt.` : 'Keine wartenden Einträge der Demo-Firma auf diesem Gerät.');
+}
 
 /**
  * Demo-Betrieb: ein kompletter Gerüstbaubetrieb auf Knopfdruck —
@@ -31,8 +44,7 @@ export function Demo() {
       const r = await demoLaden(supabase, userId, log, umfang);
       setErgebnis(r);
       localStorage.removeItem('teamgeraet-team-id');
-      await lokaleWarteschlangeLeeren();
-      log('Lokale Warteschlange dieses Geräts geleert.');
+      await warteschlangeDerDemoLeeren(log);
     } catch (e) {
       setFehler((e as Error).message);
     }
@@ -44,8 +56,7 @@ export function Demo() {
     try {
       await demoZuruecksetzen(supabase, log);
       localStorage.removeItem('teamgeraet-team-id');
-      await lokaleWarteschlangeLeeren();
-      log('Lokale Warteschlange dieses Geräts geleert.');
+      await warteschlangeDerDemoLeeren(log);
     } catch (e) { setFehler((e as Error).message); }
     setLaeuft(false); setBestaetigen(null);
   }

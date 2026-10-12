@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Plus } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
+import { alle } from '../../lib/abfrage';
 import { ausIso, iso, lang } from '../../lib/datum';
 import { baustellenSuchen } from '../../lib/suche';
 import { Auswahl } from '../../ui/Auswahl';
@@ -23,15 +24,24 @@ export function Baustellen() {
   const [neuNr, setNeuNr] = useState('');
   const [neuBez, setNeuBez] = useState('');
   const [fehler, setFehler] = useState('');
+  const [ladeFehler, setLadeFehler] = useState('');
+  const [legtAn, setLegtAn] = useState(false);
 
+  // Seitenweise (13.10.2026): heute 217 aktive, über die Jahre mehr als 1000 Konten — sonst fehlten die neuesten still
   const laden = useCallback(async () => {
     if (!supabase) return;
-    const [b, k] = await Promise.all([
-      supabase.from('baustelle').select('id,konto_nr,bezeichnung,status,fertigstellung_am,kunde_id').order('bezeichnung'),
-      supabase.from('kunde').select('id,name').order('name'),
-    ]);
-    if (b.data) setListe(b.data as Baustelle[]);
-    if (k.data) setKunden(k.data);
+    const c = supabase;
+    try {
+      const [b, k] = await Promise.all([
+        alle<Baustelle>((von, bis) => c.from('baustelle').select('id,konto_nr,bezeichnung,status,fertigstellung_am,kunde_id').order('bezeichnung').order('id').range(von, bis)),
+        alle<Kunde>((von, bis) => c.from('kunde').select('id,name').order('name').order('id').range(von, bis)),
+      ]);
+      setListe(b);
+      setKunden(k);
+      setLadeFehler('');
+    } catch (e) {
+      setLadeFehler('Baustellen konnten nicht geladen werden: ' + (e instanceof Error ? e.message : String(e)));
+    }
   }, []);
   useEffect(() => { void laden(); }, [laden]);
 
@@ -48,10 +58,13 @@ export function Baustellen() {
     void laden();
   }
   async function anlegen() {
-    if (!supabase) return;
+    if (!supabase || legtAn) return;
     if (!/^\d{6}$/.test(neuNr.trim())) { setFehler('Kontonummer: sechs Ziffern.'); return; }
     if (!neuBez.trim()) { setFehler('Bezeichnung fehlt.'); return; }
+    // Doppelklick: sonst meldete der zweite Klick «gibt es schon» über eine eben angelegte Baustelle
+    setLegtAn(true);
     const { error } = await supabase.from('baustelle').insert({ konto_nr: neuNr.trim(), bezeichnung: neuBez.trim() });
+    setLegtAn(false);
     if (error) { setFehler(error.message.includes('unique') ? 'Diese Kontonummer gibt es schon.' : error.message); return; }
     setFehler(''); setNeuNr(''); setNeuBez('');
     void laden();
@@ -61,6 +74,7 @@ export function Baustellen() {
 
   return (
     <div className="space-y-3">
+      {ladeFehler && <p className="card text-sm font-semibold text-accent-deep">{ladeFehler}</p>}
       <p className="text-sm text-ink2"><b className="text-ink">{liste.length}</b> Konten · {zaehl('aktiv')} aktiv · {zaehl('fertig_gemeldet')} fertig gemeldet · {zaehl('abgeschlossen')} abgeschlossen</p>
 
       <section className="card space-y-2 p-3">
@@ -68,7 +82,7 @@ export function Baustellen() {
         <div className="flex gap-2">
           <input value={neuNr} onChange={(e) => setNeuNr(e.target.value)} placeholder="Konto-Nr." inputMode="numeric" className="field w-28 font-mono" />
           <input value={neuBez} onChange={(e) => setNeuBez(e.target.value)} placeholder="Ort Strasse Nr." className="field" />
-          <button type="button" onClick={() => void anlegen()} className="btn-ghost whitespace-nowrap"><Plus size={15} strokeWidth={2.4} aria-hidden="true" /> Anlegen</button>
+          <button type="button" onClick={() => void anlegen()} disabled={legtAn} className="btn-ghost whitespace-nowrap disabled:opacity-50"><Plus size={15} strokeWidth={2.4} aria-hidden="true" /> Anlegen</button>
         </div>
         {fehler && <p className="text-sm font-semibold text-accent-deep">{fehler}</p>}
       </section>

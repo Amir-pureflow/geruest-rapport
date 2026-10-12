@@ -3,7 +3,7 @@ import { Link, useLocation } from 'react-router-dom';
 import { ANSICHT_LABEL, festeAnsicht, useAnsicht, type Ansicht } from '../lib/ansicht';
 import { ChevronRight, ChevronDown, LayoutDashboard, CalendarDays, CalendarRange, Download, Settings, PhoneCall, FileText, BarChart3, CalendarPlus, ArrowLeftRight, LogOut, type LucideIcon } from 'lucide-react';
 import { einstellungen } from '../lib/einstellungen';
-import { abmelden } from '../lib/konto';
+import { abmelden, ungesendet } from '../lib/konto';
 import { eigeneFirma } from '../lib/einstellungen';
 
 /**
@@ -52,8 +52,21 @@ function kuerzel(name: string): string {
  */
 function Konto({ ansicht, platz = 'kopf' }: { ansicht: Ansicht; platz?: 'kopf' | 'leiste' }) {
   const [offen, setOffen] = useState(false);
+  /** Noch nicht gesendete Meldungen beim Tipp auf «Abmelden» — dann erst nachfragen (13.10.2026) */
+  const [wartet, setWartet] = useState<number | null>(null);
   const huelle = useRef<HTMLDivElement | null>(null);
   const firma = eigeneFirma();
+
+  async function abmeldenFragen() {
+    if (wartet === null) {
+      const n = await ungesendet();
+      if (n > 0) { setWartet(n); return; }
+    }
+    await abmelden();
+    location.replace('/');
+  }
+
+  useEffect(() => { if (!offen) setWartet(null); }, [offen]);
 
   useEffect(() => {
     if (!offen) return;
@@ -110,14 +123,20 @@ function Konto({ ansicht, platz = 'kopf' }: { ansicht: Ansicht; platz?: 'kopf' |
             <ArrowLeftRight size={15} strokeWidth={1.8} className="text-ink3" aria-hidden="true" />
             Ansicht wechseln
           </Link>}
+          {/* Wartet noch etwas auf dem Gerät, erst sagen: es geht erst wieder raus, wenn diese Firma angemeldet ist */}
+          {wartet !== null && (
+            <p className="mx-1 my-1 rounded-[9px] bg-amber-soft px-2.5 py-2 text-[12px] leading-snug text-amber-deep" role="alert">
+              Noch {wartet} Meldung{wartet === 1 ? '' : 'en'} nicht gesendet — trotzdem abmelden? Sie bleiben auf diesem Gerät und gehen raus, sobald diese Firma wieder angemeldet ist.
+            </p>
+          )}
           <button
             type="button"
             role="menuitem"
-            onClick={() => void abmelden().then(() => location.replace('/'))}
+            onClick={() => void abmeldenFragen()}
             className="flex w-full items-center gap-2.5 rounded-[9px] px-2.5 py-2 text-left text-[13px] text-accent-deep transition-colors hover:bg-accent-soft"
           >
             <LogOut size={15} strokeWidth={1.8} aria-hidden="true" />
-            Abmelden
+            {wartet !== null ? 'Trotzdem abmelden' : 'Abmelden'}
           </button>
         </div>
       )}

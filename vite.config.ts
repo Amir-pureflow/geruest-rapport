@@ -11,7 +11,9 @@ export default defineConfig({
     react(),
     tailwind(),
     VitePWA({
-      registerType: 'autoUpdate',
+      // 'prompt' statt 'autoUpdate' (13.10.2026): eine neue Fassung wartet, bis main.tsx sie im ruhigen Moment einspielt —
+      // nie mitten in einer angefangenen Tagesmeldung (lib/aktualisierung.ts)
+      registerType: 'prompt',
       manifest: {
         name: 'Rapporto',
         short_name: 'Rapporto',
@@ -28,8 +30,8 @@ export default defineConfig({
       },
       workbox: {
         globPatterns: ['**/*.{js,css,html,svg,png,woff2}'],
-        // Neue Version sofort übernehmen — sonst zeigt ein offener Tab tagelang den alten Stand
-        skipWaiting: true,
+        // Kein skipWaiting mehr: die neue Version übernimmt erst, wenn main.tsx sie ruft (Hintergrund, Seitenwechsel).
+        // Dass kein Tab tagelang auf dem alten Stand bleibt, regelt aktualisierung.ts (spätestens nach einem halben Tag).
         clientsClaim: true,
         cleanupOutdatedCaches: true,
         navigateFallbackDenylist: [/^\/functions\//],

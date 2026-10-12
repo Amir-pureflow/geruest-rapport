@@ -4,13 +4,16 @@ import { Check } from 'lucide-react';
 import { Shell } from '../ui/Shell';
 import { FotoGalerie } from '../ui/FotoGalerie';
 import { supabase } from '../lib/supabase';
+import { alle } from '../lib/abfrage';
+import { useAuffrischen, useNeuesteAnfrage } from '../lib/auffrischen';
 import { addTage, iso, kurz as ch, kw, montag, stunden } from '../lib/datum';
 import { aufteilen as aufteilenTag } from '../lib/zeiten';
 import { gelbePersonen, normaltagMin, znueni } from '../lib/einstellungen';
 import { ausSpalten, kannPauseAbziehen, pauseAbgezogen, pauseAbziehen, pauseZaehlen, spannenMinuten, uhrzeit, zeitenText, zuSpalten } from '../lib/zeiten';
 import { useAnsicht } from '../lib/ansicht';
 import { einstellungen } from '../lib/einstellungen';
-import { minutenBetrag, formatChf, tarifNachCode, RUECKFALL_ANSATZ_RAPPEN } from '../lib/tarif';
+import { formatChf } from '../lib/tarif';
+import { positionenAusEintraegen, summe as positionenSumme } from '../lib/regie';
 
 /**
  * Phase 3 — Wochenübersicht des Bauführers.
@@ -27,6 +30,11 @@ import { minutenBetrag, formatChf, tarifNachCode, RUECKFALL_ANSATZ_RAPPEN } from
  *   regie       — die Hinweiskarte wird zur Entscheidung: Betrag vorgerechnet, «Regierapport vorrechnen ›»
  *                 oder «Keine Regie …» mit Grund. Ein Rapport oder ein Entscheid beantwortet den ganzen
  *                 Tag dieser Baustelle — die Zelle ist dann nicht mehr gelb.
+ *
+ * Zeilen nach dem Team der Meldung (13.10.2026): Wer als Gast oder versetzt in einem anderen Team gearbeitet hat, steht
+ * an dem Tag in der Zeile dieses Teams — vorher landete die ganze Woche einer Person beim Team ihrer ersten Meldung, und
+ * «Tag freigeben» oder «alle auf X h» erwischten die falschen Einträge. Inaktive Teams mit Stunden in der Woche bleiben
+ * sichtbar, sonst liessen sich diese Stunden nicht mehr freigeben.
  *
  * Harte Regel #1: Das System sagt NIE «diese Stunden sind falsch».
  * Jede Markierung nennt ihre Quelle («Team meldet 1.5 h Überstunden») — entscheiden tut der Bauführer.
@@ -84,7 +92,11 @@ const REGIE_GRUND: Record<string, string> = {
 
 const RAPPORT_STAND: Record<string, string> = { entwurf: 'Entwurf', versendet: 'beim Kunden', rueckfrage: 'Rückfrage', frist_abgelaufen: 'Frist abgelaufen', bestaetigt: 'bestätigt' };
 
-interface Team { id: string; bezeichnung: string; chefmonteur: { name: string } | null }
+interface Team { id: string; bezeichnung: string; aktiv: boolean; chefmonteur: { name: string } | null }
+/** Zeile für Meldungen ohne Team (alte Daten) — damit keine Stunde verschwindet */
+const OHNE_TEAM = '';
+/** Das Team, in dessen Zeile ein Eintrag gehört: das Team seiner Meldung. */
+const teamVon = (e: { tagesmeldung: { team: { id: string } | null } }) => e.tagesmeldung.team?.id ?? OHNE_TEAM;
 
 type ZellStatus = 'leer' | 'gruen' | 'gelb' | 'rot' | 'frei';
 type Filter = 'zutun' | 'alle';
@@ -200,9 +212,12 @@ export function Cockpit() {
     const f = (data as { fehler?: string } | null)?.fehler ?? error?.message;
     if (f) melden('Text konnte nicht erstellt werden: ' + f, 'fehler');
     setTranskribiert((s) => { const n = new Set(s); n.delete(meldungId); return n; });
-    void laden();
+    void laden(true);
   }
   const [teams, setTeams] = useState<Team[]>([]);
+  /** Teams schon geladen? Vorher kein «Keine Teams angelegt» — das stand sonst kurz da, bis die Antwort kam */
+  const [teamsDa, setTeamsDa] = useState(false);
+  const [teamFehler, setTeamFehler] = useState('');
   // Standard «Zu tun»: nur Teams mit Hinweis. Kommt man gezielt zu einem Team oder Tag (Tagesübersicht, Rapport,
   // Freigabe-Karte der Übersicht), alle zeigen.
   const [filter, setFilter] = useState<Filter>(() => (params.get('team') || params.get('tag') ? 'alle' : 'zutun'));
@@ -228,21 +243,30 @@ export function Cockpit() {
     zielRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }, [laedt]);
 
-  useEffect(() => {
+  // Alle Teams, auch inaktive: ein Team, das mitten in der Woche ruht, hat trotzdem Stunden in dieser Woche
+  const teamsLaden = useCallback(async () => {
     if (!supabase) return;
-    void supabase.from('team').select('id,bezeichnung,chefmonteur:chefmonteur_id(name)').eq('aktiv', true).then(({ data }) => {
-      if (!data) return;
-      const s = (data as unknown as Team[]).sort((a, b) => a.bezeichnung.localeCompare(b.bezeichnung, 'de', { numeric: true }));
-      setTeams(s);
-    });
+    const { data, error } = await supabase.from('team').select('id,bezeichnung,aktiv,chefmonteur:chefmonteur_id(name)');
+    if (error) { setTeamFehler(error.message); return; }
+    setTeamFehler('');
+    setTeams((data as unknown as Team[]).sort((a, b) => a.bezeichnung.localeCompare(b.bezeichnung, 'de', { numeric: true })));
+    setTeamsDa(true);
   }, []);
+  useEffect(() => { void teamsLaden(); }, [teamsLaden]);
 
   const vonIso = iso(wochenStart);
   const bisIso = iso(addTage(wochenStart, 6));
 
-  const laden = useCallback(async () => {
+  const anfrage = useNeuesteAnfrage();
+  /**
+   * Einträge der Woche — seitenweise (in der Hochsaison sind es über 1000), und nur die jüngste Anfrage zählt: wer
+   * schnell die Woche wechselt, sieht nie die Antwort der vorigen. `still`: ohne «Lädt …» (nach dem Freigeben, beim
+   * Auffrischen); scheitert es dann, bleibt die Woche stehen und oben steht der Fehler.
+   */
+  const laden = useCallback(async (still = false) => {
     if (!supabase) return;
-    setLaedt(true);
+    const aktuell = anfrage();
+    if (!still) setLaedt(true);
     const c = supabase;
     // Transkript-Spalten kommen mit Migration 0009, Zeiten von–bis mit 0016, die dritte Spanne (Znüni-Abzug) mit 0029 —
     // fehlen sie noch, ohne sie laden statt gar nicht
@@ -253,29 +277,44 @@ export function Cockpit() {
       'audio_pfad,audio_sekunden,' + (regie ? 'regie_entscheid,regie_grund,' : '') +
       'team:team_id(id,bezeichnung),baustelle:baustelle_id(id,konto_nr,bezeichnung),foto(id,pfad)' +
       (regie ? ',regierapport(id,status,nummer)' : '') + ')';
-    const eintraegeLaden = async () => {
-      const lade = (t: boolean, z: boolean, d: boolean) => c.from('zeiteintrag').select(auswahl(t, z, d)).gte('tagesmeldung.datum', vonIso).lte('tagesmeldung.datum', bisIso);
+    const eintraegeLaden = async (): Promise<Eintrag[]> => {
+      const lade = (t: boolean, z: boolean, d: boolean) => alle<Eintrag>((a, b) =>
+        c.from('zeiteintrag').select(auswahl(t, z, d)).gte('tagesmeldung.datum', vonIso).lte('tagesmeldung.datum', bisIso).order('id').range(a, b));
       let mitTranskript = true;
       let mitZeiten = true;
       let mitDritter = true;
       for (let versuch = 0; versuch < 4; versuch++) {
-        const erg = await lade(mitTranskript, mitZeiten, mitDritter);
-        if (erg.error && mitDritter && /(von3_min|bis3_min) does not exist/.test(erg.error.message)) { mitDritter = false; continue; }
-        if (erg.error && mitZeiten && /(von2?_min|bis2?_min) does not exist/.test(erg.error.message)) { mitZeiten = false; continue; }
-        if (erg.error && mitTranskript && /transkript_\w+ does not exist/.test(erg.error.message)) { mitTranskript = false; continue; }
-        return erg;
+        try {
+          return await lade(mitTranskript, mitZeiten, mitDritter);
+        } catch (e) {
+          const m = e instanceof Error ? e.message : String(e);
+          if (mitDritter && /(von3_min|bis3_min) does not exist/.test(m)) { mitDritter = false; continue; }
+          if (mitZeiten && /(von2?_min|bis2?_min) does not exist/.test(m)) { mitZeiten = false; continue; }
+          if (mitTranskript && /transkript_\w+ does not exist/.test(m)) { mitTranskript = false; continue; }
+          throw e;
+        }
       }
       return lade(false, false, false);
     };
-    const z = await eintraegeLaden();
-    if (z.error) setLadeFehler(z.error.message);
-    else { setLadeFehler(''); setEintraege((z.data ?? []) as unknown as Eintrag[]); }
+    try {
+      const z = await eintraegeLaden();
+      if (!aktuell()) return;
+      setLadeFehler('');
+      setEintraege(z);
+    } catch (e) {
+      if (!aktuell()) return;
+      setLadeFehler(e instanceof Error ? e.message : String(e));
+      // Nie die alte Woche unter dem neuen Titel stehen lassen
+      if (!still) setEintraege([]);
+    }
     setLaedt(false);
-  }, [vonIso, bisIso, regie]);
+  }, [vonIso, bisIso, regie, anfrage]);
 
   useEffect(() => {
     void laden();
   }, [laden]);
+  // Die Wochenübersicht bleibt im Büro offen — wieder sichtbar oder alle 5 Minuten still neu laden
+  useAuffrischen(() => Promise.all([laden(true), teamsLaden()]));
 
   async function anhoeren(meldungId: string, pfad: string) {
     if (!supabase) return;
@@ -288,22 +327,37 @@ export function Cockpit() {
     void supabase.auth.getUser().then(({ data }) => setUserId(data.user?.id ?? null));
   }, []);
 
-  // Matrix: Person → Tag → Einträge (mit Team-Zuordnung)
-  const personen = useMemo(() => {
-    const m = new Map<
-      string,
-      { name: string; typ: string; funktion: string; teamId: string; teamName: string; tage: Map<string, Eintrag[]> }
-    >();
+  // Raster: Team der Meldung → Tag → Person → Einträge. Eine Person kann in derselben Woche in mehreren Teamzeilen
+  // stehen (Gast, versetzt) — jede Zelle zeigt nur, was in diesem Team gemeldet wurde (13.10.2026).
+  const zellen = useMemo(() => {
+    const m = new Map<string, Map<string, Map<string, Eintrag[]>>>();
     for (const e of eintraege) {
-      const p =
-        m.get(e.mitarbeiter.id) ??
-        { name: e.mitarbeiter.name, typ: e.mitarbeiter.typ, funktion: e.mitarbeiter.funktion, teamId: e.tagesmeldung.team?.id ?? '', teamName: e.tagesmeldung.team?.bezeichnung ?? 'ohne Team', tage: new Map() };
-      const liste = p.tage.get(e.tagesmeldung.datum) ?? [];
-      liste.push(e);
-      p.tage.set(e.tagesmeldung.datum, liste);
-      m.set(e.mitarbeiter.id, p);
+      const team = m.get(teamVon(e)) ?? new Map<string, Map<string, Eintrag[]>>();
+      const tag = team.get(e.tagesmeldung.datum) ?? new Map<string, Eintrag[]>();
+      tag.set(e.mitarbeiter.id, [...(tag.get(e.mitarbeiter.id) ?? []), e]);
+      team.set(e.tagesmeldung.datum, tag);
+      m.set(teamVon(e), team);
     }
-    return [...m.entries()].sort((a, b) => a[1].name.localeCompare(b[1].name));
+    return m;
+  }, [eintraege]);
+
+  /**
+   * Personen-Tage (`id|datum`) über 10 h, die das Team nicht selbst erklärt hat (Überstunden mit Notiz, «länger»). Es
+   * zählt der ganze Tag der Person, auch wenn sie an dem Tag in zwei Teams gearbeitet hat.
+   */
+  const langerTag = useMemo(() => {
+    const je = new Map<string, Eintrag[]>();
+    for (const e of eintraege) {
+      const k = `${e.mitarbeiter.id}|${e.tagesmeldung.datum}`;
+      je.set(k, [...(je.get(k) ?? []), e]);
+    }
+    const s = new Set<string>();
+    for (const [k, liste] of je) {
+      const summe = liste.reduce((x, e) => x + e.normal_min + e.ueber_min, 0);
+      const erklaert = liste.some((e) => e.tagesmeldung.abweichung_typ === 'laenger' || hatUeberstunden(e));
+      if (summe > ZEHN_STUNDEN_MIN && !erklaert) s.add(k);
+    }
+    return s;
   }, [eintraege]);
 
   /**
@@ -340,10 +394,8 @@ export function Cockpit() {
     // Freigegeben = der Bauführer hat es angeschaut — dann ist der Hinweis erledigt,
     // auch bei Überstunden oder über 10 h. Sonst bliebe das Team ewig unter «Zum Anschauen».
     if (liste.every((e) => e.status === 'freigegeben')) return 'frei';
-    const summe = liste.reduce((s, e) => s + e.normal_min + e.ueber_min, 0);
     // Über 10 h ist nur dann ein offener Hinweis, wenn das Team den langen Tag nicht selbst erklärt hat (Überstunden mit Notiz)
-    const erklaert = liste.some((e) => e.tagesmeldung.abweichung_typ === 'laenger' || hatUeberstunden(e));
-    if (summe > ZEHN_STUNDEN_MIN && !erklaert) return 'rot';
+    if (liste.some((e) => langerTag.has(`${e.mitarbeiter.id}|${e.tagesmeldung.datum}`))) return 'rot';
     // Überstunden ab «Gelb markieren ab» (oder eine Abweichung) = Hinweis: der Bauführer liest die Notiz, prüft die
     // Stunden, gibt frei. Im Regie-Modus fällt der Hinweis weg, sobald ein Rapport oder ein «keine Regie» dazu steht.
     const hinweis = liste.some(
@@ -400,6 +452,21 @@ export function Cockpit() {
   useEffect(() => { if (markTag && !wochenTage.includes(markTag)) markierungWeg(); }, [wochenTage]); // eslint-disable-line react-hooks/exhaustive-deps
 
   /**
+   * Welche Teams eine Zeile bekommen: alle aktiven (auch ohne Meldung — die fehlen sonst) und jedes inaktive, das in
+   * dieser Woche Stunden hat. Meldungen ohne bekanntes Team bekommen eine eigene Zeile.
+   */
+  const zeilenTeams = useMemo(() => {
+    const mitEintraegen = new Set(eintraege.map(teamVon));
+    const liste = teams.filter((t) => t.aktiv || mitEintraegen.has(t.id));
+    for (const id of mitEintraegen) {
+      if (liste.some((t) => t.id === id)) continue;
+      const e = eintraege.find((x) => teamVon(x) === id);
+      liste.push({ id, bezeichnung: e?.tagesmeldung.team?.bezeichnung ?? 'ohne Team', aktiv: false, chefmonteur: null });
+    }
+    return liste;
+  }, [teams, eintraege]);
+
+  /**
    * Eine Zeile pro Team, sieben Tageszellen (Teamsumme + Stand), dazu was noch offen ist.
    * Teams ohne Meldung stehen auch drin — die fehlen sonst.
    */
@@ -417,15 +484,13 @@ export function Cockpit() {
       totalMin: number;
       rang: number;
     };
-    const zeilen: Zeile[] = teams.map((team) => {
-      const leute = personen.filter(([, p]) => p.teamId === team.id);
+    const zeilen: Zeile[] = zeilenTeams.map((team) => {
+      const proTag = zellen.get(team.id);
       const tage: Tag[] = wochenTage.map((datum) => {
         let min = 0;
         let status: ZellStatus = 'leer';
         const eintraegeTag: Eintrag[] = [];
-        for (const [, p] of leute) {
-          const liste = p.tage.get(datum);
-          if (!liste) continue;
+        for (const liste of proTag?.get(datum)?.values() ?? []) {
           eintraegeTag.push(...liste);
           min += liste.reduce((s, e) => s + e.normal_min + e.ueber_min, 0);
           const st = zellStatus(liste);
@@ -445,9 +510,10 @@ export function Cockpit() {
     // Immer Team 1 … 20 der Reihe nach — die Farbe zeigt den Stand, der Filter «Zum Anschauen» blendet den Rest aus
     return zeilen.sort((a, b) => a.team.bezeichnung.localeCompare(b.team.bezeichnung, 'de', { numeric: true }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [teams, personen, wochenTage]);
+  }, [zeilenTeams, zellen, wochenTage]);
 
   const zaehler = useMemo(() => ({
+    teams: teamZeilen.length,
     gemeldet: teamZeilen.filter((z) => z.alle.length > 0).length,
     anschauen: teamZeilen.filter((z) => z.rang === 0).length,
     gruenTage: teamZeilen.reduce((s, z) => s + z.gruenTage, 0),
@@ -474,7 +540,7 @@ export function Cockpit() {
     if (error) { melden('Konnte nicht gespeichert werden: ' + error.message, 'fehler'); return; }
     setKeineRegieFrage(null);
     melden('Als «keine Regie» abgeschlossen ✓ — die Stunden bleiben');
-    void laden();
+    void laden(true);
   }
   /** Entscheid zurücknehmen — der Hinweis ist wieder offen. */
   async function dochRegie(meldungId: string) {
@@ -485,20 +551,16 @@ export function Cockpit() {
       .eq('id', meldungId);
     if (error) { melden('Konnte nicht zurückgenommen werden: ' + error.message, 'fehler'); return; }
     melden('Wieder offen — der Hinweis steht erneut da');
-    void laden();
+    void laden(true);
   }
 
-  /** Was der Kunde zahlen würde, zum SGUV-Ansatz der Funktion. Nur eine Vorrechnung, nie eine Rechnung. */
+  /**
+   * Was der Kunde zahlen würde, zum SGUV-Ansatz der Funktion. Nur eine Vorrechnung, nie eine Rechnung. Gleich gerechnet
+   * wie die Positionen des Regierapports (lib/regie.ts: Menge in Hundertsteln × Ansatz) — sonst stünde hier ein anderer
+   * Betrag als nachher auf dem Rapport.
+   */
   function betragVorgerechnet(liste: Eintrag[]): number {
-    return liste.reduce((sum, e) => {
-      let ansatz = RUECKFALL_ANSATZ_RAPPEN;
-      try {
-        ansatz = tarifNachCode(e.mitarbeiter.funktion).ansatz_rappen;
-      } catch {
-        /* unbekannte Funktion → Monteursansatz */
-      }
-      return sum + minutenBetrag(e.normal_min + e.ueber_min, ansatz);
-    }, 0);
+    return positionenSumme(positionenAusEintraegen(liste));
   }
 
   function melden(text: string, art: 'ok' | 'fehler' = 'ok') {
@@ -528,7 +590,7 @@ export function Cockpit() {
       melden(`${was} freigegeben ✓`);
     }
     setSpeichert(false);
-    void laden();
+    void laden(true);
   }
 
   /** Korrektur in Gesamtminuten (Normal + Über), am normalen Arbeitstag der Firma aufgeteilt — wie die Erfassung. */
@@ -564,7 +626,7 @@ export function Cockpit() {
     }
     setSpeichert(false);
     setKorrektur(null);
-    void laden();
+    void laden(true);
   }
   /**
    * Znüni 9:00–9:30 abziehen oder wieder zählen (09.10.2026, Amir): zahlt der Bauherr die Pause nicht, wird der
@@ -608,7 +670,7 @@ export function Cockpit() {
       else melden(`${e.mitarbeiter.name}: ${abziehen ? 'Pause abgezogen' : 'Pause wieder gezählt'} · ${stunden(altTotal)} → ${stunden(neuTotal)} h ✓`);
     }
     setSpeichert(false);
-    void laden();
+    void laden(true);
   }
 
   /** Ganzes Team an einem Tag auf denselben Wert — statt 3 × 4 Aufklappvorgänge. */
@@ -632,13 +694,13 @@ export function Cockpit() {
     else melden(`Team auf ${stunden(total)} h gesetzt ✓`);
     setSpeichert(false);
     setKorrektur(null);
-    void laden();
+    void laden(true);
   }
 
   /** Der aufgeklappte Tag: alle Einträge des Teams an diesem Datum, nach Name. */
   const detail = useMemo(
     () => (offen
-      ? eintraege.filter((e) => e.tagesmeldung.team?.id === offen.team && e.tagesmeldung.datum === offen.datum)
+      ? eintraege.filter((e) => teamVon(e) === offen.team && e.tagesmeldung.datum === offen.datum)
       : []
     ).slice().sort((a, b) => a.mitarbeiter.name.localeCompare(b.mitarbeiter.name) || Number(b.tagesmeldung.normalfall) - Number(a.tagesmeldung.normalfall)),
     [eintraege, offen],
@@ -677,9 +739,9 @@ export function Cockpit() {
         <header className="flex flex-wrap items-end justify-between gap-x-6 gap-y-3">
           <div className="min-w-0">
             <h1 className="text-[26px] font-semibold tracking-tight lg:text-[28px]">Wochenübersicht</h1>
-            {!laedt && teams.length > 0 && (
+            {!laedt && teamsDa && zaehler.teams > 0 && (
               <p className="mt-1 text-sm text-ink3">
-                {istVorwoche ? 'Vorwoche' : istAktuelleWoche ? 'Diese Woche' : 'Woche'} · {zaehler.gemeldet} von {teams.length} Teams gemeldet
+                {istVorwoche ? 'Vorwoche' : istAktuelleWoche ? 'Diese Woche' : 'Woche'} · {zaehler.gemeldet} von {zaehler.teams} Teams gemeldet
                 {zaehler.anschauen > 0
                   ? <> · <span className="font-medium text-accent-deep">{zaehler.anschauen} zum Anschauen</span></>
                   : eintraege.length > 0 ? <> · nichts zum Anschauen</> : null}
@@ -741,6 +803,12 @@ export function Cockpit() {
             <button type="button" className="btn-ghost shrink-0" onClick={() => void laden()}>Nochmals</button>
           </p>
         )}
+        {teamFehler && (
+          <p className="flex items-center justify-between gap-3 rounded-[12px] border border-accent/40 bg-accent-soft px-4 py-2.5 text-sm text-accent-deep">
+            <span>Teams konnten nicht geladen werden: {teamFehler}</span>
+            <button type="button" className="btn-ghost shrink-0" onClick={() => void teamsLaden()}>Nochmals</button>
+          </p>
+        )}
         {regie && herkunftRapport && (
           <div className="flex items-center justify-between gap-3 rounded-[12px] border border-steel/40 bg-steel-soft px-4 py-2.5 text-sm">
             <span>Sicht aus dem Regierapport</span>
@@ -790,9 +858,9 @@ export function Cockpit() {
           </div>
         )}
 
-        {laedt ? (
+        {teamFehler && !teamsDa ? null : laedt || !teamsDa ? (
           <div className="card text-sm text-ink3">Lädt …</div>
-        ) : teams.length === 0 ? (
+        ) : teamZeilen.length === 0 ? (
           <div className="card text-sm text-ink3">Keine Teams angelegt — Verwaltung → Teams.</div>
         ) : istAktuelleWoche && eintraege.length === 0 ? (
           <div className="card text-sm text-ink3">Noch keine Meldungen in dieser Woche — sie kommen abends von den Teams. Vorwoche: ‹</div>
@@ -836,10 +904,13 @@ export function Cockpit() {
                         {/* Weisse, leicht erhabene Kachel (09.10.2026, Amir: grau wirkte altmodisch) — farblos, weil Blau/Grün/Bernstein schon den Stand der Tage zeigen */}
                         <span className="grid h-8 w-8 shrink-0 place-items-center rounded-[10px] bg-gradient-to-b from-white to-[#f4f2ee] font-display text-[13px] font-bold tabular-nums text-ink shadow-[0_1px_2px_rgb(17_17_19/0.08),0_6px_12px_-8px_rgb(17_17_19/0.35),inset_0_1px_0_#fff] ring-1 ring-ink/[0.07]" aria-hidden="true">{teamKuerzel(z.team.bezeichnung)}</span>
                         <span className="min-w-0">
-                          <span className="block truncate font-display text-[14px] font-semibold leading-tight">{z.team.bezeichnung}</span>
+                          <span className="block truncate font-display text-[14px] font-semibold leading-tight">
+                            {z.team.bezeichnung}
+                            {!z.team.aktiv && <span className="ml-1.5 rounded-full bg-ink/10 px-1.5 py-0.5 align-middle font-sans text-[10px] font-semibold text-ink3">inaktiv</span>}
+                          </span>
                           {/* Wochentotal beim Namen, nicht rechts — rechtsbündig wurde es als Sonntagswert gelesen (04.10.2026) */}
                           <span className="block truncate text-xs text-ink3">
-                            {z.team.chefmonteur ? kurzName(z.team.chefmonteur.name) : 'ohne Vorarbeiter'}
+                            {z.team.chefmonteur ? kurzName(z.team.chefmonteur.name) : 'kein Chefmonteur'}
                             {z.totalMin > 0 && <span className="font-mono tabular-nums"> · {stunden(z.totalMin)} h</span>}
                           </span>
                         </span>
@@ -892,7 +963,7 @@ export function Cockpit() {
 
                   {auf && detail.length > 0 && (() => {
                     const tag = z.tage.find((t) => t.datum === offen!.datum)!;
-                    const faelle = verdachtsfaelle.filter((f) => f.meldung.team?.id === z.team.id && f.meldung.datum === offen!.datum);
+                    const faelle = verdachtsfaelle.filter((f) => (f.meldung.team?.id ?? OHNE_TEAM) === z.team.id && f.meldung.datum === offen!.datum);
                     const baustellen = [...new Map(detail.filter((e) => e.tagesmeldung.baustelle).map((e) => [e.tagesmeldung.baustelle!.konto_nr, e.tagesmeldung.baustelle!])).values()];
                     const mehrereBaustellen = baustellen.length > 1;
                     const personenN = new Set(detail.map((e) => e.mitarbeiter.id)).size;
@@ -1083,11 +1154,7 @@ export function Cockpit() {
                             )}
                             {meldung.audio_pfad && (
                               <div className="mt-2 flex items-center gap-2">
-                                {meldung.audio_pfad ? (
-                                  <button type="button" onClick={() => void anhoeren(meldung.id, meldung.audio_pfad!)} className="btn-ghost">▶ Sprachnotiz{meldung.audio_sekunden ? ` · ${meldung.audio_sekunden} Sek.` : ''}</button>
-                                ) : (
-                                  <span className="font-mono text-[11px] text-ink3">Sprachnotiz {meldung.audio_sekunden} Sek. (Demo — keine Aufnahme hinterlegt)</span>
-                                )}
+                                <button type="button" onClick={() => void anhoeren(meldung.id, meldung.audio_pfad!)} className="btn-ghost">▶ Sprachnotiz{meldung.audio_sekunden ? ` · ${meldung.audio_sekunden} Sek.` : ''}</button>
                                 {audio?.meldung === meldung.id && <audio controls autoPlay src={audio.url} className="h-8 flex-1" />}
                               </div>
                             )}

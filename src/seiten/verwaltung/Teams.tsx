@@ -4,7 +4,7 @@ import { iso } from '../../lib/datum';
 import { Plus, Star, Truck, Users } from 'lucide-react';
 import { Avatar, Dialog } from '../../ui/Dialog';
 import { PersonWahl } from '../../ui/PersonWahl';
-import { teamEntfernen, teamPruefen } from '../../lib/entfernen';
+import { teamEntfernen, teamInaktivPruefen, teamPruefen } from '../../lib/entfernen';
 import { LoeschLeiste, Papierkorb, useLoeschFrage } from '../../ui/LoeschFrage';
 import { FUNKTION_BUERO } from '../../lib/benutzername';
 
@@ -18,6 +18,8 @@ export function Teams() {
   const [personen, setPersonen] = useState<Person[]>([]);
   const [gewaehlt, setGewaehlt] = useState<string | null>(null);
   const [neu, setNeu] = useState('');
+  /** «Team anlegen» läuft — Enter und Klick zusammen legten sonst zwei gleiche Teams an */
+  const [legtAn, setLegtAn] = useState(false);
   const [fehler, setFehler] = useState('');
 
   const laden = useCallback(async () => {
@@ -41,8 +43,10 @@ export function Teams() {
   const frei = personen.filter((p) => !inIrgendeinemTeam.has(p.id) && p.funktion !== 'bauf');
 
   async function teamAnlegen() {
-    if (!supabase || !neu.trim()) return;
+    if (!supabase || !neu.trim() || legtAn) return;
+    setLegtAn(true);
     const { error } = await supabase.from('team').insert({ bezeichnung: neu.trim() });
+    setLegtAn(false);
     if (error) { setFehler(error.message); return; }
     setNeu('');
     void laden();
@@ -95,10 +99,30 @@ export function Teams() {
   const { frage, abbrechen } = loeschFrage;
   function loeschenFragen(t: Team) {
     setHinweis('');
+    inaktivFrage.abbrechen();
     loeschFrage.fragen(t);
   }
+  /**
+   * Haken «aktiv» weg (13.10.2026): derselbe Weg wie «Entfernen» — mit offenen Stunden erst nach der Freigabe, die Leute
+   * verlassen das Team, die Planung ab morgen fällt weg (src/lib/entfernen.ts). Vorher nur `aktiv = false`, an allem vorbei.
+   */
+  const inaktivFrage = useLoeschFrage<Team>(
+    (t) => teamInaktivPruefen(t, mitglieder.filter((m) => m.team_id === t.id).length),
+    (t, entscheid) => teamEntfernen(t.id, entscheid),
+    (t) => {
+      setGewaehlt(null);
+      setHinweis(`«${t.bezeichnung}» ist inaktiv, die Stunden bleiben im Lohn-Export. Wieder aktivieren geht unter «Inaktive Teams».`);
+      void laden();
+    },
+  );
+  const inaktivAbbrechen = inaktivFrage.abbrechen;
+  function inaktivFragen(t: Team) {
+    setHinweis('');
+    abbrechen();
+    inaktivFrage.fragen(t);
+  }
 
-  const schliessen = useCallback(() => { setGewaehlt(null); setFehler(''); abbrechen(); }, [abbrechen]);
+  const schliessen = useCallback(() => { setGewaehlt(null); setFehler(''); abbrechen(); inaktivAbbrechen(); }, [abbrechen, inaktivAbbrechen]);
 
   /** Eine Karte im Raster — aktive oben, ruhende und entfernte darunter unter «Inaktive Teams». */
   function karte(t: Team) {
@@ -140,7 +164,7 @@ export function Teams() {
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-3">
         <input value={neu} onChange={(e) => setNeu(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') void teamAnlegen(); }} placeholder="Neues Team, z. B. Team 21" className="field max-w-sm flex-1" />
-        <button type="button" onClick={() => void teamAnlegen()} disabled={!neu.trim()} className="inline-flex items-center gap-1.5 rounded-full bg-gradient-to-br from-[#ff6d4c] via-accent to-[#9c1409] px-4 py-2 text-sm font-semibold text-white shadow-[0_10px_22px_-10px_rgb(224_48_30/0.7)] transition hover:-translate-y-px disabled:opacity-50">
+        <button type="button" onClick={() => void teamAnlegen()} disabled={!neu.trim() || legtAn} className="inline-flex items-center gap-1.5 rounded-full bg-gradient-to-br from-[#ff6d4c] via-accent to-[#9c1409] px-4 py-2 text-sm font-semibold text-white shadow-[0_10px_22px_-10px_rgb(224_48_30/0.7)] transition hover:-translate-y-px disabled:opacity-50">
           <Plus size={15} strokeWidth={2.6} aria-hidden="true" />Team anlegen
         </button>
         <span className="text-sm text-ink3">{aktive.length} aktive Teams · {frei.length} Personen ohne Team</span>
@@ -185,7 +209,7 @@ export function Teams() {
                   className="field"
                 />
               </label>
-              <label className="flex items-center gap-2 rounded-[12px] bg-surface-2/70 px-3.5 py-3 text-sm"><input type="checkbox" checked={team.aktiv} onChange={(e) => void aendern({ aktiv: e.target.checked })} /> aktiv</label>
+              <label className="flex items-center gap-2 rounded-[12px] bg-surface-2/70 px-3.5 py-3 text-sm"><input type="checkbox" checked={team.aktiv} disabled={inaktivFrage.frage?.laeuft} onChange={(e) => { if (e.target.checked) void aendern({ aktiv: true }); else inaktivFragen(team); }} /> aktiv</label>
             </div>
             <label className="block">
               <span className="lbl">Fahrzeug</span>
@@ -223,6 +247,7 @@ export function Teams() {
             </div>
             {fehler && <p className="text-sm font-semibold text-accent-deep">{fehler}</p>}
             {frage && frage.ding.id === team.id && <LoeschLeiste frage={frage} onAbbrechen={abbrechen} onBestaetigen={loeschFrage.bestaetigen} art="fenster" />}
+            {inaktivFrage.frage && inaktivFrage.frage.ding.id === team.id && <LoeschLeiste frage={inaktivFrage.frage} onAbbrechen={inaktivAbbrechen} onBestaetigen={inaktivFrage.bestaetigen} art="fenster" />}
           </div>
         </Dialog>
       )}

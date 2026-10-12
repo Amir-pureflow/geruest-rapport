@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Plus } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
+import { alle } from '../../lib/abfrage';
 import { einstellungen } from '../../lib/einstellungen';
 
 // Die Spalten praeferenz, anzeige_noetig, frist_tage, weitere_emails gehören zur Regie. Ohne den Schalter
@@ -17,26 +18,39 @@ export function Kunden() {
   const [bearbeitet, setBearbeitet] = useState<Kunde | null>(null);
   const [suche, setSuche] = useState('');
   const [fehler, setFehler] = useState('');
+  /** Läuft «Speichern»? Ein zweiter Klick legte sonst denselben Kunden zweimal an. */
+  const [speichert, setSpeichert] = useState(false);
 
+  // Seitenweise (13.10.2026): Baustellen werden über die Jahre mehr als 1000 — sonst stimmte die Zahl «BS» je Kunde nicht
   const laden = useCallback(async () => {
     if (!supabase) return;
-    const [k, b] = await Promise.all([
-      supabase.from('kunde').select('id,name,ansprechperson,email,telefon,praeferenz,anzeige_noetig,frist_tage,adresse,weitere_emails').order('name'),
-      supabase.from('baustelle').select('kunde_id').not('kunde_id', 'is', null),
-    ]);
-    if (k.error) { setFehler(/anzeige_noetig|frist_tage/.test(k.error.message) ? 'Migration 0011 fehlt — bitte einspielen.' : k.error.message.includes('ansprechperson') ? 'Migration 0005 fehlt — bitte im SQL-Editor ausführen.' : k.error.message); return; }
+    const c = supabase;
+    let kunden: (Kunde & { id: string })[];
+    let baustellen: { kunde_id: string }[];
+    try {
+      [kunden, baustellen] = await Promise.all([
+        alle<Kunde & { id: string }>((von, bis) => c.from('kunde').select('id,name,ansprechperson,email,telefon,praeferenz,anzeige_noetig,frist_tage,adresse,weitere_emails').order('name').order('id').range(von, bis)),
+        alle<{ kunde_id: string }>((von, bis) => c.from('baustelle').select('kunde_id').not('kunde_id', 'is', null).order('id').range(von, bis)),
+      ]);
+    } catch (e) {
+      const m = e instanceof Error ? e.message : String(e);
+      setFehler(/anzeige_noetig|frist_tage/.test(m) ? 'Migration 0011 fehlt — bitte einspielen.' : m.includes('ansprechperson') ? 'Migration 0005 fehlt — bitte im SQL-Editor ausführen.' : m);
+      return;
+    }
     const zaehler = new Map<string, number>();
-    for (const r of b.data ?? []) zaehler.set(r.kunde_id, (zaehler.get(r.kunde_id) ?? 0) + 1);
-    setListe((k.data ?? []).map((x) => ({ ...(x as Kunde & { id: string }), baustellen: zaehler.get(x.id) ?? 0 })));
+    for (const r of baustellen) zaehler.set(r.kunde_id, (zaehler.get(r.kunde_id) ?? 0) + 1);
+    setListe(kunden.map((x) => ({ ...x, baustellen: zaehler.get(x.id) ?? 0 })));
   }, []);
   useEffect(() => { void laden(); }, [laden]);
 
   async function speichern() {
-    if (!supabase || !bearbeitet) return;
+    if (!supabase || !bearbeitet || speichert) return;
     if (!bearbeitet.name.trim()) { setFehler('Name fehlt.'); return; }
     setFehler('');
+    setSpeichert(true);
     const row = { ...bearbeitet, name: bearbeitet.name.trim(), email: bearbeitet.email?.trim() || null, ansprechperson: bearbeitet.ansprechperson?.trim() || null, telefon: bearbeitet.telefon?.trim() || null, adresse: bearbeitet.adresse?.trim() || null, weitere_emails: bearbeitet.weitere_emails?.trim() || null, frist_tage: Math.min(60, Math.max(1, Math.round(Number(bearbeitet.frist_tage) || 3))) };
     const { error } = row.id ? await supabase.from('kunde').update(row).eq('id', row.id) : await supabase.from('kunde').insert(row);
+    setSpeichert(false);
     if (error) { setFehler(error.message); return; }
     setBearbeitet(null);
     void laden();
@@ -104,7 +118,7 @@ export function Kunden() {
             </>
           )}
           <div className="flex gap-2">
-            <button type="button" onClick={() => void speichern()} className="cta py-3 text-base">Speichern</button>
+            <button type="button" onClick={() => void speichern()} disabled={speichert} className="cta py-3 text-base disabled:opacity-50">{speichert ? 'Speichert …' : 'Speichern'}</button>
             <button type="button" onClick={() => setBearbeitet(null)} className="btn-ghost">Abbrechen</button>
           </div>
           {fehler && <p className="text-sm font-semibold text-accent-deep">{fehler}</p>}

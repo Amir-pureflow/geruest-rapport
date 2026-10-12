@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { CalendarOff, Users } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
+import { alle } from '../../lib/abfrage';
+import { useNeuesteAnfrage } from '../../lib/auffrischen';
 import { addTage, ausIso, iso, stunden } from '../../lib/datum';
 import { normaltagMin } from '../../lib/einstellungen';
 import { FUNKTION_BUERO } from '../../lib/benutzername';
@@ -60,6 +62,7 @@ export function Abwesenheiten() {
   const [laedt, setLaedt] = useState(true);
   const [fehler, setFehler] = useState('');
   const [frage, setFrage] = useState<Frage<Block> | null>(null);
+  const anfrage = useNeuesteAnfrage();
 
   const monatVon = iso(monat);
   const monatBis = iso(new Date(monat.getFullYear(), monat.getMonth() + 1, 0, 12));
@@ -69,15 +72,25 @@ export function Abwesenheiten() {
     void supabase.from('mitarbeiter').select('id,name,funktion').eq('aktiv', true).order('name').then(({ data }) => setLeute((data ?? []) as Person[]));
   }, []);
 
+  // Seitenweise (13.10.2026): ein Feiertag für alle sind schon 75 Zeilen — die Blöcke und «löschen» brauchen jeden Tag
+  // des Monats, nicht die ersten 1000. Blättert man schnell, zählt nur die Antwort zum angezeigten Monat.
   const laden = useCallback(async () => {
     if (!supabase) return;
+    const c = supabase;
+    const aktuell = anfrage();
     setLaedt(true);
-    const { data, error } = await supabase.from('abwesenheit').select('id,mitarbeiter_id,datum,art,minuten').gte('datum', monatVon).lte('datum', monatBis).order('datum').limit(5000);
+    try {
+      const daten = await alle<Abwesenheit>((von, bis) => c.from('abwesenheit').select('id,mitarbeiter_id,datum,art,minuten').gte('datum', monatVon).lte('datum', monatBis).order('datum').order('id').range(von, bis));
+      if (!aktuell()) return;
+      setFehler('');
+      setListe(daten);
+    } catch (e) {
+      if (!aktuell()) return;
+      setFehler(fehlerText(e instanceof Error ? e.message : String(e)));
+      setListe([]);
+    }
     setLaedt(false);
-    if (error) { setFehler(fehlerText(error.message)); setListe([]); return; }
-    setFehler('');
-    setListe((data ?? []) as Abwesenheit[]);
-  }, [monatVon, monatBis]);
+  }, [monatVon, monatBis, anfrage]);
   useEffect(() => { void laden(); }, [laden]);
 
   // Unbezahlt zählt 0 h; zurück zu einer bezahlten Art → wieder der normale Tag

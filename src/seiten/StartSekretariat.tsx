@@ -8,7 +8,7 @@
  *   voll    — zusätzlich unten die Regie: was liegt beim Kunden, was wurde je Monat verschickt.
  * Die Stunden bleiben in beiden Fällen oben — die Lohnabrechnung ist die Hauptarbeit.
  */
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { AlarmClock, CheckCircle2, Clock, Hourglass } from 'lucide-react';
 import { Shell, navFuer } from '../ui/Shell';
@@ -19,6 +19,8 @@ import { DiagrammKarte, Fristen, RegieMonate } from '../ui/Diagramm';
 import { fristen, regieMonate, type FristEintrag, type RegieMonat } from '../lib/kennzahlen';
 import { einstellungen } from '../lib/einstellungen';
 import { supabase } from '../lib/supabase';
+import { alle } from '../lib/abfrage';
+import { useAuffrischen, useNeuesteAnfrage } from '../lib/auffrischen';
 import { addTage, iso, kurz, kw, lang, montag, stunden } from '../lib/datum';
 
 interface Zeile {
@@ -65,51 +67,76 @@ export function StartSekretariat() {
   const [zeilen, setZeilen] = useState<Zeile[]>([]);
   const [aktive, setAktive] = useState(0);
   const [laedt, setLaedt] = useState(true);
+  /** Die Zahlen oben stammen aus einer gelungenen Ladung — sonst keine Kacheln (lieber nichts als falsche Stunden) */
+  const [geladen, setGeladen] = useState(false);
+  const [fehler, setFehler] = useState('');
   const [beimKunden, setBeimKunden] = useState<FristEintrag[] | null>(null);
   const [monate, setMonate] = useState<RegieMonat[] | null>(null);
+  const anfrage = useNeuesteAnfrage();
 
-  useEffect(() => {
-    // Einmal, nicht bei jedem Zeitraumwechsel — die Regie hängt nicht an der gewählten Woche
+  // Nicht bei jedem Zeitraumwechsel — die Regie hängt nicht an der gewählten Woche. Stolpert sie, bleibt der Rest stehen.
+  const regieLaden = useCallback(async () => {
     if (!supabase || !mitRegie) return;
     const c = supabase;
-    void (async () => {
+    try {
       const [f, m] = await Promise.all([fristen(c), regieMonate(c)]);
       setBeimKunden(f);
       setMonate(m);
-    })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    } catch {
+      /* Regie-Karten bleiben, wie sie waren */
+    }
   }, [mitRegie]);
+  useEffect(() => { void regieLaden(); }, [regieLaden]);
 
   // Zeitraum → von/bis (ISO) und Titel
   const { von, bis, titel, exportLink } = useMemo(() => {
     if (zeitraum === 'monat') {
       const start = new Date(heute.getFullYear(), heute.getMonth(), 1, 12);
       const ende = new Date(heute.getFullYear(), heute.getMonth() + 1, 0, 12);
-      return { von: iso(start), bis: iso(ende), titel: `${start.toLocaleDateString('de-CH', { month: 'long' })} ${start.getFullYear()}`, exportLink: `/export?zeitraum=monat&woche=${iso(montag(start))}` };
+      // Der Export liest im Monat den 1. (13.10.2026 — mit montag(1.) öffnete er den Vormonat)
+      return { von: iso(start), bis: iso(ende), titel: `${start.toLocaleDateString('de-CH', { month: 'long' })} ${start.getFullYear()}`, exportLink: `/export?zeitraum=monat&woche=${iso(start)}` };
     }
     const start = zeitraum === 'vorwoche' ? montag(addTage(heute, -7)) : montag(heute);
     return { von: iso(start), bis: iso(addTage(start, 6)), titel: `KW ${kw(start)} · ${kurz(start)} – ${kurz(addTage(start, 6))}`, exportLink: `/export?woche=${iso(start)}` };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [zeitraum]);
 
-  useEffect(() => {
+  /**
+   * Stunden des Zeitraums — seitenweise (ein Monat hat mehr als die 1000 Zeilen, die eine Antwort höchstens bringt;
+   * vorher fehlte der Rest still, und unten stand «alles freigegeben»). Nur die jüngste Anfrage zeigt ihr Ergebnis.
+   * `still`: beim Auffrischen kein «Lädt …», und scheitert es, bleiben die Zahlen stehen (mit Hinweis).
+   */
+  const laden = useCallback(async (still = false) => {
     if (!supabase) return;
     const c = supabase;
-    setLaedt(true);
-    void (async () => {
+    const aktuell = anfrage();
+    if (!still) setLaedt(true);
+    try {
       const [z, m] = await Promise.all([
-        c.from('zeiteintrag')
+        alle<Zeile>((a, b) => c.from('zeiteintrag')
           .select('normal_min,ueber_min,status,mitarbeiter:mitarbeiter_id(id,name,typ,temporaerbuero),tagesmeldung:tagesmeldung_id!inner(datum,team:team_id(bezeichnung))')
           .gte('tagesmeldung.datum', von)
           .lte('tagesmeldung.datum', bis)
-          .limit(5000),
+          .order('id')
+          .range(a, b)),
         c.from('mitarbeiter').select('id', { count: 'exact', head: true }).eq('aktiv', true),
       ]);
-      setZeilen((z.data ?? []) as unknown as Zeile[]);
+      if (m.error) throw new Error(m.error.message);
+      if (!aktuell()) return;
+      setZeilen(z);
       setAktive(m.count ?? 0);
-      setLaedt(false);
-    })();
-  }, [von, bis]);
+      setGeladen(true);
+      setFehler('');
+    } catch (e) {
+      if (!aktuell()) return;
+      setFehler(e instanceof Error ? e.message : String(e));
+      if (!still) { setZeilen([]); setGeladen(false); }
+    }
+    setLaedt(false);
+  }, [von, bis, anfrage]);
+  useEffect(() => { void laden(); }, [laden]);
+  // Die Seite bleibt im Büro stundenlang offen — wieder sichtbar oder alle 5 Minuten neu laden
+  useAuffrischen(() => Promise.all([laden(true), regieLaden()]));
 
   // Pro Person: Tage, Normal, Überstunden, freigegeben, offen
   const personen = useMemo(() => {
@@ -163,15 +190,21 @@ export function StartSekretariat() {
           <Segment label="Zeitraum" wert={zeitraum} aendern={setZeitraum} optionen={zeitraeume.map((z) => ({ wert: z.key, text: z.label }))} />
         </header>
 
+        {fehler && (
+          <p className="rounded-[12px] border border-accent/40 bg-accent-soft px-4 py-3 text-sm text-accent-deep">
+            {geladen ? 'Konnte nicht neu laden — die Zahlen unten sind vom letzten Mal' : 'Stunden konnten nicht geladen werden'}: {fehler}{' '}
+            <button type="button" className="ml-1 font-semibold underline" onClick={() => void laden()}>Nochmals</button>
+          </p>
+        )}
         {laedt ? (
           <div className="card text-sm text-ink3">Lädt …</div>
-        ) : (
+        ) : !geladen ? null : (
           <>
             <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
               <Kachel zu={exportLink} icon={Clock} titel="Stunden" wert={`${stunden(total)} h`} label={`${zeitraum === 'monat' ? 'im Monat' : 'in der Woche'} · ${personen.length} von ${aktive} Mitarbeitenden`} farbe="blau" />
               <Kachel zu={exportLink} icon={AlarmClock} titel="Überstunden" wert={`${stunden(ueber)} h`} label={zeitraum === 'monat' ? 'im Monat' : 'in der Woche'} farbe="gelb" />
               <Kachel zu={exportLink} icon={CheckCircle2} titel="Freigegeben" wert={`${stunden(frei)} h`} label="vom Bauführer — bereit für den Lohn" farbe="gruen" />
-              <Kachel zu={exportLink} icon={Hourglass} titel="Offen" wert={`${stunden(offen)} h`} label={offen > 0 ? 'der Bauführer prüft noch' : 'alles freigegeben'} farbe="rot" />
+              <Kachel zu={exportLink} icon={Hourglass} titel="Offen" wert={`${stunden(offen)} h`} label={offen > 0 ? 'der Bauführer prüft noch' : total === 0 ? 'noch keine Stunden gemeldet' : 'alles freigegeben'} farbe="rot" />
             </div>
 
             {offen > 0 && (

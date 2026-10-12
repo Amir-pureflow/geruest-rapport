@@ -4,12 +4,18 @@ import { Link } from 'react-router-dom';
 import { Shell } from '../ui/Shell';
 import { Pegel, TranskriptLive } from '../ui/Sprachnotiz';
 import { supabase } from '../lib/supabase';
-import { enqueueMeldung, aktualisiereMeldung, belegFehlerVon, flushNachSupabase, offeneMeldungen, offeneAnzahl, lokaleMeldungEntfernen, type MeldungPayload } from '../lib/db';
+import { enqueueMeldung, aktualisiereMeldung, belegFehlerVon, flushNachSupabase, offeneMeldungen, offeneAnzahl, warteschlangeBeobachten, type FlushErgebnis, type MeldungPayload } from '../lib/db';
+import { ersetzen, ersetzenPruefen, type AlteMeldung, type Uebernahme } from '../lib/ersetzen';
+import { aufteilenNachBisher, bisherNormal, restNormal, teileNachBisher, type BisherZeile } from '../lib/tagesrest';
+import { fruehesterNachtrag, tagAusAdresse } from '../lib/nachtrag';
+import { erfassungOffen, formularVerlassen } from '../lib/aktualisierung';
+import { istDemoFirma } from '../lib/demo';
+import { Warteschlange, verlaufFilter } from './StartChef';
 import { addTage, iso, lang, stunden } from '../lib/datum';
 import { fotoVerkleinern } from '../lib/foto';
 import { kennzeichen } from '../lib/fahrzeug';
 import { einstellungen, lieferwagenTagRp, normaltagMin, znueni } from '../lib/einstellungen';
-import { MAX_SPANNEN, MITTAG_VON_MIN, NACHMITTAG_MIN, ausUhrzeit, aufteilen, kannPauseAbziehen, mittagMinuten, pauseAbziehen, pauseZaehlen, spanneVollstaendig, spannenMinuten, spannenOffen, spannenTeilen, spannenUeberlappen, standardSpannen, teileAufteilen, umfasstPause, uhrzeit, uhrzeitFeld, zuSpalten, type Spanne } from '../lib/zeiten';
+import { MAX_SPANNEN, MITTAG_VON_MIN, NACHMITTAG_MIN, ausUhrzeit, aufteilen, kannPauseAbziehen, mittagMinuten, pauseAbziehen, pauseZaehlen, spanneVollstaendig, spannenMinuten, spannenOffen, spannenTeilen, spannenUeberlappen, standardSpannen, umfasstPause, uhrzeit, uhrzeitFeld, zuSpalten, type Spanne } from '../lib/zeiten';
 import { baustellenSuchen } from '../lib/suche';
 import { FUNKTION_BUERO } from '../lib/benutzername';
 import { vorratLesen, vorratSchreiben } from '../lib/vorrat';
@@ -104,11 +110,27 @@ function neueAnwesenheit(p: Person, modus: ZeitModus, spannen: Spanne[]): Anwese
   return { dabei: true, min: standardMin(), ueber: 0, oev: OEV_AKTIV && p.oev_standard, km: p.km_standard, modus, zeiten: spannen.map((s) => ({ ...s })) };
 }
 
-/** Was für die Person zählt: bei Stundenzahl die Regler, bei von–bis die Summe der Zeiten (ohne Pausenrechnung), aufgeteilt in Normal und Über. */
-function wirksam(a: Anwesenheit): { min: number; ueber: number } {
+/**
+ * Was für die Person zählt: bei Stundenzahl die Regler, bei von–bis die Summe der Zeiten (ohne Pausenrechnung), aufgeteilt
+ * in Normal und Über. `bisher` = Normalminuten, die die Person an dem Tag schon hat (andere Meldungen, auch anderer Teams):
+ * vom normalen Tag bleibt nur der Rest (13.10.2026, lib/tagesrest.ts) — sonst gab eine zweite Meldung nie Überstunden.
+ */
+function wirksam(a: Anwesenheit, bisher = 0): { min: number; ueber: number } {
   if (a.modus !== 'zeit') return { min: a.min, ueber: a.ueber };
-  const t = aufteilen(spannenMinuten(a.zeiten), normaltagMin());
+  const t = aufteilenNachBisher(spannenMinuten(a.zeiten), normaltagMin(), bisher);
   return { min: t.normal_min, ueber: t.ueber_min };
+}
+
+/** Objekt-URL für eine Aufnahme — einmal je Blob, beim Wechsel und am Ende wieder freigegeben (vorher bei jedem Neuzeichnen neu). */
+function useObjektUrl(blob: Blob | null | undefined): string | undefined {
+  const [url, setUrl] = useState<string | undefined>(undefined);
+  useEffect(() => {
+    if (!blob) { setUrl(undefined); return; }
+    const u = URL.createObjectURL(blob);
+    setUrl(u);
+    return () => URL.revokeObjectURL(u);
+  }, [blob]);
+  return url;
 }
 
 function zuletztLesen(): string[] {
@@ -134,6 +156,10 @@ interface Gemeldet {
   lokal: boolean; schluessel: string; freigegeben: boolean; min: number;
   /** Anzahl Personen — «8.0 h je 4 Pers.» statt einer erschreckenden Teamsumme */
   personen: number;
+  /** Normalminuten je Person — damit eine weitere Meldung am selben Tag richtig in Normal und Über teilt */
+  zeilen: { mitarbeiter_id: string; normal_min: number }[];
+  /** Kommt nicht von allein durch (lokal) — Grund steht in der Warteschlange oben */
+  haengt?: boolean;
 }
 type SpeicherModus = 'normal' | 'ersetzen' | 'zusaetzlich';
 const AB_KURZ: Record<Abweichung, string> = { zusaetzlich: 'Regie', warten: 'gewartet', kaputt: 'repariert', laenger: 'länger' };
@@ -500,6 +526,7 @@ export function Erfassung() {
   // Überstunden: Sprachnotiz als Warum (Pflicht, ausser das Mikrofon fehlt) — hängt an der Tagesmeldung
   const [mikroFehlt, setMikroFehlt] = useState(false);
   const [ueberAufnahme, setUeberAufnahme] = useState<{ blob: Blob; sekunden: number } | null>(null);
+  const aufnahmeUrl = useObjektUrl(ueberAufnahme?.blob);
   // Text der Sprachnotiz — entsteht sofort nach der Aufnahme; der Sprecher prüft ihn VOR dem Speichern
   const [ueberVorschau, setUeberVorschau] = useState<Vorschau | null>(null);
   async function textVorschau(blob: Blob) {
@@ -580,29 +607,40 @@ export function Erfassung() {
   const [speichert, setSpeichert] = useState(false);
   const speichertRef = useRef(false);
   /**
-   * Die Meldung, die gerade in der Warteschlange liegt (Fehler vom 03.10.2026).
+   * Die Abweichung, die gerade in der Warteschlange liegt (Fehler vom 03.10.2026).
    *
    * Ging das Senden schief, legte jeder weitere Druck auf «Tag melden» eine neue Meldung an —
-   * am Ende standen fünf gleiche Tage mit 95 Stunden beim Bauführer. Jetzt merkt sich das Gerät
-   * den Entwurf und versucht ihn nochmals, statt einen zweiten anzulegen.
+   * am Ende standen fünf gleiche Tage mit 95 Stunden beim Bauführer. Für den normalen Tag fragt seither der Dialog
+   * «schon gemeldet — ersetzen oder zusätzlich?» (er prüft jedes Mal frisch, was für den Tag schon da ist). Die
+   * Abweichung hat keinen solchen Dialog: dort merkt sich das Gerät den Entwurf und versucht ihn nochmals.
+   * Seit 13.10.2026 nur noch, solange er nie gesendet wurde — «Zusätzlich» legt immer eine neue Meldung an.
    */
-  const entwurfRef = useRef<string | null>(null);
   const entwurfAbRef = useRef<string | null>(null);
-  /** Entwürfe je Baustelle, wenn zwei Baustellen in einem Durchgang gemeldet werden */
-  const entwurfTeileRef = useRef<Record<string, string | null>>({});
 
-  /** In die Warteschlange legen — oder den wartenden Entwurf überschreiben und nochmals versuchen. */
+  /** Namen der Leute — die Warteschlange zeigt sie, wenn eine Zeile nicht durchkommt. */
+  const namenVon = (payload: MeldungPayload): Record<string, string> =>
+    Object.fromEntries(payload.eintraege.map((z) => [z.mitarbeiter_id, alleImTeam.find((p) => p.id === z.mitarbeiter_id)?.name ?? '']).filter(([, n]) => n));
+
+  /** In die Warteschlange legen — mit `merker` den wartenden Entwurf nochmals versuchen, solange er nie unterwegs war. */
   async function inWarteschlange(
-    merker: React.MutableRefObject<string | null>,
+    merker: React.MutableRefObject<string | null> | null,
     payload: MeldungPayload,
     audio?: Blob,
     bilder: Blob[] = [],
   ): Promise<string> {
-    const offen = merker.current;
-    const uuid = offen && (await aktualisiereMeldung(offen, payload, audio, bilder))
-      ? offen
-      : await enqueueMeldung(payload, audio, bilder);
-    merker.current = uuid;
+    const offen = merker?.current ?? null;
+    let uuid: string | null = null;
+    if (offen) {
+      const r = await aktualisiereMeldung(offen, payload, audio, bilder);
+      if (r.art === 'aktualisiert') uuid = r.uuid;
+      if (r.art === 'unterwegs') {
+        // Die erste Fassung ist schon unterwegs: keine zweite anlegen (sonst doppelte Stunden), ehrlich sagen
+        setHinweis('Diese Meldung ist schon unterwegs zum Server und wurde nicht nochmals angelegt. Änderungen macht der Bauführer in der Wochenübersicht.');
+        return offen;
+      }
+    }
+    if (!uuid) uuid = await enqueueMeldung(payload, audio, bilder, namenVon(payload));
+    if (merker) merker.current = uuid;
     // Beleg konnte nicht abgelegt werden? Sagen, aber die Stunden gehen trotzdem raus.
     const belegFehler = await belegFehlerVon(uuid);
     if (belegFehler) setHinweis(belegFehler);
@@ -614,8 +652,13 @@ export function Erfassung() {
   const [fertig, setFertig] = useState<{ text: string; stand: 'gesendet' | 'wartet' | 'fehler'; notizUuid?: string } | null>(null);
   const [hinweis, setHinweis] = useState('');
   const [heuteGemeldet, setHeuteGemeldet] = useState<Gemeldet[]>([]);
-  // An diesem Tag schon eine Normalmeldung (egal welche Baustelle) → erst nachfragen, statt still eine zweite anzulegen
-  const [doppelt, setDoppelt] = useState<{ baustellen: string[]; bisherMin: number; ersetzbarMin: number; ersetzbar: number; neuMin: number } | null>(null);
+  // An diesem Tag schon eine Normalmeldung (egal welche Baustelle) → erst nachfragen, statt still eine zweite anzulegen.
+  // `gruende`: warum «ersetzen» nicht geht (13.10.2026, lib/ersetzen.ts) — null, solange die Prüfung läuft; leer = es geht.
+  const [doppelt, setDoppelt] = useState<{ baustellen: string[]; bisherMin: number; neuMin: number; alte: AlteMeldung[]; gruende: string[] | null } | null>(null);
+  /** Konnte die App nicht prüfen, was für den Tag schon gemeldet ist? Dann sagen — nicht still so tun, als wäre nichts da. */
+  const [pruefFehler, setPruefFehler] = useState(false);
+  /** Normalminuten je Person in Meldungen ANDERER Teams an diesem Tag (Gäste, Versetzte) — für Normal/Über */
+  const [andere, setAndere] = useState<BisherZeile[]>([]);
   const [userId, setUserId] = useState<string | null>(null);
   const [wartend, setWartend] = useState(0);
   const recorder = useRef<MediaRecorder | null>(null);
@@ -626,21 +669,35 @@ export function Erfassung() {
 
   const heute = new Date();
   const heuteIso = iso(heute);
-  // Gemeldet wird für einen Tag — normalerweise heute. Vergessen? Bis 7 Tage zurück nachtragen.
-  // /erfassung?tag=JJJJ-MM-TT öffnet einen bestimmten Tag zum Nachtragen (max. 7 Tage zurück, nie in der Zukunft)
-  const [datum, setDatum] = useState<Date>(() => {
-    const t = new URLSearchParams(window.location.search).get('tag');
-    if (t && /^\d{4}-\d{2}-\d{2}$/.test(t)) {
-      const d = new Date(t + 'T12:00:00');
-      const jetzt = new Date();
-      const grenze = addTage(jetzt, -7);
-      if (!Number.isNaN(d.getTime()) && d <= jetzt && d >= grenze) return d;
-    }
-    return new Date();
-  });
+  // Gemeldet wird für einen Tag — normalerweise heute. Vergessen? Bis 7 Tage zurück nachtragen (lib/nachtrag.ts).
+  // /erfassung?tag=JJJJ-MM-TT öffnet einen bestimmten Tag zum Nachtragen. Ist er zu alt (oder in der Zukunft), steht
+  // das als Satz da — vorher sprang die Erfassung still auf heute, und das Team meldete auf den falschen Tag.
+  const [tagAusLink] = useState(() => tagAusAdresse(new URLSearchParams(window.location.search).get('tag'), new Date()));
+  const [datum, setDatum] = useState<Date>(() => (tagAusLink.tag ? new Date(tagAusLink.tag + 'T12:00:00') : new Date()));
+  const [tagHinweis, setTagHinweis] = useState<string | null>(tagAusLink.hinweis);
   const tagIso = iso(datum);
   const istHeute = tagIso === heuteIso;
-  const fruehesterIso = iso(addTage(heute, -7));
+  const fruehesterIso = fruehesterNachtrag(heute);
+
+  /**
+   * Neuer Tag (13.10.2026): Stand «Heute» offen, und die App kommt am nächsten Morgen wieder nach vorne, gilt der neue
+   * Tag — sonst meldete das Team auf gestern. Nur beim Zurückholen, nie mitten im Tippen. Wer bewusst einen anderen Tag
+   * gewählt hat (Nachtrag), bleibt dort.
+   */
+  const zeigteHeute = useRef(tagIso === heuteIso);
+  const gezeigterTag = useRef(tagIso);
+  useEffect(() => { zeigteHeute.current = tagIso === iso(new Date()); gezeigterTag.current = tagIso; }, [tagIso]);
+  useEffect(() => {
+    const pruefen = () => {
+      if (document.visibilityState !== 'visible' || !zeigteHeute.current) return;
+      const jetzt = new Date();
+      if (gezeigterTag.current === iso(jetzt)) return;
+      setDatum(jetzt);
+      setTagHinweis(`Neuer Tag — jetzt gilt ${lang(jetzt)}.`);
+    };
+    document.addEventListener('visibilitychange', pruefen);
+    return () => document.removeEventListener('visibilitychange', pruefen);
+  }, []);
   const team = teams.find((t) => t.id === teamId) ?? null;
   // In welcher Sprache die Sprachnotiz zuhört: Profil des Chefmonteurs — am Mikrofon umstellbar
   const sprecherSprache = team?.chefmonteur?.sprache ?? 'de';
@@ -672,8 +729,14 @@ export function Erfassung() {
     void supabase.auth.getUser().then(({ data }) => setUserId(data.user?.id ?? null));
     void offeneAnzahl().then(setWartend);
   }, []);
+  // Ging im Hintergrund etwas hinaus oder kam etwas dazu: die Zahl «wartet» oben stimmt sofort
+  useEffect(() => warteschlangeBeobachten(() => { void offeneAnzahl().then(setWartend).catch(() => undefined); }), []);
 
-  /** Lädt, was für Team + Tag schon gemeldet ist (lokal + Server), setzt den Zustand und gibt die Liste zurück (für Prüfungen vor dem Speichern). */
+  /**
+   * Lädt, was für Team + Tag schon gemeldet ist (lokal + Server), setzt den Zustand und gibt die Liste zurück (für
+   * Prüfungen vor dem Speichern). Antwortet der Server nicht, gilt der letzte bekannte Stand vom Server, und oben steht
+   * «Konnte nicht prüfen …» (13.10.2026: vorher war die Doppel-Prüfung dann still aus).
+   */
   const heutigeLaden = useCallback(async (): Promise<Gemeldet[]> => {
     if (!teamId) return [];
     const bekannt = kacheln.concat(alleGeplanten, suchTreffer, alleBaustellen ?? []);
@@ -687,28 +750,69 @@ export function Erfassung() {
         normalfall: p.normalfall, abweichung_typ: p.abweichung_typ, lokal: true, schluessel: m.client_uuid, freigegeben: false,
         min: p.eintraege.reduce((s, z) => s + z.normal_min + z.ueber_min, 0),
         personen: p.eintraege.length,
+        zeilen: p.eintraege.map((z) => ({ mitarbeiter_id: z.mitarbeiter_id, normal_min: z.normal_min })),
+        haengt: !!m.kopfFehler || (m.zeilenFehler?.length ?? 0) > 0,
       };
     });
+    // Schon gesendet, aber noch in der Liste vom Gerät? Dann nicht zweimal zeigen (Kopf-id = id auf dem Server)
+    const lokaleIds = new Set(lokal.map((m) => (m.payload as unknown as MeldungPayload).id));
+    type Zeile = { id: string; normalfall: boolean; abweichung_typ: Abweichung | null; baustelle_id: string; baustelle: { konto_nr: string; bezeichnung: string | null } | null; zeiteintrag: { mitarbeiter_id: string; normal_min: number; ueber_min: number; status: string }[] };
+    const vorratKey = `gemeldet:${teamId}:${tagIso}`;
+    let server: Zeile[] | null = null;
     if (supabase) {
       try {
-        const { data } = await supabase.from('tagesmeldung').select('id,normalfall,abweichung_typ,baustelle_id,baustelle:baustelle_id(konto_nr,bezeichnung),zeiteintrag(normal_min,ueber_min,status)').eq('team_id', teamId).eq('datum', tagIso).order('erfasst_am');
-        type Zeile = { id: string; normalfall: boolean; abweichung_typ: Abweichung | null; baustelle_id: string; baustelle: { konto_nr: string; bezeichnung: string | null } | null; zeiteintrag: { normal_min: number; ueber_min: number; status: string }[] };
-        for (const d of (data ?? []) as unknown as Zeile[]) {
-          liste.push({
-            bezeichnung: d.baustelle?.bezeichnung ?? (d.baustelle?.konto_nr ? `Konto-Nr. ${d.baustelle.konto_nr}` : 'Baustelle'), konto_nr: d.baustelle?.konto_nr ?? '', baustelle_id: d.baustelle_id,
-            normalfall: d.normalfall, abweichung_typ: d.abweichung_typ, lokal: false, schluessel: d.id,
-            freigegeben: d.zeiteintrag.some((z) => z.status === 'freigegeben'),
-            min: d.zeiteintrag.reduce((s, z) => s + z.normal_min + z.ueber_min, 0),
-            personen: d.zeiteintrag.length,
-          });
-        }
+        const { data, error } = await supabase.from('tagesmeldung').select('id,normalfall,abweichung_typ,baustelle_id,baustelle:baustelle_id(konto_nr,bezeichnung),zeiteintrag(mitarbeiter_id,normal_min,ueber_min,status)').eq('team_id', teamId).eq('datum', tagIso).order('erfasst_am');
+        if (!error && data) server = data as unknown as Zeile[];
       } catch {
-        // ohne Netz bleibt die lokale Sicht — mehr wissen wir nicht
+        // keine Antwort — unten gilt der letzte bekannte Stand
       }
+    }
+    if (server) {
+      vorratSchreiben(vorratKey, server);
+      setPruefFehler(false);
+    } else if (supabase) {
+      server = vorratLesen<Zeile[]>(vorratKey) ?? [];
+      setPruefFehler(true);
+    }
+    for (const d of server ?? []) {
+      if (lokaleIds.has(d.id)) continue;
+      liste.push({
+        bezeichnung: d.baustelle?.bezeichnung ?? (d.baustelle?.konto_nr ? `Konto-Nr. ${d.baustelle.konto_nr}` : 'Baustelle'), konto_nr: d.baustelle?.konto_nr ?? '', baustelle_id: d.baustelle_id,
+        normalfall: d.normalfall, abweichung_typ: d.abweichung_typ, lokal: false, schluessel: d.id,
+        freigegeben: d.zeiteintrag.some((z) => z.status === 'freigegeben'),
+        min: d.zeiteintrag.reduce((s, z) => s + z.normal_min + z.ueber_min, 0),
+        personen: d.zeiteintrag.length,
+        zeilen: d.zeiteintrag.map((z) => ({ mitarbeiter_id: z.mitarbeiter_id, normal_min: z.normal_min })),
+      });
     }
     setHeuteGemeldet(liste);
     return liste;
   }, [teamId, tagIso, kacheln, alleGeplanten, suchTreffer, alleBaustellen]);
+
+  /**
+   * Normalminuten der Leute in Meldungen ANDERER Teams an diesem Tag (Server und Gerät) — ein Gast, den zwei Teams
+   * melden, hat nur einen normalen Tag (13.10.2026). Ohne Antwort vom Server: der letzte bekannte Stand.
+   */
+  const andereLaden = useCallback(async (ids: string[]): Promise<BisherZeile[]> => {
+    if (!teamId || ids.length === 0) return [];
+    const lokal: BisherZeile[] = (await offeneMeldungen()).flatMap((m) => {
+      const p = m.payload as unknown as MeldungPayload;
+      if (p.datum !== tagIso || p.team_id === teamId || !Array.isArray(p.eintraege)) return [];
+      return p.eintraege.filter((z) => ids.includes(z.mitarbeiter_id)).map((z) => ({ mitarbeiter_id: z.mitarbeiter_id, normal_min: z.normal_min, meldung: m.client_uuid }));
+    });
+    if (!supabase) return lokal;
+    const vorratKey = `andere:${teamId}:${tagIso}`;
+    let server: BisherZeile[] | null = null;
+    try {
+      const { data, error } = await supabase.from('zeiteintrag').select('mitarbeiter_id,normal_min,tagesmeldung:tagesmeldung_id!inner(id,datum,team_id)').in('mitarbeiter_id', ids).eq('tagesmeldung.datum', tagIso).neq('tagesmeldung.team_id', teamId);
+      if (!error && data) {
+        server = (data as unknown as { mitarbeiter_id: string; normal_min: number; tagesmeldung: { id: string } }[]).map((z) => ({ mitarbeiter_id: z.mitarbeiter_id, normal_min: z.normal_min, meldung: z.tagesmeldung.id }));
+        vorratSchreiben(vorratKey, server);
+      }
+    } catch { /* unten der letzte Stand */ }
+    const lokaleIds = new Set((await offeneMeldungen()).map((m) => (m.payload as unknown as MeldungPayload).id));
+    return lokal.concat((server ?? vorratLesen<BisherZeile[]>(vorratKey) ?? []).filter((z) => !lokaleIds.has(z.meldung)));
+  }, [teamId, tagIso]);
 
   // Team gewählt → Leute, Kacheln (Plan + zuletzt), Vorbelegung
   useEffect(() => {
@@ -766,11 +870,20 @@ export function Erfassung() {
       setZuletztGaeste(gaesteListe);
 
       const seit = new Date(Date.now() - 72 * 3600 * 1000).toISOString();
-      const [plan, zuletzt, vl] = await Promise.all([
-        client.from('jahresplan').select('id,von,bis,baustelle:baustelle_id(id,konto_nr,bezeichnung)').eq('team_id', teamId).order('von'),
+      const verlauf = (gefiltert: boolean) => {
+        const q = client.from('plan_verlauf').select('tabelle,datensatz_id,aktion,vorher,nachher,zeit').gte('zeit', seit);
+        return (gefiltert ? q.or(verlaufFilter(teamId, personen.map((p) => p.id))) : q).order('zeit', { ascending: false }).limit(1000);
+      };
+      const [plan, zuletzt, vlGefiltert] = await Promise.all([
+        // Nur Einsätze, die frühestens am ersten nachtragbaren Tag enden — sonst schneidet die Obergrenze der API
+        // (1000 Zeilen) bei einem Team mit langer Geschichte ausgerechnet den aktuellen Plan ab (13.10.2026)
+        client.from('jahresplan').select('id,von,bis,baustelle:baustelle_id(id,konto_nr,bezeichnung)').eq('team_id', teamId).gte('bis', fruehesterNachtrag(new Date())).order('von'),
         client.from('tagesmeldung').select('datum,baustelle:baustelle_id(id,konto_nr,bezeichnung)').eq('team_id', teamId).gte('datum', iso(addTage(heute, -14))).order('datum', { ascending: false }).limit(40),
-        client.from('plan_verlauf').select('tabelle,datensatz_id,aktion,vorher,nachher,zeit').gte('zeit', seit).limit(800),
+        // Verlauf nur für dieses Team und seine Leute, neueste zuerst (vorher die ganze Firma, ohne Reihenfolge)
+        verlauf(true),
       ]);
+      // Versteht die Datenbank den Filter nicht, wenigstens die neuesten Zeilen der Firma
+      const vl = vlGefiltert.error ? await verlauf(false) : vlGefiltert;
       const gesehen = new Set<string>();
       const tiles: Baustelle[] = [];
       const push = (b: Baustelle | null) => { if (b && !gesehen.has(b.id) && tiles.length < 4) { gesehen.add(b.id); tiles.push(b); } };
@@ -798,6 +911,13 @@ export function Erfassung() {
   }, [teamId]);
 
   useEffect(() => { void heutigeLaden(); }, [heutigeLaden]);
+  // Andere Teams am selben Tag — für alle, die in der Liste stehen (feste Leute und Gäste)
+  const personenSchluessel = leute.concat(gaeste).map((p) => p.id).sort().join(',');
+  useEffect(() => {
+    let veraltet = false;
+    void andereLaden(personenSchluessel ? personenSchluessel.split(',') : []).then((z) => { if (!veraltet) setAndere(z); }).catch(() => undefined);
+    return () => { veraltet = true; };
+  }, [andereLaden, personenSchluessel]);
 
   /**
    * Abwesenheiten des Tages (0036, Arbnor 10.10.2026): wer laut Sekretariat Ferien, Krank, Unfall … hat, ist abgehakt
@@ -886,10 +1006,26 @@ export function Erfassung() {
   // Anderer Tag, anderes Team, andere Baustelle = eine andere Meldung. Der wartende Entwurf
   // gehört dann nicht mehr dazu und darf nicht überschrieben werden.
   useEffect(() => {
-    entwurfRef.current = null;
     entwurfAbRef.current = null;
-    entwurfTeileRef.current = {};
   }, [teamId, tagIso, baustelle?.id, zweite?.id]);
+  // Ein offener «schon gemeldet»-Dialog gilt nur für Team und Tag, für die er gefragt hat
+  useEffect(() => { setDoppelt(null); }, [teamId, tagIso]);
+
+  /**
+   * Angefangene Meldung? Dann darf keine neue App-Fassung die Seite neu laden (lib/aktualisierung.ts). Angefangen heisst:
+   * auf dieser Seite wurde getippt, seit sie offen ist oder seit dem letzten Speichern.
+   */
+  useEffect(() => {
+    if (schritt === 'fertig' || schritt === 'team') { erfassungOffen(false); formularVerlassen(); return; }
+    const beruehrt = () => erfassungOffen(true);
+    document.addEventListener('pointerdown', beruehrt, true);
+    document.addEventListener('keydown', beruehrt, true);
+    return () => {
+      document.removeEventListener('pointerdown', beruehrt, true);
+      document.removeEventListener('keydown', beruehrt, true);
+    };
+  }, [schritt]);
+  useEffect(() => () => erfassungOffen(false), []);
   // Gleiche Baustelle zweimal gibt es nicht
   useEffect(() => { if (zweite && zweite.id === baustelle?.id) setZweite(null); }, [baustelle?.id, zweite]);
 
@@ -943,7 +1079,17 @@ export function Erfassung() {
   const lieferwagenPreis = lieferwagenTagRp();
   const mitExternen = lieferwagenPreis !== null && lieferwagenPreis > 0 && dabei.some((p) => p.typ === 'extern');
   useEffect(() => { setLieferwagen(false); }, [teamId, tagIso]);
-  const ueberTotal = dabei.reduce((s, p) => s + wirksam(anw[p.id]).ueber, 0);
+  /**
+   * Normalminuten, die jede Person an diesem Tag schon hat: Meldungen dieses Teams (Gerät + Server) und anderer Teams.
+   * Die Anzeige rechnet damit, als käme die neue Meldung dazu; beim Speichern zählt, was dann wirklich gilt (ersetzen
+   * nimmt die alten Meldungen aus der Rechnung).
+   */
+  const bisherAnzeige = useMemo(
+    () => bisherNormal(heuteGemeldet.flatMap((m) => m.zeilen.map((z) => ({ ...z, meldung: m.schluessel }))).concat(andere)),
+    [heuteGemeldet, andere],
+  );
+  const bisherVon = (id: string) => bisherAnzeige.get(id) ?? 0;
+  const ueberTotal = dabei.reduce((s, p) => s + wirksam(anw[p.id], bisherVon(p.id)).ueber, 0);
   // Keine Überstunden mehr (Zeit geändert) → die Rückfrage ist hinfällig
   useEffect(() => { if (ueberTotal === 0) { setRegieFrage(false); setRegieAntwort(null); setNotizFehlt(false); } }, [ueberTotal]);
   useEffect(() => { setRegieAntwort(null); setNotizFehlt(false); }, [teamId, tagIso]);
@@ -991,7 +1137,7 @@ export function Erfassung() {
     if (!baustelle) { setHinweis('Zuerst die Baustelle antippen.'); return; }
     if (dabei.length === 0) { setHinweis('Zuerst anhaken, wer dabei war.'); return; }
     // Überstunden aus den Zeiten von–bis (wirksam), nicht aus dem alten Stundenzahl-Feld — sonst wurde nichts übernommen
-    const ueberVon = (p: Person) => (anw[p.id] ? wirksam(anw[p.id]).ueber : 0);
+    const ueberVon = (p: Person) => (anw[p.id] ? wirksam(anw[p.id], bisherVon(p.id)).ueber : 0);
     const mitUeber = dabei.filter((p) => ueberVon(p) > 0);
     setRegieFrage(false);
     setAbweichung(typ);
@@ -1002,17 +1148,6 @@ export function Erfassung() {
     }
     setHinweis('');
     setSchritt('wer');
-  }
-
-  /** Frühere Normal-Meldungen des Teams an diesem Tag entfernen (alle Baustellen) — lokal und auf dem Server, nur solange nichts freigegeben ist. */
-  async function fruehereEntfernen(liste: Gemeldet[]) {
-    const alte = liste.filter((m) => m.normalfall && !m.freigegeben);
-    for (const m of alte) {
-      if (m.lokal) { await lokaleMeldungEntfernen(m.schluessel); continue; }
-      if (!supabase) continue;
-      await supabase.from('zeiteintrag').delete().eq('tagesmeldung_id', m.schluessel).eq('status', 'offen');
-      await supabase.from('tagesmeldung').delete().eq('id', m.schluessel);
-    }
   }
 
   /** Minuten einer Person im Teil `i` des Tages (zwei Baustellen, Wechsel um `wechsel`). Ohne Zeiten: alles im ersten Teil. */
@@ -1032,6 +1167,9 @@ export function Erfassung() {
    *
    * Sonst (nur Regie-Modus): die Abweichung — nur die Beteiligten, mit ihren Stunden der Zusatzarbeit,
    * Symbol und «wer wollte das». Keine Anreise, die hängt am normalen Tag.
+   *
+   * `bisher`: Normalminuten je Person, die an dem Tag schon gemeldet sind — vom normalen Tag bleibt nur der Rest
+   * (13.10.2026, lib/tagesrest.ts).
    */
   function meldungBauen(
     b: Baustelle,
@@ -1039,11 +1177,13 @@ export function Erfassung() {
     art: 'normal' | 'abweichung' = 'normal',
     ohneUeberFuer: Set<string> = new Set(),
     teil: number | null = null,
+    bisher: Map<string, number> = new Map(),
   ): MeldungPayload {
     const normal = art === 'normal';
     // Zwei Baustellen: nur wer in diesem Teil des Tages Zeit hat
     const beteiligt = (normal ? dabei : dabei.filter((p) => abLeute.has(p.id))).filter((p) => teil === null || teilMin(p, teil) > 0);
-    const ueberVon = (p: Person) => (ohneUeberFuer.has(p.id) ? 0 : wirksam(anw[p.id]).ueber);
+    const schon = (p: Person) => bisher.get(p.id) ?? 0;
+    const ueberVon = (p: Person) => (ohneUeberFuer.has(p.id) ? 0 : wirksam(anw[p.id], schon(p)).ueber);
     const nz = notiz;
     const vs = ueberVorschau;
     const textOk = !!nz && vs?.status === 'fertig' && !!vs.text.trim();
@@ -1062,7 +1202,7 @@ export function Erfassung() {
         if (teil !== null && a.modus === 'zeit') {
           // Teil des Tages: Zeiten bis/ab Wechsel, Normal füllt sich über den ganzen Tag (teileAufteilen), Anreise am ersten Teil
           const t = spannenTeilen(a.zeiten, [wechsel]);
-          const v = teileAufteilen(t.map(spannenMinuten), standardMin())[teil];
+          const v = teileNachBisher(t.map(spannenMinuten), standardMin(), schon(p))[teil];
           const erster = t.findIndex((x) => spannenMinuten(x) > 0);
           return {
             id: crypto.randomUUID(), mitarbeiter_id: p.id, normal_min: v.normal_min, ueber_min: v.ueber_min,
@@ -1070,12 +1210,14 @@ export function Erfassung() {
             ...zuSpalten(t[teil]),
           };
         }
-        const w = wirksam(a);
+        const w = wirksam(a, schon(p));
         const min = normal ? w.min : abMinVon(p.id);
+        // Vom normalen Tag ist nur noch der Rest frei — gilt auch für die Stunden der Abweichung
+        const rest = restNormal(standardMin(), schon(p));
         return {
           id: crypto.randomUUID(), mitarbeiter_id: p.id,
-          normal_min: Math.min(min, standardMin()),
-          ueber_min: Math.max(0, min - standardMin()) + (normal ? ueberVon(p) : 0),
+          normal_min: Math.min(min, rest),
+          ueber_min: Math.max(0, min - rest) + (normal ? ueberVon(p) : 0),
           oev: normal ? a.oev : false, km: normal ? a.km : 0, baustelle_id: b.id, konto_nr: b.konto_nr,
           // Zeiten nur mitschicken, wenn welche eingetragen sind — so bleibt die Stundenzahl-Meldung auch vor Migration 0016 gültig
           ...(normal && a.modus === 'zeit' ? zuSpalten(a.zeiten) : {}),
@@ -1098,17 +1240,23 @@ export function Erfassung() {
 
   /** Überstunden in Worten, wie der Chefmonteur denkt: «1.6 h Überstunden je Person» — sind sie verschieden, das Teamtotal. */
   function ueberText(): string {
-    const je = dabei.map((p) => (anw[p.id] ? wirksam(anw[p.id]).ueber : 0)).filter((m) => m > 0);
+    const je = dabei.map((p) => (anw[p.id] ? wirksam(anw[p.id], bisherVon(p.id)).ueber : 0)).filter((m) => m > 0);
     if (je.length > 1 && je.every((m) => m === je[0]) && je.length === dabei.length) return `${stunden(je[0])} h Überstunden je Person`;
     return `${stunden(ueberTotal)} h Überstunden${je.length > 1 ? ' im Team' : ''}`;
   }
 
-  /** Stunden des normalen Tags in Worten: «8.0 h» wenn alle gleich, sonst «7.5–8.5 h». */
-  function normalStundenText(): string {
-    const mins = dabei.map((p) => (anw[p.id] ? wirksam(anw[p.id]).min : standardMin()));
-    const lo = Math.min(...mins);
-    const hi = Math.max(...mins);
-    const ueber = ueberTotal;
+  /** Stunden des normalen Tags in Worten: «8.0 h» wenn alle gleich, sonst «7.5–8.5 h». Aus den gespeicherten Meldungen. */
+  function normalStundenText(gebaut: MeldungPayload[]): string {
+    const je = new Map<string, { min: number; ueber: number }>();
+    for (const z of gebaut.filter((m) => m.normalfall).flatMap((m) => m.eintraege)) {
+      const x = je.get(z.mitarbeiter_id) ?? { min: 0, ueber: 0 };
+      je.set(z.mitarbeiter_id, { min: x.min + z.normal_min, ueber: x.ueber + z.ueber_min });
+    }
+    const werte = [...je.values()];
+    if (werte.length === 0) return '0.0 h';
+    const lo = Math.min(...werte.map((w) => w.min));
+    const hi = Math.max(...werte.map((w) => w.min));
+    const ueber = werte.reduce((s, w) => s + w.ueber, 0);
     const basis = lo === hi ? `${stunden(lo)} h` : `${stunden(lo)}–${stunden(hi)} h`;
     return ueber > 0 ? `${basis} + ${stunden(ueber)} h Überstunden` : basis;
   }
@@ -1141,105 +1289,164 @@ export function Erfassung() {
     if (verkehrt.length > 0) { setHinweis(`${wer(verkehrt)}Eine Zeit endet vor ihrem Beginn — bitte prüfen.`); return; }
     const ueberlappt = dabei.filter((p) => anw[p.id]?.modus === 'zeit' && spannenUeberlappen(anw[p.id].zeiten));
     if (ueberlappt.length > 0) { setHinweis(`Bei ${ueberlappt.map((p) => p.name).join(', ')} überschneiden sich Vormittag und Nachmittag — bitte Zeiten prüfen.`); return; }
-    const hatUeber = ueberTotal > 0;
-    if (art === 'normal' && hatUeber && !ueberAufnahme && !nimmtAuf && !mikroFehlt) {
-      setHinweis('Bei Überstunden bitte kurz sagen, warum — Mikrofon antippen.');
-      setNotizFehlt(true);
-      setTimeout(() => notizRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 50);
-      return;
-    }
-    setNotizFehlt(false);
     // Zwei Baustellen: beide brauchen Zeit — sonst stimmt die Wechselzeit nicht
     const teile = art === 'normal' && zweite ? [baustelle, zweite] : null;
     if (teile) {
       const leer = teile.findIndex((_, i) => dabei.every((p) => teilMin(p, i) === 0));
       if (leer >= 0) { setHinweis(`Auf ${anzeigeName(teile[leer].bezeichnung) || teile[leer].konto_nr} hat niemand Zeit — die Wechselzeit ${uhrzeit(wechsel)} prüfen.`); return; }
     }
-    setHinweis('');
-    const clientUuids: string[] = [];
-    /** Steht nur bei der Abweichung: ob der normale Tag gleich mitgespeichert wurde */
-    let normalMitgespeichert = false;
-    // Meldung mit Sprachnotiz — die Abschluss-Seite zeigt dann den Text, sobald er da ist
-    let notizUuid: string | undefined;
 
-    if (art === 'abweichung') {
-      // Die normalen Stunden des Tags dürfen nicht verloren gehen: fehlt die Normalmeldung für diese
-      // Baustelle, geht sie zuerst mit in die Warteschlange — ohne die Überstunden der Beteiligten.
-      let aktuell = heuteGemeldet;
-      try { aktuell = await heutigeLaden(); } catch { /* lokaler Stand reicht */ }
-      if (!aktuell.some((m) => m.normalfall && m.baustelle_id === baustelle.id)) {
-        // Die Notiz gehört nur dann auch zum normalen Tag, wenn dort Überstunden bleiben (Leute ausserhalb
-        // der Abweichung) — sonst stünde derselbe Text zweimal beim Bauführer.
-        const restUeber = dabei.some((p) => !abLeute.has(p.id) && wirksam(anw[p.id]).ueber > 0);
-        const fuerNormal = restUeber ? ueberAufnahme : null;
-        clientUuids.push(await inWarteschlange(entwurfRef, meldungBauen(baustelle, fuerNormal, 'normal', abLeute), fuerNormal?.blob));
-        normalMitgespeichert = true;
-      }
-      const notiz = await aufnahmeAbschliessen();
-      const uuid = await inWarteschlange(entwurfAbRef, meldungBauen(baustelle, notiz, 'abweichung'), notiz?.blob, fotos.map((f) => f.blob));
-      clientUuids.push(uuid);
-      if (notiz) notizUuid = uuid;
-    } else {
-      const bisher = heuteGemeldet.filter((m) => m.normalfall);
+    // Frisch nachsehen, was für den Tag schon da ist (Gerät + Server, auch andere Teams) — nie mit einem alten Stand
+    // entscheiden: sonst legte der zweite Druck nach einem Fehler still eine zweite Meldung an (03.10.2026)
+    let aktuell = heuteGemeldet;
+    try { aktuell = await heutigeLaden(); } catch { /* lokaler Stand reicht */ }
+    let andereJetzt = andere;
+    try { andereJetzt = await andereLaden(dabei.map((p) => p.id)); } catch { /* letzter Stand */ }
+
+    if (art === 'normal') {
+      const bisher = aktuell.filter((m) => m.normalfall);
       const gleiche = bisher.filter((m) => m.baustelle_id === baustelle.id);
       if (gleiche.some((m) => m.freigegeben)) {
         setHinweis(`Für ${baustelle.bezeichnung ?? baustelle.konto_nr} ist an diesem Tag schon eine Meldung vom Bauführer freigegeben. Änderungen macht der Bauführer in der Wochenübersicht.`);
         return;
       }
       if (bisher.length > 0 && modus === 'normal') {
-        const ersetzbar = bisher.filter((m) => !m.freigegeben);
+        // Erst fragen: ersetzen oder zusätzlich? Ob ersetzen geht, prüft der Server (lib/ersetzen.ts) — bis dahin nur «Zusätzlich»
+        const alte: AlteMeldung[] = bisher.map((m) => ({ lokal: m.lokal, schluessel: m.schluessel, bezeichnung: anzeigeName(m.bezeichnung) || m.konto_nr }));
         setDoppelt({
           baustellen: bisher.map((m) => m.bezeichnung).filter((x, i, a) => a.indexOf(x) === i),
           bisherMin: bisher.reduce((s, m) => s + m.min, 0),
-          ersetzbarMin: ersetzbar.reduce((s, m) => s + m.min, 0),
-          ersetzbar: ersetzbar.length,
           neuMin: dabei.reduce((s, p) => { const w = wirksam(anw[p.id]); return s + w.min + w.ueber; }, 0),
+          alte,
+          gruende: null,
         });
+        const passt = (d: { alte: AlteMeldung[] } | null) => !!d && d.alte === alte;
+        void ersetzenPruefen(supabase, alte)
+          .then((r) => setDoppelt((d) => (d && passt(d) ? { ...d, gruende: r.filter((x) => x.grund).map((x) => `«${x.bezeichnung}»: ${x.grund}`) } : d)))
+          .catch(() => setDoppelt((d) => (d && passt(d) ? { ...d, gruende: ['Konnte nicht prüfen, ob die frühere Meldung ersetzt werden darf.'] } : d)));
         return;
       }
-      setDoppelt(null);
-      if (modus === 'ersetzen') await fruehereEntfernen(bisher);
-      // Sprachnotiz geht immer mit, wenn eine da ist — Bemerkung zum Tag (Bauführer 20.09.)
+    }
+
+    // Was zählt für Normal und Über? Alles, was an dem Tag schon gemeldet ist — ausser den Meldungen, die gleich ersetzt
+    // werden, und dem eigenen Entwurf der Abweichung, falls er nochmals versucht wird (13.10.2026)
+    const ersetzteSchluessel = new Set(art === 'normal' && modus === 'ersetzen' ? aktuell.filter((m) => m.normalfall).map((m) => m.schluessel) : []);
+    if (art === 'abweichung' && entwurfAbRef.current) ersetzteSchluessel.add(entwurfAbRef.current);
+    const schon = bisherNormal(aktuell.flatMap((m) => m.zeilen.map((z) => ({ ...z, meldung: m.schluessel }))).concat(andereJetzt), ersetzteSchluessel);
+    const ueberJetzt = dabei.reduce((s, p) => s + wirksam(anw[p.id], schon.get(p.id) ?? 0).ueber, 0);
+    if (art === 'normal' && ueberJetzt > 0 && !ueberAufnahme && !nimmtAuf && !mikroFehlt) {
+      // Der «schon gemeldet»-Dialog bleibt offen: nach der Aufnahme dort nochmals wählen
+      setHinweis('Bei Überstunden bitte kurz sagen, warum — Mikrofon antippen.');
+      setNotizFehlt(true);
+      setTimeout(() => notizRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 50);
+      return;
+    }
+    setNotizFehlt(false);
+    setHinweis('');
+
+    // Ersetzen: erst wenn auf dem Server alles sauber entfernt ist, kommt die neue Meldung — sonst gar nichts (lib/ersetzen.ts)
+    let uebernahme: Uebernahme = { fotos: [] };
+    if (art === 'normal' && modus === 'ersetzen') {
+      const alte: AlteMeldung[] = aktuell.filter((m) => m.normalfall).map((m) => ({ lokal: m.lokal, schluessel: m.schluessel, bezeichnung: anzeigeName(m.bezeichnung) || m.konto_nr }));
+      const r = await ersetzen(supabase, alte);
+      if (!r.ok) {
+        setDoppelt(null);
+        setHinweis(r.fehler);
+        void heutigeLaden();
+        return;
+      }
+      uebernahme = r.uebernahme;
+    }
+    setDoppelt(null);
+
+    const clientUuids: string[] = [];
+    const gebaut: MeldungPayload[] = [];
+    /** Steht nur bei der Abweichung: ob der normale Tag gleich mitgespeichert wurde */
+    let normalMitgespeichert = false;
+    // Meldung mit Sprachnotiz — die Abschluss-Seite zeigt dann den Text, sobald er da ist
+    let notizUuid: string | undefined;
+    /** Normalminuten der Meldungen aus diesem Durchgang dazuzählen — die nächste Meldung im selben Durchgang teilt danach */
+    const dazu = (p: MeldungPayload) => { for (const z of p.eintraege) schon.set(z.mitarbeiter_id, (schon.get(z.mitarbeiter_id) ?? 0) + z.normal_min); };
+
+    if (art === 'abweichung') {
+      // Die normalen Stunden des Tags dürfen nicht verloren gehen: fehlt die Normalmeldung für diese
+      // Baustelle, geht sie zuerst mit in die Warteschlange — ohne die Überstunden der Beteiligten.
+      if (!aktuell.some((m) => m.normalfall && m.baustelle_id === baustelle.id)) {
+        // Die Notiz gehört nur dann auch zum normalen Tag, wenn dort Überstunden bleiben (Leute ausserhalb
+        // der Abweichung) — sonst stünde derselbe Text zweimal beim Bauführer.
+        const restUeber = dabei.some((p) => !abLeute.has(p.id) && wirksam(anw[p.id], schon.get(p.id) ?? 0).ueber > 0);
+        const fuerNormal = restUeber ? ueberAufnahme : null;
+        const p = meldungBauen(baustelle, fuerNormal, 'normal', abLeute, null, schon);
+        clientUuids.push(await inWarteschlange(null, p, fuerNormal?.blob));
+        gebaut.push(p);
+        dazu(p);
+        normalMitgespeichert = true;
+      }
       const notiz = await aufnahmeAbschliessen();
+      const p = meldungBauen(baustelle, notiz, 'abweichung', new Set(), null, schon);
+      const uuid = await inWarteschlange(entwurfAbRef, p, notiz?.blob, fotos.map((f) => f.blob));
+      gebaut.push(p);
+      clientUuids.push(uuid);
+      if (notiz) notizUuid = uuid;
+    } else {
+      // Sprachnotiz geht immer mit, wenn eine da ist — Bemerkung zum Tag (Bauführer 20.09.). Ersetzt eine Meldung, die nur
+      // auf dem Gerät lag, gehen ihre Sprachnotiz (wenn keine neue da ist) und ihre Fotos mit (CLAUDE.md #8).
+      const eigene = await aufnahmeAbschliessen();
+      const alt = !eigene ? uebernahme.audio : undefined;
+      const notiz = eigene ?? (alt ? { blob: alt.blob, sekunden: alt.sekunden ?? 1 } : null);
+      const mitAltemText = (p: MeldungPayload): MeldungPayload => (alt && !p.transkript
+        ? { ...p, transkript: alt.transkript, transkript_quelle: alt.transkript_quelle, transkript_sprache: alt.transkript_sprache }
+        : p);
+      const bilder = fotos.map((f) => f.blob).concat(uebernahme.fotos);
+      // «Zusätzlich» und «ersetzen» legen immer NEUE Meldungen an — nie eine wartende überschreiben (13.10.2026: vorher
+      // überschrieb «Zusätzlich» auf derselben Baustelle die erste, noch wartende Meldung samt Sprachnotiz)
       if (teile) {
         // Zwei Baustellen in einem Durchgang: je Baustelle eine Meldung. Notiz und Fotos an die Meldung mit den
         // Überstunden (dort fragt der Bauführer nach dem Warum), sonst an die erste.
         const ueberJeTeil = teile.map((_, i) => dabei.reduce((s, p) => {
           const a = anw[p.id];
           if (!a || a.modus !== 'zeit') return s;
-          return s + teileAufteilen(spannenTeilen(a.zeiten, [wechsel]).map(spannenMinuten), standardMin())[i].ueber_min;
+          return s + teileNachBisher(spannenTeilen(a.zeiten, [wechsel]).map(spannenMinuten), standardMin(), schon.get(p.id) ?? 0)[i].ueber_min;
         }, 0));
         const mitNotiz = ueberJeTeil.some((u) => u > 0) ? ueberJeTeil.indexOf(Math.max(...ueberJeTeil)) : 0;
+        const payloads = teile.map((b, i) => meldungBauen(b, i === mitNotiz ? notiz : null, 'normal', new Set(), i, schon));
         for (let i = 0; i < teile.length; i++) {
-          const b = teile[i];
-          const merker = { get current() { return entwurfTeileRef.current[b.id] ?? null; }, set current(v: string | null) { entwurfTeileRef.current[b.id] = v; } };
           const n = i === mitNotiz ? notiz : null;
-          const uuid = await inWarteschlange(merker, meldungBauen(b, n, 'normal', new Set(), i), n?.blob, i === mitNotiz ? fotos.map((f) => f.blob) : []);
+          const p = n ? mitAltemText(payloads[i]) : payloads[i];
+          const uuid = await inWarteschlange(null, p, n?.blob, i === mitNotiz ? bilder : []);
+          gebaut.push(p);
           clientUuids.push(uuid);
           if (n) notizUuid = uuid;
         }
       } else {
-        const uuidNormal = await inWarteschlange(entwurfRef, meldungBauen(baustelle, notiz), notiz?.blob, fotos.map((f) => f.blob));
+        const p = mitAltemText(meldungBauen(baustelle, notiz, 'normal', new Set(), null, schon));
+        const uuidNormal = await inWarteschlange(null, p, notiz?.blob, bilder);
+        gebaut.push(p);
         clientUuids.push(uuidNormal);
         if (notiz) notizUuid = uuidNormal;
       }
     }
     const zusammenfassung = art === 'normal'
-      ? `Gespeichert: ${normalStundenText()}${teile ? ` · ${teile.map((b, i) => `${b.konto_nr} ${i === 0 ? 'bis' : 'ab'} ${uhrzeit(wechsel)}`).join(', ')}` : ''}${lieferwagen && mitExternen ? ' · Lieferwagen gebraucht' : ''}`
+      ? `Gespeichert: ${normalStundenText(gebaut)}${teile ? ` · ${teile.map((b, i) => `${b.konto_nr} ${i === 0 ? 'bis' : 'ab'} ${uhrzeit(wechsel)}`).join(', ')}` : ''}${lieferwagen && mitExternen ? ' · Lieferwagen gebraucht' : ''}`
       : normalMitgespeichert
-        ? `Gespeichert: normaler Tag ${normalStundenText()} + ${abweichungText()}`
+        ? `Gespeichert: normaler Tag ${normalStundenText(gebaut)} + ${abweichungText()}`
         : `Gespeichert: ${abweichungText()} (normaler Tag war schon gemeldet)`;
 
     setGespeichert('Lokal gespeichert …');
-    if (supabase && navigator.onLine) {
-      const erg = await flushNachSupabase(supabase);
+    // Höchstens 20 Sekunden aufs Senden warten: läuft gerade ein langsamer Upload im Hintergrund, steht die Meldung
+    // trotzdem sicher auf dem Gerät und geht danach automatisch hinaus
+    const erg: FlushErgebnis | null = supabase && navigator.onLine
+      ? await Promise.race([
+        flushNachSupabase(supabase).catch((e: unknown): FlushErgebnis => ({ gesendet: 0, fehler: 1, verworfen: 0, fehlerText: e instanceof Error ? e.message : String(e) })),
+        new Promise<null>((r) => setTimeout(() => r(null), 20000)),
+      ])
+      : null;
+    if (erg) {
       const offen = await offeneMeldungen();
       const alleDurch = clientUuids.every((u) => offen.every((m) => m.client_uuid !== u));
       if (alleDurch) {
         // Durch: der nächste Druck meint eine neue Meldung
-        entwurfRef.current = null;
         entwurfAbRef.current = null;
-        entwurfTeileRef.current = {};
         setGespeichert(art === 'normal' ? 'Gespeichert ✓' : 'Abweichung gespeichert ✓');
         setBestaetigung(zusammenfassung + ' ✓');
         setFertig({ text: zusammenfassung, stand: 'gesendet', notizUuid });
@@ -1346,7 +1553,7 @@ export function Erfassung() {
           {weitereTeams < teamAuswahl.rest.length && (
             <button type="button" onClick={() => setWeitereTeams((n) => n + 5)} className="btn-ghost w-full">Weitere Teams …</button>
           )}
-          {teams.length === 0 && <p className="card text-sm text-ink3">Keine Teams — unter Verwaltung anlegen oder den Demo-Betrieb laden.</p>}
+          {teams.length === 0 && <p className="card text-sm text-ink3">Keine Teams — unter Verwaltung anlegen{istDemoFirma() ? ' oder den Demo-Betrieb laden' : ''}.</p>}
         </div>
       </Shell>
     );
@@ -1405,7 +1612,7 @@ export function Erfassung() {
           <h1 className="font-display text-2xl font-semibold">Wie lange?</h1>
           <Stepper wert={abMin} setWert={(v) => { setAbMin(v); setAbMinPerson({}); }} schritt={30} min={30} format={(v) => stunden(v) + ' h'} />
           <p className="-mt-2 text-center text-xs text-ink3">
-            {dabei.some((x) => wirksam(anw[x.id]).ueber > 0)
+            {dabei.some((x) => wirksam(anw[x.id], bisherVon(x.id)).ueber > 0)
               ? 'Vorbelegt mit den Überstunden — die zählen dann hier, nicht doppelt.'
               : 'Gilt für alle — unten kann jede Person einzeln anders sein.'}
           </p>
@@ -1444,7 +1651,7 @@ export function Erfassung() {
             {ueberAufnahme ? (
               <div className="space-y-2">
                 <p className="font-display font-semibold">Sprachnotiz · {ueberAufnahme.sekunden} Sek. ✓</p>
-                <audio controls src={URL.createObjectURL(ueberAufnahme.blob)} className="mx-auto h-9 w-full max-w-xs" />
+                <audio controls src={aufnahmeUrl} className="mx-auto h-9 w-full max-w-xs" />
                 <TranskriptPruefung
                   vorschau={ueberVorschau}
                   aendern={(t) => setUeberVorschau((v) => (v ? { ...v, text: t } : v))}
@@ -1487,7 +1694,7 @@ export function Erfassung() {
               {stand === 'gesendet' ? '✓ Gespeichert und gesendet' : stand === 'wartet' ? '✓ Gespeichert — wird gesendet, sobald Netz da ist' : 'Gespeichert, aber noch nicht gesendet'}
             </p>
             <p className="mt-1 text-sm text-ink2">{fertig?.text}</p>
-            {stand === 'fehler' && hinweis && <p className="mt-1 text-xs text-amber-deep">{hinweis}</p>}
+            {hinweis && <p className="mt-1 text-xs text-amber-deep">{hinweis}</p>}
           </section>
 
           {fertig?.notizUuid && <TranskriptLive clientUuid={fertig.notizUuid} stand={stand} />}
@@ -1499,7 +1706,7 @@ export function Erfassung() {
                 <li key={i} className="flex items-start justify-between gap-2 py-1.5">
                   <span className="min-w-0">
                     <span className="flex items-center gap-1.5">{m.normalfall ? <CheckCircle2 size={16} className="shrink-0 text-good" /> : <Flag size={16} className="shrink-0 text-amber-deep" />} <span>{anzeigeName(m.bezeichnung)}</span>{!m.normalfall && <span className="ml-1 text-xs text-amber-deep">{m.abweichung_typ ? AB_KURZ[m.abweichung_typ] : 'Abweichung'}</span>}</span>
-                    <span className="block text-[11px] text-ink3">{m.lokal ? 'wartet auf Netz' : 'gesendet'}</span>
+                    <span className={'block text-[11px] ' + (m.haengt ? 'font-semibold text-amber-deep' : 'text-ink3')}>{m.haengt ? 'kommt nicht durch — siehe Startseite' : m.lokal ? 'wartet auf Netz' : 'gesendet'}</span>
                   </span>
                   <span className="shrink-0 text-right font-mono tabular-nums">
                     {m.personen > 1 && m.min % m.personen === 0 ? <>{stunden(m.min / m.personen)} h<span className="block text-[10px] text-ink3">je {m.personen} Pers.</span></> : <>{stunden(m.min)} h</>}
@@ -1513,7 +1720,10 @@ export function Erfassung() {
 
           <Link to="/" className="cta cta-good block text-center">Fertig für {istHeute ? 'heute' : 'diesen Tag'}</Link>
           <button type="button" className="btn-ghost w-full py-2.5" onClick={() => setSchritt('tag')}>Noch etwas melden — zweite Baustelle{modus === 'regie' ? ' oder Abweichung' : ''}</button>
-          <button type="button" className="btn-ghost w-full py-2.5" onClick={() => { setDatum(addTage(datum, -1)); setSchritt('tag'); }}>Anderen Tag nachtragen</button>
+          {/* Gleiche Grenze wie der Pfeil ‹ (lib/nachtrag.ts) — vorher ging es hier beliebig weit zurück */}
+          {tagIso > fruehesterIso && (
+            <button type="button" className="btn-ghost w-full py-2.5" onClick={() => { setDatum(addTage(datum, -1)); setSchritt('tag'); }}>Anderen Tag nachtragen</button>
+          )}
         </div>
       </Shell>
     );
@@ -1551,6 +1761,23 @@ export function Erfassung() {
           </section>
         )}
 
+        {/* Zu alter Tag im Link, oder über Nacht ein neuer Tag: sagen, welcher Tag jetzt gilt — nie still wechseln */}
+        {tagHinweis && (
+          <section className="flex items-start justify-between gap-2 rounded-[14px] border border-amber/40 bg-amber-soft px-4 py-3 text-sm text-amber-deep" role="status">
+            <span>{tagHinweis}</span>
+            <button type="button" onClick={() => setTagHinweis(null)} aria-label="Hinweis schliessen" className="grid h-7 w-7 shrink-0 place-items-center rounded-[8px] text-amber-deep"><X size={15} /></button>
+          </section>
+        )}
+
+        {/* Meldungen, die nicht von allein durchkommen — hier wie auf der Startseite, damit es niemand übersieht */}
+        <Warteschlange nurProbleme />
+
+        {pruefFehler && (
+          <p className="rounded-[12px] bg-surface-2 px-4 py-2.5 text-xs text-ink2" role="status">
+            Konnte nicht prüfen, ob {istHeute ? 'heute' : 'an diesem Tag'} schon gemeldet wurde{heuteGemeldet.some((m) => !m.lokal) ? ' — gezeigt ist der letzte bekannte Stand' : ''}. Melden geht trotzdem.
+          </p>
+        )}
+
         {/* Schon gemeldet? Zuoberst, damit niemand doppelt meldet — und der Weg zum Nachtrag ist klar. */}
         {heuteGemeldet.length > 0 && (
           <section className="rounded-[14px] border border-good/40 bg-good-soft px-4 py-3">
@@ -1565,8 +1792,8 @@ export function Erfassung() {
                       {m.normalfall ? <CheckCircle2 size={16} className="shrink-0 text-good" /> : <Flag size={16} className="shrink-0 text-amber-deep" />} <span>{anzeigeName(m.bezeichnung)}</span>
                       {!m.normalfall && <span className="ml-1 text-xs text-amber-deep">{m.abweichung_typ ? AB_KURZ[m.abweichung_typ] : 'Abweichung'}</span>}
                     </span>
-                    <span className="block text-[11px] text-ink3">
-                      {m.freigegeben ? 'vom Bauführer freigegeben — kann hier nicht mehr ersetzt werden' : m.lokal ? 'wartet auf Netz' : 'gesendet'}
+                    <span className={'block text-[11px] ' + (m.haengt ? 'font-semibold text-amber-deep' : 'text-ink3')}>
+                      {m.freigegeben ? 'vom Bauführer freigegeben — kann hier nicht mehr ersetzt werden' : m.haengt ? 'kommt nicht durch — Grund steht oben' : m.lokal ? 'wartet auf Netz' : 'gesendet'}
                     </span>
                   </span>
                   <span className="shrink-0 text-right font-mono text-sm tabular-nums">
@@ -1739,6 +1966,12 @@ export function Erfassung() {
                 : `Die App zieht von sich aus keine Pause ab — was hier steht, zählt. Mittag 12–13 ist als Lücke vorgegeben. Zahlt der Bauherr die Pause ${uhrzeit(znueni().von)}–${uhrzeit(znueni().bis)} nicht: «− Pause» tippen. Unten kann jede Person anders sein.`}
             </p>
             <MittagHinweis spannen={teamSpannen} />
+            {/* Zweite Meldung am Tag (oder ein Gast, den schon ein anderes Team gemeldet hat): der normale Tag ist schon belegt */}
+            {dabei.some((p) => bisherVon(p.id) > 0) && (
+              <p className="mt-1.5 rounded-[8px] bg-amber-soft px-2.5 py-1.5 text-[11px] text-amber-deep">
+                An diesem Tag ist schon etwas gemeldet — was über den normalen Tag ({stunden(normaltagMin())} h) hinausgeht, zählt als Überstunden. Je Person steht es unten.
+              </p>
+            )}
           </div>
         </section>
 
@@ -1748,7 +1981,7 @@ export function Erfassung() {
             {alleImTeam.map((p) => {
               const a = anw[p.id];
               if (!a) return null;
-              const w = wirksam(a);
+              const w = wirksam(a, bisherVon(p.id));
               return (
                 <div key={p.id} className="px-3 py-2.5">
                   <div className="flex items-center gap-2.5">
@@ -1887,7 +2120,7 @@ export function Erfassung() {
               {ueberAufnahme ? (
                 <div className="space-y-2">
                   <p className="text-sm font-semibold">Sprachnotiz · {ueberAufnahme.sekunden} Sek. ✓</p>
-                  <audio controls src={URL.createObjectURL(ueberAufnahme.blob)} className="mx-auto h-9 w-full max-w-xs" />
+                  <audio controls src={aufnahmeUrl} className="mx-auto h-9 w-full max-w-xs" />
                   <TranskriptPruefung
                     vorschau={ueberVorschau}
                     aendern={(t) => setUeberVorschau((v) => (v ? { ...v, text: t } : v))}
@@ -1928,11 +2161,19 @@ export function Erfassung() {
               <strong>{istHeute ? 'Heute' : 'An diesem Tag'} habt ihr schon gemeldet: {doppelt.baustellen.map(anzeigeName).join(', ')}</strong>
               {' '}— {stunden(doppelt.bisherMin)} h für das Team zusammen.
             </p>
-            {doppelt.ersetzbar > 0 ? (
+            {/* «Ersetzen» nur, wenn der Server bestätigt, dass jede frühere Meldung noch unberührt ist (lib/ersetzen.ts) */}
+            {doppelt.gruende === null ? (
+              <>
+                <p className="text-sm text-ink2">Prüfe, ob die frühere Meldung noch ersetzt werden kann …</p>
+                <button type="button" disabled={speichert} className="btn-ghost w-full py-2.5 text-sm disabled:opacity-70" onClick={() => void speichern('zusaetzlich')}>
+                  Zusätzlich speichern (zweite Baustelle) · dann {stunden(doppelt.bisherMin + doppelt.neuMin)} h
+                </button>
+              </>
+            ) : doppelt.gruende.length === 0 ? (
               <>
                 <button type="button" disabled={speichert} className="cta py-4 disabled:opacity-70" onClick={() => void speichern('ersetzen')}>
                   Frühere ersetzen
-                  <span className="mt-0.5 block text-xs font-normal opacity-90">Am Tag stehen dann {stunden(doppelt.bisherMin - doppelt.ersetzbarMin + doppelt.neuMin)} h (Team zusammen).</span>
+                  <span className="mt-0.5 block text-xs font-normal opacity-90">Am Tag stehen dann {stunden(doppelt.neuMin)} h (Team zusammen).</span>
                 </button>
                 <button type="button" disabled={speichert} className="btn-ghost w-full py-2.5 text-sm disabled:opacity-70" onClick={() => void speichern('zusaetzlich')}>
                   Zusätzlich speichern (zweite Baustelle) · dann {stunden(doppelt.bisherMin + doppelt.neuMin)} h
@@ -1940,7 +2181,13 @@ export function Erfassung() {
               </>
             ) : (
               <>
-                <p className="text-sm text-ink2">Die frühere Meldung ist vom Bauführer freigegeben — ersetzen geht hier nicht mehr. Änderungen macht der Bauführer.</p>
+                <div className="space-y-1 text-sm text-ink2">
+                  <p className="font-semibold text-ink">Ersetzen geht hier nicht mehr:</p>
+                  <ul className="list-disc space-y-0.5 pl-5">
+                    {doppelt.gruende.map((g) => <li key={g}>{g}</li>)}
+                  </ul>
+                  <p>Änderungen an der früheren Meldung macht der Bauführer in der Wochenübersicht.</p>
+                </div>
                 <button type="button" disabled={speichert} className="cta py-4 disabled:opacity-70" onClick={() => void speichern('zusaetzlich')}>
                   Zusätzlich speichern (zweite Baustelle)
                   <span className="mt-0.5 block text-xs font-normal opacity-90">Am Tag stehen dann {stunden(doppelt.bisherMin + doppelt.neuMin)} h (Team zusammen).</span>

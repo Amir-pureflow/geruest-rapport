@@ -20,11 +20,25 @@ describe('positionenAusEintraegen — Minuten → Hundertstel → Rappen', () =>
     expect(p.bezeichnung).toContain('9.5 h');
   });
 
-  it('krumme Minuten runden auf ganze Hundertstel und ganze Rappen', () => {
+  it('krumme Minuten runden auf ganze Hundertstel — der Betrag ist Menge × Ansatz, wie er auf dem PDF steht', () => {
     const [p] = positionenAusEintraegen([{ normal_min: 50, ueber_min: 0, mitarbeiter: { name: 'A', funktion: 'monteur' } }]);
     expect(p.menge_hundertstel).toBe(83); // 83.33…
     expect(Number.isInteger(p.betrag_rappen)).toBe(true);
-    expect(p.betrag_rappen).toBe(9000); // 50/60 × 108.–
+    // 0.83 h × 108.– = 89.64 (vorher aus den Minuten: 50/60 × 108.– = 90.00, passte nicht zur gedruckten Menge)
+    expect(p.betrag_rappen).toBe(8964);
+  });
+
+  it('Menge × Ansatz = Betrag für jede Minutenzahl (auch nicht durch 3 teilbar) und jeden Ansatz', () => {
+    for (const funktion of ['monteur', 'bauf', 'gibt_es_nicht']) {
+      for (let min = 0; min <= 600; min++) {
+        const [p] = positionenAusEintraegen([{ normal_min: min, ueber_min: 0, mitarbeiter: { name: 'A', funktion } }]);
+        expect(p.betrag_rappen).toBe(Math.round((p.menge_hundertstel * p.ansatz_rappen) / 100));
+      }
+    }
+    // 1 Minute: 0.02 h × 108.– = 2.16
+    expect(positionenAusEintraegen([{ normal_min: 1, ueber_min: 0, mitarbeiter: { name: 'A', funktion: 'monteur' } }])[0].betrag_rappen).toBe(216);
+    // 10 Minuten: 0.17 h × 108.– = 18.36 (aus Minuten wären es 18.00)
+    expect(positionenAusEintraegen([{ normal_min: 10, ueber_min: 0, mitarbeiter: { name: 'A', funktion: 'monteur' } }])[0].betrag_rappen).toBe(1836);
   });
 
   it('unbekannte Funktion → Rückfallansatz Gerüstmonteur/in (10800), Code bleibt erhalten', () => {

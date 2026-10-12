@@ -5,6 +5,8 @@ import { Dialog, Avatar } from '../ui/Dialog';
 import { Auswahl } from '../ui/Auswahl';
 import { ArtPille } from '../ui/ArtPille';
 import { supabase } from '../lib/supabase';
+import { alleOderFehler, stuecke } from '../lib/abfrage';
+import { useAuffrischen, useNeuesteAnfrage } from '../lib/auffrischen';
 import { addTage, ausIso, iso, kurz, kw, lang, montag, WOCHENTAGE } from '../lib/datum';
 import {
   arbeitstage, besetzung, istBalken, naechsterTeamName, ohneTag, planAm, planIst, spuren, ueberschneiden, zeitraumVorschlag,
@@ -82,6 +84,9 @@ const TAGZEILE_HOEHE = 30;
 /** Teamspalte: am Handy schmal, am PC mit Platz für die Namen — als CSS-Variable, damit Raster und Mindestbreite mitgehen */
 const TEAM_SPALTE_KLASSE = '[--team:152px] md:[--team:250px]';
 
+/** Der Einsatz steht nicht mehr so da, wie der Dialog ihn zeigt — jemand hat ihn inzwischen geändert. */
+class PlanGeaendert extends Error {}
+
 /** Was der Einsatz-Dialog bearbeitet: neuer Einsatz (ohne id) oder ein bestehender. */
 interface Entwurf { id?: string; teamId: string; baustelle: Baustelle | null; von: string; bis: string; tag: string }
 
@@ -115,50 +120,78 @@ export function Planung() {
   const endeIso = iso(addTage(start, anzahlTage - 1));
   const heuteIso = iso(new Date());
 
-  const laden = useCallback(async () => {
+  const anfrage = useNeuesteAnfrage();
+  /**
+   * Zwei, drei Runden nacheinander — nach jeder zählt nur, ob das noch die jüngste Anfrage ist: wer schnell die Woche
+   * wechselt, sieht nie Teams der neuen und Verlauf der alten Woche. Seitenweise, wo es über 1000 Zeilen werden können.
+   * `still`: ohne «Lädt …» (nach einer Änderung, beim Auffrischen); scheitert es dann, bleibt das Raster stehen.
+   */
+  const laden = useCallback(async (still = false) => {
     if (!supabase) return;
     const c = supabase;
-    setLaedt(true);
+    const aktuell = anfrage();
+    if (!still) setLaedt(true);
     const istBis = endeIso < heuteIso ? endeIso : heuteIso;
     const [t, b, p, m, ma] = await Promise.all([
       c.from('team').select('id,bezeichnung,chefmonteur_id,chefmonteur:chefmonteur_id(name)').eq('aktiv', true),
-      c.from('baustelle').select('id,konto_nr,bezeichnung,status').neq('status', 'abgeschlossen').order('bezeichnung'),
-      c.from('jahresplan').select('id,team_id,von,bis,baustelle:baustelle_id(id,konto_nr,bezeichnung,status)').gte('bis', startIso).lte('von', endeIso),
+      alleOderFehler<Baustelle>((von, bis) => c.from('baustelle').select('id,konto_nr,bezeichnung,status').neq('status', 'abgeschlossen').order('bezeichnung').order('id').range(von, bis)),
+      alleOderFehler<Plan>((von, bis) => c.from('jahresplan').select('id,team_id,von,bis,baustelle:baustelle_id(id,konto_nr,bezeichnung,status)').gte('bis', startIso).lte('von', endeIso).order('id').range(von, bis)),
       c.from('team_mitglied').select('team_id,mitarbeiter:mitarbeiter_id(id,name,funktion,aktiv)').is('bis', null),
       c.from('mitarbeiter').select('id,name,funktion').eq('aktiv', true).neq('funktion', FUNKTION_BUERO).order('name'),
     ]);
-    // Neu mit 0036 bzw. nur für vergangene Tage — fehlt etwas, bleibt die Planung trotzdem bedienbar
-    const vorlauf = new Date(ausIso(startIso).getTime() - 14 * 86400000).toISOString();
-    const [v, a, i, vl] = await Promise.all([
-      c.from('einsatz_person').select('datum,mitarbeiter_id,team_id').gte('datum', startIso).lte('datum', endeIso),
-      c.from('abwesenheit').select('datum,mitarbeiter_id,art').gte('datum', startIso).lte('datum', endeIso),
-      startIso <= heuteIso
-        ? c.from('tagesmeldung').select('team_id,datum,baustelle:baustelle_id(id,konto_nr,bezeichnung),zeiteintrag(mitarbeiter_id)').gte('datum', startIso).lte('datum', istBis).limit(2000)
-        : Promise.resolve({ data: [], error: null }),
-      c.from('plan_verlauf').select('tabelle,datensatz_id,aktion,vorher,nachher,zeit').gte('zeit', vorlauf).order('zeit').limit(4000),
-    ]);
-    const verlaufNeu = vl.error ? [] : ((vl.data ?? []) as VerlaufZeile[]);
-    setVerlauf(verlaufNeu);
-    const bekannt = new Set([...((b.data ?? []) as Baustelle[]).map((x) => x.id), ...((p.data ?? []) as unknown as Plan[]).map((x) => x.baustelle?.id)]);
-    const fehlend = [...new Set(verlaufNeu.flatMap((x) => [x.vorher?.baustelle_id, x.nachher?.baustelle_id]).filter((x): x is string => typeof x === 'string' && !bekannt.has(x)))];
-    if (fehlend.length > 0) {
-      const { data: zb } = await c.from('baustelle').select('id,konto_nr,bezeichnung,status').in('id', fehlend.slice(0, 200));
-      setZusatzBaustellen((zb ?? []) as Baustelle[]);
-    } else setZusatzBaustellen([]);
+    if (!aktuell()) return;
     const err = t.error ?? b.error ?? p.error;
-    setFehler(err ? 'Planung konnte nicht geladen werden: ' + err.message : null);
+    if (err && still) { setFehler('Planung konnte nicht neu geladen werden: ' + err.message); return; }
+    // Neu mit 0036 bzw. nur für vergangene Tage — fehlt etwas, bleibt die Planung trotzdem bedienbar.
+    // «Geplant am Montag» (planAm) geht vom heutigen Stand rückwärts bis Montag 06:00 und braucht dafür JEDE Änderung an
+    // Einsätzen seit diesem Zeitpunkt — und nur diese. Vorher: ab zwei Wochen davor, aufsteigend, höchstens 4000 Zeilen;
+    // die API brach nach 1000 ab, und es fehlten genau die neuesten Änderungen.
+    const montagFrueh = ausIso(startIso);
+    montagFrueh.setHours(6, 0, 0, 0);
+    const mitVergangenem = startIso <= heuteIso;
+    const [v, a, i, vl] = await Promise.all([
+      alleOderFehler<Versetzung>((von, bis) => c.from('einsatz_person').select('datum,mitarbeiter_id,team_id').gte('datum', startIso).lte('datum', endeIso).order('id').range(von, bis)),
+      alleOderFehler<Abw>((von, bis) => c.from('abwesenheit').select('datum,mitarbeiter_id,art').gte('datum', startIso).lte('datum', endeIso).order('id').range(von, bis)),
+      mitVergangenem
+        ? alleOderFehler<IstZeile>((von, bis) => c.from('tagesmeldung').select('team_id,datum,baustelle:baustelle_id(id,konto_nr,bezeichnung),zeiteintrag(mitarbeiter_id)').gte('datum', startIso).lte('datum', istBis).order('id').range(von, bis))
+        : Promise.resolve({ data: [] as IstZeile[], error: null }),
+      mitVergangenem
+        ? alleOderFehler<VerlaufZeile>((von, bis) => c.from('plan_verlauf').select('tabelle,datensatz_id,aktion,vorher,nachher,zeit').eq('tabelle', 'jahresplan').gte('zeit', montagFrueh.toISOString()).order('zeit').order('id').range(von, bis))
+        : Promise.resolve({ data: [] as VerlaufZeile[], error: null }),
+    ]);
+    if (!aktuell()) return;
+    const verlaufNeu = vl.error ? [] : (vl.data ?? []);
+    // Baustellen, die nur im Verlauf vorkommen (inzwischen abgeschlossen) — in Stücken, die Liste der ids kann lang werden
+    const bekannt = new Set([...(b.data ?? []).map((x) => x.id), ...(p.data ?? []).map((x) => x.baustelle?.id)]);
+    const fehlend = [...new Set(verlaufNeu.flatMap((x) => [x.vorher?.baustelle_id, x.nachher?.baustelle_id]).filter((x): x is string => typeof x === 'string' && !bekannt.has(x)))];
+    const zusatz = await Promise.all(stuecke(fehlend).map((ids) => c.from('baustelle').select('id,konto_nr,bezeichnung,status').in('id', ids)));
+    if (!aktuell()) return;
+    setVerlauf(verlaufNeu);
+    setZusatzBaustellen(zusatz.flatMap((r) => (r.data ?? []) as Baustelle[]));
+    // Was fehlt, sagen — sonst zeigt die Tageszeile Abwesende als da oder «Geplant am Montag» den heutigen Plan
+    const neben = [
+      m.error && `feste Teams (${m.error.message})`,
+      ma.error && `Mitarbeitende (${ma.error.message})`,
+      a.error && `Abwesenheiten (${a.error.message})`,
+      i.error && `Meldungen (${i.error.message})`,
+      vl.error && `Verlauf (${vl.error.message})`,
+      ...zusatz.filter((r) => r.error).slice(0, 1).map((r) => `Baustellen aus dem Verlauf (${r.error!.message})`),
+    ].filter(Boolean);
+    setFehler(err ? 'Planung konnte nicht geladen werden: ' + err.message : neben.length > 0 ? `Nicht geladen: ${neben.join(' · ')} — die Ansicht ist unvollständig.` : null);
     setTeams(((t.data ?? []) as unknown as Team[]).sort((x, y) => x.bezeichnung.localeCompare(y.bezeichnung, 'de', { numeric: true })));
-    setBaustellen((b.data ?? []) as Baustelle[]);
-    setPlaene((p.data ?? []) as unknown as Plan[]);
+    setBaustellen(b.data ?? []);
+    setPlaene(p.data ?? []);
     setMitglieder((m.data ?? []) as unknown as Mitglied[]);
     setPersonen((ma.data ?? []) as Person[]);
     setEinsatzFehlt(!!v.error);
-    setVersetzungen(v.error ? [] : ((v.data ?? []) as Versetzung[]));
-    setAbwesend(a.error ? [] : ((a.data ?? []) as Abw[]));
-    setIst(i.error ? [] : ((i.data ?? []) as unknown as IstZeile[]));
+    setVersetzungen(v.error ? [] : (v.data ?? []));
+    setAbwesend(a.error ? [] : (a.data ?? []));
+    setIst(i.error ? [] : (i.data ?? []));
     setLaedt(false);
-  }, [startIso, endeIso, heuteIso]);
+  }, [startIso, endeIso, heuteIso, anfrage]);
   useEffect(() => { void laden(); }, [laden]);
+  // Mehrere Leute planen gleichzeitig — wieder sichtbar oder alle 5 Minuten still neu laden
+  useAuffrischen(() => laden(true));
 
   useEffect(() => {
     if (!rueckmeldung) return;
@@ -587,7 +620,7 @@ export function Planung() {
           baustellen={baustellen}
           plaene={plaene}
           onSchliessen={schliessen}
-          onGespeichert={(text) => { setEntwurf(null); setRueckmeldung(text); void laden(); }}
+          onGespeichert={(text) => { setEntwurf(null); setRueckmeldung(text); void laden(true); }}
         />
       )}
 
@@ -609,7 +642,8 @@ export function Planung() {
           onSchliessen={tagSchliessen}
           onEinsatz={(p) => { setTagWahl(null); setEntwurf({ id: p.id, teamId: tagTeam.id, baustelle: p.baustelle, von: p.von, bis: p.bis, tag: tagWahl.datum }); }}
           onNeuerEinsatz={() => { setTagWahl(null); neu(tagTeam.id, ausIso(tagWahl.datum)); }}
-          onGeaendert={(text) => { setRueckmeldung(text); void laden(); }}
+          onGeaendert={(text) => { setRueckmeldung(text); void laden(true); }}
+          onNeuLaden={() => void laden(true)}
         />
       )}
 
@@ -617,7 +651,7 @@ export function Planung() {
         <TeamNeuDialog
           namen={teams.map((t) => t.bezeichnung)}
           onSchliessen={() => setTeamNeu(false)}
-          onGespeichert={(text) => { setTeamNeu(false); setRueckmeldung(text); void laden(); }}
+          onGespeichert={(text) => { setTeamNeu(false); setRueckmeldung(text); void laden(true); }}
         />
       )}
     </Shell>
@@ -664,7 +698,7 @@ function BaustellenWahl({ baustellen, waehlen, autoFokus = false }: { baustellen
 
 function TagDialog({
   team, datum, teams, personen, namen, basis, besetzungen, abwesend, geplant, gemeldet, vergangen, baustellen, einsatzFehlt,
-  onSchliessen, onEinsatz, onNeuerEinsatz, onGeaendert,
+  onSchliessen, onEinsatz, onNeuerEinsatz, onGeaendert, onNeuLaden,
 }: {
   team: Team;
   datum: string;
@@ -683,6 +717,8 @@ function TagDialog({
   onEinsatz: (p: Plan) => void;
   onNeuerEinsatz: () => void;
   onGeaendert: (text: string) => void;
+  /** Nur neu laden (der Plan hat sich inzwischen geändert) — der Dialog bleibt offen */
+  onNeuLaden: () => void;
 }) {
   const d = ausIso(datum);
   const fr = freitagVon(datum);
@@ -732,32 +768,55 @@ function TagDialog({
     const grund = `Nur ${tagKurz(d)}: ${b.konto_nr} ${b.bezeichnung ?? ''}`.trim();
     const log = (jahresplan_id: string, feld: string, alt: string, neu: string) =>
       c.from('planaenderung').insert({ jahresplan_id, feld, alt, neu, geaendert_von: u.user?.id ?? null, grund });
+    /**
+     * Nur ändern, was noch so dasteht, wie der Dialog es zeigt (13.10.2026): hat inzwischen jemand den Einsatz verschoben
+     * oder gekürzt, entstünde sonst aus den alten Daten der alte Rest neu. Jede Änderung trägt darum die alten Werte als
+     * Bedingung mit; trifft sie keine Zeile, wird neu geladen und gefragt.
+     */
+    const wieAngezeigt = (p: Plan): Record<string, string> => ({
+      id: p.id, von: p.von, bis: p.bis,
+      ...(p.team_id ? { team_id: p.team_id } : {}),
+      ...(p.baustelle ? { baustelle_id: p.baustelle.id } : {}),
+    });
     try {
       for (const p of geplant) {
         const { vorher, nachher } = ohneTag(p, datum);
         if (vorher) {
-          const r = await c.from('jahresplan').update({ bis: vorher.bis }).eq('id', p.id);
+          const r = await c.from('jahresplan').update({ bis: vorher.bis }).match(wieAngezeigt(p)).select('id');
           if (r.error) throw r.error;
+          if ((r.data ?? []).length === 0) throw new PlanGeaendert();
           await log(p.id, 'bis', p.bis, vorher.bis);
           if (nachher && p.baustelle) {
             const r2 = await c.from('jahresplan').insert({ team_id: team.id, baustelle_id: p.baustelle.id, von: nachher.von, bis: nachher.bis });
             if (r2.error) throw r2.error;
           }
         } else if (nachher) {
-          const r = await c.from('jahresplan').update({ von: nachher.von }).eq('id', p.id);
+          const r = await c.from('jahresplan').update({ von: nachher.von }).match(wieAngezeigt(p)).select('id');
           if (r.error) throw r.error;
+          if ((r.data ?? []).length === 0) throw new PlanGeaendert();
           await log(p.id, 'von', p.von, nachher.von);
         } else {
-          // Nur dieser eine Tag war geplant: Einsatz wird durch den neuen ersetzt
+          // Nur dieser eine Tag war geplant: Einsatz wird durch den neuen ersetzt — erst prüfen, ob er noch so dasteht,
+          // dann die Terminhistorie (Fremdschlüssel), dann der Einsatz selbst
+          const da = await c.from('jahresplan').select('id').match(wieAngezeigt(p));
+          if (da.error) throw da.error;
+          if ((da.data ?? []).length === 0) throw new PlanGeaendert();
           await c.from('planaenderung').delete().eq('jahresplan_id', p.id);
-          const r = await c.from('jahresplan').delete().eq('id', p.id);
+          const r = await c.from('jahresplan').delete().match(wieAngezeigt(p)).select('id');
           if (r.error) throw r.error;
+          if ((r.data ?? []).length === 0) throw new PlanGeaendert();
         }
       }
       const r = await c.from('jahresplan').insert({ team_id: team.id, baustelle_id: b.id, von: datum, bis: datum });
       if (r.error) throw r.error;
     } catch (e) {
       setLaeuft(false);
+      if (e instanceof PlanGeaendert) {
+        setAndereBaustelle(false);
+        setFehler(`Der Plan von ${team.bezeichnung} wurde inzwischen geändert — oben steht jetzt der neue Stand. Bitte nochmals prüfen und dann wählen.`);
+        onNeuLaden();
+        return;
+      }
       setFehler('Nicht gespeichert: ' + (e instanceof Error ? e.message : String((e as { message?: string }).message ?? e)));
       return;
     }

@@ -54,7 +54,8 @@ import { startAutoFlush, flushNachSupabase } from './lib/db';
 import { supabase } from './lib/supabase';
 import { seitenFuer, useAnsicht, type Ansicht as AnsichtKey } from './lib/ansicht';
 import { einstellungen, einstellungenLaden } from './lib/einstellungen';
-import { abmelden, angemeldet, personLaden, zugangOhneFirma } from './lib/konto';
+import { abmelden, angemeldet, geraetAufraeumen, personLaden, ungesendet, zugangAusSitzung, zugangPruefen } from './lib/konto';
+import { eingabeOffen, formularBeruehrt, formularVerlassen, jetztEinspielen, letzteEingabe, type Anlass } from './lib/aktualisierung';
 
 // Regie, Zusatzaufträge, Kundenlink und Board waren vom 20.09. bis 02.10.2026 ganz draussen (Bauführer: SORBA macht das).
 // Seit 02.10. gibt es sie wieder, aber nur für Firmen, die das wollen — Schalter in der Zeile der Firma
@@ -70,19 +71,28 @@ if (supabase) {
   startAutoFlush(() => flushNachSupabase(client));
   // Sitzung weg (abgemeldet, Konto gelöscht, Zugang abgelaufen): zur Anmeldung, statt mit einer Oberfläche weiterzumachen,
   // in der jedes Speichern scheitert (10.10.2026). Was in der Warteschlange liegt, bleibt auf dem Gerät.
+  // Team, Rolle und Zwischenspeicher gehören zur alten Anmeldung und gehen mit (13.10.2026) — wie beim Abmelden von Hand.
   let hatteSitzung = false;
   client.auth.onAuthStateChange((ereignis, sitzung) => {
     if (sitzung) hatteSitzung = true;
-    if (ereignis === 'SIGNED_OUT' && hatteSitzung) { hatteSitzung = false; location.replace('/'); }
+    if (ereignis === 'SIGNED_OUT' && hatteSitzung) { hatteSitzung = false; geraetAufraeumen(); location.replace('/'); }
   });
 }
 
 // Neue Version holen, auch wenn der Tab den ganzen Tag offen bleibt (Bauführer-PC):
-// stündlich nachschauen; autoUpdate lädt die Seite neu, sobald die neue Version aktiv ist.
-// Handy: die installierte App läuft oft tagelang aus dem Hintergrund weiter, der Stunden-Takt ruht dort —
-// darum auch beim Zurückholen in den Vordergrund nachschauen (09.10.2026: Amir sah noch die alte Erfassung).
-registerSW({
+// stündlich nachschauen. Handy: die installierte App läuft oft tagelang aus dem Hintergrund weiter, der Stunden-Takt
+// ruht dort — darum auch beim Zurückholen in den Vordergrund nachschauen (09.10.2026: Amir sah noch die alte Erfassung).
+//
+// Eingespielt wird sie seit 13.10.2026 nicht mehr sofort, sondern im ruhigen Moment (lib/aktualisierung.ts): wenn die
+// App in den Hintergrund geht oder man die Seite wechselt — nie mitten in einer angefangenen Tagesmeldung. Vorher lud
+// `autoUpdate` die Seite neu, sobald das Handy kurz in der Tasche war, und Zeiten, Häkchen und Sprachnotiz waren weg.
+let neueFassungSeit: number | null = null;
+const fassungEinspielen = registerSW({
   immediate: true,
+  onNeedRefresh() {
+    neueFassungSeit ??= Date.now();
+    if (document.visibilityState === 'hidden') neueFassungVersuchen('hintergrund');
+  },
   onRegisteredSW(_url, reg) {
     if (!reg) return;
     setInterval(() => void reg.update(), 60 * 60 * 1000);
@@ -91,6 +101,29 @@ registerSW({
     });
   },
 });
+
+/** Wartet eine neue Fassung, und geht dabei nichts verloren? Dann jetzt (lädt die Seite neu). */
+function neueFassungVersuchen(anlass: Anlass) {
+  if (neueFassungSeit === null) return;
+  if (!jetztEinspielen({ anlass, eingabe: eingabeOffen(), wartetSeit: neueFassungSeit, jetzt: Date.now(), letzteEingabe: letzteEingabe() })) return;
+  neueFassungSeit = null;
+  void fassungEinspielen(true);
+}
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'hidden') neueFassungVersuchen('hintergrund');
+});
+// Getippt wird in Feldern auf jeder Seite (Verwaltung, Korrektur …): bis man die Seite wechselt, gilt das als offen
+document.addEventListener('input', () => formularBeruehrt(), true);
+
+/** Seitenwechsel: die Felder der alten Seite gibt es nicht mehr — ein guter Moment für eine wartende neue Fassung. */
+function NeueFassungBeiSeitenwechsel() {
+  const { pathname } = useLocation();
+  useEffect(() => {
+    formularVerlassen();
+    neueFassungVersuchen('navigation');
+  }, [pathname]);
+  return null;
+}
 
 /** Link zu einer Seite, die die gewählte Ansicht nicht hat: erklären und wechseln lassen, nicht stumm umleiten. */
 function FremdeSeite({ ansicht }: { ansicht: AnsichtKey }) {
@@ -124,16 +157,45 @@ function FremdeSeite({ ansicht }: { ansicht: AnsichtKey }) {
   );
 }
 
-function OhneFirma() {
+/**
+ * Angemeldet, aber ohne Firma. Zwei Fälle (13.10.2026): die Person ist im Büro auf inaktiv gesetzt (persönlicher Zugang,
+ * 0034) — dann ein Satz ohne Technik; oder der Zugang ist gar keiner Firma zugeordnet — das betrifft nur die Einrichtung.
+ */
+function OhneFirma({ stand }: { stand: 'inaktiv' | 'ohne_firma' }) {
   const [email, setEmail] = useState('');
+  const [offen, setOffen] = useState<number | null>(null);
   useEffect(() => { void supabase?.auth.getSession().then(({ data }) => setEmail(data.session?.user.email ?? '')); }, []);
+  async function abmeldenFragen() {
+    // Wartet noch etwas auf dem Gerät? Erst sagen, beim zweiten Tipp abmelden.
+    if (offen === null) {
+      const n = await ungesendet();
+      if (n > 0) { setOffen(n); return; }
+    }
+    await abmelden();
+    location.replace('/');
+  }
   return (
     <main className="mx-auto flex min-h-dvh max-w-md flex-col justify-center px-5">
       <div className="card space-y-3">
-        <p className="font-display text-lg font-bold">Dieser Zugang gehört zu keiner Firma</p>
-        <p className="text-sm text-ink2">Angemeldet als <span className="font-mono">{email || '…'}</span>. Die Datenbank kennt dazu keine Firma, darum gibt es nichts zu sehen und nichts zu speichern.</p>
-        <p className="text-sm text-ink3">Mit einem anderen Zugang anmelden, oder den Zugang in Supabase einer Firma zuordnen (Tabelle «benutzer»).</p>
-        <button type="button" className="btn-ghost" onClick={() => void abmelden().then(() => location.replace('/'))}>Abmelden</button>
+        {stand === 'inaktiv' ? (
+          <>
+            <p className="font-display text-lg font-bold">Dein Zugang ist nicht aktiv</p>
+            <p className="text-sm text-ink2">Bitte im Büro melden. Sobald du dort wieder aktiv gesetzt bist, geht es hier weiter.</p>
+            <p className="text-xs text-ink3">Angemeldet als <span className="font-mono">{email || '…'}</span></p>
+          </>
+        ) : (
+          <>
+            <p className="font-display text-lg font-bold">Dieser Zugang gehört zu keiner Firma</p>
+            <p className="text-sm text-ink2">Angemeldet als <span className="font-mono">{email || '…'}</span>. Zu diesem Zugang ist keine Firma eingetragen, darum gibt es nichts zu sehen und nichts zu speichern.</p>
+            <p className="text-sm text-ink3">Mit einem anderen Zugang anmelden — oder PureFlow bitten, den Zugang der Firma zuzuordnen (Tabelle «benutzer»).</p>
+          </>
+        )}
+        {offen !== null && (
+          <p className="rounded-[10px] bg-amber-soft px-3 py-2 text-sm text-amber-deep">
+            Noch {offen} Meldung{offen === 1 ? '' : 'en'} nicht gesendet — trotzdem abmelden? Sie bleiben auf diesem Gerät und gehen raus, sobald die Firma hier wieder angemeldet ist.
+          </p>
+        )}
+        <button type="button" className="btn-ghost" onClick={() => void abmeldenFragen()}>{offen !== null ? 'Trotzdem abmelden' : 'Abmelden'}</button>
       </div>
     </main>
   );
@@ -144,8 +206,8 @@ function App() {
   const [bereit, setBereit] = useState(!supabase);
   // Ohne Sitzung liefert die Datenbank leere Listen — dann lieber den Grund zeigen als «Keine Teams».
   const [sitzung, setSitzung] = useState(!supabase);
-  /** Angemeldet, aber die Datenbank kennt keine Firma dazu (10.10.2026: «Team weg», «row-level security»). */
-  const [ohneFirma, setOhneFirma] = useState(false);
+  /** Angemeldet, aber die Datenbank kennt keine Firma dazu (10.10.2026: «Team weg», «row-level security») — oder die Person ist inaktiv. */
+  const [ohneFirma, setOhneFirma] = useState<'inaktiv' | 'ohne_firma' | null>(null);
 
   /**
    * Beim Start: ist eine Firma angemeldet? Erst dann die Schalter dieser Firma laden.
@@ -156,10 +218,20 @@ function App() {
     void (async () => {
       const ok = await angemeldet().catch(() => false);
       setSitzung(ok);
-      if (ok) await einstellungenLaden().catch(() => undefined);
-      // Persönlicher Zugang (0033): Ansicht und Person stehen fest, niemand muss wählen.
-      if (ok) await personLaden().catch(() => undefined);
-      if (ok) setOhneFirma(await zugangOhneFirma().catch(() => false));
+      // Wer angemeldet ist, weiss die Sitzung auch ohne Netz — neue Meldungen tragen gleich das richtige Konto (zugang.ts)
+      if (ok) await zugangAusSitzung().catch(() => undefined);
+      const laden = (async () => {
+        if (ok) await einstellungenLaden().catch(() => undefined);
+        // Persönlicher Zugang (0033): Ansicht und Person stehen fest, niemand muss wählen.
+        if (ok) await personLaden().catch(() => undefined);
+        if (ok) {
+          const z = await zugangPruefen().catch(() => 'unklar' as const);
+          setOhneFirma(z === 'inaktiv' || z === 'ohne_firma' ? z : null);
+        }
+      })();
+      // Schwaches Netz (ein Balken, WLAN mit Anmeldeseite): nicht minutenlang weiss bleiben — nach 8 Sekunden mit dem
+      // Stand im Gerät los (Regel #4), das Laden läuft im Hintergrund fertig.
+      await Promise.race([laden, new Promise((r) => setTimeout(r, 8000))]);
       setBereit(true);
       if (ok) vorladen(einstellungen().erfassung === 'regie');
     })();
@@ -180,13 +252,14 @@ function App() {
   }
 
   // Angemeldet, aber ohne Firma: sonst wären alle Listen leer und jedes Speichern meldete «row-level security».
-  if (sitzung && ohneFirma && !window.location.pathname.startsWith('/b/')) return <OhneFirma />;
+  if (sitzung && ohneFirma && !window.location.pathname.startsWith('/b/')) return <OhneFirma stand={ohneFirma} />;
 
   const hat = (seite: string) => sitzung && !!ansicht && seitenFuer(ansicht).includes(seite);
   const regieModus = einstellungen().erfassung === 'regie';
 
   return (
     <BrowserRouter>
+      <NeueFassungBeiSeitenwechsel />
       {/* Ein Rahmen für alle Seiten: Beim Seitenwechsel bleibt die alte Seite stehen, bis die neue da ist */}
       <Suspense fallback={<SeiteLaedt />}>
       <Routes>

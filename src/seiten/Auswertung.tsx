@@ -7,6 +7,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Shell } from '../ui/Shell';
 import { supabase } from '../lib/supabase';
+import { alleOderFehler } from '../lib/abfrage';
 import { formatChf } from '../lib/tarif';
 import { Banknote, CircleCheck, PencilLine, Send } from 'lucide-react';
 import { Kachel, MONATE } from '../ui/Karten';
@@ -50,15 +51,17 @@ export function Auswertung() {
     const c = supabase;
     setLaedt(true);
     void (async () => {
+      // Sechs Monate × Baustellen × Stand werden bei einer Regie-Firma schnell mehr als 1000 Zeilen — seitenweise, in fester
+      // Reihenfolge (eine Zeile je Monat, Baustelle und Stand)
       const [a, g] = await Promise.all([
-        c.from('regie_auswertung').select('*').in('monat', monate),
+        alleOderFehler<Zeile>((von, bis) => c.from('regie_auswertung').select('*').in('monat', monate).order('monat').order('baustelle_id').order('status').range(von, bis)),
         c.from('zusatzauftrag_ohne_regie_gruende').select('*').in('monat', monate),
       ]);
       if (a.error) {
         setFehler(/does not exist|schema cache/i.test(a.error.message) ? 'Die Auswertung braucht Migration 0009 — bitte im Supabase-SQL-Editor ausführen.' : a.error.message);
       } else {
         setFehler('');
-        setZeilen((a.data ?? []) as Zeile[]);
+        setZeilen(a.data ?? []);
       }
       setGruende((g.data ?? []) as Grund[]);
       setLaedt(false);

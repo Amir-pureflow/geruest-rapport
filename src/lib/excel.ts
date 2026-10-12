@@ -51,6 +51,8 @@ export interface Untertitel {
   zeitraum: string;
   /** z. B. «alle Teams», «nur Freigegebenes» */
   filter: string[];
+  /** Wann die Zahlen geladen wurden — «Stand» auf jedem Blatt. Fehlt er, gilt der Moment des Herunterladens. */
+  stand?: Date;
 }
 
 export interface LohnExportZeile {
@@ -95,8 +97,8 @@ function buchstabe(n: number): string {
 function anstellung(typ: string): string {
   return typ === 'temporaer' ? 'temporär' : typ;
 }
-function stand(): string {
-  return `Stand ${new Date().toLocaleString('de-CH', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}`;
+function stand(wann = new Date()): string {
+  return `Stand ${wann.toLocaleString('de-CH', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}`;
 }
 
 async function lade(): Promise<typeof Excel> {
@@ -124,7 +126,7 @@ function kopf(ws: Worksheet, titel: string, unter: Untertitel, spalten: Spalte[]
 
   ws.mergeCells(2, 1, 2, n);
   const u = ws.getCell(2, 1);
-  u.value = [unter.zeitraum, ...unter.filter, stand()].filter(Boolean).join('   ·   ');
+  u.value = [unter.zeitraum, ...unter.filter, stand(unter.stand)].filter(Boolean).join('   ·   ');
   u.font = { name: SCHRIFT, size: 10, color: { argb: F.grau } };
   ws.getRow(2).height = 16;
   ws.getRow(3).height = 8;

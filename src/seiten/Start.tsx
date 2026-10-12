@@ -1,8 +1,10 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { AlarmClock, Banknote, CalendarCheck, PhoneCall, Send, Users } from 'lucide-react';
 import { Shell } from '../ui/Shell';
 import { supabase } from '../lib/supabase';
+import { alle, alleOderFehler } from '../lib/abfrage';
+import { useAuffrischen, useNeuesteAnfrage } from '../lib/auffrischen';
 import { addTage, iso, kurz, kw, lang, montag } from '../lib/datum';
 import { flushNachSupabase, offeneAnzahl } from '../lib/db';
 import { Kachel, MONATE, NavKarte } from '../ui/Karten';
@@ -24,6 +26,8 @@ interface Kennzahlen {
   teams: number;
   /** offene Team-Tage vor dieser Woche — der Bauführer denkt in Tagen, nicht in Zeiteinträgen (05.10.2026) */
   zuPruefen: number;
+  /** Meldungen der Vorwoche — ohne eine einzige ist die Vorwoche nicht «freigegeben», sondern leer (13.10.2026) */
+  vorwocheMeldungen: number;
   /**
    * Team-Tage der Vorwoche mit offenen Überstunden, die noch einen Entscheid brauchen — gleich gezählt wie
    * «Zum Anschauen» in der Wochenübersicht (08.10.2026: vorher Zeiteinträge = Personen, darum 8 statt 2).
@@ -112,95 +116,122 @@ function StartBauf() {
   const vorwoche = iso(addTage(montag(heute), -7));
   // Montag der Woche, die in der Freigabe-Karte steht — automatisch die älteste mit offenen Freigaben
   const [freigabeMo, setFreigabeMo] = useState<Date>(() => addTage(montag(new Date()), -7));
+  const anfrage = useNeuesteAnfrage();
 
-  useEffect(() => {
+  /**
+   * Alles für die Startseite. Läuft beim Öffnen und wieder, sobald die Seite sichtbar wird oder alle 5 Minuten
+   * (13.10.2026 — vorher stand bis zum Neuladen der Stand vom Morgen da). Nur die jüngste Ladung zeigt ihr Ergebnis.
+   */
+  const laden = useCallback(async () => {
     if (!supabase) return;
     const c = supabase;
+    const aktuell = anfrage();
+    const heute = new Date();
     const heuteIso = iso(heute);
     const wochenStart = iso(montag(heute));
-    void (async () => {
-      // Erst die lokale Warteschlange leeren, dann zählen — sonst zählt das Dashboard hinterher.
-      // Ist der lokale Speicher kaputt (privater Modus, volle Platte), darf das Dashboard trotzdem laden.
-      try {
-        if (navigator.onLine) {
-          const erg = await flushNachSupabase(c);
-          const rest = await offeneAnzahl();
-          setWartend(rest > 0 ? { anzahl: rest, grund: erg.fehlerText } : null);
-        } else {
-          const rest = await offeneAnzahl();
-          setWartend(rest > 0 ? { anzahl: rest } : null);
-        }
-      } catch {
-        setWartend(null);
+    const vorwoche = iso(addTage(montag(heute), -7));
+    // Erst die lokale Warteschlange leeren, dann zählen — sonst zählt das Dashboard hinterher.
+    // Ist der lokale Speicher kaputt (privater Modus, volle Platte), darf das Dashboard trotzdem laden.
+    try {
+      if (navigator.onLine) {
+        const erg = await flushNachSupabase(c);
+        const rest = await offeneAnzahl();
+        setWartend(rest > 0 ? { anzahl: rest, grund: erg.fehlerText } : null);
+      } else {
+        const rest = await offeneAnzahl();
+        setWartend(rest > 0 ? { anzahl: rest } : null);
       }
-      const [tm, teams, zp, uo] = await Promise.all([
-        c.from('tagesmeldung').select('team_id').eq('datum', heuteIso),
-        c.from('team').select('id', { count: 'exact', head: true }).eq('aktiv', true),
-        c.from('tagesmeldung').select('datum,team_id,zeiteintrag!inner(id)').eq('zeiteintrag.status', 'offen').lt('datum', wochenStart),
-        c.from('tagesmeldung')
-          .select('team_id,datum,baustelle_id,' + (regie ? 'regie_entscheid,regierapport(id),' : '') + 'zeiteintrag(mitarbeiter_id,normal_min,ueber_min,status)')
-          .gte('datum', vorwoche).lt('datum', wochenStart),
-      ]);
-      const erster = [tm, teams, zp, uo].find((r) => r.error);
-      if (erster?.error) { setFehler(erster.error.message); return; }
-      // Die Teamnamen braucht die Kachel nicht mehr — die liefert das Board darunter
-      const gemeldet = new Set((tm.data ?? []).map((r) => r.team_id));
-      setK({
-        teamsGemeldet: gemeldet.size,
-        teams: teams.count ?? 0,
-        zuPruefen: new Set(((zp.data ?? []) as unknown as { datum: string; team_id: string }[]).map((r) => r.team_id + r.datum)).size,
-        ueberOffen: ueberTage((uo.data ?? []) as unknown as UeberZeile[], regie),
-      });
-      // Diagramm und Board danach — die Kacheln sollen nicht darauf warten
-      // Die Karte springt auf die älteste Woche mit offenen Freigaben (Amir, 04.10.2026) —
-      // bis 6 Wochen zurück, auch die laufende. Ist nichts offen, zeigt sie die Vorwoche.
-      let freigabeBezug = addTage(montag(heute), -7);
-      const { data: aelteste } = await c
-        .from('tagesmeldung')
-        .select('datum, zeiteintrag!inner(id)')
-        .eq('zeiteintrag.status', 'offen')
-        .lte('datum', heuteIso)
-        .gte('datum', iso(addTage(montag(heute), -42)))
-        .order('datum', { ascending: true })
-        .limit(1);
-      if (aelteste?.[0]?.datum) freigabeBezug = new Date(aelteste[0].datum + 'T12:00:00');
-      setFreigabeMo(montag(freigabeBezug));
-      const [w, ts] = await Promise.all([wochenTeams(c, freigabeBezug), teamStand(c, heute)]);
-      setWoche(w);
-      setStand(ts);
+    } catch {
+      setWartend(null);
+    }
+    // «Zu prüfen» zählt Team-Tage (nicht Meldungen: zwei Baustellen am Tag sind ein Tag) — darum die Zeilen selbst,
+    // seitenweise: ein Zähler der Datenbank zählte Meldungen, und mehr als 1000 schnitt die API still ab
+    const grund = await Promise.all([
+      c.from('tagesmeldung').select('team_id').eq('datum', heuteIso),
+      c.from('team').select('id', { count: 'exact', head: true }).eq('aktiv', true),
+      alle<{ datum: string; team_id: string }>((a, b) => c.from('tagesmeldung').select('datum,team_id,zeiteintrag!inner(id)').eq('zeiteintrag.status', 'offen').lt('datum', wochenStart).order('id').range(a, b)),
+      alle<UeberZeile>((a, b) => c.from('tagesmeldung')
+        .select('team_id,datum,baustelle_id,' + (regie ? 'regie_entscheid,regierapport(id),' : '') + 'zeiteintrag(mitarbeiter_id,normal_min,ueber_min,status)')
+        .gte('datum', vorwoche).lt('datum', wochenStart).order('id').range(a, b)),
+    ]).catch((e: unknown) => {
+      if (aktuell()) setFehler(e instanceof Error ? e.message : String(e));
+      return null;
+    });
+    if (!grund || !aktuell()) return;
+    const [tm, teams, zp, uo] = grund;
+    const erster = [tm, teams].find((r) => r.error);
+    if (erster?.error) { setFehler(erster.error.message); return; }
+    setFehler('');
+    // Die Teamnamen braucht die Kachel nicht mehr — die liefert das Board darunter
+    const gemeldet = new Set((tm.data ?? []).map((r) => r.team_id));
+    setK({
+      teamsGemeldet: gemeldet.size,
+      teams: teams.count ?? 0,
+      zuPruefen: new Set(zp.map((r) => r.team_id + r.datum)).size,
+      vorwocheMeldungen: uo.length,
+      ueberOffen: ueberTage(uo, regie),
+    });
+    // Diagramm und Board danach — die Kacheln sollen nicht darauf warten
+    // Die Karte springt auf die älteste Woche mit offenen Freigaben (Amir, 04.10.2026) —
+    // bis 6 Wochen zurück, auch die laufende. Ist nichts offen, zeigt sie die Vorwoche.
+    let freigabeBezug = addTage(montag(heute), -7);
+    const { data: aelteste } = await c
+      .from('tagesmeldung')
+      .select('datum, zeiteintrag!inner(id)')
+      .eq('zeiteintrag.status', 'offen')
+      .lte('datum', heuteIso)
+      .gte('datum', iso(addTage(montag(heute), -42)))
+      .order('datum', { ascending: true })
+      .limit(1);
+    if (aelteste?.[0]?.datum) freigabeBezug = new Date(aelteste[0].datum + 'T12:00:00');
+    const diagramm = await Promise.all([wochenTeams(c, freigabeBezug), teamStand(c, heute)]).catch((e: unknown) => {
+      if (aktuell()) setFehler(e instanceof Error ? e.message : String(e));
+      return null;
+    });
+    if (!diagramm || !aktuell()) return;
+    const [w, ts] = diagramm;
+    setFreigabeMo(montag(freigabeBezug));
+    setWoche(w);
+    setStand(ts);
 
-      if (!regie) return;
-      // Regie-Teil: eigener Block, eigene Fehlerbehandlung — stolpert er, bleibt der Rest der Seite stehen
-      const monatsStart = iso(new Date(heute.getFullYear(), heute.getMonth(), 1, 12));
-      const [za, zaHeute, om, ia, bk, uf, rm] = await Promise.all([
-        c.from('zusatzauftrag_stand').select('id', { count: 'exact', head: true }).in('stand', ['bestellt', 'gemeldet']),
-        c.from('zusatzauftrag_stand').select('id', { count: 'exact', head: true }).eq('stand', 'bestellt').eq('geplant_fuer', heuteIso),
-        c.from('zusatzauftrag_stand').select('id', { count: 'exact', head: true }).eq('ohne_meldung', true),
-        c.from('regierapport').select('betrag_rappen,versendet_am,erstellt_am').neq('status', 'bestaetigt'),
-        c.from('regierapport').select('id', { count: 'exact', head: true }).in('status', ['versendet', 'rueckfrage']),
-        c.from('regierapport').select('id', { count: 'exact', head: true }).or(`status.eq.frist_abgelaufen,and(status.eq.versendet,frist_bis.lt.${heuteIso})`),
-        // Verschickt = Versanddatum zählt, nicht das Anlegen des Entwurfs
-        c.from('regierapport').select('betrag_rappen').gte('versendet_am', monatsStart).neq('status', 'entwurf'),
-      ]);
-      if ([za, zaHeute, om, ia, bk, uf, rm].some((r) => r.error)) return;
-      const dreissigTage = Date.now() - 30 * 86400000;
-      const inArbeit = (ia.data ?? []) as { betrag_rappen: number | null; versendet_am: string | null; erstellt_am: string }[];
-      setRz({
-        offeneAuftraege: za.count ?? 0,
-        heuteGeplant: zaHeute.count ?? 0,
-        ohneMeldung: om.count ?? 0,
-        inArbeitRappen: inArbeit.reduce((s, r) => s + (r.betrag_rappen ?? 0), 0),
-        inArbeitAltRappen: inArbeit
-          .filter((r) => new Date(r.versendet_am ?? r.erstellt_am).getTime() < dreissigTage)
-          .reduce((s, r) => s + (r.betrag_rappen ?? 0), 0),
-        beimKunden: bk.count ?? 0,
-        ueberfaellig: uf.count ?? 0,
-        monatRappen: (rm.data ?? []).reduce((s, r) => s + (r.betrag_rappen ?? 0), 0),
-      });
-      setTr(await trichter(c));
-    })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    if (!regie) return;
+    // Regie-Teil: eigener Block, eigene Fehlerbehandlung — stolpert er, bleibt der Rest der Seite stehen
+    // Monatsanfang 00:00 Ortszeit als Zeitpunkt — ein Datum allein hiesse 00:00 UTC, also 02:00 bei uns
+    const monatsStart = new Date(heute.getFullYear(), heute.getMonth(), 1).toISOString();
+    const [za, zaHeute, om, ia, bk, uf, rm] = await Promise.all([
+      c.from('zusatzauftrag_stand').select('id', { count: 'exact', head: true }).in('stand', ['bestellt', 'gemeldet']),
+      c.from('zusatzauftrag_stand').select('id', { count: 'exact', head: true }).eq('stand', 'bestellt').eq('geplant_fuer', heuteIso),
+      c.from('zusatzauftrag_stand').select('id', { count: 'exact', head: true }).eq('ohne_meldung', true),
+      alleOderFehler<{ betrag_rappen: number | null; versendet_am: string | null; erstellt_am: string }>((a, b) => c.from('regierapport').select('betrag_rappen,versendet_am,erstellt_am').neq('status', 'bestaetigt').order('id').range(a, b)),
+      c.from('regierapport').select('id', { count: 'exact', head: true }).in('status', ['versendet', 'rueckfrage']),
+      c.from('regierapport').select('id', { count: 'exact', head: true }).or(`status.eq.frist_abgelaufen,and(status.eq.versendet,frist_bis.lt.${heuteIso})`),
+      // Verschickt = Versanddatum zählt, nicht das Anlegen des Entwurfs
+      alleOderFehler<{ betrag_rappen: number | null }>((a, b) => c.from('regierapport').select('betrag_rappen').gte('versendet_am', monatsStart).neq('status', 'entwurf').order('id').range(a, b)),
+    ]);
+    if (!aktuell() || [za, zaHeute, om, ia, bk, uf, rm].some((r) => r.error)) return;
+    const dreissigTage = Date.now() - 30 * 86400000;
+    const inArbeit = ia.data ?? [];
+    setRz({
+      offeneAuftraege: za.count ?? 0,
+      heuteGeplant: zaHeute.count ?? 0,
+      ohneMeldung: om.count ?? 0,
+      inArbeitRappen: inArbeit.reduce((s, r) => s + (r.betrag_rappen ?? 0), 0),
+      inArbeitAltRappen: inArbeit
+        .filter((r) => new Date(r.versendet_am ?? r.erstellt_am).getTime() < dreissigTage)
+        .reduce((s, r) => s + (r.betrag_rappen ?? 0), 0),
+      beimKunden: bk.count ?? 0,
+      ueberfaellig: uf.count ?? 0,
+      monatRappen: (rm.data ?? []).reduce((s, r) => s + (r.betrag_rappen ?? 0), 0),
+    });
+    try {
+      const t = await trichter(c);
+      if (aktuell()) setTr(t);
+    } catch {
+      /* Trichter bleibt, wie er war */
+    }
+  }, [regie, anfrage]);
+  useEffect(() => { void laden(); }, [laden]);
+  useAuffrischen(laden);
 
   return (
     <Shell>
@@ -246,7 +277,7 @@ function StartBauf() {
 
         {fehler && (
           <p className="rounded-[12px] border border-accent/40 bg-accent-soft px-4 py-3 text-sm text-accent-deep">
-            Kennzahlen konnten nicht geladen werden: {fehler} <button type="button" className="ml-2 font-semibold underline" onClick={() => location.reload()}>Nochmals</button>
+            Kennzahlen konnten nicht geladen werden: {fehler} <button type="button" className="ml-2 font-semibold underline" onClick={() => void laden()}>Nochmals</button>
           </p>
         )}
         {!k && !fehler && supabase && (
@@ -275,7 +306,7 @@ function StartBauf() {
                 zu={`/cockpit?woche=${vorwoche}`}
                 titel="Freigabe"
                 wert={String(k.zuPruefen)}
-                label={k.zuPruefen === 1 ? 'Tag wartet auf Freigabe' : k.zuPruefen > 1 ? 'Tage warten auf Freigabe' : 'Vorwoche ist freigegeben'}
+                label={k.zuPruefen === 1 ? 'Tag wartet auf Freigabe' : k.zuPruefen > 1 ? 'Tage warten auf Freigabe' : k.vorwocheMeldungen > 0 ? 'Vorwoche ist freigegeben' : 'keine Meldungen in der Vorwoche'}
                 icon={CalendarCheck}
                 farbe="gelb"
               />

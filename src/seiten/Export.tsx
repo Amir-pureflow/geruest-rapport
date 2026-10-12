@@ -4,13 +4,16 @@ import { AlarmClock, Building2, Clock, Download, FileSpreadsheet, HardHat, Users
 import { lieferwagenTagRp } from '../lib/einstellungen';
 import { Shell } from '../ui/Shell';
 import { supabase } from '../lib/supabase';
-import { addTage, ausIso, iso, kw, montag, stunden, WOCHENTAGE } from '../lib/datum';
+import { addTage, ausIso, iso, kw, stunden, WOCHENTAGE } from '../lib/datum';
 import { useAnsicht } from '../lib/ansicht';
 import { MONATE, ZahlKarte } from '../ui/Karten';
 import { Blaettern, Schalter, Segment, SegmentZahl } from '../ui/Segment';
 import { bueroExcel, rapportExcel } from '../lib/excel';
 import { lieferwagenTage, type LieferZeile } from '../lib/lieferwagen';
 import { ARTEN, artText } from '../lib/abwesenheit';
+import { alle } from '../lib/abfrage';
+import { useNeuesteAnfrage } from '../lib/auffrischen';
+import { ankerAusUrl, ankerFuer, jahresBereich, monatBlaettern, type ZeitraumArt } from '../lib/zeitraum';
 import { ArtPille } from '../ui/ArtPille';
 import { Auswahl } from '../ui/Auswahl';
 import {
@@ -24,8 +27,8 @@ import {
   wochenSpalten,
   wochenTitel,
   OHNE_BUERO,
-  type BueroBlatt,
   type LohnEintrag,
+  type LohnZeile,
 } from '../lib/lohn';
 
 /**
@@ -40,6 +43,10 @@ import {
  *
  * Die Rechnerei liegt in src/lib/lohn.ts (mit Tests); hier nur Laden und Anzeigen. Das Excel selbst
  * (Aufbau, Farben, Formeln, Druck) baut src/lib/excel.ts mit ExcelJS — nachgeladen erst beim Klick.
+ *
+ * Frisch, nicht von heute Morgen (13.10.2026): Vor jedem Excel wird neu geladen, «Stand» auf den Blättern ist der
+ * Zeitpunkt dieser Ladung. Bildschirm und Excel rechnen aus derselben Ladung (`auswerten`), Daten einer anderen
+ * Woche oder eines anderen Teams werden nie unter dem neuen Titel gezeigt.
  */
 
 interface Zeile {
@@ -53,30 +60,25 @@ interface JahresZeile {
   tagesmeldung: { datum: string };
 }
 interface Team { id: string; bezeichnung: string }
-type Zeitraum = 'woche' | 'monat';
+type Zeitraum = ZeitraumArt;
 /** Reiter der Export-Seite (06.10.2026): eine Tabelle auf einmal statt vier Blöcke untereinander */
 type Tab = 'lohn' | 'ueber' | 'abw' | 'bueros' | 'liefer' | 'raster';
 /** Abwesenheitstag aus der Verwaltung (0036) */
 interface AbwZeile { datum: string; art: string; minuten: number; mitarbeiter: { id: string; name: string; typ: string; temporaerbuero: string | null } }
+/** Eine Ladung — gehört zu genau einer Abfrage (Zeitraum, Team, Filter) und weiss, wann sie lief: das ist der «Stand». */
+interface Daten { schluessel: string; stand: Date; zeilen: Zeile[]; jahr: JahresZeile[]; liefer: LieferZeile[]; abw: AbwZeile[] }
 
-const SEITE = 1000;
 const ALLE = 'alle';
 
 /**
- * Woche aus ?woche=JJJJ-MM-TT (Montag der Woche), sonst die aktuelle Woche — am Montag und Dienstag die Vorwoche,
- * dann wird sie noch abgeschlossen (09.10.2026, Amir; gleich wie die Startseite des Sekretariats).
+ * Zeitraum aus ?woche=JJJJ-MM-TT&zeitraum=monat — Woche: der Montag, Monat: der 1. (alte Links mit einem Montag gehen
+ * weiter, siehe lib/zeitraum.ts). Ohne Datum die aktuelle Woche, am Montag und Dienstag die Vorwoche, dann wird sie noch
+ * abgeschlossen (09.10.2026, Amir; gleich wie die Startseite des Sekretariats).
  */
-function startAusUrl(): { wochenStart: Date; zeitraum: Zeitraum } {
+function startAusUrl(): { anker: Date; zeitraum: Zeitraum } {
   const p = new URLSearchParams(window.location.search);
-  const w = p.get('woche');
   const zeitraum: Zeitraum = p.get('zeitraum') === 'monat' ? 'monat' : 'woche';
-  if (w && /^\d{4}-\d{2}-\d{2}$/.test(w)) {
-    const d = ausIso(w);
-    if (!Number.isNaN(d.getTime())) return { wochenStart: montag(d), zeitraum };
-  }
-  const heute = new Date();
-  const vorwoche = heute.getDay() === 1 || heute.getDay() === 2;
-  return { wochenStart: montag(vorwoche ? addTage(heute, -7) : heute), zeitraum };
+  return { anker: ankerAusUrl(p.get('woche'), zeitraum, new Date()), zeitraum };
 }
 
 function zuEintrag(z: Zeile): LohnEintrag {
@@ -96,41 +98,95 @@ function dateiName(text: string): string {
   return text.replace(/[\\/:*?"<>|]+/g, ' ').replace(/\s+/g, '_').trim();
 }
 
+/** Fehler einer Teilabfrage mit Namen — «Lieferwagen: …» sagt, was fehlt. */
+function mitName<T>(was: string, p: Promise<T>): Promise<T> {
+  return p.catch((e: unknown) => { throw new Error(`${was}: ${e instanceof Error ? e.message : String(e)}`); });
+}
+
+/**
+ * Alles, was Bildschirm und Excel aus einer Ladung zeigen. Eine Rechnung für beide — so steht im Excel nie etwas
+ * anderes als auf dem Bildschirm, und das Excel kann aus einer frischen Ladung rechnen, ohne auf React zu warten.
+ */
+function auswerten(d: Daten | null, zeitraum: Zeitraum, wochen: Date[], anker: Date, tagRp: number | null) {
+  const zeilen = d?.zeilen ?? [];
+  const abw = d?.abw ?? [];
+  const eintraege = zeilen.map(zuEintrag);
+  const lieferTage = tagRp === null ? [] : lieferwagenTage(d?.liefer ?? [], tagRp);
+  // Wer nur abwesend war (eine Woche Ferien), steht trotzdem im Lohnblatt — mit seinen Abwesenheitsstunden
+  const lohn = mitAbwesenheiten(lohnZeilen(eintraege), abw.filter((a) => a.mitarbeiter).map((a) => ({ datum: a.datum, mitarbeiter: a.mitarbeiter, art: a.art, minuten: a.minuten })));
+  // Abwesenheiten je Person und Art — Reiter und Excel-Blatt
+  const abwArten = ARTEN.filter((a) => abw.some((x) => x.art === a.wert)).map((a) => a.wert as string);
+  const je = new Map<string, { person: AbwZeile['mitarbeiter']; je: Record<string, number>; tage: number; total: number }>();
+  for (const a of abw) {
+    if (!a.mitarbeiter) continue;
+    const p = je.get(a.mitarbeiter.id) ?? { person: a.mitarbeiter, je: {}, tage: 0, total: 0 };
+    p.je[a.art] = (p.je[a.art] ?? 0) + a.minuten;
+    p.tage += 1;
+    p.total += a.minuten;
+    je.set(a.mitarbeiter.id, p);
+  }
+  const abwPersonen = [...je.values()].sort((a, b) => a.person.name.localeCompare(b.person.name, 'de'));
+  const alleBueros = temporaerBueroBlaetter(eintraege);
+  // Nur echte Büros bekommen Karte, Blatt und eigenes Excel; Temporäre ohne Büro stehen im Lohn-Blatt und als Hinweis
+  const bueros = alleBueros.filter((b) => b.buero !== OHNE_BUERO);
+  const ohneBuero = alleBueros.find((b) => b.buero === OHNE_BUERO);
+  const ueber = ueberstunden(
+    eintraege,
+    (d?.jahr ?? []).map((j) => ({ datum: j.tagesmeldung.datum, mitarbeiter: j.mitarbeiter, normal_min: 0, ueber_min: j.ueber_min, oev: false, km: 0, konto_nr: null })),
+  );
+  // Spalten der Lohntabelle: Woche → Mo–So, Monat → eine je KW
+  const spalten = zeitraum === 'monat' ? wochen.map((w) => `KW ${kw(w)}`) : WOCHENTAGE;
+  const werte = (z: LohnZeile) => (zeitraum === 'monat' ? monatsSpalten(z, wochen) : wochenSpalten(z, anker));
+  // Raster: Zeile = Konto (Zusatzarbeit aus alten Meldungen getrennt), Spalte = Person
+  const personen = [...new Map(zeilen.map((z) => [z.mitarbeiter.id, z.mitarbeiter])).values()].sort((a, b) => a.name.localeCompare(b.name));
+  const vorgaenge = new Map<string, { konto: string; bezeichnung: string; regie: boolean; min: Map<string, number> }>();
+  for (const z of zeilen) {
+    const b = z.tagesmeldung.baustelle;
+    const key = `${b?.konto_nr ?? '—'}|${z.tagesmeldung.normalfall ? 'n' : 'r'}`;
+    const v = vorgaenge.get(key) ?? { konto: b?.konto_nr ?? '—', bezeichnung: b?.bezeichnung ?? 'ohne Baustelle', regie: !z.tagesmeldung.normalfall, min: new Map() };
+    v.min.set(z.mitarbeiter.id, (v.min.get(z.mitarbeiter.id) ?? 0) + z.normal_min + z.ueber_min);
+    vorgaenge.set(key, v);
+  }
+  const raster = { personen, vorgaenge: [...vorgaenge.values()].sort((a, b) => a.konto.localeCompare(b.konto) || Number(a.regie) - Number(b.regie)) };
+  return { zeilen, abw, lieferTage, lohn, abwArten, abwPersonen, bueros, ohneBuero, ueber, spalten, werte, raster };
+}
+
 export function Export() {
   // Seit 04.10.2026 nur noch fürs Sekretariat erreichbar (Bauführer hat die Seite nicht mehr);
   // die lohnSichtbar-Weiche bleibt als Sicherheitsnetz, falls der Zugang je zurückkommt.
   const lohnSichtbar = useAnsicht() === 'sekretariat';
   const [anfang] = useState(startAusUrl);
-  const [wochenStart, setWochenStart] = useState<Date>(anfang.wochenStart);
+  // Woche: der Montag. Monat: der 1. des Monats (13.10.2026 — vorher immer ein Montag, «Monat ›» blieb hängen)
+  const [anker, setAnker] = useState<Date>(anfang.anker);
   const [zeitraum, setZeitraum] = useState<Zeitraum>(anfang.zeitraum);
   const [teams, setTeams] = useState<Team[]>([]);
   const [teamId, setTeamId] = useState<string>(ALLE);
-  const [zeilen, setZeilen] = useState<Zeile[]>([]);
-  const [jahr, setJahr] = useState<JahresZeile[]>([]);
-  const [liefer, setLiefer] = useState<LieferZeile[]>([]);
-  const [abw, setAbw] = useState<AbwZeile[]>([]);
+  const [daten, setDaten] = useState<Daten | null>(null);
   const [nurFrei, setNurFrei] = useState(true);
   const [laedt, setLaedt] = useState(false);
+  const [excelLaeuft, setExcelLaeuft] = useState(false);
   const [fehler, setFehler] = useState('');
   const [gewaehlt, setGewaehlt] = useState<Tab>('lohn');
+  const anfrage = useNeuesteAnfrage();
 
-  // Zeitraum: Woche Mo–So oder ganzer Monat (der Monat, in dem der gewählte Montag liegt)
-  const monatJahr = wochenStart.getFullYear();
-  const monat = wochenStart.getMonth();
-  const wochen = useMemo(() => (zeitraum === 'monat' ? wochenImMonat(monatJahr, monat) : [wochenStart]), [zeitraum, monatJahr, monat, wochenStart]);
+  const monatJahr = anker.getFullYear();
+  const monat = anker.getMonth();
+  const wochen = useMemo(() => (zeitraum === 'monat' ? wochenImMonat(monatJahr, monat) : [anker]), [zeitraum, monatJahr, monat, anker]);
   const { vonIso, bisIso } = useMemo(() => {
     if (zeitraum === 'monat') { const g = monatsGrenzen(monatJahr, monat); return { vonIso: g.von, bisIso: g.bis }; }
-    return { vonIso: iso(wochenStart), bisIso: iso(addTage(wochenStart, 6)) };
-  }, [zeitraum, monatJahr, monat, wochenStart]);
-  const jahresStart = `${bisIso.slice(0, 4)}-01-01`;
+    return { vonIso: iso(anker), bisIso: iso(addTage(anker, 6)) };
+  }, [zeitraum, monatJahr, monat, anker]);
+  // Überstunden seit 1. Januar des Jahres, in dem der Zeitraum beginnt — KW 53 gehört zum alten Jahr
+  const jahrBereich = jahresBereich(vonIso, bisIso);
+  const schluessel = [vonIso, bisIso, teamId, nurFrei ? 'frei' : 'alle', lohnSichtbar ? 'lohn' : 'raster'].join('|');
 
   // Adresse mitführen, damit man die Ansicht weitergeben oder neu laden kann
   useEffect(() => {
     const p = new URLSearchParams(window.location.search);
-    p.set('woche', iso(wochenStart));
+    p.set('woche', iso(anker));
     if (zeitraum === 'monat') p.set('zeitraum', 'monat'); else p.delete('zeitraum');
     history.replaceState(null, '', `${window.location.pathname}?${p.toString()}`);
-  }, [wochenStart, zeitraum]);
+  }, [anker, zeitraum]);
 
   useEffect(() => {
     if (!supabase) return;
@@ -139,24 +195,21 @@ export function Export() {
     });
   }, []);
 
-  const laden = useCallback(async () => {
-    if (!supabase) return;
+  /**
+   * Lädt alles für den gewählten Zeitraum und gibt die Ladung zurück (das Excel rechnet direkt daraus). Auf den
+   * Bildschirm kommt sie nur, wenn sie die jüngste Anfrage ist — eine langsame Antwort der vorigen Woche überschreibt
+   * die neue nicht. Fehlt ein Teil (Lieferwagen, Abwesenheiten), ist das ein Fehler, keine leere Liste.
+   */
+  const laden = useCallback(async (): Promise<Daten | null> => {
+    if (!supabase) return null;
     const c = supabase;
+    const aktuell = anfrage();
+    const stand = new Date();
     setLaedt(true);
     setFehler('');
-    // Supabase liefert höchstens 1000 Zeilen pro Antwort — ein Monat mit 75 Leuten hat mehr. Darum seitenweise.
-    async function alle<T>(bau: (von: number, bis: number) => PromiseLike<{ data: unknown; error: { message: string } | null }>): Promise<T[]> {
-      const out: T[] = [];
-      for (let von = 0; ; von += SEITE) {
-        const { data, error } = await bau(von, von + SEITE - 1);
-        if (error) throw new Error(error.message);
-        const teil = (data ?? []) as T[];
-        out.push(...teil);
-        if (teil.length < SEITE) return out;
-      }
-    }
     try {
-      const [z, j] = await Promise.all([
+      // Supabase liefert höchstens 1000 Zeilen pro Antwort — ein Monat mit 75 Leuten hat mehr. Darum seitenweise (lib/abfrage.ts).
+      const [zeilen, jahr, liefer, abw] = await Promise.all([
         alle<Zeile>((von, bis) => {
           let q = c
             .from('zeiteintrag')
@@ -172,108 +225,76 @@ export function Export() {
             let q = c
               .from('zeiteintrag')
               .select('ueber_min,status,mitarbeiter:mitarbeiter_id(id,name,typ,temporaerbuero),tagesmeldung:tagesmeldung_id!inner(datum)')
-              .gte('tagesmeldung.datum', jahresStart).lte('tagesmeldung.datum', bisIso).gt('ueber_min', 0);
+              .gte('tagesmeldung.datum', jahrBereich.von).lte('tagesmeldung.datum', jahrBereich.bis).gt('ueber_min', 0);
             if (nurFrei) q = q.eq('status', 'freigegeben');
             return q.order('id').range(von, bis);
           })
           : Promise.resolve([] as JahresZeile[]),
+        // Lieferwagen (0036): pro Team und Tag — ein Fehler hier ist ein Fehler, sonst fehlte der Abzug still im Excel
+        lohnSichtbar && lieferwagenTagRp() !== null
+          ? mitName('Lieferwagen', alle<LieferZeile>((von, bis) => {
+            let q = c.from('tagesmeldung').select('datum,team_id,team:team_id(bezeichnung),baustelle:baustelle_id(konto_nr,bezeichnung),zeiteintrag(mitarbeiter:mitarbeiter_id(name,typ,subunternehmer_firma))')
+              .eq('lieferwagen', true).gte('datum', vonIso).lte('datum', bisIso);
+            if (teamId !== ALLE) q = q.eq('team_id', teamId);
+            return q.order('datum').order('id').range(von, bis);
+          }))
+          : Promise.resolve([] as LieferZeile[]),
+        // Abwesenheiten (0036): Ferien, Krank … — bei einem Team nur dessen Leute
+        lohnSichtbar
+          ? mitName('Abwesenheiten', (async () => {
+            let ids: string[] | null = null;
+            if (teamId !== ALLE) {
+              const { data: tm, error } = await c.from('team_mitglied').select('mitarbeiter_id').eq('team_id', teamId).is('bis', null);
+              if (error) throw new Error(error.message);
+              ids = ((tm ?? []) as { mitarbeiter_id: string }[]).map((x) => x.mitarbeiter_id);
+            }
+            if (ids && ids.length === 0) return [] as AbwZeile[];
+            return alle<AbwZeile>((von, bis) => {
+              let q = c.from('abwesenheit').select('datum,art,minuten,mitarbeiter:mitarbeiter_id(id,name,typ,temporaerbuero)').gte('datum', vonIso).lte('datum', bisIso);
+              if (ids) q = q.in('mitarbeiter_id', ids);
+              return q.order('datum').order('id').range(von, bis);
+            });
+          })())
+          : Promise.resolve([] as AbwZeile[]),
       ]);
-      setZeilen(z);
-      setJahr(j);
-      // Lieferwagen (0036): eigene Abfrage — fehlt die Spalte noch, bleibt der Reiter leer statt den Export zu blockieren
-      if (lohnSichtbar && lieferwagenTagRp() !== null) {
-        let q = c.from('tagesmeldung').select('datum,team_id,team:team_id(bezeichnung),baustelle:baustelle_id(konto_nr,bezeichnung),zeiteintrag(mitarbeiter:mitarbeiter_id(name,typ,subunternehmer_firma))')
-          .eq('lieferwagen', true).gte('datum', vonIso).lte('datum', bisIso);
-        if (teamId !== ALLE) q = q.eq('team_id', teamId);
-        const { data, error } = await q.order('datum').limit(SEITE);
-        setLiefer(error ? [] : ((data ?? []) as unknown as LieferZeile[]));
-      } else setLiefer([]);
-      // Abwesenheiten (0036): Ferien, Krank … — bei einem Team nur dessen Leute; fehlt die Tabelle, bleibt es leer
-      if (lohnSichtbar) {
-        let ids: string[] | null = null;
-        if (teamId !== ALLE) {
-          const { data: tm } = await c.from('team_mitglied').select('mitarbeiter_id').eq('team_id', teamId).is('bis', null);
-          ids = ((tm ?? []) as { mitarbeiter_id: string }[]).map((x) => x.mitarbeiter_id);
-        }
-        if (ids && ids.length === 0) setAbw([]);
-        else {
-          let q = c.from('abwesenheit').select('datum,art,minuten,mitarbeiter:mitarbeiter_id(id,name,typ,temporaerbuero)').gte('datum', vonIso).lte('datum', bisIso);
-          if (ids) q = q.in('mitarbeiter_id', ids);
-          const { data, error } = await q.order('datum').limit(10000);
-          setAbw(error ? [] : ((data ?? []) as unknown as AbwZeile[]));
-        }
-      } else setAbw([]);
+      const d: Daten = { schluessel, stand, zeilen, jahr, liefer, abw };
+      if (aktuell()) { setDaten(d); setLaedt(false); }
+      return d;
     } catch (e) {
-      setFehler('Laden: ' + (e instanceof Error ? e.message : String(e)));
-      setZeilen([]);
-      setJahr([]);
-      setLiefer([]);
-      setAbw([]);
+      if (aktuell()) {
+        setFehler('Laden: ' + (e instanceof Error ? e.message : String(e)));
+        setDaten(null);
+        setLaedt(false);
+      }
+      return null;
     }
-    setLaedt(false);
-  }, [vonIso, bisIso, jahresStart, teamId, nurFrei, lohnSichtbar]);
+  }, [schluessel, vonIso, bisIso, jahrBereich.von, jahrBereich.bis, teamId, nurFrei, lohnSichtbar, anfrage]);
   useEffect(() => { void laden(); }, [laden]);
 
-  const eintraege = useMemo(() => zeilen.map(zuEintrag), [zeilen]);
   const tagRp = lieferwagenTagRp();
-  const lieferTage = useMemo(() => (tagRp === null ? [] : lieferwagenTage(liefer, tagRp)), [liefer, tagRp]);
+  // Nur die Ladung zum gewählten Zeitraum zeigen — nie die alte Woche unter dem neuen Titel
+  const passend = daten && daten.schluessel === schluessel ? daten : null;
+  const wartet = !!supabase && !passend && !fehler;
+  const { zeilen, abw, lieferTage, lohn, abwArten, abwPersonen, bueros, ohneBuero, ueber, spalten, werte, raster } = useMemo(
+    () => auswerten(passend, zeitraum, wochen, anker, tagRp),
+    [passend, zeitraum, wochen, anker, tagRp],
+  );
   const summeLiefer = lieferTage.reduce((s, t) => s + t.betrag_rp, 0);
-  // Wer nur abwesend war (eine Woche Ferien), steht trotzdem im Lohnblatt — mit seinen Abwesenheitsstunden
-  const lohn = useMemo(() => mitAbwesenheiten(lohnZeilen(eintraege), abw.filter((a) => a.mitarbeiter).map((a) => ({ datum: a.datum, mitarbeiter: a.mitarbeiter, art: a.art, minuten: a.minuten }))), [eintraege, abw]);
   const mitAbw = abw.length > 0;
-  // Abwesenheiten je Person und Art — Reiter und Excel-Blatt
-  const abwArten = useMemo(() => ARTEN.filter((a) => abw.some((x) => x.art === a.wert)).map((a) => a.wert as string), [abw]);
-  const abwPersonen = useMemo(() => {
-    const m = new Map<string, { person: AbwZeile['mitarbeiter']; je: Record<string, number>; tage: number; total: number }>();
-    for (const a of abw) {
-      if (!a.mitarbeiter) continue;
-      const p = m.get(a.mitarbeiter.id) ?? { person: a.mitarbeiter, je: {}, tage: 0, total: 0 };
-      p.je[a.art] = (p.je[a.art] ?? 0) + a.minuten;
-      p.tage += 1;
-      p.total += a.minuten;
-      m.set(a.mitarbeiter.id, p);
-    }
-    return [...m.values()].sort((a, b) => a.person.name.localeCompare(b.person.name, 'de'));
-  }, [abw]);
   const summeAbw = abwPersonen.reduce((s, p) => s + p.total, 0);
-  const alleBueros = useMemo(() => temporaerBueroBlaetter(eintraege), [eintraege]);
-  // Nur echte Büros bekommen Karte, Blatt und eigenes Excel; Temporäre ohne Büro stehen im Lohn-Blatt und als Hinweis
-  const bueros = useMemo(() => alleBueros.filter((b) => b.buero !== OHNE_BUERO), [alleBueros]);
-  const ohneBuero = alleBueros.find((b) => b.buero === OHNE_BUERO);
-  const ueber = useMemo(
-    () => ueberstunden(
-      eintraege,
-      jahr.map((j) => ({ datum: j.tagesmeldung.datum, mitarbeiter: j.mitarbeiter, normal_min: 0, ueber_min: j.ueber_min, oev: false, km: 0, konto_nr: null })),
-    ),
-    [eintraege, jahr],
-  );
-  // Spalten der Lohntabelle: Woche → Mo–So, Monat → eine je KW
-  const spalten = useMemo(() => (zeitraum === 'monat' ? wochen.map((w) => `KW ${kw(w)}`) : WOCHENTAGE), [zeitraum, wochen]);
-  const werte = useCallback(
-    (z: (typeof lohn)[number]) => (zeitraum === 'monat' ? monatsSpalten(z, wochen) : wochenSpalten(z, wochenStart)),
-    [zeitraum, wochen, wochenStart],
-  );
 
-  // Raster: Zeile = Konto (Zusatzarbeit aus alten Meldungen getrennt), Spalte = Person
-  const raster = useMemo(() => {
-    const personen = [...new Map(zeilen.map((z) => [z.mitarbeiter.id, z.mitarbeiter])).values()].sort((a, b) => a.name.localeCompare(b.name));
-    const vorgaenge = new Map<string, { konto: string; bezeichnung: string; regie: boolean; min: Map<string, number> }>();
-    for (const z of zeilen) {
-      const b = z.tagesmeldung.baustelle;
-      const key = `${b?.konto_nr ?? '—'}|${z.tagesmeldung.normalfall ? 'n' : 'r'}`;
-      const v = vorgaenge.get(key) ?? { konto: b?.konto_nr ?? '—', bezeichnung: b?.bezeichnung ?? 'ohne Baustelle', regie: !z.tagesmeldung.normalfall, min: new Map() };
-      v.min.set(z.mitarbeiter.id, (v.min.get(z.mitarbeiter.id) ?? 0) + z.normal_min + z.ueber_min);
-      vorgaenge.set(key, v);
-    }
-    return { personen, vorgaenge: [...vorgaenge.values()].sort((a, b) => a.konto.localeCompare(b.konto) || Number(a.regie) - Number(b.regie)) };
-  }, [zeilen]);
-
-  const titel = zeitraum === 'monat' ? `${MONATE[monat]} ${monatJahr}` : wochenTitel(wochenStart);
-  const dateiTeil = zeitraum === 'monat' ? `${monatJahr}-${String(monat + 1).padStart(2, '0')}` : `KW${kw(wochenStart)}_${vonIso}`;
+  const titel = zeitraum === 'monat' ? `${MONATE[monat]} ${monatJahr}` : wochenTitel(anker);
+  const dateiTeil = zeitraum === 'monat' ? `${monatJahr}-${String(monat + 1).padStart(2, '0')}` : `KW${kw(anker)}_${vonIso}`;
 
   function blaettern(richtung: -1 | 1) {
-    if (zeitraum === 'monat') setWochenStart(montag(new Date(monatJahr, monat + richtung, 1, 12)));
-    else setWochenStart(addTage(wochenStart, 7 * richtung));
+    if (zeitraum === 'monat') setAnker(monatBlaettern(anker, richtung));
+    else setAnker(addTage(anker, 7 * richtung));
+  }
+  /** Woche ↔ Monat: Anker auf den Montag bzw. den 1. setzen (lib/zeitraum.ts) */
+  function zeitraumWechseln(z: Zeitraum) {
+    if (z === zeitraum) return;
+    setAnker(ankerFuer(anker, z));
+    setZeitraum(z);
   }
 
   const teamName = (id: string) => (id === ALLE ? 'alle Teams' : teams.find((t) => t.id === id)?.bezeichnung ?? '');
@@ -291,45 +312,63 @@ export function Export() {
   const ueberMax = Math.max(1, ...ueberListe.map((u) => u.jahr_min));
   const tab: Tab = lohnSichtbar ? gewaehlt : 'raster';
   const leer = (was: string) => (
-    <p className="px-5 py-10 text-center text-sm text-ink3">{laedt ? 'Lädt …' : `Keine ${nurFrei ? 'freigegebenen ' : ''}${was} ${zeitraumText} (${teamName(teamId)}).`}</p>
+    <p className="px-5 py-10 text-center text-sm text-ink3">{wartet ? 'Lädt …' : !passend ? 'Nicht geladen — siehe Meldung oben.' : `Keine ${nurFrei ? 'freigegebenen ' : ''}${was} ${zeitraumText} (${teamName(teamId)}).`}</p>
   );
 
+  /** Das Excel aus einer frischen Ladung — nie aus dem, was seit dem Öffnen der Seite auf dem Bildschirm steht. */
   async function excel() {
-    setFehler('');
+    if (excelLaeuft) return;
+    setExcelLaeuft(true);
     try {
+      const d = await laden();
+      if (!d) return;
+      const x = auswerten(d, zeitraum, wochen, anker, lieferwagenTagRp());
+      if (x.zeilen.length === 0 && x.abw.length === 0 && x.lieferTage.length === 0) {
+        setFehler(`Inzwischen ist ${zeitraumText} nichts mehr da (${teamName(teamId)}) — kein Excel erstellt.`);
+        return;
+      }
       await rapportExcel({
-        unter: untertitel,
+        unter: { ...untertitel, stand: d.stand },
         monat: zeitraum === 'monat',
-        jahr: bisIso.slice(0, 4),
+        jahr: jahrBereich.jahr,
         lohn: lohnSichtbar
           ? {
-            spalten,
-            zeilen: lohn.map((l) => ({ name: l.person.name, typ: l.person.typ, buero: l.person.temporaerbuero, werte: werte(l), total_min: l.total_min, ueber_min: l.ueber_min, oevTage: l.oevTage, km: l.km, abwesend_min: l.abwesend_min })),
-            ueber: ueber.map((u) => ({ name: u.person.name, typ: u.person.typ, zeitraum_min: u.zeitraum_min, jahr_min: u.jahr_min })),
-            bueros,
-            lieferwagen: lieferTage,
+            spalten: x.spalten,
+            zeilen: x.lohn.map((l) => ({ name: l.person.name, typ: l.person.typ, buero: l.person.temporaerbuero, werte: x.werte(l), total_min: l.total_min, ueber_min: l.ueber_min, oevTage: l.oevTage, km: l.km, abwesend_min: l.abwesend_min })),
+            ueber: x.ueber.map((u) => ({ name: u.person.name, typ: u.person.typ, zeitraum_min: u.zeitraum_min, jahr_min: u.jahr_min })),
+            bueros: x.bueros,
+            lieferwagen: x.lieferTage,
             abwesenheiten: {
-              arten: abwArten.map(artText),
-              personen: abwPersonen.map((p) => ({ name: p.person.name, typ: p.person.typ, je: abwArten.map((a) => p.je[a] ?? 0), tage: p.tage, total_min: p.total })),
-              tage: [...abw].filter((a) => a.mitarbeiter).sort((a, b) => a.mitarbeiter.name.localeCompare(b.mitarbeiter.name, 'de') || a.datum.localeCompare(b.datum)).map((a) => ({ name: a.mitarbeiter.name, datum: a.datum, art: artText(a.art), min: a.minuten })),
+              arten: x.abwArten.map(artText),
+              personen: x.abwPersonen.map((p) => ({ name: p.person.name, typ: p.person.typ, je: x.abwArten.map((a) => p.je[a] ?? 0), tage: p.tage, total_min: p.total })),
+              tage: [...x.abw].filter((a) => a.mitarbeiter).sort((a, b) => a.mitarbeiter.name.localeCompare(b.mitarbeiter.name, 'de') || a.datum.localeCompare(b.datum)).map((a) => ({ name: a.mitarbeiter.name, datum: a.datum, art: artText(a.art), min: a.minuten })),
             },
           }
           : null,
-        raster,
+        raster: x.raster,
         dateiname: `${lohnSichtbar ? 'Rapport' : 'Stundenraster'}_${dateiTeil}.xlsx`,
       });
     } catch (e) {
       setFehler('Excel: ' + (e instanceof Error ? e.message : String(e)));
+    } finally {
+      setExcelLaeuft(false);
     }
   }
 
-  /** Nur ein Temporärbüro, nur dessen Leute — die Datei, die das Sekretariat dem Büro schickt (Bauführer 20.09.). */
-  async function excelBuero(b: BueroBlatt) {
-    setFehler('');
+  /** Nur ein Temporärbüro, nur dessen Leute — die Datei, die das Sekretariat dem Büro schickt (Bauführer 20.09.). Auch frisch geladen. */
+  async function excelBuero(name: string) {
+    if (excelLaeuft) return;
+    setExcelLaeuft(true);
     try {
-      await bueroExcel(b, untertitel, `Temporaer_${dateiName(b.buero)}_${dateiTeil}.xlsx`);
+      const d = await laden();
+      if (!d) return;
+      const b = auswerten(d, zeitraum, wochen, anker, lieferwagenTagRp()).bueros.find((x) => x.buero === name);
+      if (!b) { setFehler(`${name} hat ${zeitraumText} inzwischen keine Stunden mehr — kein Excel erstellt.`); return; }
+      await bueroExcel(b, { ...untertitel, stand: d.stand }, `Temporaer_${dateiName(b.buero)}_${dateiTeil}.xlsx`);
     } catch (e) {
       setFehler('Excel: ' + (e instanceof Error ? e.message : String(e)));
+    } finally {
+      setExcelLaeuft(false);
     }
   }
 
@@ -342,6 +381,7 @@ export function Export() {
     { wert: 'raster', text: 'Stundenraster', n: raster.vorgaenge.length },
   ];
   const kopfZelle = 'px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-ink3';
+  const excelGesperrt = laedt || excelLaeuft || !passend || (zeilen.length === 0 && abw.length === 0 && lieferTage.length === 0);
 
   return (
     <Shell zurueck>
@@ -362,7 +402,7 @@ export function Export() {
 
         {/* Werkzeugleiste: Zeitraum, Team, Filter — und rechts die eine Hauptaktion */}
         <div className="card flex flex-wrap items-center gap-3 px-3 py-3">
-          <Segment label="Zeitraum" wert={zeitraum} aendern={setZeitraum} optionen={[{ wert: 'woche', text: 'Woche' }, { wert: 'monat', text: 'Monat' }]} />
+          <Segment label="Zeitraum" wert={zeitraum} aendern={zeitraumWechseln} optionen={[{ wert: 'woche', text: 'Woche' }, { wert: 'monat', text: 'Monat' }]} />
           {teams.length <= 6 ? (
             <Segment label="Team" wert={teamId} aendern={setTeamId} optionen={[{ wert: ALLE, text: 'alle Teams' }, ...teams.map((t) => ({ wert: t.id, text: t.bezeichnung }))]} />
           ) : (
@@ -370,10 +410,10 @@ export function Export() {
               optionen={[{ wert: ALLE, text: 'alle Teams', trenner: true }, ...teams.map((t) => ({ wert: t.id, text: t.bezeichnung }))]} />
           )}
           <Schalter an={nurFrei} aendern={setNurFrei} text="nur Freigegebenes" />
-          <button type="button" onClick={() => void excel()} disabled={zeilen.length === 0 && abw.length === 0 && lieferTage.length === 0}
+          <button type="button" onClick={() => void excel()} disabled={excelGesperrt}
             className="cta inline-flex w-full items-center justify-center gap-2 rounded-full px-5 py-2.5 text-sm disabled:opacity-50 sm:ml-auto sm:w-auto">
             <Download size={16} strokeWidth={2.4} aria-hidden="true" />
-            {lohnSichtbar ? 'Excel herunterladen' : 'Raster als Excel'}
+            {excelLaeuft ? 'Erstellt …' : lohnSichtbar ? 'Excel herunterladen' : 'Raster als Excel'}
           </button>
         </div>
 
@@ -382,10 +422,11 @@ export function Export() {
         {/* Auf einen Blick — nur Sekretariat */}
         {lohnSichtbar && (
           <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-            <ZahlKarte titel="Stunden" wert={`${stunden(summeLohn)} h`} label={`${lohn.length} Personen`} farbe="blau" icon={Clock} />
-            <ZahlKarte titel="Überstunden" wert={`${stunden(summeUeber)} h`} label={`${ueber.filter((u) => u.zeitraum_min > 0).length} Personen`} farbe="gelb" icon={AlarmClock} />
-            <ZahlKarte titel="Temporärbüros" wert={`${stunden(summeBueros)} h`} label={`${bueros.length} Büros · ${tempPersonen} Personen`} farbe="neutral" icon={Building2} />
-            <ZahlKarte titel="Baustellen" wert={String(raster.vorgaenge.length)} label="Konten im Stundenraster" farbe="gruen" icon={HardHat} />
+            {/* Ohne passende Ladung «…» statt 0 h — eine Null hiesse «nichts gearbeitet» */}
+            <ZahlKarte titel="Stunden" wert={passend ? `${stunden(summeLohn)} h` : '…'} label={`${lohn.length} Personen`} farbe="blau" icon={Clock} />
+            <ZahlKarte titel="Überstunden" wert={passend ? `${stunden(summeUeber)} h` : '…'} label={`${ueber.filter((u) => u.zeitraum_min > 0).length} Personen`} farbe="gelb" icon={AlarmClock} />
+            <ZahlKarte titel="Temporärbüros" wert={passend ? `${stunden(summeBueros)} h` : '…'} label={`${bueros.length} Büros · ${tempPersonen} Personen`} farbe="neutral" icon={Building2} />
+            <ZahlKarte titel="Baustellen" wert={passend ? String(raster.vorgaenge.length) : '…'} label="Konten im Stundenraster" farbe="gruen" icon={HardHat} />
           </div>
         )}
 
@@ -427,7 +468,7 @@ export function Export() {
                       </td>
                       {werte(l).map((t, i) => {
                         // Woche: an einem Abwesenheitstag ohne Arbeit steht die Art statt eines Punkts
-                        const ab = zeitraum === 'woche' ? l.abwesendProTag?.[iso(addTage(wochenStart, i))] : undefined;
+                        const ab = zeitraum === 'woche' ? l.abwesendProTag?.[iso(addTage(anker, i))] : undefined;
                         return <td key={i} className={'px-3 py-2.5 text-right tabular-nums ' + (t ? 'text-ink2' : 'text-ink/20')}>{t ? stunden(t) : ab ? <ArtPille art={ab.art} /> : '·'}</td>;
                       })}
                       <td className="px-3 py-2.5 text-right font-semibold tabular-nums text-ink">{stunden(l.total_min)}</td>
@@ -507,7 +548,7 @@ export function Export() {
                       <li key={p.name} className="flex justify-between gap-3 text-ink2"><span className="truncate">{p.name}</span><span className="tabular-nums text-ink">{stunden(p.total_min)}</span></li>
                     ))}
                   </ul>
-                  <button type="button" onClick={() => void excelBuero(b)} className="btn-ghost mt-3 self-start">
+                  <button type="button" onClick={() => void excelBuero(b.buero)} disabled={excelGesperrt} className="btn-ghost mt-3 self-start disabled:opacity-50">
                     <Download size={14} strokeWidth={2.4} aria-hidden="true" /> Excel für {b.buero}
                   </button>
                 </div>
@@ -549,7 +590,7 @@ export function Export() {
           ))}
 
           {tab === 'liefer' && (lieferTage.length === 0 ? (
-            <p className="px-5 py-10 text-center text-sm text-ink3">{laedt ? 'Lädt …' : `Kein Team hat ${zeitraumText} den Lieferwagen angetippt (${teamName(teamId)}).`}</p>
+            <p className="px-5 py-10 text-center text-sm text-ink3">{wartet ? 'Lädt …' : !passend ? 'Nicht geladen — siehe Meldung oben.' : `Kein Team hat ${zeitraumText} den Lieferwagen angetippt (${teamName(teamId)}).`}</p>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full text-sm">

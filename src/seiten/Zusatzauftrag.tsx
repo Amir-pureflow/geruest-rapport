@@ -4,7 +4,9 @@ import { CalendarCheck, Check, Trash2, ClipboardList, ClipboardPlus, CloudOff, E
 import { Shell } from '../ui/Shell';
 import { KennzahlPille } from '../ui/Karten';
 import { DatumWahl } from '../ui/DatumWahl';
+import type { SupabaseClient } from '@supabase/supabase-js';
 import { supabase } from '../lib/supabase';
+import { alle, stuecke } from '../lib/abfrage';
 import { einstellungen } from '../lib/einstellungen';
 import { ausIso, iso as isoDatum, kurz } from '../lib/datum';
 import { TAETIGKEITEN, TAETIGKEIT_LABEL } from '../lib/zusatzauftrag';
@@ -114,6 +116,32 @@ const CACHE_KEY = 'baustellen-cache-v2';
 
 type Rueckmeldung = { art: 'gesendet' | 'wartet'; text: string };
 
+const SPALTEN = 'id,besteller_name,kanal,taetigkeit,geplant_fuer,bestellt_am,status,notiz,konto_nr,baustelle_id,baustelle_bezeichnung,stand,gemeldet_am,gemeldet_von_team,regierapport_id,regierapport_nummer,regierapport_status,ohne_meldung,erledigt_grund,erledigt_am,kunde_name,kunde_email,kunde_ansprechperson';
+/** Sicht noch ohne 0011 (Kundenspalten) */
+const SPALTEN_ALT = 'id,besteller_name,kanal,taetigkeit,geplant_fuer,bestellt_am,status,notiz,konto_nr,baustelle_bezeichnung,stand,gemeldet_am,gemeldet_von_team,regierapport_id,regierapport_nummer,regierapport_status,ohne_meldung,erledigt_grund,erledigt_am';
+/** Erledigte: nur die jüngsten — offene (bestellt, gemeldet) kommen immer alle */
+const ERLEDIGT_ANZAHL = 50;
+
+/**
+ * Aufträge laden (13.10.2026): vorher die jüngsten 50 überhaupt — ein offener Auftrag von vor drei Wochen fiel so aus der
+ * Liste, obwohl er noch auf das Team wartet. Jetzt alles Offene (seitenweise), vom Erledigten die jüngsten 50.
+ */
+async function auftraegeLaden(c: SupabaseClient, spalten: string): Promise<Auftrag[]> {
+  const [offen, erledigt] = await Promise.all([
+    alle<Auftrag>((von, bis) => c.from('zusatzauftrag_stand').select(spalten).in('stand', ['bestellt', 'gemeldet']).order('bestellt_am', { ascending: false }).order('id').range(von, bis)),
+    c.from('zusatzauftrag_stand').select(spalten).not('stand', 'in', '(bestellt,gemeldet)').order('bestellt_am', { ascending: false }).order('id').limit(ERLEDIGT_ANZAHL),
+  ]);
+  if (erledigt.error) throw new Error(erledigt.error.message);
+  return [...offen, ...((erledigt.data ?? []) as unknown as Auftrag[])];
+}
+
+/** Meldungen der Baustellen dieser Aufträge von `ab` bis `bis` — in Stücken (ids in der Adresse) und seitenweise. */
+async function meldungenZu<T>(c: SupabaseClient, baustellen: string[], spalten: string, ab: string, bis: string): Promise<T[]> {
+  const teile = await Promise.all(stuecke(baustellen).map((ids) => alle<T>((von, zu) =>
+    c.from('tagesmeldung').select(spalten).in('baustelle_id', ids).gte('datum', ab).lte('datum', bis).order('datum').order('id').range(von, zu))));
+  return teile.flat();
+}
+
 
 export function Zusatzauftrag() {
   // Ohne Regie gibt es in der App keinen Regierapport: Bestellt → Gemeldet → Erledigt (in SORBA rapportiert)
@@ -129,6 +157,9 @@ export function Zusatzauftrag() {
   const [rueckmeldung, setRueckmeldung] = useState<Rueckmeldung | null>(null);
   const [fehler, setFehler] = useState('');
   const [liste, setListe] = useState<Auftrag[]>([]);
+  const [listeFehler, setListeFehler] = useState('');
+  /** Läuft gerade «Auftrag speichern»? Ein zweiter Tipp legte sonst einen zweiten Auftrag an (neue client_uuid je Tipp). */
+  const [speichert, setSpeichert] = useState(false);
   // Offen zuerst (nach geplantem Tag), Erledigtes eingeklappt — sonst ist die Seite nach zwei Wochen eine Wand
   const [zeigeErledigte, setZeigeErledigte] = useState(false);
   const offene = useMemo(
@@ -149,14 +180,16 @@ export function Zusatzauftrag() {
     if (!supabase) return;
     const gemeldet = auftraege.filter((a) => a.stand === 'gemeldet' && a.gemeldet_am && a.baustelle_id);
     if (gemeldet.length === 0) { setMeldungLinks({}); return; }
-    const { data } = await supabase
-      .from('tagesmeldung')
-      .select('id,team_id,datum,baustelle_id')
-      .in('baustelle_id', [...new Set(gemeldet.map((a) => a.baustelle_id as string))])
-      .in('datum', [...new Set(gemeldet.map((a) => a.gemeldet_am as string))]);
+    const tage = [...new Set(gemeldet.map((a) => a.gemeldet_am as string))].sort();
+    let data: { id: string; team_id: string; datum: string; baustelle_id: string }[];
+    try {
+      data = await meldungenZu(supabase, [...new Set(gemeldet.map((a) => a.baustelle_id as string))], 'id,team_id,datum,baustelle_id', tage[0], tage[tage.length - 1]);
+    } catch {
+      return; // nur der Link fehlt — die Liste steht
+    }
     const links: Record<string, string> = {};
     for (const a of gemeldet) {
-      const m = (data ?? []).find((x) => x.baustelle_id === a.baustelle_id && x.datum === a.gemeldet_am);
+      const m = data.find((x) => x.baustelle_id === a.baustelle_id && x.datum === a.gemeldet_am);
       if (m) links[a.id] = `/cockpit?woche=${m.datum}&tag=${m.datum}&team=${m.team_id}&meldung=${m.id}`;
     }
     setMeldungLinks(links);
@@ -174,17 +207,15 @@ export function Zusatzauftrag() {
     const ab = (a: Auftrag) => a.geplant_fuer ?? a.bestellt_am.slice(0, 10);
     const bestellt = auftraege.filter((a) => a.stand === 'bestellt' && a.baustelle_id && ab(a) <= heute);
     if (bestellt.length === 0) { setNormalGemeldet({}); return; }
-    const { data } = await supabase
-      .from('tagesmeldung')
-      .select('id,team_id,datum,baustelle_id,team:team_id(bezeichnung)')
-      .in('baustelle_id', [...new Set(bestellt.map((a) => a.baustelle_id as string))])
-      .gte('datum', bestellt.map(ab).sort()[0])
-      .lte('datum', heute)
-      .order('datum');
+    let data: { id: string; team_id: string; datum: string; baustelle_id: string; team: { bezeichnung: string } | null }[];
+    try {
+      data = await meldungenZu(supabase, [...new Set(bestellt.map((a) => a.baustelle_id as string))], 'id,team_id,datum,baustelle_id,team:team_id(bezeichnung)', bestellt.map(ab).sort()[0], heute);
+    } catch {
+      return; // nur der Hinweis fehlt — die Liste steht
+    }
     const treffer: Record<string, { datum: string; team: string; link: string }> = {};
     for (const a of bestellt) {
-      const m = ((data ?? []) as unknown as { id: string; team_id: string; datum: string; baustelle_id: string; team: { bezeichnung: string } | null }[])
-        .find((x) => x.baustelle_id === a.baustelle_id && x.datum >= ab(a));
+      const m = data.find((x) => x.baustelle_id === a.baustelle_id && x.datum >= ab(a));
       if (m) treffer[a.id] = { datum: m.datum, team: m.team?.bezeichnung ?? 'Das Team', link: `/cockpit?woche=${m.datum}&tag=${m.datum}&team=${m.team_id}&meldung=${m.id}` };
     }
     setNormalGemeldet(treffer);
@@ -193,22 +224,22 @@ export function Zusatzauftrag() {
   async function ladeListe() {
     void offeneAuftraege().then(setLokal);
     if (!supabase) return;
-    const { data } = await supabase
-      .from('zusatzauftrag_stand')
-      .select(
-        'id,besteller_name,kanal,taetigkeit,geplant_fuer,bestellt_am,status,notiz,konto_nr,baustelle_id,baustelle_bezeichnung,stand,gemeldet_am,gemeldet_von_team,regierapport_id,regierapport_nummer,regierapport_status,ohne_meldung,erledigt_grund,erledigt_am,kunde_name,kunde_email,kunde_ansprechperson',
-      )
-      .order('bestellt_am', { ascending: false })
-      .limit(50);
-    if (data) { setListe(data as unknown as Auftrag[]); void meldungLinksLaden(data as unknown as Auftrag[]); void normalGemeldetLaden(data as unknown as Auftrag[]); }
-    else {
+    const c = supabase;
+    try {
+      const auftraege = await auftraegeLaden(c, SPALTEN);
+      setListe(auftraege);
+      setListeFehler('');
+      void meldungLinksLaden(auftraege);
+      void normalGemeldetLaden(auftraege);
+    } catch {
       // Sicht noch ohne 0011? Dann ohne die Kundenspalten laden, statt gar nicht.
-      const alt = await supabase
-        .from('zusatzauftrag_stand')
-        .select('id,besteller_name,kanal,taetigkeit,geplant_fuer,bestellt_am,status,notiz,konto_nr,baustelle_bezeichnung,stand,gemeldet_am,gemeldet_von_team,regierapport_id,regierapport_nummer,regierapport_status,ohne_meldung,erledigt_grund,erledigt_am')
-        .order('bestellt_am', { ascending: false })
-        .limit(50);
-      if (alt.data) setListe((alt.data as unknown as Auftrag[]).map((a) => ({ ...a, kunde_email: null, kunde_name: null, kunde_ansprechperson: null })));
+      try {
+        const alt = await auftraegeLaden(c, SPALTEN_ALT);
+        setListe(alt.map((a) => ({ ...a, kunde_email: null, kunde_name: null, kunde_ansprechperson: null })));
+        setListeFehler('');
+      } catch (e) {
+        setListeFehler('Aufträge konnten nicht geladen werden: ' + (e instanceof Error ? e.message : String(e)));
+      }
     }
   }
 
@@ -220,20 +251,23 @@ export function Zusatzauftrag() {
       /* Cache nicht verfügbar — dann eben nur online */
     }
     if (supabase) {
-      void supabase
+      // Alle laufenden Baustellen, seitenweise (über die Jahre werden es mehr als 1000) — abgeschlossene bestellt niemand mehr
+      const c = supabase;
+      void alle<Baustelle>((von, bis) => c
         .from('baustelle')
         .select('id,konto_nr,bezeichnung,kunde:kunde_id(name,ansprechperson,email)')
+        .neq('status', 'abgeschlossen')
         .order('bezeichnung')
-        .then(({ data }) => {
-          if (data) {
-            setBaustellen(data as unknown as Baustelle[]);
-            try {
-              localStorage.setItem(CACHE_KEY, JSON.stringify(data));
-            } catch {
-              /* voll oder blockiert — unkritisch */
-            }
+        .order('id')
+        .range(von, bis))
+        .then((data) => {
+          setBaustellen(data);
+          try {
+            localStorage.setItem(CACHE_KEY, JSON.stringify(data));
+          } catch {
+            /* voll oder blockiert — unkritisch */
           }
-        });
+        }, () => { /* keine Verbindung — der Zwischenspeicher bleibt */ });
     }
     void ladeListe();
     if (supabase) void supabase.auth.getUser().then(({ data }) => setUserId(data.user?.id ?? null));
@@ -244,6 +278,7 @@ export function Zusatzauftrag() {
   const treffer = useMemo(() => baustellenSuchen(baustellen, suche, 8), [suche, baustellen]);
 
   async function speichern() {
+    if (speichert) return;
     setFehler('');
     if (!gewaehlt) {
       setFehler('Zuerst die Baustelle wählen.');
@@ -253,6 +288,17 @@ export function Zusatzauftrag() {
       setFehler('Wer hat die Arbeit verlangt? Name eintragen.');
       return;
     }
+    setSpeichert(true);
+    try {
+      await speichernUndSenden(gewaehlt);
+    } catch (e) {
+      setFehler('Nicht gespeichert: ' + (e instanceof Error ? e.message : String(e)));
+    } finally {
+      setSpeichert(false);
+    }
+  }
+
+  async function speichernUndSenden(gewaehlt: Baustelle) {
     const clientUuid = await enqueueZusatzauftrag({
       baustelle_id: gewaehlt.id,
       besteller_name: besteller.trim(),
@@ -453,8 +499,8 @@ export function Zusatzauftrag() {
                 {rueckmeldung?.art === 'wartet' && (
                   <p role="status" className="rounded-[12px] bg-amber-soft px-3 py-2 text-sm font-semibold text-amber-deep">{rueckmeldung.text}</p>
                 )}
-                <button type="button" onClick={() => void speichern()} className={'cta sm:w-auto sm:px-10 ' + (rueckmeldung?.art === 'gesendet' ? 'cta-good' : '')}>
-                  {rueckmeldung?.art === 'gesendet' ? rueckmeldung.text : 'Auftrag speichern'}
+                <button type="button" onClick={() => void speichern()} disabled={speichert} className={'cta disabled:opacity-60 sm:w-auto sm:px-10 ' + (rueckmeldung?.art === 'gesendet' ? 'cta-good' : '')}>
+                  {speichert ? 'Speichert …' : rueckmeldung?.art === 'gesendet' ? rueckmeldung.text : 'Auftrag speichern'}
                 </button>
               </div>
             </div>
@@ -473,6 +519,9 @@ export function Zusatzauftrag() {
               </div>
               <p className="text-xs text-ink3">{regie ? 'Der Stand ergibt sich aus Meldung und Regierapport.' : 'Abhaken, sobald die Arbeit gemacht und in SORBA rapportiert ist.'}</p>
             </div>
+
+            {listeFehler && <p className="rounded-[12px] border border-accent/40 bg-accent-soft px-4 py-3 text-sm text-accent-deep">{listeFehler}</p>}
+            {zeigeErledigte && erledigte.length >= ERLEDIGT_ANZAHL && <p className="text-xs text-ink3">Die letzten {ERLEDIGT_ANZAHL} erledigten Aufträge.</p>}
 
             <div className="grid gap-4 lg:grid-cols-2 lg:items-start">
             {!zeigeErledigte && lokal.map((e) => {

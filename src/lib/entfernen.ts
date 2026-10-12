@@ -17,12 +17,16 @@
  * zeigt nur aktive Teams, die Stunden liessen sich danach nicht mehr freigeben und fehlten im Lohn-Export
  * («nur Freigegebenes»). Bei Personen gilt das nicht — die Wochenübersicht zeigt sie über ihr Team.
  *
+ * Der Haken «aktiv» in der Verwaltung (Team ruhen lassen, Nebensaison) geht denselben Weg wie «Entfernen» (13.10.2026):
+ * vorher setzte er nur `aktiv = false` — an der Prüfung auf offene Stunden vorbei, die Leute blieben im ruhenden Team.
+ *
  * Rechte: die Regeln aus 0019 gelten «for all» (lesen, ändern, löschen) innerhalb der eigenen Firma, es braucht keine
  * neue Migration. Lehnt eine Regel ab, meldet Postgres keinen Fehler — die Zeile fehlt nur im Ergebnis. Darum wird
  * beim entscheidenden Schritt gezählt.
  */
 import { supabase } from './supabase';
 import { iso } from './datum';
+import { alle, stuecke } from './abfrage';
 
 export type Entscheid = 'loeschen' | 'deaktivieren' | 'bleibt' | 'erst_freigeben';
 
@@ -36,6 +40,11 @@ export function personEntscheid(p: { aktiv: boolean; hatStunden: boolean }): Ent
 export function teamEntscheid(t: { aktiv: boolean; hatMeldungen: boolean; hatOffeneStunden: boolean }): Entscheid {
   if (!t.hatMeldungen) return 'loeschen';
   if (!t.aktiv) return 'bleibt';
+  return t.hatOffeneStunden ? 'erst_freigeben' : 'deaktivieren';
+}
+
+/** Team über den Haken «aktiv» ruhen lassen: nie löschen, mit offenen Stunden erst nach der Freigabe. */
+export function teamInaktivEntscheid(t: { hatOffeneStunden: boolean }): Entscheid {
   return t.hatOffeneStunden ? 'erst_freigeben' : 'deaktivieren';
 }
 
@@ -87,6 +96,15 @@ export function teamFrage(name: string, entscheid: Entscheid, mitglieder: number
     default:
       return { entscheid, text: `«${name}» ist schon inaktiv und hat Meldungen — ganz löschen geht darum nicht, sonst fehlen die Stunden im Lohn-Export.`, knopf: null };
   }
+}
+
+/** Was die Rückfrage sagt, wenn jemand beim Team den Haken «aktiv» wegnimmt. */
+export function teamInaktivFrage(name: string, entscheid: Entscheid, mitglieder: number, plaene: number): Rueckfrage {
+  if (entscheid === 'erst_freigeben') {
+    return { entscheid, text: `«${name}» hat noch Stunden, die nicht freigegeben sind. Zuerst in der Wochenübersicht freigeben, dann inaktiv setzen.`, knopf: null };
+  }
+  const leute = mitglieder > 0 ? ' Die Leute sind danach ohne Team.' : '';
+  return { entscheid, text: `«${name}» inaktiv setzen? Das Team verschwindet aus Teamgerät und Planung, die Stunden bleiben im Lohn-Export.${leute}${plaene > 0 ? ' Die Planung ab morgen fällt weg.' : ''}`, knopf: 'Inaktiv setzen' };
 }
 
 /** Die Datenbank hat abgelehnt — als Fehler (42501) oder still, indem keine Zeile betroffen war. */
@@ -173,13 +191,30 @@ export async function teamPruefen(t: { id: string; bezeichnung: string; aktiv: b
   return teamFrage(t.bezeichnung, entscheid, mitglieder, entscheid === 'loeschen' ? plaene.length : ab.weg.length + ab.kuerzen.length);
 }
 
-/** Einsätze samt ihrer Terminhistorie entfernen — wie «Einsatz entfernen» in der Planung. */
+/** Einsätze samt ihrer Terminhistorie entfernen — wie «Einsatz entfernen» in der Planung. In Stücken: ids stehen in der Adresse. */
 async function einsaetzeEntfernen(ids: string[]): Promise<string | null> {
   if (!supabase || ids.length === 0) return null;
-  const { error: e1 } = await supabase.from('planaenderung').delete().in('jahresplan_id', ids);
-  if (e1) return fehlerText(e1);
-  const { error: e2 } = await supabase.from('jahresplan').delete().in('id', ids);
-  return e2 ? fehlerText(e2) : null;
+  for (const teil of stuecke(ids)) {
+    const { error: e1 } = await supabase.from('planaenderung').delete().in('jahresplan_id', teil);
+    if (e1) return fehlerText(e1);
+    const { error: e2 } = await supabase.from('jahresplan').delete().in('id', teil);
+    if (e2) return fehlerText(e2);
+  }
+  return null;
+}
+
+/** Den Haken «aktiv» wegnehmen: nachschauen, ob noch Stunden offen sind und wie viel Planung wegfällt. */
+export async function teamInaktivPruefen(t: { id: string; bezeichnung: string }, mitglieder: number): Promise<Rueckfrage | { fehler: string }> {
+  if (!supabase) return { fehler: KEINE_VERBINDUNG };
+  const heute = iso(new Date());
+  const [o, p] = await Promise.all([
+    supabase.from('zeiteintrag').select('id,tagesmeldung:tagesmeldung_id!inner(team_id)').eq('tagesmeldung.team_id', t.id).eq('status', 'offen').limit(1),
+    supabase.from('jahresplan').select('id,von,bis').eq('team_id', t.id).gte('bis', heute),
+  ]);
+  const e = o.error ?? p.error;
+  if (e) return { fehler: fehlerText(e) };
+  const ab = planungAbMorgen((p.data ?? []) as Plan[], heute);
+  return teamInaktivFrage(t.bezeichnung, teamInaktivEntscheid({ hatOffeneStunden: (o.data ?? []).length > 0 }), mitglieder, ab.weg.length + ab.kuerzen.length);
 }
 
 /** Aus allen Listen nehmen: inaktiv, Leute frei, Planung ab morgen weg (was heute läuft, endet heute — protokolliert). */
@@ -217,9 +252,13 @@ export async function teamEntfernen(id: string, entscheid: Entscheid): Promise<E
   if (!supabase) return { fehler: KEINE_VERBINDUNG };
   if (entscheid === 'deaktivieren') return teamDeaktivieren(id);
   if (entscheid !== 'loeschen') return { fehler: 'Hier gibt es nichts zu löschen.' };
-  const p = await supabase.from('jahresplan').select('id').eq('team_id', id);
-  if (p.error) return { fehler: fehlerText(p.error) };
-  const f = await einsaetzeEntfernen(((p.data ?? []) as { id: string }[]).map((x) => x.id));
+  let plaene: { id: string }[];
+  try {
+    plaene = await alle<{ id: string }>((von, bis) => supabase!.from('jahresplan').select('id').eq('team_id', id).order('id').range(von, bis));
+  } catch (e) {
+    return { fehler: fehlerText({ message: e instanceof Error ? e.message : String(e) }) };
+  }
+  const f = await einsaetzeEntfernen(plaene.map((x) => x.id));
   if (f) return { fehler: f };
   const r1 = await supabase.from('team_mitglied').delete().eq('team_id', id);
   if (r1.error) return { fehler: fehlerText(r1.error) };

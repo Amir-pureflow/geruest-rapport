@@ -16,9 +16,14 @@ import { addTage, iso, kurz, kw, montag, stunden, WOCHENTAGE } from '../lib/datu
 import { kennzeichen } from '../lib/fahrzeug';
 import { einstellungen } from '../lib/einstellungen';
 import { taetigkeitText } from '../lib/zusatzauftrag';
-import { flushNachSupabase, offeneAnzahl, offeneMeldungen, type MeldungPayload } from '../lib/db';
+import {
+  flushNachSupabase, meldungBeiseitelegen, nochmalsVersuchen, offeneMeldungen, warteStand, warteschlangeBeobachten, zeilenAuslassen,
+  type MeldungPayload, type WarteStand,
+} from '../lib/db';
 import { vorratLesen, vorratSchreiben } from '../lib/vorrat';
 import { heuteUndNaechster, planHinweise, type VerlaufZeile } from '../lib/planung';
+import { istDemoFirma } from '../lib/demo';
+import { nachtragMoeglich } from '../lib/nachtrag';
 
 export const TEAM_KEY = 'teamgeraet-team-id';
 /** Zuletzt gewählte Teams auf diesem Gerät (max. 5, neuestes vorne) — gleiche Liste wie in der Erfassung. */
@@ -89,8 +94,114 @@ function korrekturenZusammenfassen(liste: Korrektur[]): Map<string, { feld: 'nor
   return erg;
 }
 
+/**
+ * Filter für `plan_verlauf` (0038): Zeilen, deren Stand vorher oder nachher dieses Team oder eine seiner Personen
+ * betrifft — mehr braucht `planHinweise` nicht. Auch von der Erfassung benutzt.
+ */
+export function verlaufFilter(teamId: string, personen: string[]): string {
+  const teile = [`vorher->>team_id.eq.${teamId}`, `nachher->>team_id.eq.${teamId}`];
+  if (personen.length > 0) teile.push(`vorher->>mitarbeiter_id.in.(${personen.join(',')})`, `nachher->>mitarbeiter_id.in.(${personen.join(',')})`);
+  return teile.join(',');
+}
+
+/** «Di 13.10.» aus «2026-10-13» */
+function tagKurz(t: string | null): string {
+  if (!t) return 'unbekannter Tag';
+  const d = new Date(t + 'T12:00:00');
+  return `${WOCHENTAGE[(d.getDay() + 6) % 7]} ${kurz(d)}`;
+}
+
+/**
+ * Was auf diesem Gerät noch wartet — und was nicht von allein durchkommt (13.10.2026, vor dem Start bei der Gerüst GmbH).
+ *
+ * Vorher stand nur «geht automatisch raus». Lehnte der Server eine Meldung ab (Person im Büro gelöscht, Team weg),
+ * sortierte das Senden im Hintergrund sie still aus — samt Sprachnotiz. Jetzt steht sie hier, bis der Chefmonteur
+ * entscheidet: nochmals versuchen (nachdem das Büro es geklärt hat), ohne die eine Person abschliessen, oder — wenn der
+ * Kopf nie durchkommt — beiseitelegen. Gelöscht wird dabei nichts (CLAUDE.md #8).
+ *
+ * Auch in der Erfassung (`nurProbleme`), damit es niemand übersieht. Meldungen einer anderen Firma auf diesem Gerät
+ * warten sichtbar auf deren Anmeldung.
+ */
+export function Warteschlange({ nurProbleme = false }: { nurProbleme?: boolean }) {
+  const [stand, setStand] = useState<WarteStand | null>(null);
+  const [frage, setFrage] = useState<{ uuid: string; art: 'auslassen' | 'beiseite' } | null>(null);
+  const [laeuft, setLaeuft] = useState(false);
+  const neu = useCallback(() => { void warteStand().then(setStand).catch(() => undefined); }, []);
+  useEffect(() => {
+    neu();
+    return warteschlangeBeobachten(() => neu());
+  }, [neu]);
+
+  /** Entscheid ausführen, dann gleich senden — der Chefmonteur soll sehen, dass es durch ist. */
+  async function tun(f: () => Promise<void>) {
+    setLaeuft(true);
+    try {
+      await f();
+      if (supabase && navigator.onLine) await flushNachSupabase(supabase).catch(() => undefined);
+    } finally {
+      setLaeuft(false);
+      setFrage(null);
+      neu();
+    }
+  }
+
+  if (!stand) return null;
+  const wartendOhneProblem = stand.offen - stand.probleme.length;
+  const um = stand.fehlerZeit ? new Date(stand.fehlerZeit) : null;
+  return (
+    <>
+      {!nurProbleme && wartendOhneProblem > 0 && (
+        <div className="rounded-[12px] border border-amber/40 bg-amber-soft px-4 py-3 text-sm text-amber-deep" role="status">
+          <p className="font-semibold">{wartendOhneProblem} Meldung{wartendOhneProblem === 1 ? '' : 'en'} noch nicht gesendet — geht automatisch raus.</p>
+          {stand.fehlerText && (
+            <p className="mt-0.5 text-xs">
+              Letzter Versuch{um ? ` um ${String(um.getHours()).padStart(2, '0')}:${String(um.getMinutes()).padStart(2, '0')}` : ''}: {stand.fehlerText}
+            </p>
+          )}
+        </div>
+      )}
+      {stand.probleme.map((p) => {
+        const wer = p.namen.join(', ');
+        return (
+          <section key={p.client_uuid} className="space-y-2 rounded-[12px] border-2 border-amber/60 bg-amber-soft px-4 py-3 text-sm" role="alert">
+            <p className="font-semibold text-amber-deep">Meldung vom {tagKurz(p.datum)} — {p.art === 'kopf' ? 'konnte nicht gesendet werden' : 'nicht ganz gesendet'}</p>
+            <p className="text-ink">{p.text}</p>
+            {frage?.uuid === p.client_uuid ? (
+              <div className="space-y-2 rounded-[10px] bg-surface p-3">
+                <p className="text-ink2">
+                  {frage.art === 'auslassen'
+                    ? `Ohne ${wer} abschliessen? Die Stunden von ${wer} an diesem Tag fehlen dann beim Bauführer — er kann sie in der Wochenübersicht nachtragen. Die Meldung bleibt auf diesem Gerät gespeichert.`
+                    : 'Beiseitelegen? Die Meldung wird nicht mehr gesendet, bleibt aber mit Sprachnotiz und Fotos auf diesem Gerät. Danach den Tag neu melden.'}
+                </p>
+                <button type="button" disabled={laeuft} className="cta py-3 text-sm disabled:opacity-70" onClick={() => void tun(() => (frage.art === 'auslassen' ? zeilenAuslassen(p.client_uuid) : meldungBeiseitelegen(p.client_uuid)))}>
+                  {laeuft ? 'Einen Moment …' : frage.art === 'auslassen' ? `Ja, ohne ${wer} abschliessen` : 'Ja, beiseitelegen'}
+                </button>
+                <button type="button" disabled={laeuft} className="btn-ghost w-full py-2 text-sm" onClick={() => setFrage(null)}>Abbrechen</button>
+              </div>
+            ) : (
+              <div className="flex flex-wrap gap-2">
+                <button type="button" disabled={laeuft} className="btn-ghost py-2 text-sm" onClick={() => void tun(() => nochmalsVersuchen(p.client_uuid))}>{laeuft ? 'Sendet …' : 'Nochmals versuchen'}</button>
+                <button type="button" disabled={laeuft} className="btn-ghost py-2 text-sm" onClick={() => setFrage({ uuid: p.client_uuid, art: p.art === 'kopf' ? 'beiseite' : 'auslassen' })}>
+                  {p.art === 'kopf' ? 'Beiseitelegen …' : `Ohne ${wer} abschliessen …`}
+                </button>
+              </div>
+            )}
+          </section>
+        );
+      })}
+      {!nurProbleme && stand.fremd.map((f, i) => (
+        <p key={i} className="rounded-[12px] bg-surface-2 px-4 py-2.5 text-xs text-ink2">
+          {f.anzahl} Meldung{f.anzahl === 1 ? '' : 'en'} {f.name ? `von «${f.name}»` : 'einer anderen Anmeldung'} {f.anzahl === 1 ? 'wartet' : 'warten'} auf diesem Gerät — {f.anzahl === 1 ? 'sie geht' : 'sie gehen'} raus, sobald diese Firma hier wieder angemeldet ist.
+        </p>
+      ))}
+    </>
+  );
+}
+
 export function StartChef() {
   const [teams, setTeams] = useState<Team[]>([]);
+  /** Teams liessen sich nicht laden und es gibt keinen Vorrat — dann das sagen, nicht «Keine Teams» (13.10.2026) */
+  const [teamFehler, setTeamFehler] = useState<string | null>(null);
   const [teamId, setTeamId] = useState<string | null>(() => localStorage.getItem(TEAM_KEY));
   const [zuletzt, setZuletzt] = useState<string[]>(zuletztLesen);
   const [weitereTeams, setWeitereTeams] = useState(0);
@@ -100,7 +211,6 @@ export function StartChef() {
   const [plan, setPlan] = useState<Plan[]>([]);
   const regie = einstellungen().erfassung === 'regie';
   const [auftraege, setAuftraege] = useState<Auftrag[]>([]);
-  const [wartend, setWartend] = useState(0);
   const [laedt, setLaedt] = useState(true);
   const [fehler, setFehler] = useState<string | null>(null);
   const [wochenStart, setWochenStart] = useState<Date>(() => montag(new Date()));
@@ -112,11 +222,17 @@ export function StartChef() {
   const istDieseWoche = vonIso === dieseWocheIso;
   const team = teams.find((t) => t.id === teamId) ?? null;
 
-  useEffect(() => {
+  const teamsLaden = useCallback(() => {
     if (!supabase) return;
-    void supabase.from('team').select('id,bezeichnung,fahrzeug,chefmonteur:chefmonteur_id(name)').eq('aktiv', true).order('bezeichnung').then(({ data }) => {
+    setTeamFehler(null);
+    void supabase.from('team').select('id,bezeichnung,fahrzeug,chefmonteur:chefmonteur_id(name)').eq('aktiv', true).order('bezeichnung').then(({ data, error }) => {
       // Ohne Netz (Start auf der Baustelle): die Teams vom letzten Mal — siehe lib/vorrat.ts
-      if (!data) { const v = vorratLesen<Team[]>('teams-start'); if (v) setTeams(v); return; }
+      if (!data) {
+        const v = vorratLesen<Team[]>('teams-start');
+        if (v) setTeams(v);
+        else setTeamFehler(error?.message ?? 'keine Antwort');
+        return;
+      }
       const s = (data as unknown as Team[]).sort((a, b) => a.bezeichnung.localeCompare(b.bezeichnung, 'de', { numeric: true }));
       vorratSchreiben('teams-start', s);
       setTeams(s);
@@ -124,6 +240,7 @@ export function StartChef() {
       if (gespeichert && !s.some((t) => t.id === gespeichert)) { localStorage.removeItem(TEAM_KEY); setTeamId(null); }
     });
   }, []);
+  useEffect(() => { teamsLaden(); }, [teamsLaden]);
 
   /** Meldungen aus der lokalen Warteschlange für Team + Woche — ohne Netz das Einzige, was wir sicher wissen. */
   const lokaleLaden = useCallback(async (planRows: Plan[]): Promise<Meldung[]> => {
@@ -145,16 +262,16 @@ export function StartChef() {
     return liste;
   }, [teamId, vonIso, bisIso]);
 
-  const laden = useCallback(async () => {
+  /** `senden` = vorher die Warteschlange schieben. Nach einem Senden im Hintergrund nur neu laden (sonst liefe es im Kreis). */
+  const laden = useCallback(async (senden = true) => {
     if (!supabase || !teamId) return;
     const c = supabase;
     setLaedt(true);
     setFehler(null);
     try {
-      if (navigator.onLine) {
+      if (senden && navigator.onLine) {
         try { await flushNachSupabase(c); } catch { /* Senden klappt später — die Anzeige darf nicht daran scheitern */ }
       }
-      setWartend(await offeneAnzahl());
       const [mg, m, p] = await Promise.all([
         c.from('team_mitglied').select('mitarbeiter:mitarbeiter_id(name,aktiv)').eq('team_id', teamId).is('bis', null),
         c.from('tagesmeldung').select('id,datum,normalfall,abweichung_typ,baustelle:baustelle_id(konto_nr,bezeichnung),zeiteintrag(id,normal_min,ueber_min,status,mitarbeiter:mitarbeiter_id(name))').eq('team_id', teamId).gte('datum', vonIso).lte('datum', bisIso).order('datum'),
@@ -195,7 +312,6 @@ export function StartChef() {
       try {
         const lokale = await lokaleLaden(plan);
         setMeldungen(lokale);
-        setWartend(await offeneAnzahl());
       } catch { /* dann eben nur der Fehlertext */ }
     } finally {
       setLaedt(false);
@@ -203,6 +319,8 @@ export function StartChef() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [teamId, vonIso, bisIso, lokaleLaden, regie]);
   useEffect(() => { void laden(); }, [laden]);
+  // Ging im Hintergrund etwas hinaus (Netz zurück, App wieder vorne, Minutentakt): die Woche zeigt es gleich als gemeldet
+  useEffect(() => warteschlangeBeobachten((erg) => { if (erg && erg.gesendet > 0) void laden(false); }), [laden]);
 
   function teamWaehlen(id: string) {
     localStorage.setItem(TEAM_KEY, id);
@@ -238,14 +356,23 @@ export function StartChef() {
     void (async () => {
       const tageH = heuteUndNaechster(new Date());
       const seit = new Date(Date.now() - 72 * 3600 * 1000).toISOString();
-      const [vl, mg, pl, ep] = await Promise.all([
-        c.from('plan_verlauf').select('tabelle,datensatz_id,aktion,vorher,nachher,zeit').gte('zeit', seit).order('zeit').limit(800),
-        c.from('team_mitglied').select('mitarbeiter_id').eq('team_id', teamId).is('bis', null),
+      const mg = await c.from('team_mitglied').select('mitarbeiter_id').eq('team_id', teamId).is('bis', null);
+      if (veraltet || mg.error) return;
+      const mitglieder = ((mg.data ?? []) as { mitarbeiter_id: string }[]).map((x) => x.mitarbeiter_id);
+      const verlauf = (gefiltert: boolean) => {
+        const q = c.from('plan_verlauf').select('tabelle,datensatz_id,aktion,vorher,nachher,zeit').gte('zeit', seit);
+        return (gefiltert ? q.or(verlaufFilter(teamId, mitglieder)) : q).order('zeit', { ascending: false }).limit(1000);
+      };
+      const [vlGefiltert, pl, ep] = await Promise.all([
+        // Nur, was dieses Team betrifft — neueste zuerst, damit das Limit nie die jüngsten Änderungen abschneidet
+        // (13.10.2026: vorher der Verlauf der ganzen Firma, älteste zuerst, bei 800 Zeilen abgeschnitten)
+        verlauf(true),
         c.from('jahresplan').select('id,team_id,von,bis,baustelle:baustelle_id(id,konto_nr,bezeichnung)').eq('team_id', teamId).lte('von', tageH[1]).gte('bis', tageH[0]),
         c.from('einsatz_person').select('mitarbeiter_id,team_id,datum').in('datum', tageH),
       ]);
+      // Versteht die Datenbank den Filter nicht, wenigstens die neuesten Zeilen der Firma
+      const vl = vlGefiltert.error ? await verlauf(false) : vlGefiltert;
       if (veraltet || vl.error || !vl.data) return;
-      const mitglieder = ((mg.data ?? []) as { mitarbeiter_id: string }[]).map((x) => x.mitarbeiter_id);
       const plaeneJetzt = (pl.data ?? []) as unknown as { id: string; team_id: string; von: string; bis: string; baustelle: { id: string; konto_nr: string; bezeichnung: string | null } | null }[];
       const roh = planHinweise(teamId, mitglieder, tageH, vl.data as VerlaufZeile[], seit,
         plaeneJetzt.map((p) => ({ id: p.id, team_id: p.team_id, baustelle_id: p.baustelle?.id ?? null, von: p.von, bis: p.bis })),
@@ -330,7 +457,14 @@ export function StartChef() {
           {weitereTeams < teamAuswahl.rest.length && (
             <button type="button" onClick={() => setWeitereTeams((n) => n + 5)} className="btn-ghost w-full">Weitere Teams …</button>
           )}
-          {teams.length === 0 && <p className="card text-sm text-ink3">Keine Teams — als Bauführer unter Verwaltung anlegen oder den Demo-Betrieb laden.</p>}
+          {teams.length === 0 && (teamFehler ? (
+            <div className="rounded-[12px] border border-amber/40 bg-amber-soft px-4 py-3 text-sm text-amber-deep" role="alert">
+              <strong>Teams konnten nicht geladen werden.</strong> Verbindung prüfen und nochmals versuchen.
+              <button type="button" className="btn-ghost mt-2 block w-full" onClick={teamsLaden}>Nochmals</button>
+            </div>
+          ) : (
+            <p className="card text-sm text-ink3">Keine Teams — als Bauführer unter Verwaltung anlegen{istDemoFirma() ? ' oder den Demo-Betrieb laden' : ''}.</p>
+          ))}
         </div>
       </Shell>
     );
@@ -368,11 +502,8 @@ export function StartChef() {
           </section>
         )}
 
-        {wartend > 0 && (
-          <div className="rounded-[12px] border border-amber/40 bg-amber-soft px-4 py-3 text-sm font-semibold text-amber-deep">
-            {wartend} Meldung{wartend === 1 ? '' : 'en'} noch nicht gesendet — geht automatisch raus.
-          </div>
-        )}
+        {/* Was noch wartet, der letzte Fehler beim Senden und was der Chefmonteur entscheiden muss */}
+        <Warteschlange />
 
         {fehler && (
           <div className="rounded-[12px] border border-amber/40 bg-amber-soft px-4 py-3 text-sm text-amber-deep">
@@ -462,7 +593,10 @@ export function StartChef() {
                         ? lokal ? <span title="noch nicht gesendet" className="inline-flex items-center gap-1 text-[11px] font-semibold text-amber-deep"><Clock size={14} aria-hidden="true" /> wartet</span>
                           : frei ? <CheckCircle2 size={18} className="text-good" aria-label="vom Bauführer freigegeben" />
                           : <CheckCircle2 size={18} className="text-steel/70" aria-label="gemeldet" />
-                        : zukunft ? null : <Link to={`/erfassung?tag=${dIso}`} className="text-[11px] font-semibold text-steel">nachtragen ›</Link>}
+                        : zukunft ? null
+                        // Nur Tage, die die Erfassung auch nimmt (lib/nachtrag.ts) — ältere trägt der Bauführer ein
+                        : nachtragMoeglich(dIso, heute) ? <Link to={`/erfassung?tag=${dIso}`} className="text-[11px] font-semibold text-steel">nachtragen ›</Link>
+                        : null}
                     </span>
                   </div>
                   {korr.length > 0 && (
@@ -483,6 +617,9 @@ export function StartChef() {
             <span className="inline-flex items-center gap-1"><CheckCircle2 size={13} className="text-steel/70" aria-hidden="true" /> gemeldet</span>
             <span className="inline-flex items-center gap-1"><CheckCircle2 size={13} className="text-good" aria-hidden="true" /> vom Bauführer freigegeben</span>
             <span>Stunden je Person</span>
+            {tage.some((d, i) => i < 5 && iso(d) <= heuteIso && !nachtragMoeglich(iso(d), heute) && !meldungen.some((m) => m.datum === iso(d))) && (
+              <span>Älter als 7 Tage: nachtragen macht der Bauführer</span>
+            )}
           </p>
         </section>
 

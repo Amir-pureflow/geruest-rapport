@@ -7,7 +7,7 @@
  * greift der bisherige Weg in zwei Schritten.
  */
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { minutenBetrag, tarifNachCode, RUECKFALL_ANSATZ_RAPPEN } from './tarif';
+import { positionBetrag, tarifNachCode, RUECKFALL_ANSATZ_RAPPEN } from './tarif';
 
 export interface EintragFuerRegie {
   normal_min: number;
@@ -23,6 +23,11 @@ export interface RegiePosition {
   betrag_rappen: number;
 }
 
+/**
+ * Eine Position je Eintrag. Der Betrag kommt aus der Menge, wie sie auf dem PDF steht (Hundertstel × Ansatz), nicht aus
+ * den Minuten (13.10.2026): bei 50 Minuten stand «0.83 h × 108.00» auf dem Rapport, aber Fr. 90.00 statt 89.64 daneben —
+ * immer wenn die Minuten nicht durch 3 teilbar sind. Der Kunde muss «Menge × Ansatz = Betrag» nachrechnen können.
+ */
 export function positionenAusEintraegen(eintraege: EintragFuerRegie[]): RegiePosition[] {
   return eintraege.map((e) => {
     const min = e.normal_min + e.ueber_min;
@@ -32,12 +37,13 @@ export function positionenAusEintraegen(eintraege: EintragFuerRegie[]): RegiePos
     } catch {
       /* unbekannte Funktion → Monteursansatz */
     }
+    const menge = Math.round((min * 100) / 60);
     return {
       tarif_code: e.mitarbeiter.funktion,
       bezeichnung: `${e.mitarbeiter.name} · ${(min / 60).toFixed(1)} h`,
-      menge_hundertstel: Math.round((min * 100) / 60),
+      menge_hundertstel: menge,
       ansatz_rappen: ansatz,
-      betrag_rappen: minutenBetrag(min, ansatz),
+      betrag_rappen: positionBetrag({ code: e.mitarbeiter.funktion, bezeichnung: '', mengeHundertstel: menge, ansatzRappen: ansatz }),
     };
   });
 }

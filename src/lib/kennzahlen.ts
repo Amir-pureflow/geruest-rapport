@@ -2,6 +2,7 @@
  * Abfragen für Diagramm und Team-Board der Bauführer-Startseite.
  *
  * Alles rechnet in Minuten als Integer (CLAUDE.md #6) — umgerechnet wird erst bei der Ausgabe.
+ * Was über 1000 Zeilen werden kann, kommt seitenweise (lib/abfrage.ts); ein Fehler wirft — die Startseite zeigt ihn.
  * Die Regie-Abfragen (Trichter der Zusatzaufträge, Regie je Monat, Fristen) stehen unten. Sie werden
  * nur aufgerufen, wenn die Firma den Schalter `MODUS_ERFASSUNG = regie` hat (02.10.2026) — ohne Regie
  * gibt es die Tabellen zwar, aber niemand fragt sie.
@@ -9,6 +10,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { addTage, iso, montag, WOCHENTAGE, kurz } from './datum';
 import { gelbePersonen } from './einstellungen';
+import { alle } from './abfrage';
 
 export interface WochenTag {
   label: string;
@@ -34,18 +36,21 @@ export async function wochenTeams(c: SupabaseClient, bezug: Date): Promise<Woche
     offen: 0,
     freigegeben: 0,
   }));
-  const { data } = await c
+  // Eine Woche in der Hochsaison: 75 Leute × 6 Tage, mit zwei Baustellen am Tag mehr als 1000 Einträge
+  const data = await alle<{
+    status: string;
+    tagesmeldung: { datum: string; team_id: string | null } | { datum: string; team_id: string | null }[];
+  }>((von, bis) => c
     .from('zeiteintrag')
     .select('status,tagesmeldung!inner(datum,team_id)')
     .gte('tagesmeldung.datum', iso(mo))
-    .lte('tagesmeldung.datum', iso(addTage(mo, 6)));
+    .lte('tagesmeldung.datum', iso(addTage(mo, 6)))
+    .order('id')
+    .range(von, bis));
 
   // Tag → Team → hat noch offene Einträge?
   const proTag: Map<string, boolean>[] = tage.map(() => new Map());
-  for (const z of (data ?? []) as unknown as {
-    status: string;
-    tagesmeldung: { datum: string; team_id: string | null } | { datum: string; team_id: string | null }[];
-  }[]) {
+  for (const z of data) {
     // Supabase liefert die verknüpfte Zeile je nach Version als Objekt oder als Liste
     const tm = Array.isArray(z.tagesmeldung) ? z.tagesmeldung[0] : z.tagesmeldung;
     if (!tm?.datum) continue;
@@ -162,9 +167,8 @@ export interface TrichterDaten {
 export async function trichter(c: SupabaseClient, tageZurueck = 60): Promise<TrichterDaten> {
   const seit = new Date();
   seit.setDate(seit.getDate() - tageZurueck);
-  const { data } = await c.from('zusatzauftrag_stand').select('stand,ohne_meldung').gte('bestellt_am', seit.toISOString());
-
-  const zeilen = (data ?? []) as { stand: string; ohne_meldung: boolean }[];
+  const zeilen = await alle<{ stand: string; ohne_meldung: boolean }>((von, bis) =>
+    c.from('zusatzauftrag_stand').select('stand,ohne_meldung').gte('bestellt_am', seit.toISOString()).order('id').range(von, bis));
   const zaehler = new Map<string, number>();
   for (const z of zeilen) zaehler.set(z.stand, (zaehler.get(z.stand) ?? 0) + 1);
 
@@ -187,7 +191,8 @@ const MONAT_KURZ = ['Jan', 'Feb', 'Mär', 'Apr', 'Mai', 'Jun', 'Jul', 'Aug', 'Se
 /** Verschickte Regie je Monat, davon bestätigt. «Verschickt» zählt nach Versanddatum. */
 export async function regieMonate(c: SupabaseClient, anzahl = 6): Promise<RegieMonat[]> {
   const heute = new Date();
-  const start = new Date(heute.getFullYear(), heute.getMonth() - (anzahl - 1), 1, 12);
+  // 00:00 Ortszeit am 1. — mit 12:00 fehlten im ältesten Monat die Rapporte vom Morgen des 1.
+  const start = new Date(heute.getFullYear(), heute.getMonth() - (anzahl - 1), 1);
   const monate: RegieMonat[] = [];
   for (let i = 0; i < anzahl; i++) {
     const d = new Date(start.getFullYear(), start.getMonth() + i, 1, 12);
@@ -199,9 +204,10 @@ export async function regieMonate(c: SupabaseClient, anzahl = 6): Promise<RegieM
     });
   }
 
-  const { data } = await c.from('regierapport').select('betrag_rappen,versendet_am,status').neq('status', 'entwurf').gte('versendet_am', start.toISOString());
+  const data = await alle<{ betrag_rappen: number | null; versendet_am: string | null; status: string }>((von, bis) =>
+    c.from('regierapport').select('betrag_rappen,versendet_am,status').neq('status', 'entwurf').gte('versendet_am', start.toISOString()).order('id').range(von, bis));
 
-  for (const r of (data ?? []) as { betrag_rappen: number | null; versendet_am: string | null; status: string }[]) {
+  for (const r of data) {
     if (!r.versendet_am) continue;
     const d = new Date(r.versendet_am);
     const index = (d.getFullYear() - start.getFullYear()) * 12 + (d.getMonth() - start.getMonth());

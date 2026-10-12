@@ -10,6 +10,7 @@ import { addTage, iso, kurz, kw, montag, stunden, WOCHENTAGE } from '../lib/datu
 import { zeitenText } from '../lib/zeiten';
 import { festeAnsicht } from '../lib/ansicht';
 import { artText } from '../lib/abwesenheit';
+import { istDemoFirma } from '../lib/demo';
 import { ArtPille } from '../ui/ArtPille';
 
 const MONTEUR_KEY = 'monteur-id';
@@ -68,6 +69,12 @@ export function StartMonteur() {
   const [korrekturen, setKorrekturen] = useState<Korrektur[]>([]);
   const [abwesend, setAbwesend] = useState<Abwesend[]>([]);
   const [laedt, setLaedt] = useState(true);
+  /**
+   * Konnte etwas nicht geladen werden? Dann sagen — nie «nichts gemeldet» oder «Keine Teams» zeigen, wenn es nur an
+   * der Verbindung lag (13.10.2026).
+   */
+  const [fehler, setFehler] = useState<string | null>(null);
+  const [nochmal, setNochmal] = useState(0);
   const heuteIso = iso(new Date());
   const vonIso = iso(wochenStart);
   const bisIso = iso(addTage(wochenStart, 6));
@@ -76,17 +83,22 @@ export function StartMonteur() {
   useEffect(() => {
     if (!supabase) return;
     const c = supabase;
+    setFehler(null);
     if (personId) {
-      void c.from('mitarbeiter').select('id,name,funktion,typ').eq('id', personId).maybeSingle().then(({ data }) => {
+      void c.from('mitarbeiter').select('id,name,funktion,typ').eq('id', personId).maybeSingle().then(({ data, error }) => {
+        // Nur vergessen, wenn die Datenbank geantwortet hat und es die Person wirklich nicht gibt — ein Netzfehler
+        // hiess vorher auch «gibt es nicht», und der Monteur musste sich jedes Mal neu wählen (13.10.2026)
+        if (error) { setFehler('Dein Name konnte gerade nicht geladen werden — Verbindung prüfen.'); return; }
         if (data) setPerson(data);
         else { localStorage.removeItem(MONTEUR_KEY); setPersonId(null); }
       });
     } else {
-      void c.from('team').select('id,bezeichnung').eq('aktiv', true).order('bezeichnung').then(({ data }) => {
+      void c.from('team').select('id,bezeichnung').eq('aktiv', true).order('bezeichnung').then(({ data, error }) => {
+        if (error) { setFehler('Die Teams konnten nicht geladen werden — Verbindung prüfen und nochmals versuchen.'); return; }
         setTeams(((data ?? []) as Team[]).sort((a, b) => a.bezeichnung.localeCompare(b.bezeichnung, 'de', { numeric: true })));
       });
     }
-  }, [personId]);
+  }, [personId, nochmal]);
 
   useEffect(() => {
     if (!supabase || !teamId) { setLeute([]); return; }
@@ -98,10 +110,15 @@ export function StartMonteur() {
     });
   }, [teamId]);
 
+  const [wocheFehler, setWocheFehler] = useState<string | null>(null);
+  /** Die Stunden selbst fehlen (nicht nur die Anpassungen) — dann steht an den Tagen nicht «nichts gemeldet» */
+  const [stundenFehlen, setStundenFehlen] = useState(false);
   useEffect(() => {
     if (!supabase || !personId) return;
     const c = supabase;
     setLaedt(true);
+    setWocheFehler(null);
+    setStundenFehlen(false);
     void (async () => {
       // Zeiten von–bis (Migration 0016, dritte Spanne 0029) mitladen — fehlen die Spalten noch, ohne sie
       const lade = (mitZeiten: boolean, mitDritter = mitZeiten) => c
@@ -113,11 +130,21 @@ export function StartMonteur() {
       let erg = await lade(true);
       if (erg.error && /(von3_min|bis3_min) does not exist/.test(erg.error.message)) erg = await lade(true, false);
       if (erg.error && /(von2?_min|bis2?_min) does not exist/.test(erg.error.message)) erg = await lade(false);
+      if (erg.error) {
+        // Ein Fehler ist nicht «nichts gemeldet» — die Tage bleiben leer, oben steht warum
+        setEintraege([]);
+        setKorrekturen([]);
+        setStundenFehlen(true);
+        setWocheFehler('Deine Stunden konnten gerade nicht geladen werden — Verbindung prüfen und nochmals versuchen.');
+        setLaedt(false);
+        return;
+      }
       const liste = (erg.data ?? []) as unknown as Eintrag[];
       setEintraege(liste);
       // Korrekturen des Bauführers an diesen Einträgen (nur Stundenfelder)
       if (liste.length > 0) {
-        const { data: k } = await c.from('freigabe_log').select('zeiteintrag_id,feld,alt,neu,begruendung,wann').in('zeiteintrag_id', liste.map((e) => e.id)).in('feld', ['normal_min', 'ueber_min']).order('wann');
+        const { data: k, error: ke } = await c.from('freigabe_log').select('zeiteintrag_id,feld,alt,neu,begruendung,wann').in('zeiteintrag_id', liste.map((e) => e.id)).in('feld', ['normal_min', 'ueber_min']).order('wann');
+        if (ke) setWocheFehler('Die Anpassungen des Bauführers konnten nicht geladen werden — die Stunden unten sind die gemeldeten.');
         setKorrekturen((k ?? []) as Korrektur[]);
       } else setKorrekturen([]);
       // Abwesenheiten (0036) — fehlt die Tabelle noch, bleibt die Liste leer
@@ -125,7 +152,7 @@ export function StartMonteur() {
       setAbwesend(ab.error ? [] : ((ab.data ?? []) as Abwesend[]));
       setLaedt(false);
     })();
-  }, [personId, vonIso, bisIso]);
+  }, [personId, vonIso, bisIso, nochmal]);
 
   function waehlen(p: Person) {
     localStorage.setItem(MONTEUR_KEY, p.id);
@@ -168,7 +195,14 @@ export function StartMonteur() {
               </div>
             </div>
           )}
-          {teams.length === 0 && <p className="card text-sm text-ink3">Keine Teams — als Bauführer unter Verwaltung anlegen oder den Demo-Betrieb laden.</p>}
+          {fehler ? (
+            <div className="rounded-[12px] border border-amber/40 bg-amber-soft px-4 py-3 text-sm text-amber-deep">
+              {fehler}
+              <button type="button" className="btn-ghost mt-2 block w-full" onClick={() => setNochmal((n) => n + 1)}>Nochmals</button>
+            </div>
+          ) : teams.length === 0 && (
+            <p className="card text-sm text-ink3">Keine Teams — als Bauführer unter Verwaltung anlegen{istDemoFirma() ? ' oder den Demo-Betrieb laden' : ''}.</p>
+          )}
         </div>
       </Shell>
     );
@@ -209,8 +243,15 @@ export function StartMonteur() {
           <button type="button" className="px-4 text-ink2 transition-colors hover:bg-surface-2 disabled:opacity-30" disabled={dieseWoche || bisIso >= heuteIso} onClick={() => setWochenStart(addTage(wochenStart, 7))} aria-label="nächste Woche">›</button>
         </div>
 
+        {(fehler || wocheFehler) && (
+          <div className="rounded-[12px] border border-amber/40 bg-amber-soft px-4 py-3 text-sm text-amber-deep" role="alert">
+            {fehler ?? wocheFehler}
+            <button type="button" className="btn-ghost mt-2 block w-full" onClick={() => setNochmal((n) => n + 1)}>Nochmals</button>
+          </div>
+        )}
+
         {/* Die Summe zuoberst — das ist die Zahl, die der Monteur wissen will */}
-        {!laedt && (
+        {!laedt && !stundenFehlen && (
           <section className="card">
             <div className="space-y-2.5">
               <div>
@@ -257,7 +298,7 @@ export function StartMonteur() {
                 <div className="min-w-0 flex-1">
                   {ab && <p className={'flex items-center gap-2 text-sm ' + (es.length > 0 ? 'mb-1.5' : 'py-1')}><ArtPille art={ab.art} gross /><span className="text-ink3">vom Büro eingetragen</span></p>}
                   {es.length === 0 ? (
-                    !ab && <p className="py-1 text-sm text-ink3">nichts gemeldet</p>
+                    !ab && <p className="py-1 text-sm text-ink3">{stundenFehlen ? 'nicht geladen' : 'nichts gemeldet'}</p>
                   ) : (
                     <>
                       {es.map((e) => {

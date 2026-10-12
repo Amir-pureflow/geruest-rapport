@@ -8,6 +8,8 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { ChevronDown, FileText, Send, CheckCircle2, X, Check, Search, MessageCircleQuestion } from 'lucide-react';
 import { Shell } from '../ui/Shell';
 import { supabase } from '../lib/supabase';
+import { alle, stuecke } from '../lib/abfrage';
+import { iso } from '../lib/datum';
 import { formatChf } from '../lib/tarif';
 import { baustellenSuchen } from '../lib/suche';
 
@@ -24,6 +26,10 @@ interface Zeile {
 }
 
 type Gruppe = 'entwurf' | 'kunde' | 'bestaetigt';
+
+/** Bestätigte Rapporte: nur die jüngsten — offene (Entwurf, beim Kunden, Rückfrage, Frist) kommen immer alle. */
+const BESTAETIGT_ANZAHL = 100;
+const SPALTEN = 'id,nummer,status,betrag_rappen,frist_bis,erstellt_am,versendet_am,bestaetigt_am,baustelle:baustelle_id(bezeichnung,konto_nr)';
 
 /** Rückfrage der Bauleitung, die noch nicht beantwortet ist: jüngster Eintrag «rueckfrage» nach dem letzten Versand. */
 interface OffeneRueckfrage { regierapport_id: string; zeitpunkt: string; kommentar: string | null }
@@ -143,31 +149,47 @@ export function RegieListe() {
   const [zeilen, setZeilen] = useState<Zeile[]>([]);
   const [logs, setLogs] = useState<LogZeile[]>([]);
   const [laedt, setLaedt] = useState(true);
+  const [fehler, setFehler] = useState('');
+  /** Es gibt mehr bestätigte Rapporte als die gezeigten */
+  const [gekuerzt, setGekuerzt] = useState(false);
   // Baustellen-Filter in der URL (?baustelle=903091), damit man einen Link darauf setzen kann
   const [params, setParams] = useSearchParams();
   const baustelleFilter = params.get('baustelle') ?? '';
   const baustelleSetzen = (knr: string) => setParams(knr ? { baustelle: knr } : {}, { replace: true });
 
+  /**
+   * Vorher die jüngsten 100 Rapporte überhaupt — ein alter Rapport beim Kunden oder mit Rückfrage fiel so still aus der
+   * Liste und aus der Summe «unterwegs» (13.10.2026). Jetzt: alles Offene seitenweise, nur bei den bestätigten die jüngsten.
+   */
   useEffect(() => {
     if (!supabase) return;
-    void supabase
-      .from('regierapport')
-      .select('id,nummer,status,betrag_rappen,frist_bis,erstellt_am,versendet_am,bestaetigt_am,baustelle:baustelle_id(bezeichnung,konto_nr)')
-      .order('erstellt_am', { ascending: false })
-      .limit(100)
-      .then(async ({ data }) => {
-        if (data) {
-          setZeilen(data as unknown as Zeile[]);
-          // Rückfragen und Versände dieser Rapporte — daraus ergibt sich, welche Rückfrage noch offen ist
-          const ids = (data as { id: string }[]).map((r) => r.id);
-          const { data: l } = await supabase!.from('zustellung_log').select('regierapport_id,ereignis,zeitpunkt,detail').in('regierapport_id', ids).in('ereignis', ['rueckfrage', 'gesendet']);
-          setLogs((l ?? []) as LogZeile[]);
-        }
-        setLaedt(false);
-      });
+    const c = supabase;
+    void (async () => {
+      try {
+        const [offen, bestaetigt] = await Promise.all([
+          alle<Zeile>((von, bis) => c.from('regierapport').select(SPALTEN).neq('status', 'bestaetigt').order('erstellt_am', { ascending: false }).order('id').range(von, bis)),
+          c.from('regierapport').select(SPALTEN).eq('status', 'bestaetigt').order('bestaetigt_am', { ascending: false, nullsFirst: false }).order('id').limit(BESTAETIGT_ANZAHL + 1),
+        ]);
+        if (bestaetigt.error) throw new Error(bestaetigt.error.message);
+        const zu = (bestaetigt.data ?? []) as unknown as Zeile[];
+        const alleZeilen = [...offen, ...zu.slice(0, BESTAETIGT_ANZAHL)];
+        // Rückfragen und Versände dieser Rapporte — daraus ergibt sich, welche Rückfrage noch offen ist. In Stücken: jede id
+        // steht in der Adresse der Anfrage.
+        const l = await Promise.all(stuecke(alleZeilen.map((r) => r.id)).map((ids) => alle<LogZeile>((von, bis) =>
+          c.from('zustellung_log').select('regierapport_id,ereignis,zeitpunkt,detail').in('regierapport_id', ids).in('ereignis', ['rueckfrage', 'gesendet']).order('id').range(von, bis))));
+        setZeilen(alleZeilen);
+        setGekuerzt(zu.length > BESTAETIGT_ANZAHL);
+        setLogs(l.flat());
+        setFehler('');
+      } catch (e) {
+        setFehler(e instanceof Error ? e.message : String(e));
+      }
+      setLaedt(false);
+    })();
   }, []);
 
-  const heuteIso = new Date().toISOString().slice(0, 10);
+  // Heute nach Ortszeit — toISOString() wäre UTC, und zwischen Mitternacht und 2 Uhr stünde «Frist heute» einen Tag falsch
+  const heuteIso = iso(new Date());
   const rueckfragenOffen = useMemo(() => offeneRueckfragen(logs, (id) => zeilen.find((z) => z.id === id)?.status), [logs, zeilen]);
   // Alle Baustellen mit Rapporten, für den Filter — nach Anzahl, dann Name
   const baustellen = useMemo(() => {
@@ -208,7 +230,7 @@ export function RegieListe() {
                 <>
                   <span className="font-medium text-ink">{formatChf(summe(proGruppe.entwurf) + summe(proGruppe.kunde))}</span> unterwegs
                   {' · '}
-                  <span className="font-medium text-ink">{formatChf(summe(proGruppe.bestaetigt))}</span> bestätigt
+                  <span className="font-medium text-ink">{formatChf(summe(proGruppe.bestaetigt))}</span> bestätigt{gekuerzt ? ` (die letzten ${BESTAETIGT_ANZAHL})` : ''}
                   {dringend > 0 && <> · <span className="font-medium text-accent-deep">{dringend} zum Nachfassen</span></>}
                 </>
               )}
@@ -228,10 +250,13 @@ export function RegieListe() {
           </p>
         )}
 
+        {fehler && (
+          <p className="rounded-[12px] border border-accent/40 bg-accent-soft px-4 py-3 text-sm text-accent-deep">Regierapporte konnten nicht geladen werden: {fehler}</p>
+        )}
         {!laedt && zeilen.length > 0 && gefiltert.length === 0 && (
           <div className="card text-sm text-ink3">Keine Regierapporte für diese Baustelle.</div>
         )}
-        {!laedt && zeilen.length === 0 && (
+        {!laedt && !fehler && zeilen.length === 0 && (
           <div className="card text-sm text-ink3">
             Noch keine Regierapporte. Der Weg: <Link to="/cockpit" className="font-semibold text-steel">Wochenübersicht</Link> → gelbe Karte «Regieverdacht» → «Regierapport vorrechnen ›».
           </div>
@@ -270,7 +295,9 @@ export function RegieListe() {
               const unter =
                 g.key === 'kunde'
                   ? [`${liste.length} ${liste.length === 1 ? 'Rapport' : 'Rapporte'}`, ueberfaellig > 0 ? `${ueberfaellig} überfällig` : '', rueckfragen > 0 ? `${rueckfragen} Rückfrage${rueckfragen === 1 ? '' : 'n'}` : ''].filter(Boolean).join(' · ')
-                  : `${liste.length} ${liste.length === 1 ? 'Rapport' : 'Rapporte'} · ${g.text}`;
+                  : g.key === 'bestaetigt' && gekuerzt
+                    ? `die letzten ${liste.length} Rapporte · ${g.text}`
+                    : `${liste.length} ${liste.length === 1 ? 'Rapport' : 'Rapporte'} · ${g.text}`;
               return (
                 <section key={g.key} className="overflow-hidden rounded-[16px] bg-surface shadow-[0_1px_2px_rgb(17_17_19/0.04),0_8px_24px_rgb(17_17_19/0.04)]">
                   {/* Farbiger Kopf: Stand, Summe, Anzahl — das ist die Zahl, die zählt */}

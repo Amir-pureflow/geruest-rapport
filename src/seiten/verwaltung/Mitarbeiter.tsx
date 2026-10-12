@@ -52,6 +52,8 @@ export function Mitarbeiter() {
   const [filter, setFilter] = useState<'alle' | 'intern' | 'temporaer' | 'inaktiv'>('alle');
   const [bearbeitet, setBearbeitet] = useState<Person | null>(null);
   const [fehler, setFehler] = useState('');
+  /** Läuft «Speichern»? Ein zweiter Klick legte sonst dieselbe Person zweimal an. */
+  const [speichert, setSpeichert] = useState(false);
   /** null = noch nicht geprüft */
   const [hatTelefon, setHatTelefon] = useState<boolean | null>(null);
 
@@ -98,9 +100,18 @@ export function Mitarbeiter() {
   const temp = liste.filter((p) => p.aktiv && p.typ === 'temporaer').length;
 
   async function speichern() {
-    if (!supabase || !bearbeitet) return;
+    if (!supabase || !bearbeitet || speichert) return;
     if (!bearbeitet.name.trim()) { setFehler('Name fehlt.'); return; }
     setFehler('');
+    setSpeichert(true);
+    try {
+      await speichernJetzt(supabase, bearbeitet);
+    } finally {
+      setSpeichert(false);
+    }
+  }
+
+  async function speichernJetzt(c: NonNullable<typeof supabase>, bearbeitet: Person) {
     const { telefon, ...rest } = bearbeitet;
     const row: Record<string, unknown> = {
       ...rest, name: bearbeitet.name.trim(),
@@ -110,8 +121,8 @@ export function Mitarbeiter() {
     if (hatTelefon) row.telefon = telefon?.trim() || null;
     const neu = !row.id;
     const { data, error } = neu
-      ? await supabase.from('mitarbeiter').insert(row).select('id').single()
-      : await supabase.from('mitarbeiter').update(row).eq('id', row.id as string).select('id').single();
+      ? await c.from('mitarbeiter').insert(row).select('id').single()
+      : await c.from('mitarbeiter').update(row).eq('id', row.id as string).select('id').single();
     if (error) {
       if (spalteFehlt(error.message, 'telefon')) { setHatTelefon(false); setFehler('Migration 0009 fehlt — die Spalte «telefon» gibt es noch nicht. Bitte supabase/migrations/0009 ausführen, dann nochmals speichern.'); return; }
       setFehler(error.message);
@@ -250,7 +261,7 @@ export function Mitarbeiter() {
               : <span />}
             <span className="flex items-center gap-2">
               <button type="button" onClick={schliessen} className="btn-ghost">Abbrechen</button>
-              <button type="button" onClick={() => void speichern()} className="inline-flex items-center rounded-full bg-gradient-to-br from-[#ff6d4c] via-accent to-[#9c1409] px-5 py-2 text-sm font-semibold text-white shadow-[0_10px_22px_-10px_rgb(224_48_30/0.7)]">Speichern</button>
+              <button type="button" onClick={() => void speichern()} disabled={speichert} className="inline-flex items-center rounded-full bg-gradient-to-br from-[#ff6d4c] via-accent to-[#9c1409] px-5 py-2 text-sm font-semibold text-white shadow-[0_10px_22px_-10px_rgb(224_48_30/0.7)] disabled:opacity-50">{speichert ? 'Speichert …' : 'Speichern'}</button>
             </span>
           </>}
         >
