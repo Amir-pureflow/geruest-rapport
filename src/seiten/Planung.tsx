@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Archive, ArrowRightLeft, CalendarDays, CalendarPlus, Check, ChevronLeft, ChevronRight, History, MousePointerClick, PencilLine, Plus, Search, Trash2, Undo2, UserPlus, Users, X } from 'lucide-react';
+import { Archive, ArrowRightLeft, CalendarDays, CalendarPlus, Check, ChevronLeft, ChevronRight, History, MousePointerClick, Plus, Search, Trash2, Undo2, UserPlus, Users, X } from 'lucide-react';
 import { Shell } from '../ui/Shell';
 import { Dialog, Avatar } from '../ui/Dialog';
 import { Auswahl } from '../ui/Auswahl';
@@ -344,9 +344,12 @@ export function Planung() {
               <button type="button" aria-label="Weiter" onClick={() => setStart(addTage(start, 7))} className="grid h-9 w-9 place-items-center rounded-full text-ink2 hover:text-accent-deep"><ChevronRight size={17} /></button>
             </div>
             <button type="button" className="btn-ghost py-2" onClick={() => setStart(montag(new Date()))}>Heute</button>
-            <span className={'inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold ' + (status === 'entwurf' ? 'bg-amber-soft text-amber-deep' : status === 'archiv' ? 'bg-surface-2 text-ink2' : 'bg-steel-soft text-steel')}>
-              {status === 'entwurf' ? <><PencilLine size={13} aria-hidden="true" /> Entwurf · Woche läuft</> : status === 'archiv' ? <><Archive size={13} aria-hidden="true" /> Archiv</> : <><CalendarDays size={13} aria-hidden="true" /> Plan</>}
-            </span>
+            {/* Laufende Woche ohne Schild — «Entwurf · Woche läuft» seit 13.10.2026 weg (Amir) */}
+            {status !== 'entwurf' && (
+              <span className={'inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold ' + (status === 'archiv' ? 'bg-surface-2 text-ink2' : 'bg-steel-soft text-steel')}>
+                {status === 'archiv' ? <><Archive size={13} aria-hidden="true" /> Archiv</> : <><CalendarDays size={13} aria-hidden="true" /> Plan</>}
+              </span>
+            )}
           </div>
           <div className="flex rounded-full border border-ink/10 bg-white p-1 shadow-[0_1px_2px_rgb(17_17_19/0.06)]" role="group" aria-label="Zeitraum">
             {([7, 14] as const).map((n) => (
@@ -385,7 +388,7 @@ export function Planung() {
               { wert: 'ist', text: 'Wirklich gewesen' },
             ]} />
             <span className="text-xs text-ink3">
-              {ansicht === 'plan' && (status === 'entwurf' ? 'Entwurf — jederzeit änderbar, bis die Woche vorbei ist.' : 'Der Plan, wie er jetzt steht — mit allen Änderungen.')}
+              {ansicht === 'plan' && (status === 'entwurf' ? 'Jederzeit änderbar, bis die Woche vorbei ist.' : 'Der Plan, wie er jetzt steht — mit allen Änderungen.')}
               {ansicht === 'montag' && `So war ${anzahlTage === 7 ? 'die Woche' : 'es'} am Montag ${kurz(start)} früh geplant — vor allen Änderungen.`}
               {ansicht === 'ist' && 'Wo die Teams laut Meldungen waren. Gestrichelt darunter: was am Montag anders geplant war.'}
             </span>

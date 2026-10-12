@@ -166,10 +166,11 @@ export function navFuer(a: 'bauf' | 'sekretariat'): NavGruppe[] {
     {
       titel: 'Tagesgeschäft',
       eintraege: [
-        // Zusatzauftrag: der Kunde bestellt am Telefon — seit 08.10.2026 auch ohne Regie (Rapport dann in SORBA)
-        { zu: '/zusatzauftrag', label: 'Zusatzauftrag', icon: PhoneCall },
         { zu: '/heute', label: 'Tagesübersicht', icon: CalendarDays },
         { zu: '/cockpit', label: 'Wochenübersicht', icon: CalendarRange },
+        // Zusatzauftrag: der Kunde bestellt am Telefon — seit 08.10.2026 auch ohne Regie (Rapport dann in SORBA);
+        // seit 13.10.2026 zuunterst (Amir)
+        { zu: '/zusatzauftrag', label: 'Zusatzauftrag', icon: PhoneCall },
       ],
     },
     ...(regie
