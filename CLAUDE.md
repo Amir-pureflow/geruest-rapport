@@ -303,7 +303,7 @@ abgehakt mit «in Team X», Eingeteilte als «eingeteilt»). Rechnerei in `src/l
 
 **Entwurf, Archiv, Verlauf** (0038, Mehmeti): Ein Auslöser schreibt jede Änderung an `jahresplan` und
 `einsatz_person` in `plan_verlauf` (neu/geändert/gelöscht, vorher/nachher, Zeit, wer) — die App liest nur. Wochenstatus
-im Kopf: «Archiv» / «Plan» (laufende Woche ohne Schild — «Entwurf · Woche läuft» seit 13.10. weg, Amir). Für Wochen mit vergangenen Tagen drei Ansichten: Aktueller Plan,
+im Kopf: keiner mehr («Entwurf · Woche läuft» / «Archiv» / «Plan» seit 13.10. weg, Amir — die Ansicht-Wahl sagt es). Für Wochen mit vergangenen Tagen drei Ansichten: Aktueller Plan,
 **Plan vom Montag** (`planAm()`: vom heutigen Stand rückwärts durch den Verlauf bis Mo 06:00) und **Tatsächlich**
 (`istBalken()` aus den Meldungen); vergangene Wochen öffnen auf «Wirklich gewesen», darunter gestrichelt, was am Montag
 anders geplant war. Die Verlaufsliste unter dem Raster gab es kurz und ist wieder weg (Amir 11.10.: verwirrend). Testdaten

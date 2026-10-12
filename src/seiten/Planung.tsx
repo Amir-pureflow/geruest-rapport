@@ -344,12 +344,8 @@ export function Planung() {
               <button type="button" aria-label="Weiter" onClick={() => setStart(addTage(start, 7))} className="grid h-9 w-9 place-items-center rounded-full text-ink2 hover:text-accent-deep"><ChevronRight size={17} /></button>
             </div>
             <button type="button" className="btn-ghost py-2" onClick={() => setStart(montag(new Date()))}>Heute</button>
-            {/* Laufende Woche ohne Schild — «Entwurf · Woche läuft» seit 13.10.2026 weg (Amir) */}
-            {status !== 'entwurf' && (
-              <span className={'inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold ' + (status === 'archiv' ? 'bg-surface-2 text-ink2' : 'bg-steel-soft text-steel')}>
-                {status === 'archiv' ? <><Archive size={13} aria-hidden="true" /> Archiv</> : <><CalendarDays size={13} aria-hidden="true" /> Plan</>}
-              </span>
-            )}
+            {/* Kein Wochen-Schild mehr («Entwurf · Woche läuft» / «Archiv» / «Plan», weg seit 13.10.2026, Amir) —
+                was man sieht, sagt die Ansicht-Wahl darunter */}
           </div>
           <div className="flex rounded-full border border-ink/10 bg-white p-1 shadow-[0_1px_2px_rgb(17_17_19/0.06)]" role="group" aria-label="Zeitraum">
             {([7, 14] as const).map((n) => (
