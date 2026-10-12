@@ -3,6 +3,7 @@ import { supabase } from '../../lib/supabase';
 import { iso } from '../../lib/datum';
 import { Plus, Star, Truck, Users } from 'lucide-react';
 import { Avatar, Dialog } from '../../ui/Dialog';
+import { PersonWahl } from '../../ui/PersonWahl';
 import { teamEntfernen, teamPruefen } from '../../lib/entfernen';
 import { LoeschLeiste, Papierkorb, useLoeschFrage } from '../../ui/LoeschFrage';
 import { FUNKTION_BUERO } from '../../lib/benutzername';
@@ -214,14 +215,12 @@ export function Teams() {
                 {teamLeute.length === 0 && <p className="px-3 py-2.5 text-sm text-ink3">Noch niemand im Team.</p>}
               </div>
             </div>
-            <label className="block">
+            <div>
               <span className="lbl">Person hinzufügen</span>
-              <select value="" onChange={(e) => e.target.value && void hinzufuegen(e.target.value)} className="field">
-                <option value="">Person wählen …</option>
-                {frei.map((p) => <option key={p.id} value={p.id}>{p.name}{p.typ === 'temporaer' ? ' (temp)' : ''}</option>)}
-              </select>
+              <PersonWahl leute={frei.map((p) => ({ id: p.id, name: p.name, zusatz: p.typ === 'temporaer' ? 'temp' : undefined }))} wert=""
+                aendern={(id) => { if (id) void hinzufuegen(id); }} leer="Alle sind schon in einem Team." />
               <span className="mt-1 block text-[11px] text-ink3">{frei.length} Personen ohne Team</span>
-            </label>
+            </div>
             {fehler && <p className="text-sm font-semibold text-accent-deep">{fehler}</p>}
             {frage && frage.ding.id === team.id && <LoeschLeiste frage={frage} onAbbrechen={abbrechen} onBestaetigen={loeschFrage.bestaetigen} art="fenster" />}
           </div>

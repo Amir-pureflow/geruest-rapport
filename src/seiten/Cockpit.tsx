@@ -396,6 +396,8 @@ export function Cockpit() {
   }, [eintraege, regie, beantwortet, gelb]);
 
   const wochenTage = useMemo(() => TAGE.map((_, i) => iso(addTage(wochenStart, i))), [wochenStart]);
+  // Andere Woche: die Markierung eines Tages aus einer anderen Woche gilt nicht mehr
+  useEffect(() => { if (markTag && !wochenTage.includes(markTag)) markierungWeg(); }, [wochenTage]); // eslint-disable-line react-hooks/exhaustive-deps
 
   /**
    * Eine Zeile pro Team, sieben Tageszellen (Teamsumme + Stand), dazu was noch offen ist.
@@ -642,7 +644,19 @@ export function Cockpit() {
     [eintraege, offen],
   );
 
+  // Die Markierung gilt nur für den Sprung aus der Freigabe-Karte: wird ein anderer Tag geöffnet oder die Woche
+  // gewechselt, ist sie weg (12.10.2026, Amir) — auch aus der Adresse, damit «Zurück» sie nicht wiederbringt.
+  function markierungWeg() {
+    setMarkTag(null);
+    const u = new URL(window.location.href);
+    if (!u.searchParams.get('team') && u.searchParams.has('tag')) {
+      u.searchParams.delete('tag');
+      window.history.replaceState(window.history.state, '', u.pathname + u.search + u.hash);
+    }
+  }
+
   function tagUmschalten(team: string, datum: string) {
+    if (markTag && datum !== markTag) markierungWeg();
     setKorrektur(null);
     // Player zurücksetzen — sonst spielt die zuletzt gehörte Notiz beim Zurückwechseln
     // auf ihren Tag ungefragt wieder los (autoPlay gilt nur für den Klick auf ▶)
@@ -792,7 +806,7 @@ export function Cockpit() {
                 <span className="h-2 w-2 rounded-full bg-steel" aria-hidden="true" />{tagName(markTag)} markiert
               </span>
               <span className="text-ink3">Zelle antippen öffnet den Tag des Teams</span>
-              <button type="button" className="text-xs font-semibold text-ink3 underline underline-offset-2 hover:text-ink" onClick={() => setMarkTag(null)}>Markierung aufheben</button>
+              <button type="button" className="text-xs font-semibold text-ink3 underline underline-offset-2 hover:text-ink" onClick={markierungWeg}>Markierung aufheben</button>
             </p>
           )}
           <section className="card overflow-hidden p-0">

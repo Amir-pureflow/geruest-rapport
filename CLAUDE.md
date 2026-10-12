@@ -274,6 +274,15 @@ unbezahlt). Wirkung: Teamgerät hakt Abwesende ab (mit Pille, antippen geht trot
 Export: Spalte «Abwesend» im Lohn (nicht im Total), Reiter + Blatt «Abwesenheiten». Logik in `src/lib/abwesenheit.ts`,
 `mitAbwesenheiten()` in lohn.ts.
 
+**Person wählen** (12.10.2026, Amir: «mach das cleaner»): keine Browser-Auswahlliste mehr, sondern `src/ui/PersonWahl.tsx` —
+Feld wie die anderen, antippen klappt Liste mit Suche auf (Avatar, Name, Zusatz «temp»/«Beispiel» statt «(Bsp.)» im
+Namen, `src/lib/namen.ts`), optional ein Eintrag oben («Alle Mitarbeitenden»). Im Einsatz: Abwesenheiten, Team-Dialog
+«Person hinzufügen». Neue Personen-Auswahlen damit bauen.
+
+**Markierter Tag in der Wochenübersicht** (Sprung `?tag=` aus der Freigabe-Karte): bleibt, solange man im markierten Tag
+arbeitet; einen anderen Tag öffnen oder die Woche wechseln hebt sie auf, auch in der Adresse (`markierungWeg()` in
+Cockpit.tsx, 12.10.2026).
+
 ## Planung je Tag (0036, Mehmeti 10./11.10.2026)
 
 `/planung` volle Breite (`Shell breit`), alle Tage gleich breit, Teamspalte bleibt beim Scrollen stehen und zeigt die

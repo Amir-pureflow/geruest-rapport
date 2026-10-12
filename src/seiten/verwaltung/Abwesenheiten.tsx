@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { CalendarOff } from 'lucide-react';
+import { CalendarOff, Users } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { addTage, ausIso, iso, stunden } from '../../lib/datum';
 import { normaltagMin } from '../../lib/einstellungen';
@@ -8,6 +8,7 @@ import { ARTEN, artText, bloecke, werktage, type Abwesenheit, type AbwesenheitAr
 import { DatumWahl } from '../../ui/DatumWahl';
 import { Blaettern, Segment } from '../../ui/Segment';
 import { Avatar } from '../../ui/Dialog';
+import { PersonWahl } from '../../ui/PersonWahl';
 import { ArtPille } from '../../ui/ArtPille';
 import { LoeschLeiste, Papierkorb, type Frage } from '../../ui/LoeschFrage';
 import { MONATE } from '../../ui/Karten';
@@ -146,11 +147,8 @@ export function Abwesenheiten() {
         <div className="grid gap-3 sm:grid-cols-2">
           <div>
             <label className="lbl" htmlFor="abw-person">Person</label>
-            <select id="abw-person" value={personId} onChange={(e) => setPersonId(e.target.value)} className="field">
-              <option value="">Person wählen …</option>
-              <option value={ALLE}>Alle Mitarbeitenden (z. B. Feiertag)</option>
-              {leute.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-            </select>
+            <PersonWahl id="abw-person" leute={leute} wert={personId} aendern={setPersonId}
+              oben={{ id: ALLE, text: 'Alle Mitarbeitenden', hinweis: 'z. B. ein Feiertag für alle', icon: <Users size={14} aria-hidden="true" /> }} />
           </div>
           <div className="grid grid-cols-2 gap-2">
             <div>
