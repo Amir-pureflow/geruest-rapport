@@ -274,10 +274,16 @@ unbezahlt). Wirkung: Teamgerät hakt Abwesende ab (mit Pille, antippen geht trot
 Export: Spalte «Abwesend» im Lohn (nicht im Total), Reiter + Blatt «Abwesenheiten». Logik in `src/lib/abwesenheit.ts`,
 `mitAbwesenheiten()` in lohn.ts.
 
-**Person wählen** (12.10.2026, Amir: «mach das cleaner»): keine Browser-Auswahlliste mehr, sondern `src/ui/PersonWahl.tsx` —
-Feld wie die anderen, antippen klappt Liste mit Suche auf (Avatar, Name, Zusatz «temp»/«Beispiel» statt «(Bsp.)» im
-Namen, `src/lib/namen.ts`), optional ein Eintrag oben («Alle Mitarbeitenden»). Im Einsatz: Abwesenheiten, Team-Dialog
-«Person hinzufügen». Neue Personen-Auswahlen damit bauen.
+**Keine Browser-Auswahllisten** (12.10.2026, Amir: «mach das cleaner», überall): `src/ui/Auswahl.tsx` — Feld wie die
+anderen (`art="feld"`) oder Pille für Werkzeugleisten (`art="pille"`, am rechten Rand rechtsbündig); Liste mit Suche ab
+elf Einträgen, Einträge mit Bild vorne, Unterzeile, Marken, Trennlinie; immer nur eine Liste offen. `PersonWahl.tsx` =
+Auswahl mit Avatar und «Beispiel» statt «(Bsp.)» (`src/lib/namen.ts`). Im Einsatz: Abwesenheiten (mit «Alle
+Mitarbeitenden»), Team-Dialog, Team im «Einsatz planen», Team-Filter im Export, Kunde bei Baustellen, Funktion und Sprache
+bei Mitarbeitenden (Anstellung als `Segment`). Kein `<select>` mehr in `src/` — neue Auswahlen damit bauen.
+
+**Modus nicht wählbar bei Kunden** (12.10.2026, Amir: «die zwei Optionen bei Arbnor und beim Sekretariat weg»): «Was der
+Chefmonteur am Abend meldet» und «Was das Sekretariat sieht» stehen nur noch in der Demo-Firma unter Einstellungen
+(`istDemoFirma()`); bei echten Firmen stellt PureFlow das ein (`konfiguration` per SQL).
 
 **Markierter Tag in der Wochenübersicht** (Sprung `?tag=` aus der Freigabe-Karte): bleibt, solange man im markierten Tag
 arbeitet; einen anderen Tag öffnen oder die Woche wechseln hebt sie auf, auch in der Adresse (`markierungWeg()` in

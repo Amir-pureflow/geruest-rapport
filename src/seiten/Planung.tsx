@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Archive, ArrowRightLeft, CalendarDays, CalendarPlus, Check, ChevronLeft, ChevronRight, History, MousePointerClick, PencilLine, Plus, Search, Trash2, Undo2, UserPlus, Users, X } from 'lucide-react';
 import { Shell } from '../ui/Shell';
 import { Dialog, Avatar } from '../ui/Dialog';
+import { Auswahl } from '../ui/Auswahl';
 import { ArtPille } from '../ui/ArtPille';
 import { supabase } from '../lib/supabase';
 import { addTage, ausIso, iso, kurz, kw, lang, montag, WOCHENTAGE } from '../lib/datum';
@@ -1093,12 +1094,10 @@ function EinsatzDialog({
         </div>
 
         <div className="space-y-5">
-          <label className="block">
+          <div>
             <span className="lbl">Team</span>
-            <select className="field" value={teamId} onChange={(e) => setTeamId(e.target.value)}>
-              {teams.map((t) => <option key={t.id} value={t.id}>{t.bezeichnung}{t.chefmonteur ? ` · ${t.chefmonteur.name}` : ''}</option>)}
-            </select>
-          </label>
+            <Auswahl label="Team" optionen={teams.map((t) => ({ wert: t.id, text: t.bezeichnung, unter: t.chefmonteur?.name }))} wert={teamId} aendern={setTeamId} />
+          </div>
 
           <div>
             <span className="lbl">Baustelle</span>

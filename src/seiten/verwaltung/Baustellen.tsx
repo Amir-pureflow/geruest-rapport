@@ -3,6 +3,7 @@ import { Plus } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { ausIso, iso, lang } from '../../lib/datum';
 import { baustellenSuchen } from '../../lib/suche';
+import { Auswahl } from '../../ui/Auswahl';
 
 interface Baustelle { id: string; konto_nr: string; bezeichnung: string | null; status: 'aktiv' | 'fertig_gemeldet' | 'abgeschlossen'; fertigstellung_am: string | null; kunde_id: string | null }
 interface Kunde { id: string; name: string }
@@ -95,11 +96,9 @@ export function Baustellen() {
             {offen === b.id && (
               <div className="space-y-2 bg-surface-2 px-3 py-3">
                 <div>
-                  <label className="lbl">Kunde / Bauleitung</label>
-                  <select value={b.kunde_id ?? ''} onChange={(e) => void aendern(b.id, { kunde_id: e.target.value || null })} className="field">
-                    <option value="">– kein Kunde –</option>
-                    {kunden.map((k) => <option key={k.id} value={k.id}>{k.name}</option>)}
-                  </select>
+                  <span className="lbl">Kunde / Bauleitung</span>
+                  <Auswahl label="Kunde / Bauleitung" wert={b.kunde_id ?? ''} aendern={(k) => void aendern(b.id, { kunde_id: k || null })} leer="Kein Kunde gefunden."
+                    optionen={[{ wert: '', text: 'Kein Kunde', trenner: true }, ...kunden.map((k) => ({ wert: k.id, text: k.name }))]} />
                 </div>
                 <div className="flex flex-wrap gap-2">
                   {b.status === 'aktiv' && (

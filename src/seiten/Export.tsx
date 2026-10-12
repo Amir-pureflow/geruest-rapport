@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { AlarmClock, Building2, ChevronDown, Clock, Download, FileSpreadsheet, HardHat, Users } from 'lucide-react';
+import { AlarmClock, Building2, Clock, Download, FileSpreadsheet, HardHat, Users } from 'lucide-react';
 import { lieferwagenTagRp } from '../lib/einstellungen';
 import { Shell } from '../ui/Shell';
 import { supabase } from '../lib/supabase';
@@ -12,6 +12,7 @@ import { bueroExcel, rapportExcel } from '../lib/excel';
 import { lieferwagenTage, type LieferZeile } from '../lib/lieferwagen';
 import { ARTEN, artText } from '../lib/abwesenheit';
 import { ArtPille } from '../ui/ArtPille';
+import { Auswahl } from '../ui/Auswahl';
 import {
   lohnZeilen,
   mitAbwesenheiten,
@@ -365,15 +366,8 @@ export function Export() {
           {teams.length <= 6 ? (
             <Segment label="Team" wert={teamId} aendern={setTeamId} optionen={[{ wert: ALLE, text: 'alle Teams' }, ...teams.map((t) => ({ wert: t.id, text: t.bezeichnung }))]} />
           ) : (
-            <label className="relative inline-flex items-center">
-              <Users size={15} className="pointer-events-none absolute left-3 text-ink3" aria-hidden="true" />
-              <select value={teamId} onChange={(e) => setTeamId(e.target.value)} aria-label="Team"
-                className="appearance-none rounded-full border border-ink/10 bg-white py-2 pl-9 pr-9 text-xs font-semibold text-ink shadow-[0_1px_2px_rgb(17_17_19/0.06)] focus:border-accent focus:outline-none">
-                <option value={ALLE}>alle Teams</option>
-                {teams.map((t) => <option key={t.id} value={t.id}>{t.bezeichnung}</option>)}
-              </select>
-              <ChevronDown size={15} className="pointer-events-none absolute right-3 text-ink3" aria-hidden="true" />
-            </label>
+            <Auswahl art="pille" label="Team" icon={<Users size={15} aria-hidden="true" />} wert={teamId} aendern={setTeamId}
+              optionen={[{ wert: ALLE, text: 'alle Teams', trenner: true }, ...teams.map((t) => ({ wert: t.id, text: t.bezeichnung }))]} />
           )}
           <Schalter an={nurFrei} aendern={setNurFrei} text="nur Freigegebenes" />
           <button type="button" onClick={() => void excel()} disabled={zeilen.length === 0 && abw.length === 0 && lieferTage.length === 0}

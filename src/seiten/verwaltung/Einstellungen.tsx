@@ -12,6 +12,7 @@ import {
   type Briefkopf, type Einstellungen,
 } from '../../lib/einstellungen';
 import { Segment } from '../../ui/Segment';
+import { istDemoFirma } from '../../lib/demo';
 
 /** Häufige Normaltage im Bau: 8.0 · 8.2 · 8.4 (42-h-Woche) · 8.5 · 9.0 h. */
 const NORMALTAG_VORSCHLAEGE = [480, 492, 504, 510, 540];
@@ -420,6 +421,10 @@ export function Einstellungen() {
   // Kam beim Start nichts aus der Datenbank, zeigt die Seite unten nur die Standardwerte — das muss dastehen
   const ohneDatenbank = schalterGelesen() === false;
   const firma = eigeneFirma();
+  // Wie die Firma arbeitet (nur Stunden / mit Zusatzarbeit, was das Sekretariat sieht) stellt PureFlow beim Einrichten
+  // ein — in echten Firmen steht die Wahl nicht mehr auf der Seite (12.10.2026, Amir: «nimm das bei Arbnor weg»).
+  // Nur in der Demo-Firma bleibt sie, für Vorführungen. Umstellen bei Kunden: `konfiguration` per SQL.
+  const modusWaehlbar = istDemoFirma();
 
   async function setzen<K extends keyof Einstellungen>(feld: K, wert: Einstellungen[K]) {
     if (werte[feld] === wert || speichert) return;
@@ -452,7 +457,7 @@ export function Einstellungen() {
       <ZnueniKarte />
       <LieferwagenKarte />
 
-      {WAHLEN.map((w) => (
+      {modusWaehlbar && WAHLEN.map((w) => (
         <section key={w.feld} className="card space-y-2.5">
           <div>
             <h2 className="font-display text-[15px] font-semibold">{w.titel}</h2>
@@ -483,9 +488,11 @@ export function Einstellungen() {
 
       {werte.erfassung === 'regie' && <BriefkopfKarte />}
 
-      <p className="text-[11px] text-ink3">
-        Nach dem Umschalten lädt die App neu. Was schon gemeldet wurde, bleibt so, wie es ist.
-      </p>
+      {modusWaehlbar && (
+        <p className="text-[11px] text-ink3">
+          Nach dem Umschalten lädt die App neu. Was schon gemeldet wurde, bleibt so, wie es ist.
+        </p>
+      )}
     </div>
   );
 }

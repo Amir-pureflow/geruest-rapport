@@ -7,6 +7,8 @@ import { personEntfernen, personPruefen } from '../../lib/entfernen';
 import { LoeschLeiste, Papierkorb, useLoeschFrage } from '../../ui/LoeschFrage';
 import { Konto, type KontoInfo } from './Konto';
 import { FUNKTION_BUERO } from '../../lib/benutzername';
+import { Auswahl } from '../../ui/Auswahl';
+import { Segment } from '../../ui/Segment';
 
 interface Person {
   id?: string;
@@ -250,28 +252,22 @@ export function Mitarbeiter() {
               <input value={bearbeitet.name} onChange={(e) => f({ name: e.target.value })} placeholder="Vorname Name" className="field" />
             </label>
             <div className="grid gap-3 sm:grid-cols-2">
-              <label className="block">
+              <div>
                 <span className="lbl">Anstellung</span>
-                <select value={bearbeitet.typ} onChange={(e) => f({ typ: e.target.value as Person['typ'] })} className="field">
-                  <option value="intern">fest (intern)</option>
-                  <option value="temporaer">temporär</option>
-                  <option value="extern">extern</option>
-                </select>
-              </label>
-              <label className="block">
+                <Segment label="Anstellung" wert={bearbeitet.typ} aendern={(typ) => f({ typ })}
+                  optionen={[{ wert: 'intern', text: 'fest' }, { wert: 'temporaer', text: 'temporär' }, { wert: 'extern', text: 'extern' }]} />
+              </div>
+              <div>
                 <span className="lbl">Funktion (Tarif)</span>
-                <select value={bearbeitet.funktion} onChange={(e) => f({ funktion: e.target.value })} className="field">
-                  {tarife.personal.map((t) => <option key={t.code} value={t.code}>{t.bezeichnung}</option>)}
-                  {/* Büro-Leute (10.10.2026): ohne Tarif, melden keine Stunden — nicht Gast, nicht im Team */}
-                  <option value={FUNKTION_BUERO}>Büro / Sekretariat (ohne Tarif)</option>
-                </select>
-              </label>
-              <label className="block">
+                {/* Büro-Leute (10.10.2026): ohne Tarif, melden keine Stunden — nicht Gast, nicht im Team */}
+                <Auswahl label="Funktion (Tarif)" wert={bearbeitet.funktion} aendern={(funktion) => f({ funktion })}
+                  optionen={[...tarife.personal.map((t) => ({ wert: t.code, text: t.bezeichnung })), { wert: FUNKTION_BUERO, text: 'Büro / Sekretariat', marken: [{ text: 'ohne Tarif', leise: true }] }]} />
+              </div>
+              <div>
                 <span className="lbl">Sprache der Sprachnotiz</span>
-                <select value={bearbeitet.sprache} onChange={(e) => f({ sprache: e.target.value as Person['sprache'] })} className="field">
-                  {SPRACHEN.map(([k, l]) => <option key={k} value={k}>{l}</option>)}
-                </select>
-              </label>
+                <Auswahl label="Sprache der Sprachnotiz" wert={bearbeitet.sprache} aendern={(s) => f({ sprache: s as Person['sprache'] })}
+                  optionen={SPRACHEN.map(([k, l]) => ({ wert: k, text: l }))} />
+              </div>
               {hatTelefon && (
                 <label className="block">
                   <span className="lbl">Telefon <span className="font-normal text-ink3">(freiwillig)</span></span>
