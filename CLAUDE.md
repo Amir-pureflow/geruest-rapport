@@ -266,7 +266,8 @@ senkrechten Personennamen und Totalspalte. ExcelJS (~1 MB) wird per dynamischem 
 **Lieferwagen für Subunternehmer** (0036, Arbnor 10.10.2026): Sind Leute mit Anstellung «extern» dabei, zeigt das
 Teamgerät den Haken «Lieferwagen der Firma gebraucht» (`tagesmeldung.lieferwagen`). Betrag pro Tag in Verwaltung →
 Einstellungen (`firma.lieferwagen_tag_rp`, 0 = aus; Gerüst GmbH Fr. 100). Export: Reiter + Blatt «Lieferwagen», pro Team
-und Tag einmal (`src/lib/lieferwagen.ts`).
+und Tag einmal (`src/lib/lieferwagen.ts`), mit Spalte «Subunternehmer» = die Externen, die an dem Tag in der Meldung
+standen (13.10.2026, Amir). Offen bei Arbnor: Firma der Subunternehmer (Feld fehlt) und wer zahlt, wenn zwei im Team sind.
 
 **Abwesenheiten** (0036, Arbnor 10.10.2026): Verwaltung → Abwesenheiten (Sekretariat/Bauführer). Tabelle `abwesenheit`,
 eine Zeile je Person und Werktag (Zeitraum → Mo–Fr), `minuten` = bezahlte Zeit (Vorschlag `normaltagMin()`, halb, 0 bei

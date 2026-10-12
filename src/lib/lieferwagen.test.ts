@@ -24,6 +24,15 @@ describe('lieferwagenTage — pro Team und Tag einmal', () => {
   });
   it('ohne Team oder Baustelle bricht nichts', () => {
     const t = lieferwagenTage([{ datum: '2026-10-12', team_id: null, team: null, baustelle: null }], 10000);
-    expect(t).toEqual([{ datum: '2026-10-12', team: 'ohne Team', baustellen: '', betrag_rp: 10000 }]);
+    expect(t).toEqual([{ datum: '2026-10-12', team: 'ohne Team', baustellen: '', subunternehmer: '', betrag_rp: 10000 }]);
+  });
+  it('Subunternehmer: die Externen aus beiden Meldungen des Tages, ohne Doppelte, ohne Feste und Temporäre', () => {
+    const ma = (name: string, typ: string) => ({ mitarbeiter: { name, typ } });
+    const t = lieferwagenTage([
+      { ...z('2026-10-12', 'Team 1', '101'), zeiteintrag: [ma('Rui Santos', 'extern'), ma('Kushtrim Maliqi', 'intern'), ma('Ardit Berisha', 'extern')] },
+      { ...z('2026-10-12', 'Team 1', '102'), zeiteintrag: [ma('Rui Santos', 'extern'), ma('Pascal Steiner', 'temporaer')] },
+      { ...z('2026-10-13', 'Team 1', '101'), zeiteintrag: [ma('Kushtrim Maliqi', 'intern')] },
+    ], 10000);
+    expect(t.map((x) => `${x.datum}: ${x.subunternehmer}`)).toEqual(['2026-10-12: Ardit Berisha, Rui Santos', '2026-10-13: ']);
   });
 });

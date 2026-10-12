@@ -182,7 +182,7 @@ export function Export() {
       setJahr(j);
       // Lieferwagen (0036): eigene Abfrage — fehlt die Spalte noch, bleibt der Reiter leer statt den Export zu blockieren
       if (lohnSichtbar && lieferwagenTagRp() !== null) {
-        let q = c.from('tagesmeldung').select('datum,team_id,team:team_id(bezeichnung),baustelle:baustelle_id(konto_nr,bezeichnung)')
+        let q = c.from('tagesmeldung').select('datum,team_id,team:team_id(bezeichnung),baustelle:baustelle_id(konto_nr,bezeichnung),zeiteintrag(mitarbeiter:mitarbeiter_id(name,typ))')
           .eq('lieferwagen', true).gte('datum', vonIso).lte('datum', bisIso);
         if (teamId !== ALLE) q = q.eq('team_id', teamId);
         const { data, error } = await q.order('datum').limit(SEITE);
@@ -557,6 +557,7 @@ export function Export() {
                   <tr>
                     <th className={kopfZelle + ' pl-5 text-left'}>Tag</th>
                     <th className={kopfZelle + ' text-left'}>Team</th>
+                    <th className={kopfZelle + ' text-left'}>Subunternehmer</th>
                     <th className={kopfZelle + ' text-left'}>Baustelle</th>
                     <th className={kopfZelle + ' pr-5 text-right'}>Fr.</th>
                   </tr>
@@ -566,6 +567,7 @@ export function Export() {
                     <tr key={t.datum + t.team} className="border-t border-line transition-colors hover:bg-surface-2/40">
                       <td className="whitespace-nowrap py-2.5 pl-5 pr-3 tabular-nums text-ink2">{ausIso(t.datum).toLocaleDateString('de-CH', { weekday: 'short', day: '2-digit', month: '2-digit' })}</td>
                       <td className="whitespace-nowrap px-3 py-2.5 font-medium text-ink">{t.team}</td>
+                      <td className="px-3 py-2.5 text-ink">{t.subunternehmer || '—'}</td>
                       <td className="px-3 py-2.5 text-ink2">{t.baustellen || '—'}</td>
                       <td className="py-2.5 pl-3 pr-5 text-right tabular-nums text-ink">{(t.betrag_rp / 100).toFixed(2)}</td>
                     </tr>
@@ -573,7 +575,7 @@ export function Export() {
                 </tbody>
                 <tfoot>
                   <tr className="border-t-2 border-line-strong bg-surface-2/60">
-                    <td colSpan={3} className="py-3 pl-5 pr-3 text-sm font-semibold text-ink">Total · {lieferTage.length} {lieferTage.length === 1 ? 'Tag' : 'Tage'}</td>
+                    <td colSpan={4} className="py-3 pl-5 pr-3 text-sm font-semibold text-ink">Total · {lieferTage.length} {lieferTage.length === 1 ? 'Tag' : 'Tage'}</td>
                     <td className="py-3 pl-3 pr-5 text-right text-sm font-bold tabular-nums text-ink">{(summeLiefer / 100).toFixed(2)}</td>
                   </tr>
                 </tfoot>

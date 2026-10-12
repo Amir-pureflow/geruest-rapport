@@ -68,7 +68,7 @@ export interface LohnExportZeile {
 }
 export interface UeberExportZeile { name: string; typ: string; zeitraum_min: number; jahr_min: number }
 /** Ein Tag, an dem ein Team mit Subunternehmern den Lieferwagen der Firma hatte (0036) — pro Team und Tag einmal. */
-export interface LieferwagenExportZeile { datum: string; team: string; baustellen: string; betrag_rp: number }
+export interface LieferwagenExportZeile { datum: string; team: string; baustellen: string; subunternehmer: string; betrag_rp: number }
 /** Abwesenheiten (0036): Summe je Person und Art, darunter die einzelnen Tage. */
 export interface AbwesenheitExport {
   /** Spaltentitel der Arten, die vorkommen (Ferien, Krank …) */
@@ -405,13 +405,14 @@ function blattAbwesenheiten(wb: Workbook, vergeben: Set<string>, unter: Untertit
   druck(ws, `Abwesenheiten ${unter.zeitraum}`);
 }
 
-/** Lieferwagen für Subunternehmer (0036): Tag, Team, Baustelle, Betrag — pro Team und Tag eine Zeile, Total als Formel. */
+/** Lieferwagen für Subunternehmer (0036): Tag, Team, Subunternehmer, Baustelle, Betrag — pro Team und Tag eine Zeile, Total als Formel. */
 function blattLieferwagen(wb: Workbook, vergeben: Set<string>, unter: Untertitel, zeilen: LieferwagenExportZeile[]): void {
   const ws = neuesBlatt(wb, 'Lieferwagen', vergeben, F.stahl);
   const spalten: Spalte[] = [
     { titel: 'Tag', breite: 5 },
     { titel: 'Datum', breite: 12, art: 'datum' },
     { titel: 'Team', breite: 16 },
+    { titel: 'Subunternehmer', breite: 30 },
     { titel: 'Baustelle', breite: 40 },
     { titel: 'Fr.', breite: 11, art: 'fr', fett: true },
   ];
@@ -419,12 +420,12 @@ function blattLieferwagen(wb: Workbook, vergeben: Set<string>, unter: Untertitel
   const von = KOPF + 1;
   zeilen.forEach((z, i) => {
     const d = ausIso(z.datum);
-    zeile(ws, von + i, [WOCHENTAG[d.getDay()], new Date(d.getFullYear(), d.getMonth(), d.getDate(), 12), z.team, z.baustellen, z.betrag_rp / 100], spalten, { zebra: i % 2 === 1 });
+    zeile(ws, von + i, [WOCHENTAG[d.getDay()], new Date(d.getFullYear(), d.getMonth(), d.getDate(), 12), z.team, z.subunternehmer || '—', z.baustellen, z.betrag_rp / 100], spalten, { zebra: i % 2 === 1 });
   });
   const bis = von + zeilen.length - 1;
-  summe(ws, bis + 1, `Total (${zeilen.length} Tage)`, von, bis, spalten, [null, null, null, null, zeilen.reduce((s, z) => s + z.betrag_rp, 0) / 100]);
-  if (zeilen.length > 0) ws.autoFilter = { from: { row: KOPF, column: 1 }, to: { row: bis, column: 4 } };
-  fuss(ws, bis + 3, 'Beim Melden angetippt: «Lieferwagen der Firma gebraucht». Pro Team und Tag einmal, auch bei zwei Baustellen.');
+  summe(ws, bis + 1, `Total (${zeilen.length} Tage)`, von, bis, spalten, [null, null, null, null, null, zeilen.reduce((s, z) => s + z.betrag_rp, 0) / 100]);
+  if (zeilen.length > 0) ws.autoFilter = { from: { row: KOPF, column: 1 }, to: { row: bis, column: 5 } };
+  fuss(ws, bis + 3, 'Beim Melden angetippt: «Lieferwagen der Firma gebraucht». Pro Team und Tag einmal, auch bei zwei Baustellen. Subunternehmer = die Externen, die an dem Tag in der Meldung standen.');
   druck(ws, `Lieferwagen ${unter.zeitraum}`);
 }
 
