@@ -281,13 +281,18 @@ Das Ohr ist austauschbar: nur `stt()` in `supabase/functions/_shared/ohr.ts`. He
 ## Export (20.09.)
 
 Bauführer sieht unter `/export` nur das SORBA-Raster (Nav «SORBA-Raster»). Sekretariat: dazu Lohnstunden, Überstunden
-(Zeitraum + seit Jahresbeginn) und **je Temporärbüro ein eigenes Excel** mit nur dessen Leuten (`excelBuero`, Datei
+(Zeitraum + seit Jahresbeginn) und **je Temporärbüro ein eigenes Excel** mit nur dessen Leuten (`excelGruppe('buero')`, Datei
 `Temporaer_<Büro>_<Zeitraum>.xlsx`) — die Datei, die ans Büro geht. `lohnSichtbar` in Export.tsx.
+**Subunternehmer genauso** (13.10.2026, Amir: «für Subunternehmer auch Export-Liste wie Temporärbüro»): Reiter
+«Subunternehmer», je Firma eine Karte, ein Blatt im Gesamt-Excel (nach den Büros) und ein eigenes Excel
+(`excelGruppe('sub')`, Datei `Subunternehmer_<Firma>_<Zeitraum>.xlsx`). Gruppiert nach `mitarbeiter.subunternehmer_firma`
+(0040) bei Anstellung «extern» (`subunternehmerBlaetter` in lohn.ts); Externe ohne Firma → gelber Hinweis, kein eigenes
+Excel. Lohn-Blatt: Spalte «Büro / Firma» (Temporärbüro bzw. Firma des Subunternehmers, `firmaVon`).
 
 Das Excel baut `src/lib/excel.ts` mit **ExcelJS** (Amir 20.09.: «schöner vom Design und Layout her»): Titel + Untertitel
 (Zeitraum, Team, Filter, Stand) auf jedem Blatt, dunkle Kopfzeile, Zebrastreifen, Summenzeilen als echte SUM-Formeln,
 fixierte Kopfzeile, Autofilter, Querformat auf eine Seitenbreite. Stunden exakt (min/60, Format 0.00), nicht gerundet.
-Temporärbüro-Blatt: nach Person gruppiert mit Zwischensumme, darunter «Summe je Person» und Total. SORBA-Raster mit
+Temporärbüro-/Subunternehmer-Blatt: nach Person gruppiert mit Zwischensumme, darunter «Summe je Person» und Total. SORBA-Raster mit
 senkrechten Personennamen und Totalspalte. ExcelJS (~1 MB) wird per dynamischem Import erst beim Klick geladen. SheetJS
 (`xlsx`) ist raus — die freie Ausgabe kann keine Formatierung schreiben.
 
@@ -423,12 +428,12 @@ src/ui/Karten.tsx                 NavKarte, Kachel, MONATE — gemeinsam für al
 src/seiten/Tag.tsx                Tagesübersicht: welche Teams haben gemeldet, welche nicht
 src/seiten/Erfassung.tsx          Teamgerät: Kacheln, Anwesenheit (+ Gäste), Stundenzahl oder Zeiten von–bis, Sprachnotiz als Bemerkung zum Tag, Fotos
 src/seiten/Cockpit.tsx            Wochenübersicht: Raster Team × Tag (Farbe = Stand), Tag öffnen = Personen mit Stunden/Zeiten, Korrektur, Überstunden-Karte, Bemerkung, Freigabe
-src/seiten/Export.tsx             Bauführer: SORBA-Raster. Sekretariat: dazu Lohn, Überstunden, je Temporärbüro eigenes Excel
+src/seiten/Export.tsx             Bauführer: SORBA-Raster. Sekretariat: dazu Lohn, Überstunden, je Temporärbüro und je Subunternehmer eigenes Excel
 src/seiten/verwaltung/*           Mitarbeitende, Teams, Kunden, Baustellen, Demo (auf Amirs PC nur Demo.tsx und Kunden.tsx, Rest nur auf GitHub)
 src/lib/excel.ts                  Excel-Ausgabe mit ExcelJS: Blätter Lohn, Überstunden, je Büro, SORBA-Raster — Layout, Formeln, Druck
 src/lib/db.ts                     Dexie-Queue: Meldungen + Zeiteinträge + Audio + Fotos + Zusatzaufträge (Version 5)
 src/lib/zeiten.ts                 Zeiten von–bis: Uhrzeit ↔ Minuten, Spannen summieren (ohne Pausenrechnung), Mittag-Hinweis, Normal/Über aufteilen + Tests
-src/lib/lohn.ts                   Lohn-/Temporärbüro-/Überstunden-Aggregation (reine Funktionen) + Tests
+src/lib/lohn.ts                   Lohn-/Temporärbüro-/Subunternehmer-/Überstunden-Aggregation (reine Funktionen) + Tests
 src/lib/kennzahlen.ts             Diagramm «Freigabe Vorwoche» und Team-Board
 src/lib/demo.ts                   Deterministischer Demo-Betrieb (Meldungen mit Überstunden + Notizen) + Tests
 src/lib/demo_regie.ts             Demodaten für den Regie-Modus: Zusatzaufträge, Regierapporte in allen Stadien, Zustellnachweise
@@ -451,7 +456,7 @@ src/ui/FotoGalerie.tsx            Vorschau aus dem Bucket «anhaenge» (signiert
 src/ui/Sprachnotiz.tsx            Pegelbalken während der Aufnahme, Text-Enthüllung nach dem Speichern
 src/ui/Shell.tsx                  Rahmen: Büro-Ansichten mit Bereichsleiste (md) / Seitenleiste (lg), Baustellen-Ansichten Handy-Spalte
 supabase/functions/transkribieren Sprachnotiz → Text (Mistral)
-supabase/migrations/              0001–0015 historisch (inkl. Regie-Tabellen) · 0016 Zeiten von–bis · 0017 Firmen-Schalter (durch 0019 abgelöst) · 0019 mehrere Firmen, Rechte je Firma · 0020 Dateien und Rapportnummern je Firma · 0021 Briefkopf je Firma · 0026 normaler Arbeitstag je Firma · 0027 Zusatzauftrag «erledigt» ohne Regie · 0028 «Gelb markieren ab» je Firma · 0029 dritte Zeitspanne (Znüni-Pause abziehen) · 0030 absichtlich leer · 0031 Korrekturen nach normalem Arbeitstag der Firma · 0032 Einladung und Gerät (verworfen) · 0033 persönliche Zugänge, entfernt 0032 wieder · 0034 Konten aus der Verwaltung, Mail-Domain je Firma, inaktiv = kein Zugang · 0035 Funktionen nie ohne Anmeldung · 0036 Wünsche Arbnor/Mehmeti 10.10. (Pause je Firma, Lieferwagen, Abwesenheiten, Einsatz je Person) · 0037 Spanisch (es, Azure es-ES) · 0038 Verlauf der Planung (plan_verlauf + Auslöser) · 0039 Demo: Verlauf nach «Demo laden» leeren · 0040 Firma der Subunternehmer — **nächste freie Nummer: 0041** (vor dem Anlegen `git pull`, damit nicht zwei dieselbe Nummer nehmen)
+supabase/migrations/              0001–0015 historisch (inkl. Regie-Tabellen) · 0016 Zeiten von–bis · 0017 Firmen-Schalter (durch 0019 abgelöst) · 0019 mehrere Firmen, Rechte je Firma · 0020 Dateien und Rapportnummern je Firma · 0021 Briefkopf je Firma · 0026 normaler Arbeitstag je Firma · 0027 Zusatzauftrag «erledigt» ohne Regie · 0028 «Gelb markieren ab» je Firma · 0029 dritte Zeitspanne (Znüni-Pause abziehen) · 0030 absichtlich leer · 0031 Korrekturen nach normalem Arbeitstag der Firma · 0032 Einladung und Gerät (verworfen) · 0033 persönliche Zugänge, entfernt 0032 wieder · 0034 Konten aus der Verwaltung, Mail-Domain je Firma, inaktiv = kein Zugang · 0035 Funktionen nie ohne Anmeldung · 0036 Wünsche Arbnor/Mehmeti 10.10. (Pause je Firma, Lieferwagen, Abwesenheiten, Einsatz je Person) · 0037 Spanisch (es, Azure es-ES) · 0038 Verlauf der Planung (plan_verlauf + Auslöser) · 0039 Demo: Verlauf nach «Demo laden» leeren · 0040 Firma der Subunternehmer · 0041 Rechte je Rolle · 0042 Dateien am Regierapport · 0043 Meldung ersetzen in einer Transaktion · 0044 Pause am Morgen frei einstellbar — **nächste freie Nummer: 0045** (vor dem Anlegen `git pull`, damit nicht zwei dieselbe Nummer nehmen)
 archiv/regie-und-board/           Stand vom 20.09. als Nachschlagewerk — nicht mehr die Quelle (Regie ist zurück, hinter Schaltern)
 ```
 

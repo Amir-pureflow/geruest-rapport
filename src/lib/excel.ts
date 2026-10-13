@@ -225,7 +225,7 @@ function blattLohn(wb: Workbook, vergeben: Set<string>, unter: Untertitel, spalt
   const spalten: Spalte[] = [
     { titel: 'Name', breite: 26 },
     { titel: 'Anstellung', breite: 11 },
-    { titel: 'Temporärbüro', breite: 18 },
+    { titel: 'Büro / Firma', breite: 20 },
     ...spaltenTitel.map((t) => ({ titel: t, breite: monat ? 9 : 8, art: 'h' as const })),
     { titel: monat ? 'Monat h' : 'Total h', breite: 10, art: 'h', fett: true },
     { titel: 'davon Über h', breite: 12, art: 'h' },
@@ -459,7 +459,12 @@ export interface RapportExport {
   monat: boolean;
   jahr: string;
   /** null = Bauführer, nur Raster */
-  lohn: { spalten: string[]; zeilen: LohnExportZeile[]; ueber: UeberExportZeile[]; bueros: BueroBlatt[]; lieferwagen?: LieferwagenExportZeile[]; abwesenheiten?: AbwesenheitExport } | null;
+  lohn: {
+    spalten: string[]; zeilen: LohnExportZeile[]; ueber: UeberExportZeile[]; bueros: BueroBlatt[];
+    /** Je Subunternehmer-Firma ein Blatt, wie bei den Temporärbüros (13.10.2026) */
+    subunternehmer?: BueroBlatt[];
+    lieferwagen?: LieferwagenExportZeile[]; abwesenheiten?: AbwesenheitExport;
+  } | null;
   raster: RasterExport;
   dateiname: string;
 }
@@ -474,13 +479,14 @@ export async function rapportExcel(d: RapportExport): Promise<void> {
     blattUeberstunden(wb, vergeben, d.unter, d.monat, d.jahr, d.lohn.ueber);
     if (d.lohn.abwesenheiten?.personen.length) blattAbwesenheiten(wb, vergeben, d.unter, d.lohn.abwesenheiten);
     for (const b of d.lohn.bueros) blattBuero(wb, vergeben, d.unter, b);
+    for (const s of d.lohn.subunternehmer ?? []) blattBuero(wb, vergeben, d.unter, s);
     if (d.lohn.lieferwagen?.length) blattLieferwagen(wb, vergeben, d.unter, d.lohn.lieferwagen);
   }
   blattRaster(wb, vergeben, d.unter, d.raster);
   await herunterladen(wb, d.dateiname);
 }
 
-/** Nur ein Temporärbüro, nur dessen Leute — die Datei, die das Sekretariat dem Büro schickt. */
+/** Nur ein Temporärbüro bzw. ein Subunternehmer, nur dessen Leute — die Datei, die das Sekretariat weiterschickt. */
 export async function bueroExcel(b: BueroBlatt, unter: Untertitel, dateiname: string): Promise<void> {
   const E = await lade();
   const wb = neuesBuch(E);

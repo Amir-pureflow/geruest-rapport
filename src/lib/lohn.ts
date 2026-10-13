@@ -16,6 +16,8 @@ export interface LohnPerson {
   /** 'intern' | 'extern' | 'temporaer' */
   typ: string;
   temporaerbuero: string | null;
+  /** Firma eines Subunternehmers (Migration 0040, nur bei typ 'extern') */
+  subunternehmer_firma?: string | null;
 }
 
 export interface LohnEintrag {
@@ -159,15 +161,30 @@ export interface BueroBlatt {
 
 /** Ersatzgruppe für Temporäre ohne eingetragenes Büro — kein echtes Büro, bekommt kein eigenes Excel. */
 export const OHNE_BUERO = 'ohne Büro';
+/** Ersatzgruppe für Subunternehmer ohne eingetragene Firma — bekommt kein eigenes Excel. */
+export const OHNE_FIRMA = 'ohne Firma';
 
 /** Je Temporärbüro ein Blatt. Nur Personen mit typ 'temporaer'; ohne Büro → OHNE_BUERO. */
 export function temporaerBueroBlaetter(eintraege: LohnEintrag[]): BueroBlatt[] {
+  return gruppenBlaetter(eintraege, (p) => (p.typ === 'temporaer' ? p.temporaerbuero?.trim() || OHNE_BUERO : null));
+}
+
+/**
+ * Je Subunternehmer-Firma ein Blatt (13.10.2026, Amir: «für Subunternehmer auch Export-Liste wie Temporärbüro»).
+ * Nur Personen mit typ 'extern', gruppiert nach `subunternehmer_firma`; ohne Firma → OHNE_FIRMA.
+ */
+export function subunternehmerBlaetter(eintraege: LohnEintrag[]): BueroBlatt[] {
+  return gruppenBlaetter(eintraege, (p) => (p.typ === 'extern' ? p.subunternehmer_firma?.trim() || OHNE_FIRMA : null));
+}
+
+/** Person × Tag × Konto je Gruppe (Büro bzw. Firma), mit Summe je Person. `gruppe` null = Person gehört in keine Gruppe. */
+function gruppenBlaetter(eintraege: LohnEintrag[], gruppe: (p: LohnPerson) => string | null): BueroBlatt[] {
   const bueros = new Map<string, Map<string, BueroZeile>>();
   for (const e of eintraege) {
-    if (e.mitarbeiter.typ !== 'temporaer') continue;
+    const buero = gruppe(e.mitarbeiter);
+    if (buero === null) continue;
     mussInt(e.normal_min, 'normal_min');
     mussInt(e.ueber_min, 'ueber_min');
-    const buero = e.mitarbeiter.temporaerbuero?.trim() || OHNE_BUERO;
     const konto = e.konto_nr ?? '—';
     const zeilen = bueros.get(buero) ?? new Map<string, BueroZeile>();
     const key = `${e.mitarbeiter.id}|${e.datum}|${konto}`;

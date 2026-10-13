@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { AlarmClock, Building2, Clock, Download, FileSpreadsheet, HardHat, Users } from 'lucide-react';
+import { AlarmClock, Building2, Clock, Download, FileSpreadsheet, Handshake, HardHat, Users, type LucideIcon } from 'lucide-react';
 import { lieferwagenTagRp } from '../lib/einstellungen';
 import { Shell } from '../ui/Shell';
 import { supabase } from '../lib/supabase';
@@ -21,13 +21,17 @@ import {
   mitAbwesenheiten,
   monatsGrenzen,
   monatsSpalten,
+  subunternehmerBlaetter,
   temporaerBueroBlaetter,
   ueberstunden,
   wochenImMonat,
   wochenSpalten,
   wochenTitel,
   OHNE_BUERO,
+  OHNE_FIRMA,
+  type BueroBlatt,
   type LohnEintrag,
+  type LohnPerson,
   type LohnZeile,
 } from '../lib/lohn';
 
@@ -40,6 +44,8 @@ import {
  * Rechte (Bauführer 20.09.: «Bauführer kein zugriff hier drauf»): Der Bauführer sieht nur das
  * SORBA-Raster — Lohnstunden, Überstunden und Temporärbüros gehören dem Sekretariat. Das
  * Sekretariat kann je Temporärbüro ein eigenes Excel ziehen (nur deren Leute), zum Weiterschicken.
+ * Gleich für die Subunternehmer (13.10.2026, Amir: «für Subunternehmer auch Export-Liste wie Temporärbüro»):
+ * je Firma eine Karte, ein Blatt im Gesamt-Excel und ein eigenes Excel — gruppiert nach der Firma bei der Person.
  *
  * Die Rechnerei liegt in src/lib/lohn.ts (mit Tests); hier nur Laden und Anzeigen. Das Excel selbst
  * (Aufbau, Farben, Formeln, Druck) baut src/lib/excel.ts mit ExcelJS — nachgeladen erst beim Klick.
@@ -51,7 +57,7 @@ import {
 
 interface Zeile {
   normal_min: number; ueber_min: number; oev: boolean; km: number; status: string; konto_nr: string | null;
-  mitarbeiter: { id: string; name: string; typ: string; funktion: string; temporaerbuero: string | null };
+  mitarbeiter: { id: string; name: string; typ: string; funktion: string; temporaerbuero: string | null; subunternehmer_firma: string | null };
   tagesmeldung: { datum: string; normalfall: boolean; team_id: string | null; baustelle: { konto_nr: string; bezeichnung: string | null } | null };
 }
 interface JahresZeile {
@@ -62,9 +68,9 @@ interface JahresZeile {
 interface Team { id: string; bezeichnung: string }
 type Zeitraum = ZeitraumArt;
 /** Reiter der Export-Seite (06.10.2026): eine Tabelle auf einmal statt vier Blöcke untereinander */
-type Tab = 'lohn' | 'ueber' | 'abw' | 'bueros' | 'liefer' | 'raster';
+type Tab = 'lohn' | 'ueber' | 'abw' | 'bueros' | 'sub' | 'liefer' | 'raster';
 /** Abwesenheitstag aus der Verwaltung (0036) */
-interface AbwZeile { datum: string; art: string; minuten: number; mitarbeiter: { id: string; name: string; typ: string; temporaerbuero: string | null } }
+interface AbwZeile { datum: string; art: string; minuten: number; mitarbeiter: { id: string; name: string; typ: string; temporaerbuero: string | null; subunternehmer_firma: string | null } }
 /** Eine Ladung — gehört zu genau einer Abfrage (Zeitraum, Team, Filter) und weiss, wann sie lief: das ist der «Stand». */
 interface Daten {
   schluessel: string; stand: Date; zeilen: Zeile[]; jahr: JahresZeile[]; liefer: LieferZeile[]; abw: AbwZeile[];
@@ -88,13 +94,20 @@ function startAusUrl(): { anker: Date; zeitraum: Zeitraum } {
 function zuEintrag(z: Zeile): LohnEintrag {
   return {
     datum: z.tagesmeldung.datum,
-    mitarbeiter: { id: z.mitarbeiter.id, name: z.mitarbeiter.name, typ: z.mitarbeiter.typ, temporaerbuero: z.mitarbeiter.temporaerbuero },
+    mitarbeiter: { id: z.mitarbeiter.id, name: z.mitarbeiter.name, typ: z.mitarbeiter.typ, temporaerbuero: z.mitarbeiter.temporaerbuero, subunternehmer_firma: z.mitarbeiter.subunternehmer_firma },
     normal_min: z.normal_min,
     ueber_min: z.ueber_min,
     oev: z.oev,
     km: z.km,
     konto_nr: z.konto_nr ?? z.tagesmeldung.baustelle?.konto_nr ?? null,
   };
+}
+
+/** Spalte «Büro / Firma» im Lohn-Blatt und Schild in der Lohntabelle: Temporärbüro bzw. Firma des Subunternehmers. */
+function firmaVon(p: LohnPerson): string | null {
+  if (p.typ === 'temporaer') return p.temporaerbuero?.trim() || null;
+  if (p.typ === 'extern') return p.subunternehmer_firma?.trim() || null;
+  return null;
 }
 
 /** Dateiname ohne Zeichen, die Windows/macOS nicht mögen. */
@@ -134,6 +147,10 @@ function auswerten(d: Daten | null, zeitraum: Zeitraum, wochen: Date[], anker: D
   // Nur echte Büros bekommen Karte, Blatt und eigenes Excel; Temporäre ohne Büro stehen im Lohn-Blatt und als Hinweis
   const bueros = alleBueros.filter((b) => b.buero !== OHNE_BUERO);
   const ohneBuero = alleBueros.find((b) => b.buero === OHNE_BUERO);
+  // Subunternehmer genauso: je Firma Karte, Blatt, eigenes Excel; ohne Firma nur Hinweis
+  const alleSub = subunternehmerBlaetter(eintraege);
+  const subFirmen = alleSub.filter((b) => b.buero !== OHNE_FIRMA);
+  const ohneFirma = alleSub.find((b) => b.buero === OHNE_FIRMA);
   const ueber = ueberstunden(
     eintraege,
     (d?.jahr ?? []).map((j) => ({ datum: j.tagesmeldung.datum, mitarbeiter: j.mitarbeiter, normal_min: 0, ueber_min: j.ueber_min, oev: false, km: 0, konto_nr: null })),
@@ -152,7 +169,7 @@ function auswerten(d: Daten | null, zeitraum: Zeitraum, wochen: Date[], anker: D
     vorgaenge.set(key, v);
   }
   const raster = { personen, vorgaenge: [...vorgaenge.values()].sort((a, b) => a.konto.localeCompare(b.konto) || Number(a.regie) - Number(b.regie)) };
-  return { zeilen, abw, lieferTage, lohn, abwArten, abwPersonen, bueros, ohneBuero, ueber, spalten, werte, raster };
+  return { zeilen, abw, lieferTage, lohn, abwArten, abwPersonen, bueros, ohneBuero, subFirmen, ohneFirma, ueber, spalten, werte, raster };
 }
 
 export function Export() {
@@ -217,7 +234,7 @@ export function Export() {
         alle<Zeile>((von, bis) => {
           let q = c
             .from('zeiteintrag')
-            .select('normal_min,ueber_min,oev,km,status,konto_nr,mitarbeiter:mitarbeiter_id(id,name,typ,funktion,temporaerbuero),tagesmeldung:tagesmeldung_id!inner(datum,normalfall,team_id,baustelle:baustelle_id(konto_nr,bezeichnung))')
+            .select('normal_min,ueber_min,oev,km,status,konto_nr,mitarbeiter:mitarbeiter_id(id,name,typ,funktion,temporaerbuero,subunternehmer_firma),tagesmeldung:tagesmeldung_id!inner(datum,normalfall,team_id,baustelle:baustelle_id(konto_nr,bezeichnung))')
             .gte('tagesmeldung.datum', vonIso).lte('tagesmeldung.datum', bisIso);
           if (teamId !== ALLE) q = q.eq('tagesmeldung.team_id', teamId);
           if (nurFrei) q = q.eq('status', 'freigegeben');
@@ -254,7 +271,7 @@ export function Export() {
             }
             if (ids && ids.length === 0) return [] as AbwZeile[];
             return alle<AbwZeile>((von, bis) => {
-              let q = c.from('abwesenheit').select('datum,art,minuten,mitarbeiter:mitarbeiter_id(id,name,typ,temporaerbuero)').gte('datum', vonIso).lte('datum', bisIso);
+              let q = c.from('abwesenheit').select('datum,art,minuten,mitarbeiter:mitarbeiter_id(id,name,typ,temporaerbuero,subunternehmer_firma)').gte('datum', vonIso).lte('datum', bisIso);
               if (ids) q = q.in('mitarbeiter_id', ids);
               return q.order('datum').order('id').range(von, bis);
             });
@@ -285,7 +302,7 @@ export function Export() {
   const anzeige = passend ?? (wartet ? daten : null);
   const veraltet = !passend && !!anzeige;
   const blende = 'transition-opacity duration-300 ' + (veraltet ? 'pointer-events-none opacity-50' : 'opacity-100');
-  const { zeilen, abw, lieferTage, lohn, abwArten, abwPersonen, bueros, ohneBuero, ueber, spalten, werte, raster } = useMemo(
+  const { zeilen, abw, lieferTage, lohn, abwArten, abwPersonen, bueros, ohneBuero, subFirmen, ohneFirma, ueber, spalten, werte, raster } = useMemo(
     () => auswerten(anzeige, anzeige?.zeitraum ?? zeitraum, anzeige?.wochen ?? wochen, anzeige?.anker ?? anker, tagRp),
     [anzeige, zeitraum, wochen, anker, tagRp],
   );
@@ -344,9 +361,10 @@ export function Export() {
         lohn: lohnSichtbar
           ? {
             spalten: x.spalten,
-            zeilen: x.lohn.map((l) => ({ name: l.person.name, typ: l.person.typ, buero: l.person.temporaerbuero, werte: x.werte(l), total_min: l.total_min, ueber_min: l.ueber_min, oevTage: l.oevTage, km: l.km, abwesend_min: l.abwesend_min })),
+            zeilen: x.lohn.map((l) => ({ name: l.person.name, typ: l.person.typ, buero: firmaVon(l.person), werte: x.werte(l), total_min: l.total_min, ueber_min: l.ueber_min, oevTage: l.oevTage, km: l.km, abwesend_min: l.abwesend_min })),
             ueber: x.ueber.map((u) => ({ name: u.person.name, typ: u.person.typ, zeitraum_min: u.zeitraum_min, jahr_min: u.jahr_min })),
             bueros: x.bueros,
+            subunternehmer: x.subFirmen,
             lieferwagen: x.lieferTage,
             abwesenheiten: {
               arten: x.abwArten.map(artText),
@@ -365,16 +383,20 @@ export function Export() {
     }
   }
 
-  /** Nur ein Temporärbüro, nur dessen Leute — die Datei, die das Sekretariat dem Büro schickt (Bauführer 20.09.). Auch frisch geladen. */
-  async function excelBuero(name: string) {
+  /**
+   * Nur ein Temporärbüro bzw. ein Subunternehmer, nur dessen Leute — die Datei, die das Sekretariat weiterschickt
+   * (Bauführer 20.09.; Subunternehmer seit 13.10.2026). Auch frisch geladen.
+   */
+  async function excelGruppe(art: 'buero' | 'sub', name: string) {
     if (excelLaeuft) return;
     setExcelLaeuft(true);
     try {
       const d = await laden();
       if (!d) return;
-      const b = auswerten(d, zeitraum, wochen, anker, lieferwagenTagRp()).bueros.find((x) => x.buero === name);
+      const x = auswerten(d, zeitraum, wochen, anker, lieferwagenTagRp());
+      const b = (art === 'buero' ? x.bueros : x.subFirmen).find((y) => y.buero === name);
       if (!b) { setFehler(`${name} hat ${zeitraumText} inzwischen keine Stunden mehr — kein Excel erstellt.`); return; }
-      await bueroExcel(b, { ...untertitel, stand: d.stand }, `Temporaer_${dateiName(b.buero)}_${dateiTeil}.xlsx`);
+      await bueroExcel(b, { ...untertitel, stand: d.stand }, `${art === 'buero' ? 'Temporaer' : 'Subunternehmer'}_${dateiName(b.buero)}_${dateiTeil}.xlsx`);
     } catch (e) {
       setFehler('Excel: ' + (e instanceof Error ? e.message : String(e)));
     } finally {
@@ -387,6 +409,7 @@ export function Export() {
     { wert: 'ueber', text: 'Überstunden', n: ueberListe.length },
     ...(mitAbw ? [{ wert: 'abw' as const, text: 'Abwesenheiten', n: abwPersonen.length }] : []),
     { wert: 'bueros', text: 'Temporärbüros', n: bueros.length },
+    { wert: 'sub', text: 'Subunternehmer', n: subFirmen.length },
     ...((tagRp !== null && tagRp > 0) || lieferTage.length > 0 ? [{ wert: 'liefer' as const, text: 'Lieferwagen', n: lieferTage.length }] : []),
     { wert: 'raster', text: 'Stundenraster', n: raster.vorgaenge.length },
   ];
@@ -403,7 +426,7 @@ export function Export() {
             <h1 className="font-display text-[26px] font-semibold tracking-tight lg:text-[28px]">{lohnSichtbar ? 'Export' : 'Stundenraster'}</h1>
             <p className="mt-1 max-w-xl text-sm text-ink3">
               {lohnSichtbar
-                ? 'Die freigegebenen Stunden fürs Lohnbüro — ein Excel mit Lohn, Überstunden und je Temporärbüro einem Blatt.'
+                ? 'Die freigegebenen Stunden fürs Lohnbüro — ein Excel mit Lohn, Überstunden und je Temporärbüro und Subunternehmer einem Blatt.'
                 : 'Die freigegebenen Stunden je Baustelle und Person — zum Abtippen ins Lohnsystem.'}
             </p>
           </div>
@@ -450,6 +473,7 @@ export function Export() {
                 {tab === 'lohn' && 'Ein Blatt «Lohn» im Excel — Stunden je Person und Tag'}
                 {tab === 'ueber' && 'Blatt «Überstunden» — Zeitraum und seit 1. Januar'}
                 {tab === 'bueros' && 'Je Büro ein eigenes Blatt — oder ein eigenes Excel zum Weiterschicken'}
+                {tab === 'sub' && 'Je Firma ein eigenes Blatt — oder ein eigenes Excel zum Weiterschicken'}
                 {tab === 'liefer' && 'Blatt «Lieferwagen» — pro Team und Tag einmal'}
                 {tab === 'abw' && 'Blatt «Abwesenheiten» — vom Sekretariat in der Verwaltung eingetragen'}
                 {tab === 'raster' && 'Zeile Baustelle, Spalte Person'}
@@ -474,7 +498,7 @@ export function Export() {
                     <tr key={l.person.id} className="border-t border-line transition-colors hover:bg-surface-2/40">
                       <td className="whitespace-nowrap py-2.5 pl-5 pr-3">
                         <span className="font-medium text-ink">{l.person.name}</span>
-                        {l.person.typ === 'temporaer' && l.person.temporaerbuero && <span className="ml-2 rounded-full bg-steel-soft px-2 py-0.5 text-[11px] font-semibold text-steel">{l.person.temporaerbuero}</span>}
+                        {firmaVon(l.person) && <span className="ml-2 rounded-full bg-steel-soft px-2 py-0.5 text-[11px] font-semibold text-steel">{firmaVon(l.person)}</span>}
                       </td>
                       {werte(l).map((t, i) => {
                         // Woche: an einem Abwesenheitstag ohne Arbeit steht die Art statt eines Punkts
@@ -531,39 +555,13 @@ export function Export() {
           ))}
 
           {tab === 'bueros' && (bueros.length === 0 && !ohneBuero ? leer('Stunden von Temporären') : (
-            <div className="grid gap-3 p-4 sm:grid-cols-2">
-              {ohneBuero && (
-                <div className="rounded-[16px] border border-amber/40 bg-amber-soft/60 p-4 sm:col-span-2">
-                  <p className="text-sm font-semibold text-amber-deep">Temporär, aber kein Büro eingetragen</p>
-                  <p className="mt-0.5 text-xs text-ink2">
-                    {ohneBuero.personen.map((p) => `${p.name} ${stunden(p.total_min)} h`).join(' · ')} — die Stunden stehen im Lohn-Blatt. Für ein eigenes Büro-Excel das Temporärbüro eintragen.{' '}
-                    <Link to="/verwaltung" className="font-semibold text-steel">Zur Verwaltung ›</Link>
-                  </p>
-                </div>
-              )}
-              {bueros.map((b) => (
-                <div key={b.buero} className="flex flex-col rounded-[16px] border border-line bg-gradient-to-br from-white to-[#f6f4ef] p-4">
-                  <div className="flex items-start justify-between gap-3">
-                    <span className="flex min-w-0 items-center gap-2.5">
-                      <span className="grid h-9 w-9 flex-none place-items-center rounded-[12px] bg-steel text-white shadow-[0_4px_10px_-4px_rgb(17_17_19/0.35)]" aria-hidden="true"><Building2 size={17} strokeWidth={2.2} /></span>
-                      <span className="min-w-0">
-                        <span className="block truncate text-[15px] font-semibold text-ink">{b.buero}</span>
-                        <span className="block text-xs text-ink3">{b.personen.length} {b.personen.length === 1 ? 'Person' : 'Personen'}</span>
-                      </span>
-                    </span>
-                    <span className="text-[22px] font-semibold leading-none tabular-nums tracking-tight text-ink">{stunden(b.total_min)} h</span>
-                  </div>
-                  <ul className="mt-3 flex-1 space-y-1 text-[13px]">
-                    {b.personen.map((p) => (
-                      <li key={p.name} className="flex justify-between gap-3 text-ink2"><span className="truncate">{p.name}</span><span className="tabular-nums text-ink">{stunden(p.total_min)}</span></li>
-                    ))}
-                  </ul>
-                  <button type="button" onClick={() => void excelBuero(b.buero)} disabled={excelGesperrt} className="btn-ghost mt-3 self-start disabled:opacity-50">
-                    <Download size={14} strokeWidth={2.4} aria-hidden="true" /> Excel für {b.buero}
-                  </button>
-                </div>
-              ))}
-            </div>
+            <GruppenKarten blaetter={bueros} ohne={ohneBuero} icon={Building2} gesperrt={excelGesperrt} excel={(n) => void excelGruppe('buero', n)}
+              ohneTitel="Temporär, aber kein Büro eingetragen" ohneText="Für ein eigenes Büro-Excel das Temporärbüro eintragen." />
+          ))}
+
+          {tab === 'sub' && (subFirmen.length === 0 && !ohneFirma ? leer('Stunden von Subunternehmern') : (
+            <GruppenKarten blaetter={subFirmen} ohne={ohneFirma} icon={Handshake} gesperrt={excelGesperrt} excel={(n) => void excelGruppe('sub', n)}
+              ohneTitel="Subunternehmer, aber keine Firma eingetragen" ohneText="Für ein eigenes Firmen-Excel bei der Person die Firma eintragen." />
           ))}
 
           {tab === 'abw' && (abwPersonen.length === 0 ? leer('Abwesenheiten') : (
@@ -661,10 +659,55 @@ export function Export() {
         <p className="flex items-center gap-2 text-xs text-ink3">
           <FileSpreadsheet size={14} aria-hidden="true" />
           {lohnSichtbar
-            ? <>Das Excel enthält: Lohn, Überstunden, je Temporärbüro ein Blatt (Person × Tag × Konto-Nr.){bueros.length > 0 ? ` — ${bueros.map((b) => b.buero).join(', ')}` : ''}{mitAbw ? ', Abwesenheiten' : ''}{lieferTage.length > 0 ? ', Lieferwagen' : ''}, Stundenraster.</>
+            ? <>Das Excel enthält: Lohn, Überstunden, je Temporärbüro und je Subunternehmer ein Blatt (Person × Tag × Konto-Nr.){bueros.length + subFirmen.length > 0 ? ` — ${[...bueros, ...subFirmen].map((b) => b.buero).join(', ')}` : ''}{mitAbw ? ', Abwesenheiten' : ''}{lieferTage.length > 0 ? ', Lieferwagen' : ''}, Stundenraster.</>
             : <>Lohnstunden und Temporärbüro-Abrechnung liegen beim Sekretariat.</>}
         </p>
       </div>
     </Shell>
+  );
+}
+
+/**
+ * Karten je Temporärbüro bzw. je Subunternehmer-Firma: Stunden, Leute, eigenes Excel zum Weiterschicken.
+ * `ohne` = Leute ohne eingetragenes Büro / ohne Firma — nur Hinweis, kein eigenes Excel (ihre Stunden stehen im Lohn-Blatt).
+ */
+function GruppenKarten({ blaetter, ohne, icon: Icon, gesperrt, excel, ohneTitel, ohneText }: {
+  blaetter: BueroBlatt[]; ohne: BueroBlatt | undefined; icon: LucideIcon; gesperrt: boolean; excel: (name: string) => void;
+  ohneTitel: string; ohneText: string;
+}) {
+  return (
+    <div className="grid gap-3 p-4 sm:grid-cols-2">
+      {ohne && (
+        <div className="rounded-[16px] border border-amber/40 bg-amber-soft/60 p-4 sm:col-span-2">
+          <p className="text-sm font-semibold text-amber-deep">{ohneTitel}</p>
+          <p className="mt-0.5 text-xs text-ink2">
+            {ohne.personen.map((p) => `${p.name} ${stunden(p.total_min)} h`).join(' · ')} — die Stunden stehen im Lohn-Blatt. {ohneText}{' '}
+            <Link to="/verwaltung" className="font-semibold text-steel">Zur Verwaltung ›</Link>
+          </p>
+        </div>
+      )}
+      {blaetter.map((b) => (
+        <div key={b.buero} className="flex flex-col rounded-[16px] border border-line bg-gradient-to-br from-white to-[#f6f4ef] p-4">
+          <div className="flex items-start justify-between gap-3">
+            <span className="flex min-w-0 items-center gap-2.5">
+              <span className="grid h-9 w-9 flex-none place-items-center rounded-[12px] bg-steel text-white shadow-[0_4px_10px_-4px_rgb(17_17_19/0.35)]" aria-hidden="true"><Icon size={17} strokeWidth={2.2} /></span>
+              <span className="min-w-0">
+                <span className="block truncate text-[15px] font-semibold text-ink">{b.buero}</span>
+                <span className="block text-xs text-ink3">{b.personen.length} {b.personen.length === 1 ? 'Person' : 'Personen'}</span>
+              </span>
+            </span>
+            <span className="text-[22px] font-semibold leading-none tabular-nums tracking-tight text-ink">{stunden(b.total_min)} h</span>
+          </div>
+          <ul className="mt-3 flex-1 space-y-1 text-[13px]">
+            {b.personen.map((p) => (
+              <li key={p.name} className="flex justify-between gap-3 text-ink2"><span className="truncate">{p.name}</span><span className="tabular-nums text-ink">{stunden(p.total_min)}</span></li>
+            ))}
+          </ul>
+          <button type="button" onClick={() => excel(b.buero)} disabled={gesperrt} className="btn-ghost mt-3 self-start disabled:opacity-50">
+            <Download size={14} strokeWidth={2.4} aria-hidden="true" /> Excel für {b.buero}
+          </button>
+        </div>
+      ))}
+    </div>
   );
 }

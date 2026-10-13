@@ -6,6 +6,8 @@ import {
   monatsGrenzen,
   monatsSpalten,
   temporaerBueroBlaetter,
+  subunternehmerBlaetter,
+  OHNE_FIRMA,
   ueberstunden,
   blattName,
   mitAbwesenheiten,
@@ -154,5 +156,29 @@ describe('mitAbwesenheiten — Ferien, Krank … im Lohnblatt (0036)', () => {
   });
   it('Minuten müssen ganzzahlig sein', () => {
     expect(() => mitAbwesenheiten([], [{ datum: MO, mitarbeiter: huber, art: 'ferien', minuten: 4.5 }])).toThrow();
+  });
+});
+
+describe('subunternehmerBlaetter — je Firma ein Blatt (13.10.2026)', () => {
+  const krasniqi: LohnPerson = { id: 's1', name: 'Krasniqi Arben', typ: 'extern', temporaerbuero: null, subunternehmer_firma: 'Krasniqi Gerüste GmbH' };
+  const berisha: LohnPerson = { id: 's2', name: 'Berisha Driton', typ: 'extern', temporaerbuero: null, subunternehmer_firma: 'Krasniqi Gerüste GmbH' };
+  const santos: LohnPerson = { id: 's3', name: 'Santos Rui', typ: 'extern', temporaerbuero: null, subunternehmer_firma: '  Santos Montagen ' };
+  it('gruppiert Externe nach Firma, mit Personensummen; Feste und Temporäre gehören nicht dazu', () => {
+    const b = subunternehmerBlaetter([
+      e(krasniqi, MO, 480, 30), e(berisha, MO, 480), e(krasniqi, DI, 240, 0, { konto_nr: '903674' }),
+      e(santos, MO, 300), e(huber, MO, 480), e(ali, MO, 480),
+    ]);
+    expect(b.map((x) => x.buero)).toEqual(['Krasniqi Gerüste GmbH', 'Santos Montagen']);
+    expect(b[0].personen).toEqual([
+      { name: 'Berisha Driton', normal_min: 480, ueber_min: 0, total_min: 480 },
+      { name: 'Krasniqi Arben', normal_min: 720, ueber_min: 30, total_min: 750 },
+    ]);
+    expect(b[0].total_min).toBe(1230);
+    expect(b[1].total_min).toBe(300);
+  });
+  it('Externe ohne Firma landen unter «ohne Firma»', () => {
+    const b = subunternehmerBlaetter([e({ ...santos, subunternehmer_firma: null }, MO, 300), e({ ...santos, id: 's4', subunternehmer_firma: '   ' }, DI, 120)]);
+    expect(b.map((x) => x.buero)).toEqual([OHNE_FIRMA]);
+    expect(b[0].total_min).toBe(420);
   });
 });
