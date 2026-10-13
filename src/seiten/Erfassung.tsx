@@ -112,6 +112,18 @@ function wirksam(a: Anwesenheit, bisher = 0): { min: number; ueber: number } {
   return { min: t.normal_min, ueber: t.ueber_min };
 }
 
+/**
+ * Überstunden zum Anzeigen und Nachfragen — erst, wenn die Zeiten fertig sind. Fehlt noch ein «bis», ist der Tag nicht
+ * fertig: vorher stand auf einem schon gemeldeten Tag sofort «4.6 h über» (vorgefüllter Morgen), samt «Pflicht» für die
+ * Sprachnotiz, bevor jemand etwas eingetragen hatte (Amir 13.10.2026: «obwohl ich noch nichts angeklickt habe»).
+ * Speichern geht mit offenem «bis» ohnehin nicht.
+ */
+function ueberFertig(a: Anwesenheit | undefined, bisher = 0): number {
+  if (!a) return 0;
+  if (a.modus === 'zeit' && spannenOffen(a.zeiten) === 'fehlt') return 0;
+  return wirksam(a, bisher).ueber;
+}
+
 /** Objekt-URL für eine Aufnahme — einmal je Blob, beim Wechsel und am Ende wieder freigegeben (vorher bei jedem Neuzeichnen neu). */
 function useObjektUrl(blob: Blob | null | undefined): string | undefined {
   const [url, setUrl] = useState<string | undefined>(undefined);
@@ -1080,7 +1092,7 @@ export function Erfassung() {
     [heuteGemeldet, andere],
   );
   const bisherVon = (id: string) => bisherAnzeige.get(id) ?? 0;
-  const ueberTotal = dabei.reduce((s, p) => s + wirksam(anw[p.id], bisherVon(p.id)).ueber, 0);
+  const ueberTotal = dabei.reduce((s, p) => s + ueberFertig(anw[p.id], bisherVon(p.id)), 0);
   // Keine Überstunden mehr (Zeit geändert) → die Rückfrage ist hinfällig
   useEffect(() => { if (ueberTotal === 0) { setRegieFrage(false); setRegieAntwort(null); setNotizFehlt(false); } }, [ueberTotal]);
   useEffect(() => { setRegieAntwort(null); setNotizFehlt(false); }, [teamId, tagIso]);
@@ -1246,7 +1258,7 @@ export function Erfassung() {
 
   /** Überstunden in Worten, wie der Chefmonteur denkt: «1.6 h Überstunden je Person» — sind sie verschieden, das Teamtotal. */
   function ueberText(): string {
-    const je = dabei.map((p) => (anw[p.id] ? wirksam(anw[p.id], bisherVon(p.id)).ueber : 0)).filter((m) => m > 0);
+    const je = dabei.map((p) => ueberFertig(anw[p.id], bisherVon(p.id))).filter((m) => m > 0);
     if (je.length > 1 && je.every((m) => m === je[0]) && je.length === dabei.length) return `${stunden(je[0])} h Überstunden je Person`;
     return `${stunden(ueberTotal)} h Überstunden${je.length > 1 ? ' im Team' : ''}`;
   }
@@ -1579,7 +1591,7 @@ export function Erfassung() {
             ))}
           </div>
           <p className="text-xs text-ink3">Kunde = der Bauleiter hat es angeordnet · Unser Chef = kam von uns · Niemand = selbst gemacht, meist weil etwas kaputt war</p>
-          <button type="button" onClick={() => { setAbweichung(null); setSchritt('tag'); }} className="btn-ghost w-full">Zurück</button>
+          <button type="button" onClick={() => { setAbweichung(null); setRegieAntwort(null); setSchritt('tag'); }} className="btn-ghost w-full">Zurück</button>
         </div>
       </Shell>
     );
@@ -1991,7 +2003,7 @@ export function Erfassung() {
                     <div className="mt-2">
                       <div className="flex items-start gap-2">
                         <SpannenEditor klein spannen={a.zeiten} setSpannen={(z) => setAnw((s) => ({ ...s, [p.id]: { ...a, zeiten: z } }))} />
-                        {w.ueber > 0 && <span className="ml-auto shrink-0 pt-2 text-[11px] font-semibold text-amber-deep">{stunden(w.ueber)} h über</span>}
+                        {ueberFertig(a, bisherVon(p.id)) > 0 && <span className="ml-auto shrink-0 pt-2 text-[11px] font-semibold text-amber-deep">{stunden(w.ueber)} h über</span>}
                       </div>
                       <MittagHinweis spannen={a.zeiten} />
                     </div>
@@ -2084,16 +2096,7 @@ export function Erfassung() {
             <p className="text-sm font-semibold">
               {ueberTotal > 0 ? <>{ueberText()} — kurz sagen, warum{notizFehltNoch(ueberTotal) && <span className="ml-1.5 inline-block rounded-full bg-accent-soft px-2 py-0.5 align-[1px] text-[11px] font-semibold text-accent-deep">Pflicht</span>}</> : 'Bemerkung zum Tag — freiwillig'}
             </p>
-            {/* Regie-Modus: gleich hier fragen, nicht erst beim Melden — Antwort und Sprachnotiz in einem Zug */}
-            {modus === 'regie' && ueberTotal > 0 && (
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="text-sm text-ink2">War das Regie?</span>
-                <span className="flex rounded-full border border-ink/10 bg-white p-0.5 text-xs font-semibold" role="group" aria-label="War das Regie?">
-                  <button type="button" aria-pressed={regieAntwort === 'ja'} onClick={() => { setRegieAntwort('ja'); setRegieFrage(false); }} className={'rounded-full px-3 py-1.5 ' + (regieAntwort === 'ja' ? 'bg-ink text-white' : 'text-ink2')}>Ja, Regie</button>
-                  <button type="button" aria-pressed={regieAntwort === 'nein'} onClick={() => { setRegieAntwort('nein'); setRegieFrage(false); }} className={'rounded-full px-3 py-1.5 ' + (regieAntwort === 'nein' ? 'bg-ink text-white' : 'text-ink2')}>Nein, nur länger</button>
-                </span>
-              </div>
-            )}
+            {/* «War das Regie?» steht nicht mehr hier (Amir 13.10.2026: «ein bisschen verwirrend») — die App fragt einmal beim Melden */}
             {notizFehlt && !ueberAufnahme && !nimmtAuf && (
               <p className="text-sm font-semibold text-accent-deep">Zuerst kurz sagen, warum — dann nochmals «Tag melden».</p>
             )}
@@ -2127,9 +2130,7 @@ export function Erfassung() {
             </div>
             <p className="text-xs text-ink3">{ueberTotal > 0
               ? modus === 'regie'
-                ? regieAntwort === 'ja'
-                  ? 'Nach «Weiter zur Regie»: wer wollte es, wie lange — die Überstunden sind schon eingetragen.'
-                  : 'Regie = Arbeit, die der Kunde zusätzlich wollte. Der Bauführer sieht die Überstunden mit deiner Notiz.'
+                ? 'Der Bauführer sieht die Überstunden mit deiner Notiz. Beim Melden fragt die App, ob es Regie war.'
                 : 'Der Bauführer sieht die Überstunden mit deiner Notiz und gibt sie frei.'
               : 'Der Bauführer liest die Notiz in der Wochenübersicht — z. B. Material fehlt, Kunde war da, früher Schluss.'}</p>
         </section>

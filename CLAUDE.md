@@ -22,6 +22,9 @@ angezeigt. Der Knopf heisst immer «Tag melden» (nicht mehr «Alles wie geplant
 Sprachnotiz machen muss»): Schild «Pflicht» an der Karte, Zeile «Zuerst die Sprachnotiz» im grünen Knopf; «Tag melden»
 ohne Notiz springt zum Mikrofon (rot umrandet) — noch vor «War das Regie?». Im Regie-Schritt ebenso Pflicht (vorher
 «freiwillig»). Ohne Mikrofon auf dem Gerät geht es trotzdem (`notizPflichtPruefen` in Erfassung.tsx).
+«War das Regie?» steht nicht mehr als Schalter in der Karte («verwirrend») — nur noch einmal als Frage beim Melden.
+Überstunden (Anzeige «h über», Karte, «Pflicht», Regie-Frage) erst, wenn die Zeiten fertig sind (`ueberFertig`): vorher
+zeigte ein schon gemeldeter Tag mit vorgefülltem Morgen sofort «4.6 h über», ohne dass etwas eingetragen war.
 
 Kontext-Dokumente (eine Ebene höher):
 - `../PRODUKTKONZEPT_ZEITERFASSUNG_RAPPORTE_REGIE.md` — Fachkonzept (Regie-Teile historisch)
