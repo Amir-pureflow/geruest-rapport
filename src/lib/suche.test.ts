@@ -47,3 +47,20 @@ describe('Suche — Anfang zuerst, nicht irgendwo', () => {
     expect(suchRang('Archivstrasse', 'c')).toBeNull();
   });
 });
+
+describe('Suche — Postleitzahl (13.10.2026)', () => {
+  const mitPlz = [
+    { konto_nr: '903538', bezeichnung: 'Belp Steinbachstrasse 15', plz: '3123' },
+    { konto_nr: '903750', bezeichnung: 'Zollikofen Waldstrasse 6', plz: '3052' },
+    { konto_nr: '903052', bezeichnung: 'Aarstrasse 3', plz: null },
+  ];
+  it('PLZ von vorne findet die Baustelle; die Kontonummer bleibt vorne', () => {
+    // «3052» steckt auch in der Kontonummer 903052 (ab 3 Ziffern mittendrin) — die PLZ-Treffer kommen zuerst
+    expect(baustellenSuchen(mitPlz, '3052').map((x) => x.konto_nr)).toEqual(['903750', '903052']);
+    expect(baustellenSuchen(mitPlz, '312').map((x) => x.konto_nr)).toEqual(['903538']);
+    expect(baustellenSuchen(mitPlz, '903').map((x) => x.konto_nr)).toEqual(['903052', '903538', '903750']);
+  });
+  it('ohne PLZ-Feld (ältere Aufrufer) wie bisher', () => {
+    expect(baustellenSuchen([{ konto_nr: '901234', bezeichnung: 'Dorfstrasse 9' }], '3052')).toEqual([]);
+  });
+});

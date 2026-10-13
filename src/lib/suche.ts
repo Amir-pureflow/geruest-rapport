@@ -21,11 +21,11 @@ export function suchRang(text: string, suche: string): number | null {
   return null;
 }
 
-export interface Suchbar { konto_nr: string; bezeichnung: string | null }
+export interface Suchbar { konto_nr: string; bezeichnung: string | null; plz?: string | null }
 
 /**
- * Baustellen suchen: Kontonummer von vorne (ab 3 Ziffern auch mittendrin), Name nach Rang; bei gleichem Rang
- * alphabetisch. Leere Suche = leere Liste (die Aufrufer entscheiden, was sie dann zeigen).
+ * Baustellen suchen: Kontonummer von vorne (ab 3 Ziffern auch mittendrin), Postleitzahl von vorne (13.10.2026),
+ * Name nach Rang; bei gleichem Rang alphabetisch. Leere Suche = leere Liste (die Aufrufer entscheiden, was sie dann zeigen).
  */
 export function baustellenSuchen<T extends Suchbar>(liste: readonly T[], suche: string, max = 8): T[] {
   const q = suche.trim();
@@ -34,8 +34,9 @@ export function baustellenSuchen<T extends Suchbar>(liste: readonly T[], suche: 
   const bewertet: { b: T; rang: number }[] = [];
   for (const b of liste) {
     const nr = ziffern ? (b.konto_nr.startsWith(q) ? 0 : q.length >= 3 && b.konto_nr.includes(q) ? 2 : null) : null;
+    const plz = ziffern && b.plz?.startsWith(q) ? 1 : null;
     const name = suchRang(b.bezeichnung ?? '', q);
-    const rang = Math.min(nr ?? 9, name ?? 9);
+    const rang = Math.min(nr ?? 9, plz ?? 9, name ?? 9);
     if (rang < 9) bewertet.push({ b, rang });
   }
   return bewertet

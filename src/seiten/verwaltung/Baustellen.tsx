@@ -6,8 +6,43 @@ import { ausIso, iso, lang } from '../../lib/datum';
 import { baustellenSuchen } from '../../lib/suche';
 import { Auswahl } from '../../ui/Auswahl';
 
-interface Baustelle { id: string; konto_nr: string; bezeichnung: string | null; status: 'aktiv' | 'fertig_gemeldet' | 'abgeschlossen'; fertigstellung_am: string | null; kunde_id: string | null }
+interface Baustelle { id: string; konto_nr: string; bezeichnung: string | null; plz: string | null; status: 'aktiv' | 'fertig_gemeldet' | 'abgeschlossen'; fertigstellung_am: string | null; kunde_id: string | null }
 interface Kunde { id: string; name: string }
+
+/**
+ * Postleitzahl als eigenes Feld (13.10.2026, Amir: «dass man Postleitzahlen noch eingeben kann … separat»). Schweizer
+ * PLZ = vier Ziffern; leer ist erlaubt. Ort und Strasse stehen weiter in der Bezeichnung («Zollikofen Waldstrasse 6»).
+ */
+function plzPruefen(roh: string): { plz: string | null } | { fehler: string } {
+  const p = roh.trim();
+  if (!p) return { plz: null };
+  return /^\d{4}$/.test(p) ? { plz: p } : { fehler: 'Postleitzahl: vier Ziffern (z. B. 3052).' };
+}
+
+/** PLZ in der Detailansicht: speichert beim Verlassen des Feldes oder mit Enter, nur wenn sich etwas geändert hat. */
+function PlzFeld({ wert, speichern }: { wert: string | null; speichern: (plz: string | null) => Promise<string | null> }) {
+  const [text, setText] = useState(wert ?? '');
+  const [hinweis, setHinweis] = useState('');
+  useEffect(() => { setText(wert ?? ''); }, [wert]);
+  async function fertig() {
+    const p = plzPruefen(text);
+    if ('fehler' in p) { setHinweis(p.fehler); return; }
+    if (p.plz === (wert ?? null)) { setHinweis(''); return; }
+    const f = await speichern(p.plz);
+    setHinweis(f ? 'Nicht gespeichert: ' + f : 'Gespeichert ✓');
+  }
+  return (
+    <div>
+      <label className="lbl" htmlFor="bs-plz">Postleitzahl</label>
+      <div className="flex items-center gap-2">
+        <input id="bs-plz" value={text} onChange={(e) => { setText(e.target.value); setHinweis(''); }} onBlur={() => void fertig()}
+          onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
+          inputMode="numeric" maxLength={4} placeholder="PLZ" className="field w-24 font-mono" />
+        {hinweis && <span className={'text-xs ' + (hinweis.startsWith('Gespeichert') ? 'text-good-deep' : 'font-semibold text-accent-deep')}>{hinweis}</span>}
+      </div>
+    </div>
+  );
+}
 
 const STATUS: Record<Baustelle['status'], [string, string]> = {
   aktiv: ['aktiv', 'bg-good-soft text-good-deep'],
@@ -23,6 +58,7 @@ export function Baustellen() {
   const [offen, setOffen] = useState<string | null>(null);
   const [neuNr, setNeuNr] = useState('');
   const [neuBez, setNeuBez] = useState('');
+  const [neuPlz, setNeuPlz] = useState('');
   const [fehler, setFehler] = useState('');
   const [ladeFehler, setLadeFehler] = useState('');
   const [legtAn, setLegtAn] = useState(false);
@@ -33,7 +69,7 @@ export function Baustellen() {
     const c = supabase;
     try {
       const [b, k] = await Promise.all([
-        alle<Baustelle>((von, bis) => c.from('baustelle').select('id,konto_nr,bezeichnung,status,fertigstellung_am,kunde_id').order('bezeichnung').order('id').range(von, bis)),
+        alle<Baustelle>((von, bis) => c.from('baustelle').select('id,konto_nr,bezeichnung,plz,status,fertigstellung_am,kunde_id').order('bezeichnung').order('id').range(von, bis)),
         alle<Kunde>((von, bis) => c.from('kunde').select('id,name').order('name').order('id').range(von, bis)),
       ]);
       setListe(b);
@@ -51,22 +87,25 @@ export function Baustellen() {
     return q ? baustellenSuchen(imFilter, q, 60) : imFilter.slice(0, 60);
   }, [liste, suche, filter]);
 
-  async function aendern(id: string, patch: Partial<Baustelle>) {
-    if (!supabase) return;
+  async function aendern(id: string, patch: Partial<Baustelle>): Promise<string | null> {
+    if (!supabase) return 'Keine Datenverbindung.';
     const { error } = await supabase.from('baustelle').update(patch).eq('id', id);
     if (error) setFehler(error.message);
     void laden();
+    return error ? error.message : null;
   }
   async function anlegen() {
     if (!supabase || legtAn) return;
     if (!/^\d{6}$/.test(neuNr.trim())) { setFehler('Kontonummer: sechs Ziffern.'); return; }
     if (!neuBez.trim()) { setFehler('Bezeichnung fehlt.'); return; }
+    const p = plzPruefen(neuPlz);
+    if ('fehler' in p) { setFehler(p.fehler); return; }
     // Doppelklick: sonst meldete der zweite Klick «gibt es schon» über eine eben angelegte Baustelle
     setLegtAn(true);
-    const { error } = await supabase.from('baustelle').insert({ konto_nr: neuNr.trim(), bezeichnung: neuBez.trim() });
+    const { error } = await supabase.from('baustelle').insert({ konto_nr: neuNr.trim(), bezeichnung: neuBez.trim(), plz: p.plz });
     setLegtAn(false);
     if (error) { setFehler(error.message.includes('unique') ? 'Diese Kontonummer gibt es schon.' : error.message); return; }
-    setFehler(''); setNeuNr(''); setNeuBez('');
+    setFehler(''); setNeuNr(''); setNeuBez(''); setNeuPlz('');
     void laden();
   }
 
@@ -81,13 +120,14 @@ export function Baustellen() {
         <p className="lbl mb-0">Neue Baustelle (bei Auftragsbestätigung)</p>
         <div className="flex gap-2">
           <input value={neuNr} onChange={(e) => setNeuNr(e.target.value)} placeholder="Konto-Nr." inputMode="numeric" className="field w-28 font-mono" />
+          <input value={neuPlz} onChange={(e) => setNeuPlz(e.target.value)} placeholder="PLZ" inputMode="numeric" maxLength={4} aria-label="Postleitzahl" className="field w-20 font-mono" />
           <input value={neuBez} onChange={(e) => setNeuBez(e.target.value)} placeholder="Ort Strasse Nr." className="field" />
           <button type="button" onClick={() => void anlegen()} disabled={legtAn} className="btn-ghost whitespace-nowrap disabled:opacity-50"><Plus size={15} strokeWidth={2.4} aria-hidden="true" /> Anlegen</button>
         </div>
         {fehler && <p className="text-sm font-semibold text-accent-deep">{fehler}</p>}
       </section>
 
-      <input value={suche} onChange={(e) => setSuche(e.target.value)} placeholder="Strasse oder Nummer …" className="field" />
+      <input value={suche} onChange={(e) => setSuche(e.target.value)} placeholder="Strasse, Nummer oder PLZ …" className="field" />
       <div className="flex gap-1.5">
         {(['aktiv', 'fertig_gemeldet', 'abgeschlossen', 'alle'] as const).map((k) => (
           <button key={k} type="button" onClick={() => setFilter(k)} className={'chip px-3 py-1 text-xs ' + (filter === k ? 'chip-on' : '')}>{k === 'alle' ? 'alle' : STATUS[k][0]}</button>
@@ -102,6 +142,7 @@ export function Baustellen() {
                 <span className="block truncate text-sm font-medium">{b.bezeichnung}</span>
                 <span className="mt-0.5 flex items-center gap-2 text-[11px] text-ink3">
                   <span className="knr">{b.konto_nr}</span>
+                  {b.plz && <span className="font-mono">{b.plz}</span>}
                   <span>{kunden.find((k) => k.id === b.kunde_id)?.name ?? 'kein Kunde'}</span>
                 </span>
               </span>
@@ -109,6 +150,7 @@ export function Baustellen() {
             </button>
             {offen === b.id && (
               <div className="space-y-2 bg-surface-2 px-3 py-3">
+                <PlzFeld wert={b.plz} speichern={(plz) => aendern(b.id, { plz })} />
                 <div>
                   <span className="lbl">Kunde / Bauleitung</span>
                   <Auswahl label="Kunde / Bauleitung" wert={b.kunde_id ?? ''} aendern={(k) => void aendern(b.id, { kunde_id: k || null })} leer="Kein Kunde gefunden."
