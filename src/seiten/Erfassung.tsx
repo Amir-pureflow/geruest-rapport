@@ -1144,9 +1144,12 @@ export function Erfassung() {
 
   /** Bei Überstunden fehlt die Sprachnotiz noch (ohne Mikrofon auf dem Gerät gilt die Pflicht nicht). */
   const notizFehltNoch = (ueber: number) => ueber > 0 && !ueberAufnahme && !nimmtAuf && !mikroFehlt;
+  /** Mikrofon-Feld zeigt «fehlt noch» (rote laufende Linie) — nie während der Aufnahme, nie ohne Mikrofon */
+  const fehltAnzeige = notizFehlt && !ueberAufnahme && !nimmtAuf && !mikroFehlt;
   /**
    * Pflicht-Sprachnotiz bei Überstunden — für Regie genauso wie für «nur länger gearbeitet» (13.10.2026). Fehlt sie,
-   * zeigt es das Mikrofon-Feld selbst (laufende rote Strichlinie, Ringe, einmal anstupsen, «Fehlt noch»), auf dem
+   * zeigt es das Mikrofon-Feld selbst (laufende rote Strichlinie, einmal anstupsen, «Fehlt noch»; das Mikrofon bleibt
+   * neutral, damit es nicht wie eine laufende Aufnahme aussieht), auf dem
    * Tag-Schritt wird dorthin gescrollt. Kein zusätzlicher roter Satz mehr. Gibt true zurück, wenn es nicht weitergeht.
    */
   function notizPflichtPruefen(ueber: number): boolean {
@@ -1653,8 +1656,8 @@ export function Erfassung() {
           {fotoLeiste('Bitte Fotos machen — der Bauführer braucht Bilder bei Regie.')}
 
           {/* Dieselbe Sprachnotiz wie am Tag: wurde beim Tag schon aufgenommen, ist sie hier schon da. Pflicht (13.10.2026). */}
-          <div key={stupser} className={'relative rounded-[14px] border-2 border-dashed p-5 text-center ' + (nimmtAuf ? 'border-accent bg-accent-soft' : ueberAufnahme ? 'border-good/50 bg-good-soft/40' : notizFehlt ? 'notiz-stupser border-transparent bg-accent-soft/50' : 'border-steel bg-steel-soft')}>
-            {notizFehlt && !ueberAufnahme && !nimmtAuf && <LaufStrich r={14} />}
+          <div key={stupser} className={'relative rounded-[14px] border-2 border-dashed p-5 text-center ' + (nimmtAuf ? 'border-accent bg-accent-soft' : ueberAufnahme ? 'border-good/50 bg-good-soft/40' : fehltAnzeige ? 'notiz-stupser border-transparent bg-steel-soft' : 'border-steel bg-steel-soft')}>
+            {fehltAnzeige && <LaufStrich r={14} />}
             {ueberAufnahme ? (
               <div className="space-y-2">
                 <p className="font-display font-semibold">Sprachnotiz · {ueberAufnahme.sekunden} Sek. ✓</p>
@@ -1668,7 +1671,7 @@ export function Erfassung() {
               </div>
             ) : (
               <button type="button" onClick={() => (nimmtAuf ? aufnahmeStop() : void aufnahmeStart())} className="w-full">
-                <span className={'mx-auto grid h-16 w-16 place-items-center rounded-full ' + (nimmtAuf ? 'aufnahme-ring bg-accent text-white' : notizFehlt ? 'notiz-ruf bg-surface text-accent ring-1 ring-accent/40' : 'bg-surface text-steel ring-1 ring-line-strong')}>
+                <span className={'mx-auto grid h-16 w-16 place-items-center rounded-full ' + (nimmtAuf ? 'aufnahme-ring bg-accent text-white' : 'bg-surface text-steel ring-1 ring-line-strong')}>
                   <svg viewBox="0 0 40 48" className="h-8 w-7" aria-hidden="true" fill="currentColor">
                     <rect x="13" y="4" width="14" height="24" rx="7" />
                     <path d="M8 22a12 12 0 0 0 24 0" fill="none" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round" />
@@ -1677,7 +1680,7 @@ export function Erfassung() {
                 </span>
                 {nimmtAuf && <span className="mt-3 block"><Pegel stream={mikroStream} /></span>}
                 <span className="mt-2 block font-display font-semibold">{nimmtAuf ? `${sekunden} Sek. — antippen zum Stoppen` : 'Antippen und kurz erzählen, was war'}</span>
-                <span className={'mt-1 block text-xs ' + (notizFehlt && !nimmtAuf && !mikroFehlt ? 'font-semibold text-accent-deep' : 'text-ink3')}>{nimmtAuf ? 'Die App hört zu und schreibt danach mit.' : mikroFehlt ? 'Mikrofon nicht verfügbar — Speichern geht trotzdem.' : notizFehlt ? 'Fehlt noch — 10 Sekunden reichen, dann nochmals «Speichern».' : `Pflicht bei Regie — auf ${sprachName} sprechen, 10 Sekunden reichen.`}</span>
+                <span className={'mt-1 block text-xs ' + (fehltAnzeige ? 'font-semibold text-accent-deep' : 'text-ink3')}>{nimmtAuf ? 'Die App hört zu und schreibt danach mit.' : mikroFehlt ? 'Mikrofon nicht verfügbar — Speichern geht trotzdem.' : fehltAnzeige ? 'Fehlt noch — 10 Sekunden reichen, dann nochmals «Speichern».' : `Pflicht bei Regie — auf ${sprachName} sprechen, 10 Sekunden reichen.`}</span>
               </button>
             )}
             {!ueberAufnahme && !nimmtAuf && team?.chefmonteur?.id && <SprachWahl sprache={sprecherSprache} setzen={(c) => void sprecherSpracheSetzen(c)} />}
@@ -2112,8 +2115,8 @@ export function Erfassung() {
               {notizFehltNoch(ueberTotal) && <span className="mt-px shrink-0 rounded-full bg-accent-soft px-2 py-0.5 text-[11px] font-semibold text-accent-deep">Pflicht</span>}
             </p>
             {/* «War das Regie?» steht nicht mehr hier (Amir 13.10.2026: «ein bisschen verwirrend») — die App fragt einmal beim Melden */}
-            <div key={stupser} className={'relative rounded-[12px] border-2 border-dashed p-4 text-center ' + (nimmtAuf ? 'border-accent bg-accent-soft' : ueberAufnahme ? 'border-good/50 bg-good-soft/40' : notizFehlt ? 'notiz-stupser border-transparent bg-accent-soft/50' : 'border-steel bg-steel-soft')}>
-              {notizFehlt && !ueberAufnahme && !nimmtAuf && <LaufStrich r={12} />}
+            <div key={stupser} className={'relative rounded-[12px] border-2 border-dashed p-4 text-center ' + (nimmtAuf ? 'border-accent bg-accent-soft' : ueberAufnahme ? 'border-good/50 bg-good-soft/40' : fehltAnzeige ? 'notiz-stupser border-transparent bg-steel-soft' : 'border-steel bg-steel-soft')}>
+              {fehltAnzeige && <LaufStrich r={12} />}
               {ueberAufnahme ? (
                 <div className="space-y-2">
                   <p className="text-sm font-semibold">Sprachnotiz · {ueberAufnahme.sekunden} Sek. ✓</p>
@@ -2127,7 +2130,7 @@ export function Erfassung() {
                 </div>
               ) : (
                 <button type="button" onClick={() => (nimmtAuf ? aufnahmeStop() : void aufnahmeStart())} className="w-full">
-                  <span className={'mx-auto grid h-14 w-14 place-items-center rounded-full ' + (nimmtAuf ? 'aufnahme-ring bg-accent text-white' : notizFehlt ? 'notiz-ruf bg-surface text-accent ring-1 ring-accent/40' : 'bg-surface text-steel ring-1 ring-line-strong')}>
+                  <span className={'mx-auto grid h-14 w-14 place-items-center rounded-full ' + (nimmtAuf ? 'aufnahme-ring bg-accent text-white' : 'bg-surface text-steel ring-1 ring-line-strong')}>
                     <svg viewBox="0 0 40 48" className="h-7 w-6" aria-hidden="true" fill="currentColor">
                       <rect x="13" y="4" width="14" height="24" rx="7" />
                       <path d="M8 22a12 12 0 0 0 24 0" fill="none" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round" />
@@ -2136,7 +2139,7 @@ export function Erfassung() {
                   </span>
                   {nimmtAuf && <span className="mt-2 block"><Pegel stream={mikroStream} /></span>}
                   <span className="mt-2 block text-sm font-semibold">{nimmtAuf ? `${sekunden} Sek. — antippen zum Stoppen` : ueberTotal > 0 ? 'Antippen und kurz erzählen, warum' : 'Antippen und kurz erzählen, was heute war'}</span>
-                  <span className={'mt-0.5 block text-xs ' + (notizFehlt && !nimmtAuf && !mikroFehlt ? 'font-semibold text-accent-deep' : 'text-ink3')}>{mikroFehlt ? 'Mikrofon nicht verfügbar — Speichern geht trotzdem.' : notizFehlt && !nimmtAuf ? 'Fehlt noch — 10 Sekunden reichen, dann nochmals «Tag melden».' : `Auf ${sprachName} sprechen, 10 Sekunden reichen — der Bauführer liest es auf Deutsch.`}</span>
+                  <span className={'mt-0.5 block text-xs ' + (fehltAnzeige ? 'font-semibold text-accent-deep' : 'text-ink3')}>{mikroFehlt ? 'Mikrofon nicht verfügbar — Speichern geht trotzdem.' : fehltAnzeige ? 'Fehlt noch — 10 Sekunden reichen, dann nochmals «Tag melden».' : `Auf ${sprachName} sprechen, 10 Sekunden reichen — der Bauführer liest es auf Deutsch.`}</span>
                 </button>
               )}
               {!ueberAufnahme && !nimmtAuf && team?.chefmonteur?.id && <SprachWahl sprache={sprecherSprache} setzen={(c) => void sprecherSpracheSetzen(c)} />}

@@ -462,8 +462,9 @@
     100% { transform: scale(1.6); opacity: 0; }
   }
   /* Pflicht-Sprachnotiz fehlt (13.10.2026, Amir: «cleaner, mit Animation oder Strichen — beides»): statt roter Karte und
-     rotem Satz zeigt das Mikrofon-Feld selbst, was fehlt — die Strichlinie läuft rot ums Feld, das Mikrofon ruft mit
-     sanften Ringen, und beim Tippen auf «Tag melden» stupst das Feld einmal an. «Weniger Bewegung» (oben) hält alles an. */
+     rotem Satz zeigt das Mikrofon-Feld selbst, was fehlt — die Strichlinie läuft rot ums Feld, und beim Tippen auf
+     «Tag melden» stupst das Feld einmal an. Das Mikrofon selbst bleibt neutral: rote Ringe sahen aus wie eine laufende
+     Aufnahme (14.10.2026, Amir: «man denkt, dass es schon aktiviert ist»). «Weniger Bewegung» (oben) hält alles an. */
   .notiz-strich {
     position: absolute;
     top: -1px;
@@ -483,26 +484,6 @@
   }
   @keyframes notiz-laufen {
     to { stroke-dashoffset: -24; }
-  }
-  .notiz-ruf {
-    position: relative;
-  }
-  .notiz-ruf::before,
-  .notiz-ruf::after {
-    content: '';
-    position: absolute;
-    inset: -4px;
-    border-radius: 9999px;
-    border: 2px solid var(--color-accent);
-    opacity: 0;
-    animation: notiz-ruf 2.4s ease-out infinite;
-  }
-  .notiz-ruf::after {
-    animation-delay: 1.2s;
-  }
-  @keyframes notiz-ruf {
-    0% { transform: scale(0.92); opacity: 0.5; }
-    100% { transform: scale(1.5); opacity: 0; }
   }
   /* Erst anstupsen, wenn das Feld nach dem Scrollen im Bild ist */
   .notiz-stupser {
