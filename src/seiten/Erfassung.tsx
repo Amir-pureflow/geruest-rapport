@@ -14,7 +14,7 @@ import { Warteschlange, verlaufFilter } from './StartChef';
 import { addTage, iso, lang, stunden } from '../lib/datum';
 import { fotoVerkleinern } from '../lib/foto';
 import { kennzeichen } from '../lib/fahrzeug';
-import { einstellungen, lieferwagenTagRp, normaltagMin, znueni } from '../lib/einstellungen';
+import { einstellungen, lieferwagenTagRp, normaltagMin, notizPflichtAbMin, znueni } from '../lib/einstellungen';
 import { MAX_SPANNEN, MITTAG_VON_MIN, NACHMITTAG_MIN, ausUhrzeit, aufteilen, kannPauseAbziehen, mittagMinuten, pauseAbziehen, pauseZaehlen, spanneVollstaendig, spannenMinuten, spannenOffen, spannenTeilen, spannenUeberlappen, standardSpannen, umfasstPause, uhrzeit, uhrzeitFeld, zuSpalten, type Spanne } from '../lib/zeiten';
 import { baustellenSuchen } from '../lib/suche';
 import { FUNKTION_BUERO } from '../lib/benutzername';
@@ -26,7 +26,8 @@ import { planHinweise, type VerlaufZeile } from '../lib/planung';
  * Phase 2 — das Teamgerät. Ein Chefmonteur meldet für sein Team.
  *
  * Immer: Baustelle, wer war dabei, Normalstunden, Überstunden — ein Knopf. Überstunden brauchen eine
- * Sprachnotiz (warum); der Bauführer liest sie in der Wochenübersicht und gibt frei. Pflicht auch bei Regie
+ * Sprachnotiz (warum); der Bauführer liest sie in der Wochenübersicht und gibt frei. Pflicht erst ab der Grenze der
+ * Firma (Verwaltung → Einstellungen, 0045: Standard 30 Min. Überstunden einer Person, darunter freiwillig). Pflicht auch bei Regie
  * (13.10.2026, Amir: «ich will, dass man erkennt, dass man eine Sprachnotiz machen muss»): Schild «Pflicht» an der
  * Karte, Zeile im Knopf, und «Tag melden» springt zuerst zum Mikrofon — noch vor der Frage «War das Regie?».
  *
@@ -1104,6 +1105,8 @@ export function Erfassung() {
   );
   const bisherVon = (id: string) => bisherAnzeige.get(id) ?? 0;
   const ueberTotal = dabei.reduce((s, p) => s + ueberFertig(anw[p.id], bisherVon(p.id)), 0);
+  /** Die meisten Überstunden einer Person — daran hängt, ob die Sprachnotiz Pflicht ist (0045) */
+  const ueberMax = dabei.reduce((m, p) => Math.max(m, ueberFertig(anw[p.id], bisherVon(p.id))), 0);
   // Keine Überstunden mehr (Zeit geändert) → die Rückfrage ist hinfällig
   useEffect(() => { if (ueberTotal === 0) { setRegieFrage(false); setRegieAntwort(null); setNotizFehlt(false); } }, [ueberTotal]);
   useEffect(() => { setRegieAntwort(null); setNotizFehlt(false); }, [teamId, tagIso]);
@@ -1142,8 +1145,13 @@ export function Erfassung() {
   }, [alleLeute, gastFilter, alleImTeam]);
   const zuletztGaesteFrei = zuletztGaeste.filter((p) => !alleImTeam.some((x) => x.id === p.id));
 
-  /** Bei Überstunden fehlt die Sprachnotiz noch (ohne Mikrofon auf dem Gerät gilt die Pflicht nicht). */
-  const notizFehltNoch = (ueber: number) => ueber > 0 && !ueberAufnahme && !nimmtAuf && !mikroFehlt;
+  /**
+   * Muss bei diesen Überstunden (Minuten der Person mit den meisten) gesprochen werden? Ab der Grenze der Firma
+   * (0045, Standard 30 Min.; 0 = ab der ersten Minute) — darunter freiwillig (14.10.2026, Amir).
+   */
+  const notizNoetig = (ueberMaxPerson: number) => ueberMaxPerson > 0 && ueberMaxPerson >= notizPflichtAbMin();
+  /** Pflicht, aber die Sprachnotiz fehlt noch (ohne Mikrofon auf dem Gerät gilt die Pflicht nicht). */
+  const notizFehltNoch = (noetig: boolean) => noetig && !ueberAufnahme && !nimmtAuf && !mikroFehlt;
   /** Mikrofon-Feld zeigt «fehlt noch» (rote laufende Linie) — nie während der Aufnahme, nie ohne Mikrofon */
   const fehltAnzeige = notizFehlt && !ueberAufnahme && !nimmtAuf && !mikroFehlt;
   /**
@@ -1152,8 +1160,8 @@ export function Erfassung() {
    * neutral, damit es nicht wie eine laufende Aufnahme aussieht), auf dem
    * Tag-Schritt wird dorthin gescrollt. Kein zusätzlicher roter Satz mehr. Gibt true zurück, wenn es nicht weitergeht.
    */
-  function notizPflichtPruefen(ueber: number): boolean {
-    if (!notizFehltNoch(ueber)) return false;
+  function notizPflichtPruefen(noetig: boolean): boolean {
+    if (!notizFehltNoch(noetig)) return false;
     setHinweis('');
     setNotizFehlt(true);
     setStupser((n) => n + 1);
@@ -1169,7 +1177,8 @@ export function Erfassung() {
   function abweichungStarten(typ: Abweichung) {
     if (!baustelle) { setHinweis('Zuerst die Baustelle antippen.'); return; }
     if (dabei.length === 0) { setHinweis('Zuerst anhaken, wer dabei war.'); return; }
-    if (notizPflichtPruefen(ueberTotal)) return;
+    // Regie braucht immer eine Notiz — der Bauführer muss dem Kunden sagen können, was gemacht wurde
+    if (notizPflichtPruefen(true)) return;
     // Überstunden aus den Zeiten von–bis (wirksam), nicht aus dem alten Stundenzahl-Feld — sonst wurde nichts übernommen
     const ueberVon = (p: Person) => (anw[p.id] ? wirksam(anw[p.id], bisherVon(p.id)).ueber : 0);
     const mitUeber = dabei.filter((p) => ueberVon(p) > 0);
@@ -1367,10 +1376,10 @@ export function Erfassung() {
     const ersetzteSchluessel = new Set(art === 'normal' && modus === 'ersetzen' ? aktuell.filter((m) => m.normalfall).map((m) => m.schluessel) : []);
     if (art === 'abweichung' && entwurfAbRef.current) ersetzteSchluessel.add(entwurfAbRef.current);
     const schon = bisherNormal(aktuell.flatMap((m) => m.zeilen.map((z) => ({ ...z, meldung: m.schluessel }))).concat(andereJetzt), ersetzteSchluessel);
-    const ueberJetzt = dabei.reduce((s, p) => s + wirksam(anw[p.id], schon.get(p.id) ?? 0).ueber, 0);
+    const ueberJetztMax = dabei.reduce((m, p) => Math.max(m, wirksam(anw[p.id], schon.get(p.id) ?? 0).ueber), 0);
     // Der «schon gemeldet»-Dialog bleibt offen: nach der Aufnahme dort nochmals wählen. Regie kommt immer aus Überstunden —
     // dort ist die Notiz genauso Pflicht (auch wenn sie im Regie-Schritt nochmals gelöscht wurde).
-    if (notizPflichtPruefen(art === 'normal' ? ueberJetzt : 1)) return;
+    if (notizPflichtPruefen(art === 'normal' ? notizNoetig(ueberJetztMax) : true)) return;
     setNotizFehlt(false);
     setHinweis('');
 
@@ -2112,7 +2121,9 @@ export function Erfassung() {
         <section ref={notizRef} className={'card space-y-2.5 ' + (ueberTotal > 0 ? 'border-amber/30' : '')}>
             <p className="flex items-start justify-between gap-3 text-sm font-semibold">
               <span>{ueberTotal > 0 ? <>{ueberText()} — kurz sagen, warum</> : 'Bemerkung zum Tag — freiwillig'}</span>
-              {notizFehltNoch(ueberTotal) && <span className="mt-px shrink-0 rounded-full bg-accent-soft px-2 py-0.5 text-[11px] font-semibold text-accent-deep">Pflicht</span>}
+              {notizFehltNoch(notizNoetig(ueberMax))
+                ? <span className="mt-px shrink-0 rounded-full bg-accent-soft px-2 py-0.5 text-[11px] font-semibold text-accent-deep">Pflicht</span>
+                : ueberTotal > 0 && !notizNoetig(ueberMax) && !ueberAufnahme && <span className="mt-px shrink-0 rounded-full bg-ink/[0.06] px-2 py-0.5 text-[11px] font-semibold text-ink3">freiwillig</span>}
             </p>
             {/* «War das Regie?» steht nicht mehr hier (Amir 13.10.2026: «ein bisschen verwirrend») — die App fragt einmal beim Melden */}
             <div key={stupser} className={'relative rounded-[12px] border-2 border-dashed p-4 text-center ' + (nimmtAuf ? 'border-accent bg-accent-soft' : ueberAufnahme ? 'border-good/50 bg-good-soft/40' : fehltAnzeige ? 'notiz-stupser border-transparent bg-steel-soft' : 'border-steel bg-steel-soft')}>
@@ -2213,7 +2224,7 @@ export function Erfassung() {
             disabled={speichert}
             onClick={() => {
               // Zuerst die Sprachnotiz — noch vor der Frage «War das Regie?» (13.10.2026)
-              if (notizPflichtPruefen(ueberTotal)) return;
+              if (notizPflichtPruefen(notizNoetig(ueberMax))) return;
               if (modus === 'regie' && ueberTotal > 0) {
                 if (regieAntwort === 'ja') { abweichungStarten('zusaetzlich'); return; }
                 if (regieAntwort === null) { setRegieFrage(true); return; }
@@ -2223,7 +2234,7 @@ export function Erfassung() {
             className="cta cta-good py-5 text-[17px] disabled:opacity-70"
           >
             <span className="inline-flex items-center gap-2">{gespeichert ? gespeichert : <><CheckCircle2 size={22} strokeWidth={2.2} aria-hidden="true" /> {modus === 'regie' && ueberTotal > 0 && regieAntwort === 'ja' ? 'Weiter zur Regie' : 'Tag melden'}</>}</span>
-            {!gespeichert && notizFehltNoch(ueberTotal) && <span className="mt-0.5 block text-xs font-normal opacity-90">Zuerst die Sprachnotiz — bei Überstunden Pflicht</span>}
+            {!gespeichert && notizFehltNoch(notizNoetig(ueberMax)) && <span className="mt-0.5 block text-xs font-normal opacity-90">Zuerst die Sprachnotiz — bei Überstunden Pflicht</span>}
           </button>
         )}
         {hinweis && <p className="text-sm font-semibold text-accent-deep">{hinweis}</p>}

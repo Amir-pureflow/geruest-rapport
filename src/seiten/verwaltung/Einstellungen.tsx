@@ -4,11 +4,12 @@
  * für alle Geräte dieser Firma. Nach dem Umschalten lädt die App neu, damit Menü und Erfassung passen.
  */
 import { useState } from 'react';
-import { Clock3, Coffee, Highlighter, Minus, Plus, Truck } from 'lucide-react';
+import { Clock3, Coffee, Highlighter, Mic, Minus, Plus, Truck } from 'lucide-react';
 import {
   einstellungen, einstellungSetzen, schalterGelesen, eigeneFirma,
   briefkopf, briefkopfSetzen, normaltagMin, normaltagAusDatenbank, NORMALTAG_BEREICH,
   markierenAbMin, markierenAusDatenbank, znueni, znueniAusDatenbank, znueniSetzen, ZNUENI_BEREICH, lieferwagenTagRp,
+  notizPflichtAbMin, notizAusDatenbank, NOTIZ_PFLICHT_WAHL,
   type Briefkopf, type Einstellungen,
 } from '../../lib/einstellungen';
 import { stunden } from '../../lib/datum';
@@ -182,6 +183,79 @@ function MarkierenKarte() {
       {ausDatenbank === false && (
         <p className="rounded-[12px] border border-amber/40 bg-amber-soft px-3.5 py-2 text-xs text-amber-deep">
           Die Datenbank kennt diese Einstellung noch nicht (Migration 0028 fehlt) — bis dahin wird jede Überstunde gelb.
+        </p>
+      )}
+    </section>
+  );
+}
+
+/**
+ * Sprachnotiz bei Überstunden (Migration 0045, 14.10.2026, Amir: «ab wie viel Überstunden muss man reden» → 30 Min.):
+ * Ab so vielen Minuten Überstunden einer Person muss der Chefmonteur beim Melden kurz sagen, warum. Darunter ist sie
+ * freiwillig — gezählt und angezeigt werden die Überstunden trotzdem. Regie braucht immer eine Notiz.
+ */
+const minutenText = (m: number) => (m >= 60 && m % 60 === 0 ? `${m / 60} h` : `${m} Min.`);
+
+function NotizKarte() {
+  const [wert, setWert] = useState(notizPflichtAbMin);
+  const [speichert, setSpeichert] = useState(false);
+  const [meldung, setMeldung] = useState<{ text: string; art: 'ok' | 'fehler' } | null>(null);
+  const ausDatenbank = notizAusDatenbank();
+  const normaltag = normaltagMin();
+
+  async function waehlen(neu: number) {
+    if (neu === wert || speichert) return;
+    setSpeichert(true);
+    setMeldung(null);
+    const f = await einstellungSetzen('notizPflichtAbMin', neu);
+    setSpeichert(false);
+    if (f) { setMeldung({ text: f, art: 'fehler' }); return; }
+    setWert(neu);
+    setMeldung({ text: 'Gespeichert ✓', art: 'ok' });
+  }
+
+  return (
+    <section className="card space-y-4">
+      <div className="flex items-start gap-3">
+        <span className="grid h-10 w-10 shrink-0 place-items-center rounded-[12px] bg-steel text-white shadow-[0_4px_10px_-4px_rgb(17_17_19/0.35)]">
+          <Mic size={19} strokeWidth={2.2} aria-hidden="true" />
+        </span>
+        <div>
+          <h2 className="font-display text-[15px] font-semibold">Sprachnotiz bei Überstunden — Pflicht ab</h2>
+          <p className="mt-0.5 text-xs text-ink3">
+            Ab so vielen Überstunden einer Person muss der Chefmonteur beim Melden kurz sagen, warum. Darunter ist die
+            Sprachnotiz freiwillig. Die Überstunden werden so oder so gezählt und dem Bauführer gezeigt. Regie braucht
+            immer eine Sprachnotiz.
+          </p>
+        </div>
+      </div>
+
+      <Segment
+        label="Sprachnotiz Pflicht ab"
+        optionen={NOTIZ_PFLICHT_WAHL.map((v) => ({ wert: v as number, text: v === 0 ? 'immer' : v === 60 ? '1 h' : `${v} Min.` }))}
+        wert={wert}
+        aendern={(v) => void waehlen(v)}
+      />
+
+      <p className="rounded-[12px] bg-ground px-3.5 py-2.5 text-xs text-ink2">
+        {wert === 0 ? (
+          <>Jede Überstunde braucht eine <b className="text-ink">Sprachnotiz</b>, auch eine kurze.</>
+        ) : (
+          <>
+            Beispiel: {alsStunden(normaltag)} h normal + {minutenText(wert - (wert >= 30 ? 10 : 5))} Überstunden → Sprachnotiz
+            freiwillig. Ab <b className="text-ink">{minutenText(wert)} Überstunden</b> Pflicht.
+          </>
+        )}
+      </p>
+
+      {(meldung || speichert) && (
+        <p className={'text-sm font-semibold ' + (speichert ? 'text-ink3' : meldung?.art === 'ok' ? 'text-good-deep' : 'text-accent-deep')}>
+          {speichert ? 'Speichert …' : meldung?.text}
+        </p>
+      )}
+      {ausDatenbank === false && (
+        <p className="rounded-[12px] border border-amber/40 bg-amber-soft px-3.5 py-2 text-xs text-amber-deep">
+          Die Datenbank kennt diese Einstellung noch nicht (Migration 0045 fehlt) — bis dahin gelten 30 Minuten.
         </p>
       )}
     </section>
@@ -482,6 +556,7 @@ export function Einstellungen() {
 
       <NormaltagKarte />
       <MarkierenKarte />
+      <NotizKarte />
       <ZnueniKarte />
       <LieferwagenKarte />
 
