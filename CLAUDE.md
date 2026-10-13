@@ -263,7 +263,18 @@ Cockpit.tsx, Tag.tsx, RegieDetail.tsx, ui/Sprachnotiz.tsx. Die Übersetzung hat 
 (andamio/ponteggio/… = Gerüst, nivel = Lage, tablón = Belag …) in `ANWEISUNG`. Spanisch geprüft 11.10. mit Azure-Stimmen
 aus Spanien, Mexiko und Kolumbien: Erkennung wortgenau, Übersetzung fachlich richtig.
 
-Das Ohr ist austauschbar: nur `stt()` in `supabase/functions/transkribieren/index.ts`. Heute Mistral Voxtral
+**Übersetzung geprüft 13.10.2026** (Amir: «Albanisch übersetzt nicht gut», «Italienisch, Arabisch, Polnisch, Spanisch müssen
+perfekt sein»): Prüfstand mit Azure-Stimmen, 46 Baustellensätzen in 7 Sprachen inkl. Kosovo-Albanisch, levantinischem
+Arabisch, Lateinamerika-Spanisch und deutschen Wörtern im Satz. Ergebnis: Übersetzung aus *bestätigtem* Text in allen
+Sprachen richtig. Darum in `_shared/uebersetzung.ts`: `REGELN` (Person, Verneinung, verlangt≠erlaubt, Rollen fest:
+capo/jefe = Chef, capocantiere/encargado = Polier, jefe de obra = Bauführer, direzione lavori = Bauleitung; deutsche Wörter
+im fremden Satz; lieber «…» als erfinden), `MUNDART` je Sprache, Kontext (Baustelle + Leute im Team, `_shared/kontext.ts`,
+die Erfassung schickt `team_id`/`baustelle_id`) — damit wird «artrase» wieder «Aarstrasse». 429 von Mistral → Wiederholung.
+`mistral-large-latest` war NICHT besser (erfand mehr) und lief in die Mengenbremse. Die Erkennung (Azure) bleibt die
+Schwachstelle bei Mundart und deutschen Wörtern («Gerüst» → «Jerust»); eine Phrasenliste hilft Azure nachweislich nicht.
+Darum ist der Prüfschritt (Sprecher korrigiert sein Original) wichtig.
+
+Das Ohr ist austauschbar: nur `stt()` in `supabase/functions/_shared/ohr.ts`. Heute Mistral Voxtral
 (kann kein Albanisch, Arabisch/Polnisch schwach); geplant Azure AI Speech, Region Schweiz Nord — siehe
 «Offene Entscheidungen». Die Übersetzung aus bestätigtem Text ist geprüft für sq/pl/pt/ar (04.10.).
 

@@ -540,7 +540,7 @@ export function Erfassung() {
         fr.onerror = () => reject(fr.error);
         fr.readAsDataURL(blob);
       });
-      const { data, error } = await supabase.functions.invoke('transkribieren', { body: { audio_base64: b64, mime: blob.type || 'audio/webm', team_id: teamId, schritt: 'erkennen' } });
+      const { data, error } = await supabase.functions.invoke('transkribieren', { body: { audio_base64: b64, mime: blob.type || 'audio/webm', team_id: teamId, baustelle_id: baustelle?.id ?? null, schritt: 'erkennen' } });
       if (error || data?.fehler) throw new Error(data?.fehler ?? error?.message ?? 'kein Text');
       if (data?.transkript) {
         // Deutsch gesprochen: der bereinigte Text kommt direkt, kein Prüfschritt nötig
@@ -564,7 +564,7 @@ export function Erfassung() {
     if (!original) return;
     setUeberVorschau({ ...v, status: 'uebersetze', text: original, grund: undefined });
     try {
-      const { data, error } = await supabase.functions.invoke('transkribieren', { body: { schritt: 'uebersetzen', text: original, sprache: v.sprache } });
+      const { data, error } = await supabase.functions.invoke('transkribieren', { body: { schritt: 'uebersetzen', text: original, sprache: v.sprache, team_id: teamId, baustelle_id: baustelle?.id ?? null } });
       if (error || data?.fehler || !data?.transkript) throw new Error(data?.fehler ?? error?.message ?? 'keine Übersetzung');
       setUeberVorschau({ status: 'fertig', text: data.transkript, quelle: original, sprache: v.sprache, bestaetigt: true });
     } catch (e) {

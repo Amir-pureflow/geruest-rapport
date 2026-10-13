@@ -35,6 +35,9 @@
 // der öffentliche anon-Schlüssel, um mit einer fremden Meldungs-Id deren Text zu lesen oder neu erzeugen zu lassen.
 import { createClient } from 'npm:@supabase/supabase-js@2';
 import { aufrufer, pfadPasst } from '../_shared/zugang.ts';
+import { stt } from '../_shared/ohr.ts';
+import { SPRACHEN, verdeutschen } from '../_shared/uebersetzung.ts';
+import { kontextLaden } from '../_shared/kontext.ts';
 
 const cors = {
   'Access-Control-Allow-Origin': '*',
@@ -44,147 +47,6 @@ const cors = {
 
 function antwort(status: number, body: unknown): Response {
   return new Response(JSON.stringify(body), { status, headers: { ...cors, 'Content-Type': 'application/json' } });
-}
-
-const SPRACHEN: Record<string, string> = { de: 'Deutsch', sq: 'Albanisch', pt: 'Portugiesisch', it: 'Italienisch', fr: 'Französisch', es: 'Spanisch', ar: 'Arabisch', pl: 'Polnisch', en: 'Englisch' };
-
-const ANWEISUNG =
-  'Du bereinigst gesprochene Notizen von einer Gerüstbau-Baustelle zu klarem Schweizer Hochdeutsch («ss» statt «ß»). ' +
-  'Regeln: Grammatik und Wortstellung korrigieren. Füllwörter, Wiederholungen und Versprecher entfernen. ' +
-  'Selbstkorrekturen auflösen: es gilt die zuletzt genannte Fassung (z. B. «der Chefmonteur … ah, der Bauführer meine ich» → Bauführer). ' +
-  'Zahlen, Uhrzeiten, Stunden, Namen, Baustellen und Mengenangaben wörtlich übernehmen — «ein Feld mehr» bleibt «ein Feld mehr», nicht umdeuten. ' +
-  'Eigennamen (Personen, Firmen, Baustellen) unverändert lassen. Ist ein Wort kein bekanntes Wort der Ausgangssprache (Hörfehler der Erkennung), dann NICHT raten, was gemeint sein könnte: das Wort unübersetzt in «…» übernehmen. Beispiel: «Unë çuhem amir» → «Ich "çuhem" Amir» (çuhem gibt es nicht, also stehen lassen). ' +
-  'Fachbegriffe des Gerüstbaus beibehalten (Feld, Lage, Treppenturm, Konsole, versetzen). ' +
-  // Glossar (11.10.2026): ein kurzer italienischer Satz ohne Subjekt liess «ponteggio» stehen (07.10.) — die
-  // Baustellenwörter der Sprachen des Betriebs sind hier fest zugeordnet, damit nie ein Fremdwort im Rapport landet.
-  'Gerüstbau-Wörter immer so übersetzen: Gerüst = ponteggio, andaime, andamio, échafaudage, rusztowanie, skelë, scaffolding; ' +
-  'Feld = campata, tramo, travée, przęsło, bay; Lage = piano/livello, nivel/altura, niveau, poziom, lift; ' +
-  'Belag = tavola/impalcato, plataforma/tablón, plancher, podest, deck/board; Geländer = parapetto, barandilla, garde-corps, poręcz, guardrail; ' +
-  'Treppenturm = torre scale, torre de escalera, tour d’escalier, wieża schodowa, stair tower; Konsole = mensola, ménsula, console, konsola, bracket; ' +
-  'Verankerung = ancoraggio, anclaje, ancrage, kotwienie, anchor/tie; Schutznetz = rete, red, filet, siatka, netting; ' +
-  'Bauleitung = direzione lavori, dirección de obra, direction des travaux; Kran = gru, grúa, grue, dźwig, crane. ' +
-  'Eine Höhe am Gerüst heisst «Lage» (dritte Lage), nie «Stock» oder «Etage» — ausser es geht ausdrücklich um das Stockwerk des Gebäudes. ' +
-  'Nichts hinzufügen, nichts Wichtiges weglassen, nichts bewerten. Bei Unklarheit die Worte des Sprechers lassen. ' +
-  'Kurz und sachlich, wie ein Eintrag im Rapport. Nur den bereinigten Text ausgeben, ohne Anführungszeichen, ohne Erklärung. ' +
-  'Ist die Notiz nicht auf Deutsch, zuerst sinngemäss übersetzen, dann bereinigen.';
-
-/** Sprachcode aus dem Profil → Azure-Gebietsschema. Deutsch als de-CH: Hochdeutsch mit Schweizer Zunge. */
-const AZURE_GEBIET: Record<string, string> = { de: 'de-CH', sq: 'sq-AL', pt: 'pt-PT', it: 'it-IT', fr: 'fr-FR', es: 'es-ES', ar: 'ar-SY', pl: 'pl-PL', en: 'en-US' };
-
-/**
- * Das Ohr, Fassung Azure: schnelle Transkription, ein Aufruf, Antwort in Sekunden.
- *
- * Azure meldet bei knapper Kapazität 429 «Resource Exhausted» — je Region und je Sprachmodell
- * (beobachtet am 04.10.2026: de-CH lief in Frankfurt sofort, sq-AL wurde minutenlang abgewiesen).
- * Darum: in der Region kurz wiederholen, dann auf die Ausweichregion wechseln, falls mit
- * `AZURE_SPEECH_KEY2`/`AZURE_SPEECH_REGION2` eine zweite Ressource hinterlegt ist. Schlüssel
- * gelten nur in ihrer Region, deshalb braucht die Ausweichregion einen eigenen.
- */
-async function sttAzure(k: Record<string, string>, datei: Blob, dateiname: string, sprache: string): Promise<string> {
-  const ressourcen: { basis: string; schluessel: string }[] = [
-    {
-      basis: (k.AZURE_SPEECH_ENDPOINT || `https://${k.AZURE_SPEECH_REGION || 'germanywestcentral'}.api.cognitive.microsoft.com`).replace(/\/$/, ''),
-      schluessel: k.AZURE_SPEECH_KEY,
-    },
-  ];
-  if (k.AZURE_SPEECH_KEY2) {
-    ressourcen.push({
-      basis: `https://${k.AZURE_SPEECH_REGION2 || 'westeurope'}.api.cognitive.microsoft.com`,
-      schluessel: k.AZURE_SPEECH_KEY2,
-    });
-  }
-
-  let letzter = '';
-  let holprig: string | null = null;
-  for (const quelle of ressourcen) {
-    for (let versuch = 0; versuch < 2; versuch++) {
-      if (versuch > 0) await new Promise((w) => setTimeout(w, 2500));
-      const form = new FormData();
-      form.append('audio', datei, dateiname);
-      // Kein Fluchwort-Filter: es gilt, was der Sprecher sagt (Regel: nichts umdeuten) — bereinigt wird später
-      form.append('definition', JSON.stringify({ locales: [AZURE_GEBIET[sprache] ?? 'de-CH'], profanityFilterMode: 'None' }));
-      const r = await fetch(`${quelle.basis}/speechtotext/transcriptions:transcribe?api-version=2024-11-15`, {
-        method: 'POST',
-        headers: { 'Ocp-Apim-Subscription-Key': quelle.schluessel },
-        body: form,
-      });
-      if (r.status === 429) { letzter = 'überlastet'; continue; }
-      if (!r.ok) throw new Error(`Azure-Erkennung ${r.status}: ${(await r.text()).slice(0, 300)}`);
-      const j = (await r.json()) as { combinedPhrases?: { text?: string }[] };
-      const text = (j.combinedPhrases ?? []).map((p) => p.text ?? '').join(' ').trim();
-      if (!text) throw new Error('Erkennung lieferte keinen Text');
-      // Lall-Schleife («hëhhhh hëhhh …», 04.10.2026 bei Albanisch passiert): nochmal versuchen,
-      // notfalls über die Ausweichregion — die verhält sich oft anders. Bleibt es dabei,
-      // geht der holprige Text trotzdem raus: der Sprecher sieht ihn im Prüfschritt.
-      if (istLallSchleife(text)) { holprig = text; letzter = 'stottern'; continue; }
-      return text;
-    }
-  }
-  if (holprig) return holprig;
-  throw new Error(letzter === 'überlastet'
-    ? 'Die Erkennung ist gerade überlastet — einen Moment warten und nochmals antippen.'
-    : 'Erkennung nicht erreichbar');
-}
-
-/**
- * Entgleiste Erkennung: das Modell verhakt sich bei Atmen/Wind/Pausen und lallt («hëhhhhhh»).
- * Kennzeichen: «Wörter» ab 6 Zeichen aus höchstens 2 verschiedenen Buchstaben, oder dasselbe
- * Wort viermal hintereinander. Keine unserer Sprachen schreibt so.
- */
-function istLallSchleife(text: string): boolean {
-  const woerter = text.toLowerCase().split(/\s+/).filter(Boolean);
-  const lall = woerter.filter((w) => {
-    const buchstaben = w.replace(/[^\p{L}]/gu, '');
-    return buchstaben.length >= 6 && new Set(buchstaben).size <= 2;
-  }).length;
-  if (lall >= 2 || lall / Math.max(1, woerter.length) > 0.2) return true;
-  let gleich = 1;
-  for (let i = 1; i < woerter.length; i++) {
-    gleich = woerter[i] === woerter[i - 1] && woerter[i].length >= 2 ? gleich + 1 : 1;
-    if (gleich >= 4) return true;
-  }
-  return false;
-}
-
-/** Schritt 1 — das Ohr: Aufnahme → Text in der Sprache des Sprechers (roh, so wie gesprochen). */
-async function stt(k: Record<string, string>, datei: Blob, dateiname: string, sprache: string): Promise<string> {
-  if (k.AZURE_SPEECH_KEY) return sttAzure(k, datei, dateiname, sprache);
-  const modell = k.TRANSKRIPT_MODELL || 'voxtral-mini-latest';
-  const form = new FormData();
-  form.append('file', datei, dateiname);
-  form.append('model', modell);
-  form.append('language', sprache);
-  const erk = await fetch('https://api.mistral.ai/v1/audio/transcriptions', {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${k.MISTRAL_API_KEY}` },
-    body: form,
-  });
-  if (!erk.ok) throw new Error(`Erkennung ${erk.status}: ${(await erk.text()).slice(0, 300)}`);
-  const erkannt = (await erk.json()) as { text?: string };
-  const original = (erkannt.text ?? '').trim();
-  if (!original) throw new Error('Erkennung lieferte keinen Text');
-  return original;
-}
-
-/** Schritt 2 — die Übertragung: (bestätigter) Text → bereinigtes Schweizer Hochdeutsch. */
-async function verdeutschen(k: Record<string, string>, text: string, sprache: string) {
-  const uebersetzer = k.UEBERSETZUNG_MODELL || 'mistral-small-latest';
-  const ue = await fetch('https://api.mistral.ai/v1/chat/completions', {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${k.MISTRAL_API_KEY}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      model: uebersetzer,
-      temperature: 0,
-      messages: [
-        { role: 'system', content: ANWEISUNG },
-        { role: 'user', content: `Sprache des Sprechers: ${SPRACHEN[sprache] ?? 'Deutsch'}\n\n${text}` },
-      ],
-    }),
-  });
-  if (!ue.ok) throw new Error(`Übersetzung ${ue.status}: ${(await ue.text()).slice(0, 300)}`);
-  const j = (await ue.json()) as { choices?: { message?: { content?: string } }[] };
-  const deutsch = (j.choices?.[0]?.message?.content ?? '').trim() || text;
-  return { transkript: deutsch, quelle: deutsch === text ? null : text, sprache };
 }
 
 function spracheVon(chef: { sprache?: string | null } | null | undefined): string {
@@ -200,7 +62,7 @@ Deno.serve(async (req) => {
   let meldungId: string | null = null;
   try {
     const body = await req.json();
-    const { tagesmeldung_id, client_uuid, erneut, audio_base64, mime, team_id, schritt, text, sprache: spracheDirekt } = body ?? {};
+    const { tagesmeldung_id, client_uuid, erneut, audio_base64, mime, team_id, baustelle_id, schritt, text, sprache: spracheDirekt } = body ?? {};
 
     const { data: conf } = await supa.from('konfiguration').select('schluessel,wert');
     const k: Record<string, string> = Object.fromEntries((conf ?? []).map((r: { schluessel: string; wert: string }) => [r.schluessel, r.wert]));
@@ -210,7 +72,9 @@ Deno.serve(async (req) => {
     if (schritt === 'uebersetzen') {
       if (typeof text !== 'string' || !text.trim()) return antwort(400, { fehler: 'text fehlt' });
       const spr = typeof spracheDirekt === 'string' && SPRACHEN[spracheDirekt] ? spracheDirekt : 'de';
-      const erg = await verdeutschen(k, text.trim().slice(0, 4000), spr);
+      // Team und Baustelle (seit 13.10.2026 von der Erfassung mitgeschickt): damit Namen richtig geschrieben werden
+      const kontext = await kontextLaden(supa, wer.firma, { team_id, baustelle_id });
+      const erg = await verdeutschen(k, text.trim().slice(0, 4000), spr, { kontext });
       return antwort(200, { ...erg, vorschau: true });
     }
 
@@ -234,7 +98,8 @@ Deno.serve(async (req) => {
         return antwort(200, { original, sprache, vorschau: true });
       }
       // Deutsch gesprochen (kein Prüfschritt nötig) oder alte App-Fassung: beides in einem
-      const erg = await verdeutschen(k, original, sprache);
+      const kontext = await kontextLaden(supa, wer.firma, { team_id, baustelle_id });
+      const erg = await verdeutschen(k, original, sprache, { kontext });
       return antwort(200, { ...erg, original, uebersetzt: sprache !== 'de', vorschau: true });
     }
 
@@ -243,7 +108,7 @@ Deno.serve(async (req) => {
 
     let abfrage = supa
       .from('tagesmeldung')
-      .select('id, client_uuid, firma_id, audio_pfad, transkript, team:team_id(chefmonteur:chefmonteur_id(sprache))');
+      .select('id, client_uuid, firma_id, team_id, baustelle_id, datum, audio_pfad, transkript, team:team_id(chefmonteur:chefmonteur_id(sprache))');
     abfrage = tagesmeldung_id ? abfrage.eq('id', tagesmeldung_id) : abfrage.eq('client_uuid', client_uuid);
     const { data: m } = await abfrage.maybeSingle();
     // Fremde Firma = gibt es nicht (keine Auskunft, ob die Id existiert)
@@ -261,7 +126,8 @@ Deno.serve(async (req) => {
     if (dlFehler || !datei) throw new Error('Aufnahme nicht lesbar: ' + (dlFehler?.message ?? m.audio_pfad));
 
     const original = await stt(k, datei, m.audio_pfad.split('/').pop() ?? 'notiz.webm', sprache);
-    const erg = await verdeutschen(k, original, sprache);
+    const kontext = await kontextLaden(supa, wer.firma, { team_id: m.team_id, baustelle_id: m.baustelle_id, datum: m.datum });
+    const erg = await verdeutschen(k, original, sprache, { kontext });
 
     const { error: upd } = await supa
       .from('tagesmeldung')
