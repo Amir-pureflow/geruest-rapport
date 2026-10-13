@@ -638,7 +638,7 @@ export function StartChef() {
                 </div>
               );
             })}
-            <p className="text-[11px] text-ink3">Gemacht? Am Abend «Regie ausgeführt» melden, mit Foto.</p>
+            <p className="text-[11px] text-ink3">Gemacht? Am Abend bei «Tag melden» als Überstunden eintragen, bei «War das Regie?» Ja tippen — mit Foto.</p>
           </section>
         )}
 

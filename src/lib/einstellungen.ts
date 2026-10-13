@@ -2,7 +2,7 @@
  * Einstellungen der angemeldeten Firma — ein Code, pro Firma anders (Entscheid 02.10.2026).
  *
  * Jede Firma arbeitet anders: die eine will nur das Wochenblatt (Normal + Überstunden), die andere
- * den vollen Regie-Ablauf mit Symbolen. Statt zwei Zweigen gibt es Schalter. (Die Mehrkostenanzeige
+ * dazu Regie (bei Überstunden «War das Regie?»). Statt zwei Zweigen gibt es Schalter. (Die Mehrkostenanzeige
  * «Bauleitung informieren» ist am 06.10.2026 auf Wunsch von Amir ganz entfernt worden.)
  *
  * Seit Migration 0019 stehen sie in der Zeile der Firma (Tabelle `firma`), nicht mehr global in
@@ -15,7 +15,7 @@ import { NORMALTAG_MIN } from './datum';
 import { ZNUENI_STANDARD, markiertePersonen, type Znueni } from './zeiten';
 
 export interface Einstellungen {
-  /** 'wochenblatt' = nur Normal + Überstunden · 'regie' = zusätzlich Symbole, «Wer wollte das?», Stunden je Person */
+  /** 'wochenblatt' = nur Normal + Überstunden · 'regie' = zusätzlich bei Überstunden «War das Regie?» → «Wer wollte das?», Stunden je Person */
   erfassung: 'wochenblatt' | 'regie';
   /** 'stunden' = nur Stunden, Export, Verwaltung · 'voll' = alles wie der Bauführer */
   sekretariat: 'stunden' | 'voll';

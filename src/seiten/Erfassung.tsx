@@ -1,5 +1,5 @@
 import { Check, CheckCircle2, ChevronLeft, ChevronRight, Flag, Minus, Plus, Car, Truck, UserPlus, X } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Shell } from '../ui/Shell';
 import { Pegel, TranskriptLive } from '../ui/Sprachnotiz';
@@ -31,11 +31,12 @@ import { planHinweise, type VerlaufZeile } from '../lib/planung';
  * Firmen-Schalter `MODUS_ERFASSUNG` (Verwaltung → Einstellungen, Entscheid 02.10.2026):
  *   wochenblatt — nur das. Der Bauführer entscheidet in SORBA, ob etwas verrechnet wird (17.09./20.09.).
  *                 So arbeitet die Gerüst GmbH.
- *   regie       — zusätzlich «War etwas anders?»: Symbol → «Wer wollte das?» → Stunden je Person → Notiz.
- *                 Daraus entsteht beim Bauführer ein Regierapport für den Kunden.
- * Ausnahme seit 11.10.2026 (Amir): Hat das Team Überstunden und tippt «Alles wie geplant», fragt die App einmal nach,
- * ob es Regie war — sonst rutscht Regie als gewöhnliche Überstunden durch. «Ja» führt in den Regie-Ablauf (Überstunden
- * vorbelegt), «Nein» speichert wie bisher.
+ *   regie       — zusätzlich bei Überstunden die Frage «War das Regie?» (11.10.2026): «Ja» führt in den Regie-Ablauf
+ *                 «Wer wollte das?» → Stunden je Person (Überstunden vorbelegt) → Notiz; daraus entsteht beim Bauführer
+ *                 ein Regierapport für den Kunden. «Nein» speichert wie im Wochenblatt. Sonst rutscht Regie als
+ *                 gewöhnliche Überstunden durch.
+ *                 Die drei Kacheln «War etwas anders?» (Regie ausgeführt / warten müssen / etwas kaputt) sind seit
+ *                 13.10.2026 weg (Amir): Regie wird nur noch über die Überstunden gemeldet, ein Weg statt zwei.
  *
  * Feedback Bauführer 20.09.: Stunden wahlweise als Zahl oder als Zeiten von–bis (ohne Pausenrechnung),
  * Sprachnotiz immer als Bemerkung zum Tag, Personen von ausserhalb des Teams hinzufügen, nur Auto (kein öV).
@@ -49,8 +50,8 @@ type ZeitModus = 'stunden' | 'zeit';
 /** Wie auf dem Wochenblatt: Normalstunden (Standard 8.4 h) und Überstunden getrennt — beides Lohn, keine Fragen. Bei `modus: 'zeit'` zählen die `zeiten`. */
 interface Anwesenheit { dabei: boolean; min: number; ueber: number; oev: boolean; km: number; modus: ZeitModus; zeiten: Spanne[] }
 
-/** Die drei Schritte des Wochenblatts, dazu Symbol/Wer/Notiz — die gibt es nur im Regie-Modus. */
-type Schritt = 'team' | 'tag' | 'symbol' | 'wer' | 'notiz' | 'fertig';
+/** Die drei Schritte des Wochenblatts, dazu Wer/Notiz — die gibt es nur im Regie-Modus. */
+type Schritt = 'team' | 'tag' | 'wer' | 'notiz' | 'fertig';
 /** Im Wochenblatt-Modus nur für alte Meldungen (vor 17.09.); im Regie-Modus die gemeldete Abweichung. */
 type Abweichung = 'zusaetzlich' | 'warten' | 'kaputt' | 'laenger';
 /** Wer die Zusatzarbeit wollte — das ist die Frage, die der Monteur beantworten kann. «Ist das Regie?» kann er nicht. */
@@ -66,24 +67,12 @@ const OEV_AKTIV = false;
 /** Zuletzt hinzugefügte Personen je Team (max. 5) — wer letzte Woche mitgeholfen hat, ist mit einem Tipp wieder da. */
 const GAESTE_KEY = 'teamgeraet-gaeste-';
 
-/** Die drei Abweichungen als Bild — gelesen wird auf der Baustelle mit Handschuhen und Sonne auf dem Display. */
-const SYMBOLE: { typ: Abweichung; label: string; svg: ReactElement }[] = [
-  {
-    typ: 'zusaetzlich', label: 'Regie ausgeführt',
-    svg: <svg viewBox="0 0 40 40" className="h-9 w-9" fill="currentColor"><rect x="17" y="8" width="6" height="24" rx="2" /><rect x="8" y="17" width="24" height="6" rx="2" /></svg>,
-  },
-  {
-    typ: 'warten', label: 'warten müssen',
-    svg: <svg viewBox="0 0 40 40" className="h-9 w-9" fill="none" stroke="currentColor"><circle cx="20" cy="20" r="13" strokeWidth="3.5" /><path d="M20 12v8.5l6 3.5" strokeWidth="3.5" strokeLinecap="round" /></svg>,
-  },
-  {
-    typ: 'kaputt', label: 'etwas kaputt / repariert',
-    svg: <svg viewBox="0 0 40 40" className="h-9 w-9"><path d="M20 7 L34 31 H6 Z" fill="none" stroke="currentColor" strokeWidth="3.5" strokeLinejoin="round" /><rect x="18.2" y="15" width="3.6" height="8" rx="1.8" fill="currentColor" /><circle cx="20" cy="26.5" r="2" fill="currentColor" /></svg>,
-  },
-];
-
-/** Kurzform für die drei Kacheln im Tag-Schritt — zwei Wörter, die auch allein verständlich sind. */
-const KURZ_LABEL: Record<Abweichung, string> = { zusaetzlich: 'Regie ausgeführt', warten: 'warten müssen', kaputt: 'etwas kaputt', laenger: 'länger gearbeitet' };
+/**
+ * Name der Abweichung als Überschrift im Regie-Ablauf. Neue Meldungen sind immer «Regie ausgeführt» — die drei Kacheln
+ * «War etwas anders?» (Regie ausgeführt / warten müssen / etwas kaputt) sind seit 13.10.2026 weg (Amir: «es gibt ja
+ * Tag melden — man kann ja sagen, ob es Regie war, wenn man Überstunden macht»). Die anderen Namen nur für alte Meldungen.
+ */
+const ABWEICHUNG_NAME: Record<Abweichung, string> = { zusaetzlich: 'Regie ausgeführt', warten: 'warten müssen', kaputt: 'etwas kaputt / repariert', laenger: 'länger gearbeitet' };
 
 function Helm({ farbe }: { farbe: string }) {
   return (
@@ -512,7 +501,7 @@ export function Erfassung() {
   const [abMinPerson, setAbMinPerson] = useState<Record<string, number>>({});
   const abMinVon = (id: string) => abMinPerson[id] ?? abMin;
   const [abLeute, setAbLeute] = useState<Set<string>>(new Set());
-  /** «Überstunden — war das Regie?» steht offen (nur Regie-Modus, beim Tippen auf «Alles wie geplant») */
+  /** «Überstunden — war das Regie?» steht offen (nur Regie-Modus, beim Tippen auf «Tag melden») */
   const [regieFrage, setRegieFrage] = useState(false);
   const regieFrageRef = useRef<HTMLElement | null>(null);
   /**
@@ -1559,33 +1548,12 @@ export function Erfassung() {
     );
   }
 
-  // ── Regie-Modus: Symbol → «Wer wollte das?» → Stunden je Person und Notiz ──
-  if (schritt === 'symbol') {
-    return (
-      <Shell zurueck schmal>
-        <div className="space-y-4">
-          <p className="lbl mb-0">Abweichung</p>
-          <h1 className="font-display text-2xl font-semibold">Was war anders?</h1>
-          <div className="grid grid-cols-3 gap-2">
-            {SYMBOLE.map((x) => (
-              <button key={x.typ} type="button" onClick={() => abweichungStarten(x.typ)} className="chip flex flex-col items-center gap-2 py-5 text-ink2">
-                {x.svg}
-                <span className="text-xs leading-tight">{x.label}</span>
-              </button>
-            ))}
-          </div>
-          {hinweis && <p className="text-sm font-semibold text-accent-deep">{hinweis}</p>}
-          <button type="button" onClick={() => setSchritt('tag')} className="btn-ghost w-full">Zurück</button>
-        </div>
-      </Shell>
-    );
-  }
-
+  // ── Regie-Modus (nur über «Überstunden — war das Regie?» → Ja): «Wer wollte das?» → Stunden je Person und Notiz ──
   if (schritt === 'wer') {
     return (
       <Shell zurueck schmal>
         <div className="space-y-4">
-          <p className="lbl mb-0">{SYMBOLE.find((x) => x.typ === abweichung)?.label}</p>
+          <p className="lbl mb-0">{abweichung ? ABWEICHUNG_NAME[abweichung] : ''}</p>
           <h1 className="font-display text-2xl font-semibold">Wer wollte das?</h1>
           <div className="grid grid-cols-3 gap-2">
             {([['kunde', 'Kunde', '#D82816'], ['chef', 'Unser Chef', '#29506B'], ['niemand', 'Niemand', '']] as const).map(([w, label, farbe]) => (
@@ -1598,7 +1566,7 @@ export function Erfassung() {
             ))}
           </div>
           <p className="text-xs text-ink3">Kunde = der Bauleiter hat es angeordnet · Unser Chef = kam von uns · Niemand = selbst gemacht, meist weil etwas kaputt war</p>
-          <button type="button" onClick={() => setSchritt('symbol')} className="btn-ghost w-full">Zurück</button>
+          <button type="button" onClick={() => { setAbweichung(null); setSchritt('tag'); }} className="btn-ghost w-full">Zurück</button>
         </div>
       </Shell>
     );
@@ -1608,7 +1576,7 @@ export function Erfassung() {
     return (
       <Shell zurueck schmal>
         <div className="space-y-4">
-          <p className="lbl mb-0">{SYMBOLE.find((x) => x.typ === abweichung)?.label} · {wer === 'kunde' ? 'Kunde' : wer === 'chef' ? 'unser Chef' : 'niemand'}</p>
+          <p className="lbl mb-0">{abweichung ? ABWEICHUNG_NAME[abweichung] : ''} · {wer === 'kunde' ? 'Kunde' : wer === 'chef' ? 'unser Chef' : 'niemand'}</p>
           <h1 className="font-display text-2xl font-semibold">Wie lange?</h1>
           <Stepper wert={abMin} setWert={(v) => { setAbMin(v); setAbMinPerson({}); }} schritt={30} min={30} format={(v) => stunden(v) + ' h'} />
           <p className="-mt-2 text-center text-xs text-ink3">
@@ -2222,26 +2190,11 @@ export function Erfassung() {
             }}
             className="cta cta-good py-5 text-[17px] disabled:opacity-70"
           >
-            <span className="inline-flex items-center gap-2">{gespeichert ? gespeichert : <><CheckCircle2 size={22} strokeWidth={2.2} aria-hidden="true" /> {modus === 'regie' ? (ueberTotal > 0 ? (regieAntwort === 'ja' ? 'Weiter zur Regie' : 'Tag melden') : 'Alles wie geplant') : 'Tag melden'}</>}</span>
+            <span className="inline-flex items-center gap-2">{gespeichert ? gespeichert : <><CheckCircle2 size={22} strokeWidth={2.2} aria-hidden="true" /> {modus === 'regie' && ueberTotal > 0 && regieAntwort === 'ja' ? 'Weiter zur Regie' : 'Tag melden'}</>}</span>
           </button>
         )}
         {hinweis && <p className="text-sm font-semibold text-accent-deep">{hinweis}</p>}
 
-        {/* Nur im Regie-Modus: der zweite Weg. Im Wochenblatt gibt es ihn nicht — dort entscheidet der Bauführer. */}
-        {modus === 'regie' && (
-          <div>
-            <p className="mb-2 text-center text-sm text-ink3">War etwas anders?</p>
-            <div className="grid grid-cols-3 gap-2">
-              {SYMBOLE.map((x) => (
-                <button key={x.typ} type="button" onClick={() => abweichungStarten(x.typ)} className="chip flex flex-col items-center gap-1.5 py-3 text-ink2">
-                  {x.svg}
-                  <span className="text-[11px] leading-tight">{KURZ_LABEL[x.typ]}</span>
-                </button>
-              ))}
-            </div>
-            <p className="mt-2 text-center text-xs text-ink3">Der normale Tag wird mitgespeichert. Regie-Stunden zählen als Mehrzeit — nicht zusätzlich als Überstunden eintragen.</p>
-          </div>
-        )}
       </div>
     </Shell>
   );

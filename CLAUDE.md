@@ -11,10 +11,13 @@ doppelte Arbeit.» Amir braucht beides: die Gerüst GmbH (Arbnor) bleibt ohne Re
 **mit** Regie vorgestellt. Darum **ein Code mit Schaltern**, keine zwei Zweige (Entscheid «Weg B»).
 Siehe «Firmen-Schalter» unten. `archiv/regie-und-board/` bleibt als Nachschlagewerk stehen, ist aber nicht mehr die Quelle.
 
-**Regie im Teamgerät (11.10.2026, Amir):** Die Kachel heisst «Regie ausgeführt» (vorher «zusätzlich gearbeitet»). Hat
-das Team Überstunden und tippt «Tag melden», fragt die App einmal: «1.6 h Überstunden je Person — war das Regie?» —
-«Ja» führt in den Regie-Ablauf (Überstunden vorbelegt), «Nein» speichert normal. Sonst rutscht Regie als gewöhnliche
-Überstunden durch. Nur im Regie-Modus; die Gerüst GmbH (Wochenblatt) sieht nichts davon.
+**Regie im Teamgerät (11.10.2026, Amir):** Hat das Team Überstunden und tippt «Tag melden», fragt die App einmal:
+«1.6 h Überstunden je Person — war das Regie?» — «Ja» führt in den Regie-Ablauf (Überstunden vorbelegt), «Nein»
+speichert normal. Sonst rutscht Regie als gewöhnliche Überstunden durch. Nur im Regie-Modus; die Gerüst GmbH
+(Wochenblatt) sieht nichts davon. **Seit 13.10.2026 der einzige Weg zur Regie:** die drei Kacheln «War etwas anders?»
+(Regie ausgeführt / warten müssen / etwas kaputt) unter «Tag melden» sind weg (Amir: «es gibt ja Tag melden — man kann
+ja sagen, ob es Regie war, wenn man Überstunden macht»). Alte Meldungen mit «Wartezeit»/«etwas kaputt» werden weiter
+angezeigt. Der Knopf heisst immer «Tag melden» (nicht mehr «Alles wie geplant»).
 
 Kontext-Dokumente (eine Ebene höher):
 - `../PRODUKTKONZEPT_ZEITERFASSUNG_RAPPORTE_REGIE.md` — Fachkonzept (Regie-Teile historisch)

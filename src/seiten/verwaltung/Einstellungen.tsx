@@ -428,7 +428,7 @@ const WAHLEN = [
     erklaerung: 'Auf dem Handy, auf der Baustelle.',
     optionen: [
       { wert: 'wochenblatt', label: 'Nur die Stunden', text: 'Baustelle, wer war dabei, Stunden. Mehr nicht. Gibt es Überstunden, sagt er kurz ins Mikrofon, warum. Der Bauführer hört es und entscheidet.' },
-      { wert: 'regie', label: 'Stunden und Zusatzarbeit', text: 'Dazu die Frage, ob etwas anders war. Er tippt ein Bild an, sagt wer es wollte, trägt die Stunden je Person ein und macht Fotos.' },
+      { wert: 'regie', label: 'Stunden und Zusatzarbeit', text: 'Hat das Team Überstunden, fragt die App, ob es Regie war. Bei Ja sagt er, wer es wollte, trägt die Stunden je Person ein und macht Fotos.' },
     ],
   } as Wahl<'erfassung'>,
   {
