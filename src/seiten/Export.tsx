@@ -66,7 +66,11 @@ type Tab = 'lohn' | 'ueber' | 'abw' | 'bueros' | 'liefer' | 'raster';
 /** Abwesenheitstag aus der Verwaltung (0036) */
 interface AbwZeile { datum: string; art: string; minuten: number; mitarbeiter: { id: string; name: string; typ: string; temporaerbuero: string | null } }
 /** Eine Ladung — gehört zu genau einer Abfrage (Zeitraum, Team, Filter) und weiss, wann sie lief: das ist der «Stand». */
-interface Daten { schluessel: string; stand: Date; zeilen: Zeile[]; jahr: JahresZeile[]; liefer: LieferZeile[]; abw: AbwZeile[] }
+interface Daten {
+  schluessel: string; stand: Date; zeilen: Zeile[]; jahr: JahresZeile[]; liefer: LieferZeile[]; abw: AbwZeile[];
+  /** Wofür geladen wurde — damit eine stehen gebliebene Ladung beim Umschalten in ihrer eigenen Form gezeigt wird */
+  zeitraum: Zeitraum; wochen: Date[]; anker: Date;
+}
 
 const ALLE = 'alle';
 
@@ -257,7 +261,7 @@ export function Export() {
           })())
           : Promise.resolve([] as AbwZeile[]),
       ]);
-      const d: Daten = { schluessel, stand, zeilen, jahr, liefer, abw };
+      const d: Daten = { schluessel, stand, zeilen, jahr, liefer, abw, zeitraum, wochen, anker };
       if (aktuell()) { setDaten(d); setLaedt(false); }
       return d;
     } catch (e) {
@@ -268,16 +272,22 @@ export function Export() {
       }
       return null;
     }
-  }, [schluessel, vonIso, bisIso, jahrBereich.von, jahrBereich.bis, teamId, nurFrei, lohnSichtbar, anfrage]);
+  }, [schluessel, vonIso, bisIso, jahrBereich.von, jahrBereich.bis, teamId, nurFrei, lohnSichtbar, anfrage, zeitraum, wochen, anker]);
   useEffect(() => { void laden(); }, [laden]);
 
   const tagRp = lieferwagenTagRp();
   // Nur die Ladung zum gewählten Zeitraum zeigen — nie die alte Woche unter dem neuen Titel
   const passend = daten && daten.schluessel === schluessel ? daten : null;
   const wartet = !!supabase && !passend && !fehler;
+  // Beim Umschalten (Woche ↔ Monat, Team, Filter) bleibt die bisherige Ladung stehen — abgeblendet und in ihrer eigenen
+  // Form —, bis die neue da ist. Vorher sprangen die Karten kurz auf «…» und «0 Personen» (Amir 13.10.2026: «nicht so
+  // clean»). Das Excel und sein «Stand» kommen weiterhin nur aus `passend`, nie aus der stehen gebliebenen Ladung.
+  const anzeige = passend ?? (wartet ? daten : null);
+  const veraltet = !passend && !!anzeige;
+  const blende = 'transition-opacity duration-300 ' + (veraltet ? 'pointer-events-none opacity-50' : 'opacity-100');
   const { zeilen, abw, lieferTage, lohn, abwArten, abwPersonen, bueros, ohneBuero, ueber, spalten, werte, raster } = useMemo(
-    () => auswerten(passend, zeitraum, wochen, anker, tagRp),
-    [passend, zeitraum, wochen, anker, tagRp],
+    () => auswerten(anzeige, anzeige?.zeitraum ?? zeitraum, anzeige?.wochen ?? wochen, anzeige?.anker ?? anker, tagRp),
+    [anzeige, zeitraum, wochen, anker, tagRp],
   );
   const summeLiefer = lieferTage.reduce((s, t) => s + t.betrag_rp, 0);
   const mitAbw = abw.length > 0;
@@ -312,7 +322,7 @@ export function Export() {
   const ueberMax = Math.max(1, ...ueberListe.map((u) => u.jahr_min));
   const tab: Tab = lohnSichtbar ? gewaehlt : 'raster';
   const leer = (was: string) => (
-    <p className="px-5 py-10 text-center text-sm text-ink3">{wartet ? 'Lädt …' : !passend ? 'Nicht geladen — siehe Meldung oben.' : `Keine ${nurFrei ? 'freigegebenen ' : ''}${was} ${zeitraumText} (${teamName(teamId)}).`}</p>
+    <p className="px-5 py-10 text-center text-sm text-ink3">{!anzeige ? (wartet ? 'Lädt …' : 'Nicht geladen — siehe Meldung oben.') : `Keine ${nurFrei ? 'freigegebenen ' : ''}${was} ${zeitraumText} (${teamName(teamId)}).`}</p>
   );
 
   /** Das Excel aus einer frischen Ladung — nie aus dem, was seit dem Öffnen der Seite auf dem Bildschirm steht. */
@@ -421,17 +431,17 @@ export function Export() {
 
         {/* Auf einen Blick — nur Sekretariat */}
         {lohnSichtbar && (
-          <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-            {/* Ohne passende Ladung «…» statt 0 h — eine Null hiesse «nichts gearbeitet» */}
-            <ZahlKarte titel="Stunden" wert={passend ? `${stunden(summeLohn)} h` : '…'} label={`${lohn.length} Personen`} farbe="blau" icon={Clock} />
-            <ZahlKarte titel="Überstunden" wert={passend ? `${stunden(summeUeber)} h` : '…'} label={`${ueber.filter((u) => u.zeitraum_min > 0).length} Personen`} farbe="gelb" icon={AlarmClock} />
-            <ZahlKarte titel="Temporärbüros" wert={passend ? `${stunden(summeBueros)} h` : '…'} label={`${bueros.length} Büros · ${tempPersonen} Personen`} farbe="neutral" icon={Building2} />
-            <ZahlKarte titel="Baustellen" wert={passend ? String(raster.vorgaenge.length) : '…'} label="Konten im Stundenraster" farbe="gruen" icon={HardHat} />
+          <div className={'grid grid-cols-2 gap-3 lg:grid-cols-4 ' + blende}>
+            {/* Nur beim allerersten Laden «…» statt 0 h — eine Null hiesse «nichts gearbeitet» */}
+            <ZahlKarte titel="Stunden" wert={anzeige ? `${stunden(summeLohn)} h` : '…'} label={`${lohn.length} Personen`} farbe="blau" icon={Clock} />
+            <ZahlKarte titel="Überstunden" wert={anzeige ? `${stunden(summeUeber)} h` : '…'} label={`${ueber.filter((u) => u.zeitraum_min > 0).length} Personen`} farbe="gelb" icon={AlarmClock} />
+            <ZahlKarte titel="Temporärbüros" wert={anzeige ? `${stunden(summeBueros)} h` : '…'} label={`${bueros.length} Büros · ${tempPersonen} Personen`} farbe="neutral" icon={Building2} />
+            <ZahlKarte titel="Baustellen" wert={anzeige ? String(raster.vorgaenge.length) : '…'} label="Konten im Stundenraster" farbe="gruen" icon={HardHat} />
           </div>
         )}
 
         {/* Eine Tabelle auf einmal — Reiter statt vier Blöcke untereinander */}
-        <section className="card overflow-hidden p-0">
+        <section className={'card overflow-hidden p-0 ' + blende}>
           {lohnSichtbar && (
             <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line px-4 py-3">
               <Segment label="Ansicht" wert={tab} aendern={setGewaehlt}
@@ -590,7 +600,7 @@ export function Export() {
           ))}
 
           {tab === 'liefer' && (lieferTage.length === 0 ? (
-            <p className="px-5 py-10 text-center text-sm text-ink3">{wartet ? 'Lädt …' : !passend ? 'Nicht geladen — siehe Meldung oben.' : `Kein Team hat ${zeitraumText} den Lieferwagen angetippt (${teamName(teamId)}).`}</p>
+            <p className="px-5 py-10 text-center text-sm text-ink3">{!anzeige ? (wartet ? 'Lädt …' : 'Nicht geladen — siehe Meldung oben.') : `Kein Team hat ${zeitraumText} den Lieferwagen angetippt (${teamName(teamId)}).`}</p>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
