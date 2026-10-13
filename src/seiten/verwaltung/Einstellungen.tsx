@@ -8,10 +8,13 @@ import { Clock3, Coffee, Highlighter, Minus, Plus, Truck } from 'lucide-react';
 import {
   einstellungen, einstellungSetzen, schalterGelesen, eigeneFirma,
   briefkopf, briefkopfSetzen, normaltagMin, normaltagAusDatenbank, NORMALTAG_BEREICH,
-  markierenAbMin, markierenAusDatenbank, znueni, znueniAusDatenbank, lieferwagenTagRp,
+  markierenAbMin, markierenAusDatenbank, znueni, znueniAusDatenbank, znueniSetzen, ZNUENI_BEREICH, lieferwagenTagRp,
   type Briefkopf, type Einstellungen,
 } from '../../lib/einstellungen';
+import { stunden } from '../../lib/datum';
+import { ARBEITSBEGINN_MIN, MITTAG_VON_MIN, uhrzeit } from '../../lib/zeiten';
 import { Segment } from '../../ui/Segment';
+import { Auswahl } from '../../ui/Auswahl';
 import { istDemoFirma } from '../../lib/demo';
 
 /** Häufige Normaltage im Bau: 8.0 · 8.2 · 8.4 (42-h-Woche) · 8.5 · 9.0 h. */
@@ -186,27 +189,38 @@ function MarkierenKarte() {
 }
 
 /**
- * Znüni (Migration 0036, Arbnor 10.10.2026): Bei der Gerüst GmbH dauert er 9:00–9:15 und wird immer abgezogen —
- * vom Vormittag 7–12 werden 4.75 h bezahlt. Andere Firmen zählen ihn mit und ziehen ihn nur ab, wenn der Bauherr
- * ihn nicht zahlt («− Pause»). Gilt für neue Meldungen; was gemeldet ist, bleibt.
+ * Pause am Morgen (Migration 0036, Arbnor 10.10.2026; frei einstellbar seit 0044, 13.10.2026): Bei der Gerüst GmbH
+ * dauert sie 9:00–9:15 und wird immer abgezogen — vom Vormittag 7–12 werden 4.75 h bezahlt. Andere Firmen wählen
+ * Beginn und Dauer selbst und ziehen sie immer oder nur dann ab, wenn der Bauherr sie nicht zahlt («− Pause»).
+ * Gilt für neue Meldungen; was gemeldet ist, bleibt.
  */
+const PAUSE_BEGINN = Array.from({ length: 15 }, (_, i) => 450 + i * 15); // 7:30 … 11:00
+const PAUSE_DAUER = [10, 15, 20, 30, 45];
+
 function ZnueniKarte() {
   const [z, setZ] = useState(znueni);
   const [speichert, setSpeichert] = useState(false);
   const [meldung, setMeldung] = useState<{ text: string; art: 'ok' | 'fehler' } | null>(null);
   const ausDatenbank = znueniAusDatenbank();
   const dauer = z.bis - z.von;
+  const vormittag = MITTAG_VON_MIN - ARBEITSBEGINN_MIN;
 
-  async function setzen<K extends 'znueniImmer' | 'znueniBisMin'>(feld: K, wert: Einstellungen[K]) {
+  async function speichern(f: () => Promise<string | null>) {
     if (speichert) return;
     setSpeichert(true);
     setMeldung(null);
-    const f = await einstellungSetzen(feld, wert);
+    const fehler = await f();
     setSpeichert(false);
-    if (f) { setMeldung({ text: f, art: 'fehler' }); return; }
+    if (fehler) { setMeldung({ text: fehler, art: 'fehler' }); return; }
     setZ(znueni());
     setMeldung({ text: 'Gespeichert ✓', art: 'ok' });
   }
+  /** Beginn verschieben, Dauer behalten — reicht sie nicht mehr bis 12:00, endet sie um 12:00 */
+  const beginnSetzen = (von: number) => void speichern(() => znueniSetzen(von, Math.min(von + dauer, ZNUENI_BEREICH.ende)));
+  const dauerSetzen = (d: number) => void speichern(() => znueniSetzen(z.von, z.von + d));
+
+  const beginnListe = PAUSE_BEGINN.includes(z.von) ? PAUSE_BEGINN : [...PAUSE_BEGINN, z.von].sort((x, y) => x - y);
+  const dauerListe = PAUSE_DAUER.includes(dauer) ? PAUSE_DAUER : [...PAUSE_DAUER, dauer].sort((x, y) => x - y);
 
   return (
     <section className="card space-y-4">
@@ -217,38 +231,52 @@ function ZnueniKarte() {
         <div>
           <h2 className="font-display text-[15px] font-semibold">Pause am Morgen</h2>
           <p className="mt-0.5 text-xs text-ink3">
-            Wie lange die Pause am Morgen dauert und ob sie immer abgezogen wird. Im Teamgerät steht der Vormittag dann
-            schon geteilt da — gezählt wird, was dasteht.
+            Wann die Pause am Morgen beginnt, wie lange sie dauert und ob sie immer abgezogen wird. Im Teamgerät steht der
+            Vormittag dann schon geteilt da — gezählt wird, was dasteht.
           </p>
         </div>
       </div>
 
-      <div className="grid gap-3 sm:grid-cols-2">
+      <div className="space-y-1.5">
+        <p className="lbl">Abziehen</p>
+        <Segment
+          label="Pause abziehen"
+          optionen={[{ wert: 1, text: 'immer' }, { wert: 0, text: 'nur wenn der Bauherr nicht zahlt' }]}
+          wert={z.immer ? 1 : 0}
+          aendern={(v) => void speichern(() => einstellungSetzen('znueniImmer', v === 1))}
+        />
+      </div>
+
+      <div className="grid gap-3 sm:grid-cols-[minmax(0,12rem)_1fr]">
         <div className="space-y-1.5">
-          <p className="lbl">Abziehen</p>
-          <Segment
-            label="Pause abziehen"
-            optionen={[{ wert: 1, text: 'immer' }, { wert: 0, text: 'nur wenn der Bauherr nicht zahlt' }]}
-            wert={z.immer ? 1 : 0}
-            aendern={(v) => void setzen('znueniImmer', v === 1)}
+          <p className="lbl">Beginn</p>
+          <Auswahl
+            id="pause-beginn"
+            label="Beginn der Pause"
+            wert={String(z.von)}
+            aendern={(v) => beginnSetzen(Number(v))}
+            optionen={beginnListe.map((m) => ({ wert: String(m), text: uhrzeit(m) }))}
+            suche={false}
+            art="pille"
           />
         </div>
         <div className="space-y-1.5">
           <p className="lbl">Dauer</p>
           <Segment
             label="Dauer der Pause"
-            optionen={[{ wert: 555, text: '9:00–9:15' }, { wert: 570, text: '9:00–9:30' }]}
-            wert={z.bis === 555 || z.bis === 570 ? z.bis : -1}
-            aendern={(v) => void setzen('znueniBisMin', v)}
+            optionen={dauerListe.map((d) => ({ wert: d, text: `${d} Min.` }))}
+            wert={dauer}
+            aendern={dauerSetzen}
           />
         </div>
       </div>
 
       <p className="rounded-[12px] bg-ground px-3.5 py-2.5 text-xs text-ink2">
+        Pause {uhrzeit(z.von)}–{uhrzeit(z.bis)} ({dauer} Min.).{' '}
         {z.immer ? (
-          <>Vormittag 7:00–12:00 → <b className="text-ink">{alsStunden(300 - dauer)} h bezahlt</b> (Pause {dauer} Min. abgezogen). Das Teamgerät zeigt 7:00–9:00 und {Math.floor(z.bis / 60)}:{String(z.bis % 60).padStart(2, '0')}–12:00.</>
+          <>Vormittag {uhrzeit(ARBEITSBEGINN_MIN)}–{uhrzeit(MITTAG_VON_MIN)} → <b className="text-ink">{stunden(vormittag - dauer)} h bezahlt</b>. Das Teamgerät zeigt {uhrzeit(ARBEITSBEGINN_MIN)}–{uhrzeit(z.von)} und {uhrzeit(z.bis)}–{uhrzeit(MITTAG_VON_MIN)}.</>
         ) : (
-          <>Vormittag 7:00–12:00 → <b className="text-ink">5.0 h</b>. Zahlt der Bauherr die Pause nicht, tippt der Chefmonteur «− Pause» → {alsStunden(300 - dauer)} h.</>
+          <>Vormittag {uhrzeit(ARBEITSBEGINN_MIN)}–{uhrzeit(MITTAG_VON_MIN)} → <b className="text-ink">{stunden(vormittag)} h</b>. Zahlt der Bauherr die Pause nicht, tippt der Chefmonteur «− Pause» → {stunden(vormittag - dauer)} h.</>
         )}
       </p>
 

@@ -397,7 +397,7 @@ Lesende Prüfung genauso, mit SQL statt `-f` (z. B. `select … from information
 - Eine Datei läuft als ein Block: scheitert eine Zeile, bleibt die ganze Datei draussen. Danach mit einer Abfrage
   bestätigen, nicht glauben.
 - Am Ende einer Migration mit neuen Spalten/Tabellen: `notify pgrst, 'reload schema';`.
-- **Stand:** 0001–0043 sind eingespielt (0034 neue Fassung, 0035–0039 am 11.10.2026, 0040–0043 am 13.10.2026).
+- **Stand:** 0001–0044 sind eingespielt (0034 neue Fassung, 0035–0039 am 11.10.2026, 0040–0044 am 13.10.2026; 0044 = Pause am Morgen mit eigenem Beginn `znueni_von_min`, Dauer 5–60 Min., Ende ≤ 12:00 — gespeichert beides zusammen über `znueniSetzen`).
 - Eine Migration mit Rechten zuerst **zurückgerollt testen**: Migration + Testfälle je Rolle (`set local role
   authenticated` + `request.jwt.claims`) in eine Datei, am Ende `raise exception` mit den Ergebnissen — der Fehler
   rollt alles zurück und zeigt, was erlaubt/gesperrt war. So geprüft: 0041 (34 Fälle), 0042 (8 Fälle).

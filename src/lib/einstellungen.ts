@@ -26,7 +26,9 @@ export interface Einstellungen {
    * Überstunden gelb. null = wie der normale Arbeitstag, jede Überstunde wird gelb. Gerüst GmbH 540 = 9.0 h.
    */
   markierenAbMin: number | null;
-  /** Ende des Znüni in Minuten (Migration 0036; Beginn immer 9:00). Standard 570 = 9:30, Gerüst GmbH 555 = 9:15. */
+  /** Beginn der Pause am Morgen in Minuten (Migration 0044, vorher immer 9:00). Standard 540 = 9:00. */
+  znueniVonMin: number;
+  /** Ende der Pause am Morgen in Minuten (Migration 0036). Standard 570 = 9:30, Gerüst GmbH 555 = 9:15. */
   znueniBisMin: number;
   /** Znüni immer abziehen (Gerüst GmbH, Arbnor 10.10.2026) statt nur auf Knopfdruck. */
   znueniImmer: boolean;
@@ -39,7 +41,7 @@ export interface Einstellungen {
 
 export const STANDARD: Einstellungen = {
   erfassung: 'wochenblatt', sekretariat: 'stunden', normaltagMin: NORMALTAG_MIN, markierenAbMin: null,
-  znueniBisMin: ZNUENI_STANDARD.bis, znueniImmer: false, lieferwagenTagRp: null,
+  znueniVonMin: ZNUENI_STANDARD.von, znueniBisMin: ZNUENI_STANDARD.bis, znueniImmer: false, lieferwagenTagRp: null,
 };
 
 /** Erlaubter Betrag pro Tag: Fr. 0 bis 1000 (Migration 0036). */
@@ -47,11 +49,19 @@ function gueltigerBetrag(x: unknown): number | null {
   return typeof x === 'number' && Number.isInteger(x) && x >= 0 && x <= 100000 ? x : null;
 }
 
-/** Erlaubtes Ende des Znüni: 9:05 bis 10:00 (Migration 0036). */
-const ZNUENI_BIS_BEREICH = { min: 545, max: 600 } as const;
+/**
+ * Erlaubte Pause am Morgen (Migration 0044, wie die Prüfregel der Datenbank): Beginn 7:00–11:30, Dauer 5–60 Minuten,
+ * Ende spätestens 12:00. Fehlt der Beginn (Zwischenspeicher von vor 0044), gilt 9:00.
+ */
+export const ZNUENI_BEREICH = { vonMin: 420, vonMax: 690, dauerMin: 5, dauerMax: 60, ende: 720 } as const;
 
-function gueltigesZnueniBis(x: unknown): number | null {
-  return typeof x === 'number' && Number.isFinite(x) && x >= ZNUENI_BIS_BEREICH.min && x <= ZNUENI_BIS_BEREICH.max ? Math.round(x) : null;
+export function gueltigeZnueni(von: unknown, bis: unknown): { von: number; bis: number } | null {
+  const v = von === undefined || von === null ? ZNUENI_STANDARD.von : von;
+  if (typeof v !== 'number' || typeof bis !== 'number' || !Number.isInteger(v) || !Number.isInteger(bis)) return null;
+  const b = ZNUENI_BEREICH;
+  if (v < b.vonMin || v > b.vonMax) return null;
+  if (bis < v + b.dauerMin || bis > Math.min(v + b.dauerMax, b.ende)) return null;
+  return { von: v, bis };
 }
 
 /** Erlaubter Bereich für den normalen Arbeitstag: 6.0 bis 10.0 h, in Schritten von 6 Minuten (0.1 h). */
@@ -75,6 +85,7 @@ const SPALTE = {
   sekretariat: 'modus_sekretariat',
   normaltagMin: 'normaltag_min',
   markierenAbMin: 'markieren_ab_min',
+  znueniVonMin: 'znueni_von_min',
   znueniBisMin: 'znueni_bis_min',
   znueniImmer: 'znueni_immer',
   lieferwagenTagRp: 'lieferwagen_tag_rp',
@@ -139,7 +150,8 @@ function lesenLokal(): Einstellungen {
     return x
       ? {
           ...STANDARD, ...x, normaltagMin: gueltigerNormaltag(x.normaltagMin) ?? NORMALTAG_MIN, markierenAbMin: gueltigeMarkierung(x.markierenAbMin),
-          znueniBisMin: gueltigesZnueniBis(x.znueniBisMin) ?? STANDARD.znueniBisMin, znueniImmer: x.znueniImmer === true,
+          ...(() => { const g = gueltigeZnueni(x.znueniVonMin, x.znueniBisMin) ?? ZNUENI_STANDARD; return { znueniVonMin: g.von, znueniBisMin: g.bis }; })(),
+          znueniImmer: x.znueniImmer === true,
           lieferwagenTagRp: gueltigerBetrag(x.lieferwagenTagRp),
         }
       : STANDARD;
@@ -176,9 +188,10 @@ export function markierenAusDatenbank(): boolean | null {
   return markierenGelesen;
 }
 
-/** Znüni dieser Firma: 9:00 bis `znueniBisMin`, und ob er immer abgezogen wird. Erfassung und Wochenübersicht rechnen damit. */
+/** Pause am Morgen dieser Firma: Beginn, Ende, und ob sie immer abgezogen wird. Erfassung und Wochenübersicht rechnen damit. */
 export function znueni(): Znueni {
-  return { von: ZNUENI_STANDARD.von, bis: gueltigesZnueniBis(zwischenspeicher.znueniBisMin) ?? ZNUENI_STANDARD.bis, immer: zwischenspeicher.znueniImmer === true };
+  const g = gueltigeZnueni(zwischenspeicher.znueniVonMin, zwischenspeicher.znueniBisMin) ?? ZNUENI_STANDARD;
+  return { von: g.von, bis: g.bis, immer: zwischenspeicher.znueniImmer === true };
 }
 
 /**
@@ -259,13 +272,18 @@ export async function einstellungenLaden(): Promise<Einstellungen> {
   const zn = await supabase.from('firma').select('znueni_bis_min,znueni_immer,lieferwagen_tag_rp').eq('id', r.id).limit(1);
   const znZeile = !zn.error && zn.data?.[0] ? (zn.data[0] as { znueni_bis_min: unknown; znueni_immer: unknown; lieferwagen_tag_rp: unknown }) : null;
   znueniGelesen = znZeile !== null;
+  // Beginn der Pause (0044) für sich: fehlt die Spalte noch, gilt 9:00 wie bisher
+  const zv = await supabase.from('firma').select('znueni_von_min').eq('id', r.id).limit(1);
+  const znVon = !zv.error && zv.data?.[0] ? (zv.data[0] as { znueni_von_min: unknown }).znueni_von_min : null;
+  const znGueltig = znZeile ? gueltigeZnueni(znVon ?? ZNUENI_STANDARD.von, znZeile.znueni_bis_min) : null;
   const neu: Einstellungen = {
     erfassung: r.modus_erfassung === 'regie' ? 'regie' : 'wochenblatt',
     sekretariat: r.modus_sekretariat === 'voll' ? 'voll' : 'stunden',
     // Fehlt die Spalte noch, kann auch nichts anderes als der Standard gespeichert sein — sonst (kurz kein Netz) der letzte bekannte Wert
     normaltagMin: ntWert ?? zwischenspeicher.normaltagMin,
     markierenAbMin: maZeile ? gueltigeMarkierung(maZeile.markieren_ab_min) : zwischenspeicher.markierenAbMin,
-    znueniBisMin: znZeile ? gueltigesZnueniBis(znZeile.znueni_bis_min) ?? STANDARD.znueniBisMin : zwischenspeicher.znueniBisMin,
+    znueniVonMin: znZeile ? znGueltig?.von ?? STANDARD.znueniVonMin : zwischenspeicher.znueniVonMin,
+    znueniBisMin: znZeile ? znGueltig?.bis ?? STANDARD.znueniBisMin : zwischenspeicher.znueniBisMin,
     znueniImmer: znZeile ? znZeile.znueni_immer === true : zwischenspeicher.znueniImmer,
     // Antwortet die Datenbank, aber ohne Spalte (Migration fehlt), heisst das: null — kein Haken beim Melden
     lieferwagenTagRp: znZeile ? gueltigerBetrag(znZeile.lieferwagen_tag_rp) : zn.error && !/fetch|network|kein Netz/i.test(zn.error.message) ? null : zwischenspeicher.lieferwagenTagRp,
@@ -273,6 +291,29 @@ export async function einstellungenLaden(): Promise<Einstellungen> {
   zwischenspeicher = neu;
   try { localStorage.setItem(KEY, JSON.stringify(neu)); } catch { /* ohne Speicher läuft es auch */ }
   return neu;
+}
+
+/**
+ * Beginn und Ende der Pause am Morgen in EINEM Schritt (0044): einzeln gespeichert, sähe die Prüfregel der Datenbank
+ * zwischendurch einen halben Stand (z. B. Beginn 10:00, Ende noch 9:15) und lehnte ab.
+ */
+export async function znueniSetzen(von: number, bis: number): Promise<string | null> {
+  if (!supabase) return 'Keine Datenverbindung.';
+  if (!firma) return 'Die Firma ist noch nicht geladen. Seite neu laden und nochmals versuchen.';
+  if (!gueltigeZnueni(von, bis)) return 'Die Pause muss zwischen 7:00 und 12:00 liegen und 5 bis 60 Minuten dauern.';
+  const { error } = await supabase.from('firma').update({ znueni_von_min: von, znueni_bis_min: bis }).eq('id', firma.id);
+  if (error) {
+    if (/znueni_von_min/.test(error.message) && /does not exist|column|schema cache/i.test(error.message)) {
+      return 'Die Datenbank kennt den Beginn der Pause noch nicht — Migration 0044 fehlt.';
+    }
+    if (/check constraint/i.test(error.message)) return 'Die Pause muss zwischen 7:00 und 12:00 liegen und 5 bis 60 Minuten dauern.';
+    return /row-level security|permission denied/i.test(error.message)
+      ? 'Die Datenbank lässt das nicht zu — Einstellungen ändert nur das Büro.'
+      : error.message;
+  }
+  zwischenspeicher = { ...zwischenspeicher, znueniVonMin: von, znueniBisMin: bis };
+  try { localStorage.setItem(KEY, JSON.stringify(zwischenspeicher)); } catch { /* egal */ }
+  return null;
 }
 
 /** Schalter umlegen (Verwaltung → Einstellungen). Schreibt in die eigene Firmenzeile. */
