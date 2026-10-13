@@ -26,7 +26,9 @@ import { planHinweise, type VerlaufZeile } from '../lib/planung';
  * Phase 2 — das Teamgerät. Ein Chefmonteur meldet für sein Team.
  *
  * Immer: Baustelle, wer war dabei, Normalstunden, Überstunden — ein Knopf. Überstunden brauchen eine
- * Sprachnotiz (warum); der Bauführer liest sie in der Wochenübersicht und gibt frei.
+ * Sprachnotiz (warum); der Bauführer liest sie in der Wochenübersicht und gibt frei. Pflicht auch bei Regie
+ * (13.10.2026, Amir: «ich will, dass man erkennt, dass man eine Sprachnotiz machen muss»): Schild «Pflicht» an der
+ * Karte, Zeile im Knopf, und «Tag melden» springt zuerst zum Mikrofon — noch vor der Frage «War das Regie?».
  *
  * Firmen-Schalter `MODUS_ERFASSUNG` (Verwaltung → Einstellungen, Entscheid 02.10.2026):
  *   wochenblatt — nur das. Der Bauführer entscheidet in SORBA, ob etwas verrechnet wird (17.09./20.09.).
@@ -1117,6 +1119,20 @@ export function Erfassung() {
   }, [alleLeute, gastFilter, alleImTeam]);
   const zuletztGaesteFrei = zuletztGaeste.filter((p) => !alleImTeam.some((x) => x.id === p.id));
 
+  /** Bei Überstunden fehlt die Sprachnotiz noch (ohne Mikrofon auf dem Gerät gilt die Pflicht nicht). */
+  const notizFehltNoch = (ueber: number) => ueber > 0 && !ueberAufnahme && !nimmtAuf && !mikroFehlt;
+  /**
+   * Pflicht-Sprachnotiz bei Überstunden — für Regie genauso wie für «nur länger gearbeitet» (13.10.2026). Fehlt sie:
+   * Hinweis, Mikrofon rot umrandet, auf dem Tag-Schritt dorthin scrollen. Gibt true zurück, wenn es nicht weitergeht.
+   */
+  function notizPflichtPruefen(ueber: number, text = 'Bei Überstunden bitte kurz sagen, warum — Mikrofon antippen.'): boolean {
+    if (!notizFehltNoch(ueber)) return false;
+    setHinweis(text);
+    setNotizFehlt(true);
+    setTimeout(() => notizRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 50);
+    return true;
+  }
+
   /**
    * Abweichung beginnen (nur Regie-Modus): Leute mit Überstunden sind vorbelegt, ihre Überstunden
    * werden die Stunden der Zusatzarbeit — nicht doppelt. Die Sprachnotiz vom Tag wandert mit; sie ist
@@ -1125,6 +1141,7 @@ export function Erfassung() {
   function abweichungStarten(typ: Abweichung) {
     if (!baustelle) { setHinweis('Zuerst die Baustelle antippen.'); return; }
     if (dabei.length === 0) { setHinweis('Zuerst anhaken, wer dabei war.'); return; }
+    if (notizPflichtPruefen(ueberTotal)) return;
     // Überstunden aus den Zeiten von–bis (wirksam), nicht aus dem alten Stundenzahl-Feld — sonst wurde nichts übernommen
     const ueberVon = (p: Person) => (anw[p.id] ? wirksam(anw[p.id], bisherVon(p.id)).ueber : 0);
     const mitUeber = dabei.filter((p) => ueberVon(p) > 0);
@@ -1323,13 +1340,9 @@ export function Erfassung() {
     if (art === 'abweichung' && entwurfAbRef.current) ersetzteSchluessel.add(entwurfAbRef.current);
     const schon = bisherNormal(aktuell.flatMap((m) => m.zeilen.map((z) => ({ ...z, meldung: m.schluessel }))).concat(andereJetzt), ersetzteSchluessel);
     const ueberJetzt = dabei.reduce((s, p) => s + wirksam(anw[p.id], schon.get(p.id) ?? 0).ueber, 0);
-    if (art === 'normal' && ueberJetzt > 0 && !ueberAufnahme && !nimmtAuf && !mikroFehlt) {
-      // Der «schon gemeldet»-Dialog bleibt offen: nach der Aufnahme dort nochmals wählen
-      setHinweis('Bei Überstunden bitte kurz sagen, warum — Mikrofon antippen.');
-      setNotizFehlt(true);
-      setTimeout(() => notizRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 50);
-      return;
-    }
+    // Der «schon gemeldet»-Dialog bleibt offen: nach der Aufnahme dort nochmals wählen. Regie kommt immer aus Überstunden —
+    // dort ist die Notiz genauso Pflicht (auch wenn sie im Regie-Schritt nochmals gelöscht wurde).
+    if (art === 'normal' ? notizPflichtPruefen(ueberJetzt) : notizPflichtPruefen(1, 'Bei Regie bitte kurz sagen, was ihr gemacht habt — Mikrofon antippen.')) return;
     setNotizFehlt(false);
     setHinweis('');
 
@@ -1614,8 +1627,8 @@ export function Erfassung() {
 
           {fotoLeiste('Bitte Fotos machen — der Bauführer braucht Bilder bei Regie.')}
 
-          {/* Dieselbe Sprachnotiz wie am Tag: wurde beim Tag schon aufgenommen, ist sie hier schon da */}
-          <div className={'rounded-[14px] border-2 border-dashed p-5 text-center ' + (nimmtAuf ? 'border-accent bg-accent-soft' : ueberAufnahme ? 'border-good/50 bg-good-soft/40' : 'border-steel bg-steel-soft')}>
+          {/* Dieselbe Sprachnotiz wie am Tag: wurde beim Tag schon aufgenommen, ist sie hier schon da. Pflicht (13.10.2026). */}
+          <div className={'rounded-[14px] border-2 border-dashed p-5 text-center ' + (nimmtAuf ? 'border-accent bg-accent-soft' : ueberAufnahme ? 'border-good/50 bg-good-soft/40' : notizFehlt ? 'border-accent bg-steel-soft ring-2 ring-accent/30' : 'border-steel bg-steel-soft')}>
             {ueberAufnahme ? (
               <div className="space-y-2">
                 <p className="font-display font-semibold">Sprachnotiz · {ueberAufnahme.sekunden} Sek. ✓</p>
@@ -1638,7 +1651,7 @@ export function Erfassung() {
                 </span>
                 {nimmtAuf && <span className="mt-3 block"><Pegel stream={mikroStream} /></span>}
                 <span className="mt-2 block font-display font-semibold">{nimmtAuf ? `${sekunden} Sek. — antippen zum Stoppen` : 'Antippen und kurz erzählen, was war'}</span>
-                <span className="mt-1 block text-xs text-ink3">{nimmtAuf ? 'Die App hört zu und schreibt danach mit.' : `Auf ${sprachName} sprechen. Freiwillig — die Meldung geht auch ohne.`}</span>
+                <span className="mt-1 block text-xs text-ink3">{nimmtAuf ? 'Die App hört zu und schreibt danach mit.' : mikroFehlt ? 'Mikrofon nicht verfügbar — Speichern geht trotzdem.' : `Pflicht bei Regie — auf ${sprachName} sprechen, 10 Sekunden reichen.`}</span>
               </button>
             )}
             {!ueberAufnahme && !nimmtAuf && team?.chefmonteur?.id && <SprachWahl sprache={sprecherSprache} setzen={(c) => void sprecherSpracheSetzen(c)} />}
@@ -1687,7 +1700,7 @@ export function Erfassung() {
           </section>
 
           <Link to="/" className="cta cta-good block text-center">Fertig für {istHeute ? 'heute' : 'diesen Tag'}</Link>
-          <button type="button" className="btn-ghost w-full py-2.5" onClick={() => setSchritt('tag')}>Noch etwas melden — zweite Baustelle{modus === 'regie' ? ' oder Abweichung' : ''}</button>
+          <button type="button" className="btn-ghost w-full py-2.5" onClick={() => setSchritt('tag')}>Noch etwas melden — zweite Baustelle</button>
           {/* Gleiche Grenze wie der Pfeil ‹ (lib/nachtrag.ts) — vorher ging es hier beliebig weit zurück */}
           {tagIso > fruehesterIso && (
             <button type="button" className="btn-ghost w-full py-2.5" onClick={() => { setDatum(addTage(datum, -1)); setSchritt('tag'); }}>Anderen Tag nachtragen</button>
@@ -2069,7 +2082,7 @@ export function Erfassung() {
         {/* Bemerkung zum Tag: die Sprachnotiz ist immer da (Bauführer 20.09.), bei Überstunden Pflicht — kein eigener Bildschirm. */}
         <section ref={notizRef} className={'card space-y-2.5 ' + (notizFehlt && !ueberAufnahme ? 'border-accent ring-2 ring-accent/30' : ueberTotal > 0 ? 'border-amber/30' : '')}>
             <p className="text-sm font-semibold">
-              {ueberTotal > 0 ? <>{ueberText()} — kurz sagen, warum</> : 'Bemerkung zum Tag — freiwillig'}
+              {ueberTotal > 0 ? <>{ueberText()} — kurz sagen, warum{notizFehltNoch(ueberTotal) && <span className="ml-1.5 inline-block rounded-full bg-accent-soft px-2 py-0.5 align-[1px] text-[11px] font-semibold text-accent-deep">Pflicht</span>}</> : 'Bemerkung zum Tag — freiwillig'}
             </p>
             {/* Regie-Modus: gleich hier fragen, nicht erst beim Melden — Antwort und Sprachnotiz in einem Zug */}
             {modus === 'regie' && ueberTotal > 0 && (
@@ -2182,6 +2195,8 @@ export function Erfassung() {
             type="button"
             disabled={speichert}
             onClick={() => {
+              // Zuerst die Sprachnotiz — noch vor der Frage «War das Regie?» (13.10.2026)
+              if (notizPflichtPruefen(ueberTotal)) return;
               if (modus === 'regie' && ueberTotal > 0) {
                 if (regieAntwort === 'ja') { abweichungStarten('zusaetzlich'); return; }
                 if (regieAntwort === null) { setRegieFrage(true); return; }
@@ -2191,6 +2206,7 @@ export function Erfassung() {
             className="cta cta-good py-5 text-[17px] disabled:opacity-70"
           >
             <span className="inline-flex items-center gap-2">{gespeichert ? gespeichert : <><CheckCircle2 size={22} strokeWidth={2.2} aria-hidden="true" /> {modus === 'regie' && ueberTotal > 0 && regieAntwort === 'ja' ? 'Weiter zur Regie' : 'Tag melden'}</>}</span>
+            {!gespeichert && notizFehltNoch(ueberTotal) && <span className="mt-0.5 block text-xs font-normal opacity-90">Zuerst die Sprachnotiz — bei Überstunden Pflicht</span>}
           </button>
         )}
         {hinweis && <p className="text-sm font-semibold text-accent-deep">{hinweis}</p>}

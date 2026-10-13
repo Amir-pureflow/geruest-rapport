@@ -18,6 +18,10 @@ speichert normal. Sonst rutscht Regie als gewöhnliche Überstunden durch. Nur i
 (Regie ausgeführt / warten müssen / etwas kaputt) unter «Tag melden» sind weg (Amir: «es gibt ja Tag melden — man kann
 ja sagen, ob es Regie war, wenn man Überstunden macht»). Alte Meldungen mit «Wartezeit»/«etwas kaputt» werden weiter
 angezeigt. Der Knopf heisst immer «Tag melden» (nicht mehr «Alles wie geplant»).
+**Sprachnotiz bei Überstunden Pflicht — auch bei Regie** (13.10.2026, Amir: «ich will, dass man erkennt, dass man eine
+Sprachnotiz machen muss»): Schild «Pflicht» an der Karte, Zeile «Zuerst die Sprachnotiz» im grünen Knopf; «Tag melden»
+ohne Notiz springt zum Mikrofon (rot umrandet) — noch vor «War das Regie?». Im Regie-Schritt ebenso Pflicht (vorher
+«freiwillig»). Ohne Mikrofon auf dem Gerät geht es trotzdem (`notizPflichtPruefen` in Erfassung.tsx).
 
 Kontext-Dokumente (eine Ebene höher):
 - `../PRODUKTKONZEPT_ZEITERFASSUNG_RAPPORTE_REGIE.md` — Fachkonzept (Regie-Teile historisch)
