@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ABGELEHNT, fehlerText, personEntscheid, personFrage, planungAbMorgen, teamEntscheid, teamFrage } from './entfernen';
+import { ABGELEHNT, baustelleEntscheid, baustelleFrage, fehlerText, personEntscheid, personFrage, planungAbMorgen, teamEntscheid, teamFrage } from './entfernen';
 
 describe('entfernen', () => {
   it('löscht eine Person nur ohne Stunden, sonst nimmt es sie aus den Listen', () => {
@@ -54,5 +54,20 @@ describe('entfernen', () => {
     expect(fehlerText({ message: 'permission denied for table mitarbeiter' })).toBe(ABGELEHNT);
     expect(fehlerText({ message: 'TypeError: Failed to fetch' })).toMatch(/Keine Verbindung/);
     expect(fehlerText({ message: 'etwas anderes' })).toBe('Konnte nicht löschen: etwas anderes');
+  });
+});
+
+describe('Baustelle löschen (13.10.2026)', () => {
+  it('nur ohne Belege; mit Meldungen, Zusatzauftrag oder Rapport bleibt sie', () => {
+    expect(baustelleEntscheid({ belege: 0 })).toBe('loeschen');
+    expect(baustelleEntscheid({ belege: 3 })).toBe('bleibt');
+  });
+  it('die Rückfrage sagt, was mit wegfällt bzw. warum es nicht geht', () => {
+    expect(baustelleFrage('Aarstrasse 3', 'loeschen', 0)).toEqual({ entscheid: 'loeschen', text: '«Aarstrasse 3» löschen? Das lässt sich nicht rückgängig machen.', knopf: 'Löschen' });
+    expect(baustelleFrage('Aarstrasse 3', 'loeschen', 1).text).toContain('Der geplante Einsatz fällt mit weg.');
+    expect(baustelleFrage('Aarstrasse 3', 'loeschen', 4).text).toContain('Die 4 geplanten Einsätze fallen mit weg.');
+    const nein = baustelleFrage('Aarstrasse 3', 'bleibt', 0, ['Meldungen', 'einen Regierapport']);
+    expect(nein.knopf).toBeNull();
+    expect(nein.text).toContain('hat schon Meldungen und einen Regierapport');
   });
 });

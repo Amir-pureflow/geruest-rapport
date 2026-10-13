@@ -20,6 +20,10 @@
  * Der Haken «aktiv» in der Verwaltung (Team ruhen lassen, Nebensaison) geht denselben Weg wie «Entfernen» (13.10.2026):
  * vorher setzte er nur `aktiv = false` — an der Prüfung auf offene Stunden vorbei, die Leute blieben im ruhenden Team.
  *
+ * Baustellen (13.10.2026, Amir: «soll man auch eine Baustelle löschen können, wenn es doch nicht ging mit dem Auftrag»):
+ * nur, woran nichts hängt — keine Meldung, kein Zeiteintrag, kein Zusatzauftrag, kein Regierapport (das sind Belege).
+ * Geplante Einsätze gehen mit. Sonst bleibt sie; «Fertigstellung melden» / «abschliessen» nimmt sie aus den Listen.
+ *
  * Rechte: die Regeln aus 0019 gelten «for all» (lesen, ändern, löschen) innerhalb der eigenen Firma, es braucht keine
  * neue Migration. Lehnt eine Regel ab, meldet Postgres keinen Fehler — die Zeile fehlt nur im Ergebnis. Darum wird
  * beim entscheidenden Schritt gezählt.
@@ -266,5 +270,62 @@ export async function teamEntfernen(id: string, entscheid: Entscheid): Promise<E
   if (r2.error?.code === '23503') return { fehler: 'Inzwischen ist eine Meldung dieses Teams angekommen — Löschen geht nicht mehr. Bitte nochmals auf den Papierkorb tippen.' };
   if (r2.error) return { fehler: fehlerText(r2.error) };
   if (!r2.count) return { fehler: ABGELEHNT };
+  return { ergebnis: 'geloescht' };
+}
+
+
+// ── Baustelle ────────────────────────────────────────────────────────────────────────────────────────────
+
+/** Baustelle: nur ohne Belege löschen. Mit Meldungen, Zusatzauftrag oder Rapport bleibt sie (abschliessen statt löschen). */
+export function baustelleEntscheid(b: { belege: number }): Entscheid {
+  return b.belege === 0 ? 'loeschen' : 'bleibt';
+}
+
+/** Was die Rückfrage zur Baustelle sagt. `plaene` = Einsätze, die mit wegfallen, `was` = woran sie hängt. */
+export function baustelleFrage(name: string, entscheid: Entscheid, plaene: number, was: string[] = []): Rueckfrage {
+  if (entscheid === 'loeschen') {
+    const p = plaene === 0 ? '' : plaene === 1 ? ' Der geplante Einsatz fällt mit weg.' : ` Die ${plaene} geplanten Einsätze fallen mit weg.`;
+    return { entscheid, text: `«${name}» löschen? Das lässt sich nicht rückgängig machen.${p}`, knopf: 'Löschen' };
+  }
+  return {
+    entscheid,
+    text: `«${name}» hat schon ${aufzaehlen(was)} — löschen geht nicht, das sind Belege. Mit «Fertigstellung melden» bzw. «abschliessen» verschwindet sie aus den Listen.`,
+    knopf: null,
+  };
+}
+
+/** Nachschauen, woran die Baustelle hängt und wie viele Einsätze in der Planung mit wegfallen würden. */
+export async function baustellePruefen(b: { id: string; konto_nr: string; bezeichnung: string | null }): Promise<Rueckfrage | { fehler: string }> {
+  if (!supabase) return { fehler: KEINE_VERBINDUNG };
+  const zaehle = (t: string) => supabase!.from(t).select('id', { count: 'exact', head: true }).eq('baustelle_id', b.id);
+  const [m, z, a, r, p] = await Promise.all([zaehle('tagesmeldung'), zaehle('zeiteintrag'), zaehle('zusatzauftrag'), zaehle('regierapport'), zaehle('jahresplan')]);
+  const e = m.error ?? z.error ?? a.error ?? r.error ?? p.error;
+  if (e) return { fehler: fehlerText(e) };
+  const was = [
+    ...((m.count ?? 0) + (z.count ?? 0) > 0 ? ['Meldungen'] : []),
+    ...((a.count ?? 0) > 0 ? ['einen Zusatzauftrag'] : []),
+    ...((r.count ?? 0) > 0 ? ['einen Regierapport'] : []),
+  ];
+  const name = b.bezeichnung || b.konto_nr;
+  return baustelleFrage(name, baustelleEntscheid({ belege: (m.count ?? 0) + (z.count ?? 0) + (a.count ?? 0) + (r.count ?? 0) }), p.count ?? 0, was);
+}
+
+/** Baustelle samt geplanten Einsätzen löschen — nur nach `baustellePruefen` mit Entscheid «loeschen». */
+export async function baustelleEntfernen(id: string, entscheid: Entscheid): Promise<Ergebnis> {
+  if (!supabase) return { fehler: KEINE_VERBINDUNG };
+  if (entscheid !== 'loeschen') return { fehler: 'Diese Baustelle hat Belege und bleibt.' };
+  let plaene: { id: string }[];
+  try {
+    plaene = await alle<{ id: string }>((von, bis) => supabase!.from('jahresplan').select('id').eq('baustelle_id', id).order('id').range(von, bis));
+  } catch (e) {
+    return { fehler: fehlerText({ message: e instanceof Error ? e.message : String(e) }) };
+  }
+  const f = await einsaetzeEntfernen(plaene.map((x) => x.id));
+  if (f) return { fehler: f };
+  const r = await supabase.from('baustelle').delete({ count: 'exact' }).eq('id', id);
+  // Ein Teamgerät hat inzwischen gemeldet (oder ein Zusatzauftrag kam dazu): der Fremdschlüssel hält die Baustelle fest
+  if (r.error?.code === '23503') return { fehler: 'Inzwischen hängt etwas an dieser Baustelle (z. B. eine Meldung) — Löschen geht nicht mehr. Bitte nochmals prüfen.' };
+  if (r.error) return { fehler: fehlerText(r.error) };
+  if (!r.count) return { fehler: ABGELEHNT };
   return { ergebnis: 'geloescht' };
 }

@@ -5,6 +5,8 @@ import { alle } from '../../lib/abfrage';
 import { ausIso, iso, lang } from '../../lib/datum';
 import { baustellenSuchen } from '../../lib/suche';
 import { Auswahl } from '../../ui/Auswahl';
+import { LoeschLeiste, useLoeschFrage } from '../../ui/LoeschFrage';
+import { baustelleEntfernen, baustellePruefen } from '../../lib/entfernen';
 
 interface Baustelle { id: string; konto_nr: string; bezeichnung: string | null; plz: string | null; status: 'aktiv' | 'fertig_gemeldet' | 'abgeschlossen'; fertigstellung_am: string | null; kunde_id: string | null }
 interface Kunde { id: string; name: string }
@@ -62,6 +64,7 @@ export function Baustellen() {
   const [fehler, setFehler] = useState('');
   const [ladeFehler, setLadeFehler] = useState('');
   const [legtAn, setLegtAn] = useState(false);
+  const [hinweis, setHinweis] = useState('');
 
   // Seitenweise (13.10.2026): heute 217 aktive, über die Jahre mehr als 1000 Konten — sonst fehlten die neuesten still
   const laden = useCallback(async () => {
@@ -80,6 +83,20 @@ export function Baustellen() {
     }
   }, []);
   useEffect(() => { void laden(); }, [laden]);
+
+  /**
+   * Löschen (13.10.2026, Amir: «wenn es doch nicht ging mit dem Auftrag»): nur ohne Belege, geplante Einsätze gehen mit
+   * (src/lib/entfernen.ts). Mit Meldungen, Zusatzauftrag oder Rapport sagt die Rückfrage, warum es nicht geht.
+   */
+  const loeschFrage = useLoeschFrage<Baustelle>(
+    (b) => baustellePruefen(b),
+    (b, entscheid) => baustelleEntfernen(b.id, entscheid),
+    (b) => {
+      setOffen(null);
+      setHinweis(`«${b.bezeichnung ?? b.konto_nr}» ist gelöscht.`);
+      void laden();
+    },
+  );
 
   const sichtbar = useMemo(() => {
     const q = suche.trim();
@@ -114,6 +131,7 @@ export function Baustellen() {
   return (
     <div className="space-y-3">
       {ladeFehler && <p className="card text-sm font-semibold text-accent-deep">{ladeFehler}</p>}
+      {hinweis && <p className="rounded-[12px] border border-good/30 bg-good-soft px-4 py-2 text-sm font-medium text-good-deep" role="status">{hinweis}</p>}
       <p className="text-sm text-ink2"><b className="text-ink">{liste.length}</b> Konten · {zaehl('aktiv')} aktiv · {zaehl('fertig_gemeldet')} fertig gemeldet · {zaehl('abgeschlossen')} abgeschlossen</p>
 
       <section className="card space-y-2 p-3">
@@ -137,7 +155,7 @@ export function Baustellen() {
       <div className="card divide-y divide-line p-0">
         {sichtbar.map((b) => (
           <div key={b.id}>
-            <button type="button" onClick={() => setOffen(offen === b.id ? null : b.id)} className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left hover:bg-ground">
+            <button type="button" onClick={() => { setOffen(offen === b.id ? null : b.id); loeschFrage.abbrechen(); setHinweis(''); }} className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left hover:bg-ground">
               <span className="min-w-0">
                 <span className="block truncate text-sm font-medium">{b.bezeichnung}</span>
                 <span className="mt-0.5 flex items-center gap-2 text-[11px] text-ink3">
@@ -169,7 +187,14 @@ export function Baustellen() {
                   {b.status !== 'aktiv' && (
                     <button type="button" onClick={() => void aendern(b.id, { status: 'aktiv', fertigstellung_am: null })} className="btn-ghost">wieder aktiv</button>
                   )}
+                  <button type="button" onClick={() => loeschFrage.fragen(b)} disabled={loeschFrage.frage?.ding.id === b.id}
+                    className="ml-auto self-center text-xs font-semibold text-ink3 underline-offset-2 hover:text-accent-deep hover:underline disabled:opacity-50">
+                    Baustelle löschen
+                  </button>
                 </div>
+                {loeschFrage.frage?.ding.id === b.id && (
+                  <LoeschLeiste frage={loeschFrage.frage} onAbbrechen={loeschFrage.abbrechen} onBestaetigen={loeschFrage.bestaetigen} art="fenster" />
+                )}
               </div>
             )}
           </div>
