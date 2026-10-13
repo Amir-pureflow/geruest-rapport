@@ -26,8 +26,8 @@ import { planHinweise, type VerlaufZeile } from '../lib/planung';
  * Phase 2 — das Teamgerät. Ein Chefmonteur meldet für sein Team.
  *
  * Immer: Baustelle, wer war dabei, Normalstunden, Überstunden — ein Knopf. Überstunden brauchen eine
- * Sprachnotiz (warum); der Bauführer liest sie in der Wochenübersicht und gibt frei. Pflicht erst ab der Grenze der
- * Firma (Verwaltung → Einstellungen, 0045: Standard 30 Min. Überstunden einer Person, darunter freiwillig). Pflicht auch bei Regie
+ * Sprachnotiz (warum); der Bauführer liest sie in der Wochenübersicht und gibt frei. Pflicht erst ab dem Tagestotal der
+ * Firma (Verwaltung → Einstellungen, 0046: Gerüst GmbH 9.0 h einer Person, darunter freiwillig). Pflicht auch bei Regie
  * (13.10.2026, Amir: «ich will, dass man erkennt, dass man eine Sprachnotiz machen muss»): Schild «Pflicht» an der
  * Karte, Zeile im Knopf, und «Tag melden» springt zuerst zum Mikrofon — noch vor der Frage «War das Regie?».
  *
@@ -1105,7 +1105,7 @@ export function Erfassung() {
   );
   const bisherVon = (id: string) => bisherAnzeige.get(id) ?? 0;
   const ueberTotal = dabei.reduce((s, p) => s + ueberFertig(anw[p.id], bisherVon(p.id)), 0);
-  /** Die meisten Überstunden einer Person — daran hängt, ob die Sprachnotiz Pflicht ist (0045) */
+  /** Die meisten Überstunden einer Person — daran hängt, ob die Sprachnotiz Pflicht ist (0046) */
   const ueberMax = dabei.reduce((m, p) => Math.max(m, ueberFertig(anw[p.id], bisherVon(p.id))), 0);
   // Keine Überstunden mehr (Zeit geändert) → die Rückfrage ist hinfällig
   useEffect(() => { if (ueberTotal === 0) { setRegieFrage(false); setRegieAntwort(null); setNotizFehlt(false); } }, [ueberTotal]);
@@ -1146,10 +1146,15 @@ export function Erfassung() {
   const zuletztGaesteFrei = zuletztGaeste.filter((p) => !alleImTeam.some((x) => x.id === p.id));
 
   /**
-   * Muss bei diesen Überstunden (Minuten der Person mit den meisten) gesprochen werden? Ab der Grenze der Firma
-   * (0045, Standard 30 Min.; 0 = ab der ersten Minute) — darunter freiwillig (14.10.2026, Amir).
+   * Muss bei diesen Überstunden (Minuten der Person mit den meisten) gesprochen werden? Ab dem Tagestotal der Firma
+   * (0046; Gerüst GmbH 9.0 h, Amir 14.10.2026: «ab 9 h muss man erklären»; null = jede Überstunde) — darunter freiwillig.
+   * Mit Überstunden ist das Tagestotal der Person genau normaler Arbeitstag + Überstunden.
    */
-  const notizNoetig = (ueberMaxPerson: number) => ueberMaxPerson > 0 && ueberMaxPerson >= notizPflichtAbMin();
+  const notizNoetig = (ueberMaxPerson: number) => {
+    if (ueberMaxPerson <= 0) return false;
+    const ab = notizPflichtAbMin();
+    return ab === null || normaltagMin() + ueberMaxPerson >= ab;
+  };
   /** Pflicht, aber die Sprachnotiz fehlt noch (ohne Mikrofon auf dem Gerät gilt die Pflicht nicht). */
   const notizFehltNoch = (noetig: boolean) => noetig && !ueberAufnahme && !nimmtAuf && !mikroFehlt;
   /** Mikrofon-Feld zeigt «fehlt noch» (rote laufende Linie) — nie während der Aufnahme, nie ohne Mikrofon */

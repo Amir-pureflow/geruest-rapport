@@ -23,9 +23,11 @@ Sprachnotiz machen muss»): Schild «Pflicht» an der Karte, Zeile «Zuerst die 
 ohne Notiz springt zum Mikrofon — noch vor «War das Regie?». Das Feld selbst zeigt, was fehlt (rote Strichlinie läuft
 ums Feld, einmal anstupsen, «Fehlt noch …»; `.notiz-*` in index.css) — keine rote Karte, kein roter Satz. Das Mikrofon
 bleibt dabei neutral (14.10.: rote Ringe sahen aus wie eine laufende Aufnahme); ohne Mikrofon auf dem Gerät keine Markierung.
-**Pflicht erst ab einer Grenze** (0045, 14.10.2026, Amir «ab wie viel Überstunden muss man reden» → 30 Min.):
-`firma.notiz_pflicht_ab_min` (0/15/30/60, Standard 30), Verwaltung → Einstellungen «Sprachnotiz bei Überstunden — Pflicht
-ab». Massgebend ist die Person mit den meisten Überstunden (`ueberMax`); darunter Schild «freiwillig». Regie immer Pflicht. Im Regie-Schritt ebenso Pflicht (vorher
+**Pflicht erst ab einem Tagestotal** (0045/0046, 14.10.2026, Amir «ab wie viel Überstunden muss man reden»; «bei Arbnor
+ab 9 h muss man erklären»): `firma.notiz_pflicht_ab_min` = Tagestotal einer Person in Minuten, null = jede Überstunde,
+360–720 (Gerüst 540 = 9.0 h, We-Plan 534 = 8.9 h aus «30 Min.», neue Firmen 540). Gebaut wie «Gelb markieren ab»;
+Verwaltung → Einstellungen «Sprachnotiz bei Überstunden — Pflicht ab». Massgebend ist die Person mit den meisten
+Überstunden (`ueberMax`, Tagestotal = Arbeitstag + Überstunden); darunter Schild «freiwillig». Regie immer Pflicht. Im Regie-Schritt ebenso Pflicht (vorher
 «freiwillig»). Ohne Mikrofon auf dem Gerät geht es trotzdem (`notizPflichtPruefen` in Erfassung.tsx).
 «War das Regie?» steht nicht mehr als Schalter in der Karte («verwirrend») — nur noch einmal als Frage beim Melden.
 Überstunden (Anzeige «h über», Karte, «Pflicht», Regie-Frage) erst, wenn die Zeiten fertig sind (`ueberFertig`): vorher
@@ -417,7 +419,7 @@ Lesende Prüfung genauso, mit SQL statt `-f` (z. B. `select … from information
 - Eine Datei läuft als ein Block: scheitert eine Zeile, bleibt die ganze Datei draussen. Danach mit einer Abfrage
   bestätigen, nicht glauben.
 - Am Ende einer Migration mit neuen Spalten/Tabellen: `notify pgrst, 'reload schema';`.
-- **Stand:** 0001–0045 sind eingespielt (0034 neue Fassung, 0035–0039 am 11.10.2026, 0040–0044 am 13.10.2026, 0045 am 14.10.2026; 0044 = Pause am Morgen mit eigenem Beginn `znueni_von_min`, Dauer 5–60 Min., Ende ≤ 12:00 — gespeichert beides zusammen über `znueniSetzen`).
+- **Stand:** 0001–0046 sind eingespielt (0034 neue Fassung, 0035–0039 am 11.10.2026, 0040–0044 am 13.10.2026, 0045/0046 am 14.10.2026; 0044 = Pause am Morgen mit eigenem Beginn `znueni_von_min`, Dauer 5–60 Min., Ende ≤ 12:00 — gespeichert beides zusammen über `znueniSetzen`).
 - Eine Migration mit Rechten zuerst **zurückgerollt testen**: Migration + Testfälle je Rolle (`set local role
   authenticated` + `request.jwt.claims`) in eine Datei, am Ende `raise exception` mit den Ergebnissen — der Fehler
   rollt alles zurück und zeigt, was erlaubt/gesperrt war. So geprüft: 0041 (34 Fälle), 0042 (8 Fälle).
@@ -471,7 +473,7 @@ src/ui/FotoGalerie.tsx            Vorschau aus dem Bucket «anhaenge» (signiert
 src/ui/Sprachnotiz.tsx            Pegelbalken während der Aufnahme, Text-Enthüllung nach dem Speichern
 src/ui/Shell.tsx                  Rahmen: Büro-Ansichten mit Bereichsleiste (md) / Seitenleiste (lg), Baustellen-Ansichten Handy-Spalte
 supabase/functions/transkribieren Sprachnotiz → Text (Mistral)
-supabase/migrations/              0001–0015 historisch (inkl. Regie-Tabellen) · 0016 Zeiten von–bis · 0017 Firmen-Schalter (durch 0019 abgelöst) · 0019 mehrere Firmen, Rechte je Firma · 0020 Dateien und Rapportnummern je Firma · 0021 Briefkopf je Firma · 0026 normaler Arbeitstag je Firma · 0027 Zusatzauftrag «erledigt» ohne Regie · 0028 «Gelb markieren ab» je Firma · 0029 dritte Zeitspanne (Znüni-Pause abziehen) · 0030 absichtlich leer · 0031 Korrekturen nach normalem Arbeitstag der Firma · 0032 Einladung und Gerät (verworfen) · 0033 persönliche Zugänge, entfernt 0032 wieder · 0034 Konten aus der Verwaltung, Mail-Domain je Firma, inaktiv = kein Zugang · 0035 Funktionen nie ohne Anmeldung · 0036 Wünsche Arbnor/Mehmeti 10.10. (Pause je Firma, Lieferwagen, Abwesenheiten, Einsatz je Person) · 0037 Spanisch (es, Azure es-ES) · 0038 Verlauf der Planung (plan_verlauf + Auslöser) · 0039 Demo: Verlauf nach «Demo laden» leeren · 0040 Firma der Subunternehmer · 0041 Rechte je Rolle · 0042 Dateien am Regierapport · 0043 Meldung ersetzen in einer Transaktion · 0044 Pause am Morgen frei einstellbar · 0045 Sprachnotiz Pflicht ab (Grenze je Firma) — **nächste freie Nummer: 0046** (vor dem Anlegen `git pull`, damit nicht zwei dieselbe Nummer nehmen)
+supabase/migrations/              0001–0015 historisch (inkl. Regie-Tabellen) · 0016 Zeiten von–bis · 0017 Firmen-Schalter (durch 0019 abgelöst) · 0019 mehrere Firmen, Rechte je Firma · 0020 Dateien und Rapportnummern je Firma · 0021 Briefkopf je Firma · 0026 normaler Arbeitstag je Firma · 0027 Zusatzauftrag «erledigt» ohne Regie · 0028 «Gelb markieren ab» je Firma · 0029 dritte Zeitspanne (Znüni-Pause abziehen) · 0030 absichtlich leer · 0031 Korrekturen nach normalem Arbeitstag der Firma · 0032 Einladung und Gerät (verworfen) · 0033 persönliche Zugänge, entfernt 0032 wieder · 0034 Konten aus der Verwaltung, Mail-Domain je Firma, inaktiv = kein Zugang · 0035 Funktionen nie ohne Anmeldung · 0036 Wünsche Arbnor/Mehmeti 10.10. (Pause je Firma, Lieferwagen, Abwesenheiten, Einsatz je Person) · 0037 Spanisch (es, Azure es-ES) · 0038 Verlauf der Planung (plan_verlauf + Auslöser) · 0039 Demo: Verlauf nach «Demo laden» leeren · 0040 Firma der Subunternehmer · 0041 Rechte je Rolle · 0042 Dateien am Regierapport · 0043 Meldung ersetzen in einer Transaktion · 0044 Pause am Morgen frei einstellbar · 0045 Sprachnotiz Pflicht ab (Grenze je Firma) · 0046 dieselbe Grenze als Tagestotal — **nächste freie Nummer: 0047** (vor dem Anlegen `git pull`, damit nicht zwei dieselbe Nummer nehmen)
 archiv/regie-und-board/           Stand vom 20.09. als Nachschlagewerk — nicht mehr die Quelle (Regie ist zurück, hinter Schaltern)
 ```
 

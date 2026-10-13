@@ -38,15 +38,15 @@ export interface Einstellungen {
    */
   lieferwagenTagRp: number | null;
   /**
-   * Sprachnotiz bei Überstunden Pflicht ab so vielen Minuten Überstunden einer Person (Migration 0045, 14.10.2026,
-   * Amir: 30 Min.). 0 = ab der ersten Minute. Darunter freiwillig; Regie braucht immer eine Notiz.
+   * Sprachnotiz bei Überstunden Pflicht ab diesem Tagestotal einer Person in Minuten (0045/0046, 14.10.2026; Gerüst
+   * GmbH 540 = 9.0 h, Amir: «bei Arbnor ab 9 h muss man erklären»). null = jede Überstunde. Darunter freiwillig;
+   * Regie braucht immer eine Notiz. Gebaut wie «Gelb markieren ab».
    */
-  notizPflichtAbMin: number;
+  notizPflichtAbMin: number | null;
 }
 
-/** Zur Wahl für «Sprachnotiz Pflicht ab» (wie die Prüfregel von 0045). */
-export const NOTIZ_PFLICHT_WAHL = [0, 15, 30, 60] as const;
-const NOTIZ_PFLICHT_STANDARD = 30;
+/** Für neue Firmen und solange nichts geladen ist: 9.0 h (wie die Vorgabe der Datenbank, 0046). */
+const NOTIZ_PFLICHT_STANDARD = 540;
 
 export const STANDARD: Einstellungen = {
   erfassung: 'wochenblatt', sekretariat: 'stunden', normaltagMin: NORMALTAG_MIN, markierenAbMin: null,
@@ -54,8 +54,10 @@ export const STANDARD: Einstellungen = {
   notizPflichtAbMin: NOTIZ_PFLICHT_STANDARD,
 };
 
-function gueltigeNotizSchwelle(x: unknown): number | null {
-  return typeof x === 'number' && (NOTIZ_PFLICHT_WAHL as readonly number[]).includes(x) ? x : null;
+/** Erlaubtes Tagestotal für «Sprachnotiz Pflicht ab»: 6.0 bis 12.0 h (Prüfregel 0046). null = jede Überstunde. */
+function gueltigeNotizSchwelle(x: unknown): number | null | undefined {
+  if (x === null) return null;
+  return typeof x === 'number' && Number.isInteger(x) && x >= 360 && x <= 720 ? x : undefined;
 }
 
 /** Erlaubter Betrag pro Tag: Fr. 0 bis 1000 (Migration 0036). */
@@ -106,7 +108,7 @@ const SPALTE = {
   notizPflichtAbMin: 'notiz_pflicht_ab_min',
 } as const;
 
-/** Kam «Sprachnotiz Pflicht ab» aus der Datenbank? `false` = Migration 0045 fehlt, es gelten 30 Minuten. */
+/** Kam «Sprachnotiz Pflicht ab» aus der Datenbank? `false` = Migration 0046 fehlt, es gelten 9.0 h. */
 let notizGelesen: boolean | null = null;
 /** Kam der Znüni aus der Datenbank? `false` = Migration 0036 fehlt, es gilt 9:00–9:30 auf Knopfdruck. */
 let znueniGelesen: boolean | null = null;
@@ -170,7 +172,8 @@ function lesenLokal(): Einstellungen {
           ...(() => { const g = gueltigeZnueni(x.znueniVonMin, x.znueniBisMin) ?? ZNUENI_STANDARD; return { znueniVonMin: g.von, znueniBisMin: g.bis }; })(),
           znueniImmer: x.znueniImmer === true,
           lieferwagenTagRp: gueltigerBetrag(x.lieferwagenTagRp),
-          notizPflichtAbMin: gueltigeNotizSchwelle(x.notizPflichtAbMin) ?? NOTIZ_PFLICHT_STANDARD,
+          // Ein Wert aus 0045 (Überstunden-Minuten) ist hier ungültig → Vorgabe, bis die Datenbank antwortet
+          notizPflichtAbMin: gueltigeNotizSchwelle(x.notizPflichtAbMin) === undefined ? NOTIZ_PFLICHT_STANDARD : gueltigeNotizSchwelle(x.notizPflichtAbMin) as number | null,
         }
       : STANDARD;
   } catch {
@@ -220,12 +223,13 @@ export function lieferwagenTagRp(): number | null {
   return gueltigerBetrag(zwischenspeicher.lieferwagenTagRp);
 }
 
-/** Ab wie vielen Minuten Überstunden (einer Person) die Sprachnotiz beim Melden Pflicht ist — 0 = immer (0045). */
-export function notizPflichtAbMin(): number {
-  return gueltigeNotizSchwelle(zwischenspeicher.notizPflichtAbMin) ?? NOTIZ_PFLICHT_STANDARD;
+/** Ab welchem Tagestotal einer Person die Sprachnotiz beim Melden Pflicht ist — null = jede Überstunde (0046). */
+export function notizPflichtAbMin(): number | null {
+  const w = gueltigeNotizSchwelle(zwischenspeicher.notizPflichtAbMin);
+  return w === undefined ? NOTIZ_PFLICHT_STANDARD : w;
 }
 
-/** Stand «Sprachnotiz Pflicht ab» in der Datenbank? `false` = Migration 0045 fehlt noch. */
+/** Stand «Sprachnotiz Pflicht ab» in der Datenbank? `false` = Migration 0046 fehlt noch. */
 export function notizAusDatenbank(): boolean | null {
   return notizGelesen;
 }
@@ -304,10 +308,11 @@ export async function einstellungenLaden(): Promise<Einstellungen> {
   const zv = await supabase.from('firma').select('znueni_von_min').eq('id', r.id).limit(1);
   const znVon = !zv.error && zv.data?.[0] ? (zv.data[0] as { znueni_von_min: unknown }).znueni_von_min : null;
   const znGueltig = znZeile ? gueltigeZnueni(znVon ?? ZNUENI_STANDARD.von, znZeile.znueni_bis_min) : null;
-  // «Sprachnotiz Pflicht ab» (0045) für sich: fehlt die Spalte noch, gelten 30 Minuten
+  // «Sprachnotiz Pflicht ab» (0046) für sich. null ist ein echter Wert («jede Überstunde») — zählt, ob die Abfrage
+  // klappte und der Wert gültig ist (ein alter Wert aus 0045 zählt nicht)
   const np = await supabase.from('firma').select('notiz_pflicht_ab_min').eq('id', r.id).limit(1);
-  const npWert = !np.error && np.data?.[0] ? gueltigeNotizSchwelle((np.data[0] as { notiz_pflicht_ab_min: unknown }).notiz_pflicht_ab_min) : null;
-  notizGelesen = npWert !== null;
+  const npWert = !np.error && np.data?.[0] ? gueltigeNotizSchwelle((np.data[0] as { notiz_pflicht_ab_min: unknown }).notiz_pflicht_ab_min) : undefined;
+  notizGelesen = npWert !== undefined;
   const neu: Einstellungen = {
     erfassung: r.modus_erfassung === 'regie' ? 'regie' : 'wochenblatt',
     sekretariat: r.modus_sekretariat === 'voll' ? 'voll' : 'stunden',
@@ -319,7 +324,7 @@ export async function einstellungenLaden(): Promise<Einstellungen> {
     znueniImmer: znZeile ? znZeile.znueni_immer === true : zwischenspeicher.znueniImmer,
     // Antwortet die Datenbank, aber ohne Spalte (Migration fehlt), heisst das: null — kein Haken beim Melden
     lieferwagenTagRp: znZeile ? gueltigerBetrag(znZeile.lieferwagen_tag_rp) : zn.error && !/fetch|network|kein Netz/i.test(zn.error.message) ? null : zwischenspeicher.lieferwagenTagRp,
-    notizPflichtAbMin: npWert ?? zwischenspeicher.notizPflichtAbMin ?? NOTIZ_PFLICHT_STANDARD,
+    notizPflichtAbMin: npWert !== undefined ? npWert : zwischenspeicher.notizPflichtAbMin,
   };
   zwischenspeicher = neu;
   try { localStorage.setItem(KEY, JSON.stringify(neu)); } catch { /* ohne Speicher läuft es auch */ }
@@ -363,7 +368,7 @@ export async function einstellungSetzen<K extends keyof Einstellungen>(feld: K, 
       return 'Die Datenbank kennt «Gelb markieren ab» noch nicht — Migration 0028 fehlt.';
     }
     if (feld === 'notizPflichtAbMin' && /notiz_pflicht|does not exist|column/i.test(error.message) && !/check constraint/i.test(error.message)) {
-      return 'Die Datenbank kennt «Sprachnotiz Pflicht ab» noch nicht — Migration 0045 fehlt.';
+      return 'Die Datenbank kennt «Sprachnotiz Pflicht ab» noch nicht — Migration 0046 fehlt.';
     }
     if ((feld === 'znueniBisMin' || feld === 'znueniImmer' || feld === 'lieferwagenTagRp') && /znueni|lieferwagen|does not exist|column/i.test(error.message) && !/check constraint/i.test(error.message)) {
       return 'Die Datenbank kennt die Pause-Einstellung noch nicht — Migration 0036 fehlt.';
