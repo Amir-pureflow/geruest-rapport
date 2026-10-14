@@ -17,6 +17,7 @@ import { ARBEITSBEGINN_MIN, MITTAG_VON_MIN, uhrzeit } from '../../lib/zeiten';
 import { Segment } from '../../ui/Segment';
 import { Auswahl } from '../../ui/Auswahl';
 import { istDemoFirma } from '../../lib/demo';
+import { englischGewaehlt, englischSetzen } from '../../lib/englisch';
 
 /** Häufige Normaltage im Bau: 8.0 · 8.2 · 8.4 (42-h-Woche) · 8.5 · 9.0 h. */
 const NORMALTAG_VORSCHLAEGE = [480, 492, 504, 510, 540];
@@ -524,6 +525,35 @@ const WAHLEN = [
   } as Wahl<'sekretariat'>,
 ];
 
+/** Nur Demo-Firma: Oberfläche auf Englisch (für Vorführungen und das englische Launch-Video, 14.10.2026). */
+function SpracheKarte() {
+  const en = englischGewaehlt();
+  const optionen: { wert: boolean; label: string; text: string }[] = [
+    { wert: false, label: 'Deutsch', text: 'Wie bei allen Kunden.' },
+    { wert: true, label: 'English', text: 'Nur auf diesem Gerät und nur in der Demo-Firma — echte Firmen bleiben deutsch.' },
+  ];
+  return (
+    <section className="card space-y-2.5">
+      <div>
+        <h2 className="font-display text-[15px] font-semibold">Sprache der Oberfläche (nur Demo)</h2>
+        <p className="mt-0.5 text-xs text-ink3">Für Vorführungen auf Englisch. Sprachnotizen und Daten bleiben, wie sie sind.</p>
+      </div>
+      <div className="grid gap-2 sm:grid-cols-2">
+        {optionen.map((o) => {
+          const aktiv = en === o.wert;
+          return (
+            <button key={o.label} type="button" onClick={() => { if (!aktiv) englischSetzen(o.wert); }} aria-pressed={aktiv}
+              className={'rounded-[12px] border p-3 text-left transition ' + (aktiv ? 'border-accent/40 bg-accent-soft' : 'border-line bg-surface hover:bg-ground')}>
+              <span className={'block text-sm font-semibold ' + (aktiv ? 'text-accent-deep' : '')}>{aktiv ? '✓ ' : ''}{o.label}</span>
+              <span className="mt-1 block text-xs leading-snug text-ink2">{o.text}</span>
+            </button>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
 export function Einstellungen() {
   const [werte, setWerte] = useState(einstellungen());
   const [fehler, setFehler] = useState('');
@@ -567,6 +597,7 @@ export function Einstellungen() {
       <NotizKarte />
       <ZnueniKarte />
       <LieferwagenKarte />
+      {modusWaehlbar && <SpracheKarte />}
 
       {modusWaehlbar && WAHLEN.map((w) => (
         <section key={w.feld} className="card space-y-2.5">

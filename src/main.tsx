@@ -54,6 +54,7 @@ import { startAutoFlush, flushNachSupabase } from './lib/db';
 import { supabase } from './lib/supabase';
 import { seitenFuer, useAnsicht, type Ansicht as AnsichtKey } from './lib/ansicht';
 import { einstellungen, einstellungenLaden } from './lib/einstellungen';
+import { englischAnwenden } from './lib/englisch';
 import { abmelden, angemeldet, geraetAufraeumen, personLaden, ungesendet, zugangAusSitzung, zugangPruefen } from './lib/konto';
 import { eingabeOffen, formularBeruehrt, formularVerlassen, jetztEinspielen, letzteEingabe, type Anlass } from './lib/aktualisierung';
 
@@ -222,6 +223,8 @@ function App() {
       if (ok) await zugangAusSitzung().catch(() => undefined);
       const laden = (async () => {
         if (ok) await einstellungenLaden().catch(() => undefined);
+        // Englische Oberfläche: erst jetzt steht fest, ob es die Demo-Firma ist (lib/englisch.ts)
+        englischAnwenden();
         // Persönlicher Zugang (0033): Ansicht und Person stehen fest, niemand muss wählen.
         if (ok) await personLaden().catch(() => undefined);
         if (ok) {
@@ -293,3 +296,5 @@ createRoot(document.getElementById('root')!).render(
     <App />
   </StrictMode>,
 );
+// Demo-Firma mit englischer Oberfläche: sofort mit dem Stand im Gerät übersetzen (lib/englisch.ts)
+englischAnwenden();
