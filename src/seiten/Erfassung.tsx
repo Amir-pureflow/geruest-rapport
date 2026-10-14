@@ -2061,10 +2061,9 @@ export function Erfassung() {
                   </div>
                   {a.dabei && (
                     <div className="mt-2">
-                      <div className="flex items-start gap-2">
-                        <SpannenEditor klein spannen={a.zeiten} setSpannen={(z) => setAnw((s) => ({ ...s, [p.id]: { ...a, zeiten: z } }))} />
-                        {ueberFertig(a, bisherVon(p.id)) > 0 && <span className="ml-auto shrink-0 pt-2 text-[11px] font-semibold text-amber-deep">{stunden(w.ueber)} h über</span>}
-                      </div>
+                      <SpannenEditor klein spannen={a.zeiten} setSpannen={(z) => setAnw((s) => ({ ...s, [p.id]: { ...a, zeiten: z } }))} />
+                      {/* Eigene Zeile unter den Zeiten (14.10.2026): rechts neben dem Raster ragte «0.85 h über» auf 360–390 px aus der Karte */}
+                      {ueberFertig(a, bisherVon(p.id)) > 0 && <p className="mt-1.5 text-[11px] font-semibold text-amber-deep">davon {stunden(w.ueber)} h Überstunden</p>}
                       <MittagHinweis spannen={a.zeiten} />
                     </div>
                   )}
