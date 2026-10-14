@@ -1095,13 +1095,38 @@ export function Erfassung() {
   const mitExternen = lieferwagenPreis !== null && lieferwagenPreis > 0 && dabei.some((p) => p.typ === 'extern');
   useEffect(() => { setLieferwagen(false); }, [teamId, tagIso]);
   /**
+   * Korrigieren (14.10.2026, Amir): Wer einen schon gemeldeten Tag nochmals meldet, will ihn meist ersetzen. Bis jetzt
+   * rechnete die Anzeige die frühere Meldung mit — «halb fünf» stand dann als 8.25 h Überstunden mit «Pflicht» da, und
+   * «Tag melden» verlangte eine Sprachnotiz, bevor die Frage «Frühere ersetzen?» überhaupt kam. Darum vorab beim Server
+   * prüfen, ob die frühere Meldung ersetzt werden darf: Wenn ja, rechnet die Anzeige so, als würde sie ersetzt. Nur wer
+   * ausdrücklich eine zweite Baustelle dazu meldet («Noch etwas melden — zweite Baustelle») oder nicht ersetzen kann,
+   * sieht weiter die Rechnung mit der früheren Meldung. Beim Speichern entscheidet wie bisher die Wahl im Dialog.
+   */
+  const [zweiteDazu, setZweiteDazu] = useState(false);
+  useEffect(() => { setZweiteDazu(false); }, [teamId, tagIso]);
+  /** Warum die früheren Normalmeldungen des Tages nicht ersetzt werden können — leer = sie können; null = unbekannt. */
+  const [ersetzGruende, setErsetzGruende] = useState<string[] | null>(null);
+  const alteNormal = useMemo(() => heuteGemeldet.filter((m) => m.normalfall), [heuteGemeldet]);
+  useEffect(() => {
+    setErsetzGruende(null);
+    if (alteNormal.length === 0) return;
+    if (alteNormal.some((m) => m.freigegeben)) { setErsetzGruende(['Der Bauführer hat diese Meldung schon freigegeben.']); return; }
+    let weg = false;
+    const alte: AlteMeldung[] = alteNormal.map((m) => ({ lokal: m.lokal, schluessel: m.schluessel, bezeichnung: anzeigeName(m.bezeichnung) || m.konto_nr }));
+    void ersetzenPruefen(supabase, alte)
+      .then((r) => { if (!weg) setErsetzGruende(r.filter((x) => x.grund).map((x) => `«${x.bezeichnung}»: ${x.grund}`)); })
+      .catch(() => { if (!weg) setErsetzGruende(['Konnte nicht prüfen, ob die frühere Meldung ersetzt werden darf.']); });
+    return () => { weg = true; };
+  }, [alteNormal]);
+  const alsErsetzt = !zweiteDazu && ersetzGruende !== null && ersetzGruende.length === 0;
+  /**
    * Normalminuten, die jede Person an diesem Tag schon hat: Meldungen dieses Teams (Gerät + Server) und anderer Teams.
-   * Die Anzeige rechnet damit, als käme die neue Meldung dazu; beim Speichern zählt, was dann wirklich gilt (ersetzen
-   * nimmt die alten Meldungen aus der Rechnung).
+   * Die Anzeige rechnet damit, als käme die neue Meldung dazu — ausser die früheren Normalmeldungen lassen sich ersetzen
+   * (`alsErsetzt`, siehe oben); beim Speichern zählt, was dann wirklich gilt (ersetzen nimmt die alten Meldungen aus der Rechnung).
    */
   const bisherAnzeige = useMemo(
-    () => bisherNormal(heuteGemeldet.flatMap((m) => m.zeilen.map((z) => ({ ...z, meldung: m.schluessel }))).concat(andere)),
-    [heuteGemeldet, andere],
+    () => bisherNormal(heuteGemeldet.filter((m) => !(alsErsetzt && m.normalfall)).flatMap((m) => m.zeilen.map((z) => ({ ...z, meldung: m.schluessel }))).concat(andere)),
+    [heuteGemeldet, andere, alsErsetzt],
   );
   const bisherVon = (id: string) => bisherAnzeige.get(id) ?? 0;
   const ueberTotal = dabei.reduce((s, p) => s + ueberFertig(anw[p.id], bisherVon(p.id)), 0);
@@ -1743,7 +1768,7 @@ export function Erfassung() {
           </section>
 
           <Link to="/" className="cta cta-good block text-center">Fertig für {istHeute ? 'heute' : 'diesen Tag'}</Link>
-          <button type="button" className="btn-ghost w-full py-2.5" onClick={() => setSchritt('tag')}>Noch etwas melden — zweite Baustelle</button>
+          <button type="button" className="btn-ghost w-full py-2.5" onClick={() => { setZweiteDazu(true); setSchritt('tag'); }}>Noch etwas melden — zweite Baustelle</button>
           {/* Gleiche Grenze wie der Pfeil ‹ (lib/nachtrag.ts) — vorher ging es hier beliebig weit zurück */}
           {tagIso > fruehesterIso && (
             <button type="button" className="btn-ghost w-full py-2.5" onClick={() => { setDatum(addTage(datum, -1)); setSchritt('tag'); }}>Anderen Tag nachtragen</button>
@@ -1827,7 +1852,11 @@ export function Erfassung() {
               ))}
             </ul>
             <p className="mt-1.5 text-[11px] text-ink3">
-              Zweite Baustelle an diesem Tag? Unten antippen und speichern. Einen anderen Tag vergessen? Oben mit dem Pfeil zurück.
+              {alsErsetzt
+                ? 'Etwas falsch? Unten richtig eintragen, «Tag melden» und dann «Frühere ersetzen». Zweite Baustelle an diesem Tag? Unten eintragen und «Zusätzlich speichern». Einen anderen Tag vergessen? Oben mit dem Pfeil zurück.'
+                : ersetzGruende && ersetzGruende.length > 0 && !zweiteDazu
+                  ? 'Ersetzen geht hier nicht mehr — Änderungen macht der Bauführer in der Wochenübersicht. Zweite Baustelle an diesem Tag? Unten antippen und speichern. Einen anderen Tag vergessen? Oben mit dem Pfeil zurück.'
+                  : 'Zweite Baustelle an diesem Tag? Unten antippen und speichern. Einen anderen Tag vergessen? Oben mit dem Pfeil zurück.'}
             </p>
           </section>
         )}
