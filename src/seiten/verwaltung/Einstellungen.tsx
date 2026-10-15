@@ -4,16 +4,17 @@
  * für alle Geräte dieser Firma. Nach dem Umschalten lädt die App neu, damit Menü und Erfassung passen.
  */
 import { useState } from 'react';
-import { Clock3, Coffee, Highlighter, Mic, Minus, Plus, Truck } from 'lucide-react';
+import { Clock3, Coffee, Highlighter, Mic, Minus, Plus, Sunrise, Truck } from 'lucide-react';
 import {
   einstellungen, einstellungSetzen, schalterGelesen, eigeneFirma,
   briefkopf, briefkopfSetzen, normaltagMin, normaltagAusDatenbank, NORMALTAG_BEREICH,
-  markierenAbMin, markierenAusDatenbank, znueni, znueniAusDatenbank, znueniSetzen, ZNUENI_BEREICH, lieferwagenTagRp,
+  markierenAbMin, markierenAusDatenbank, znueni, znueniAusDatenbank, znueniSetzen, lieferwagenTagRp,
+  arbeitstag, arbeitstagAusDatenbank, arbeitstagSetzen,
   notizPflichtAbMin, notizAusDatenbank,
   type Briefkopf, type Einstellungen,
 } from '../../lib/einstellungen';
 import { stunden } from '../../lib/datum';
-import { ARBEITSBEGINN_MIN, MITTAG_VON_MIN, uhrzeit } from '../../lib/zeiten';
+import { ARBEITSTAG_BEREICH, uhrzeit } from '../../lib/zeiten';
 import { Segment } from '../../ui/Segment';
 import { Auswahl } from '../../ui/Auswahl';
 import { istDemoFirma } from '../../lib/demo';
@@ -272,12 +273,116 @@ function NotizKarte() {
 }
 
 /**
+ * Arbeitszeiten (Migration 0047, Amir 15.10.2026: «dass die Firma die Arbeitszeiten, Mittag und alles selbst bestimmen
+ * kann»): Arbeitsbeginn und Mittag. Daraus macht das Teamgerät die Vorgabe (Vormittag Beginn–Mittag, Nachmittag ab
+ * Mittagsende, Ende trägt das Team ein), den Mittag-Hinweis und die Wechselzeiten bei zwei Baustellen. Gilt für neue
+ * Meldungen; was gemeldet ist, bleibt. Der Mittag ist unbezahlt und wird nie abgezogen — er ist nur als Lücke vorgegeben.
+ */
+const VIERTELSTUNDEN = (von: number, bis: number) => Array.from({ length: (bis - von) / 15 + 1 }, (_, i) => von + i * 15);
+const MITTAG_DAUER = [30, 45, 60, 90];
+
+function ArbeitstagKarte({ geaendert }: { geaendert: () => void }) {
+  const [a, setA] = useState(arbeitstag);
+  const [speichert, setSpeichert] = useState(false);
+  const [meldung, setMeldung] = useState<{ text: string; art: 'ok' | 'fehler' } | null>(null);
+  const ausDatenbank = arbeitstagAusDatenbank();
+  const b = ARBEITSTAG_BEREICH;
+  const dauer = a.mittagBis - a.mittagVon;
+
+  async function speichern(beginn: number, mittagVon: number, mittagBis: number) {
+    if (speichert) return;
+    setSpeichert(true);
+    setMeldung(null);
+    const fehler = await arbeitstagSetzen(beginn, mittagVon, mittagBis);
+    setSpeichert(false);
+    if (fehler) { setMeldung({ text: fehler, art: 'fehler' }); return; }
+    setA(arbeitstag());
+    setMeldung({ text: 'Gespeichert ✓', art: 'ok' });
+    geaendert();
+  }
+
+  // Nur Zeiten, die die Prüfregel zulässt: Mittag frühestens 2 h nach Arbeitsbeginn
+  const beginnListe = VIERTELSTUNDEN(b.beginnMin, b.beginnMax).filter((m) => m <= a.mittagVon - b.vormittagMin);
+  const mittagListe = VIERTELSTUNDEN(b.mittagMin, b.mittagMax).filter((m) => m >= a.beginn + b.vormittagMin);
+  const dauerListe = MITTAG_DAUER.includes(dauer) ? MITTAG_DAUER : [...MITTAG_DAUER, dauer].sort((x, y) => x - y);
+
+  return (
+    <section className="card space-y-4">
+      <div className="flex items-start gap-3">
+        <span className="grid h-10 w-10 shrink-0 place-items-center rounded-[12px] bg-amber text-white shadow-[0_4px_10px_-4px_rgb(217_147_15/0.6)]">
+          <Sunrise size={19} strokeWidth={2.2} aria-hidden="true" />
+        </span>
+        <div>
+          <h2 className="font-display text-[15px] font-semibold">Arbeitszeiten</h2>
+          <p className="mt-0.5 text-xs text-ink3">
+            Wann der Arbeitstag beginnt und wann Mittag ist. Das Teamgerät schlägt diese Zeiten vor — das Team ändert sie,
+            wenn es anders war. Der Mittag ist unbezahlt und steht als Lücke da; die App zieht nichts ab.
+          </p>
+        </div>
+      </div>
+
+      <div className="grid gap-3 sm:grid-cols-3">
+        <div className="space-y-1.5">
+          <p className="lbl">Arbeitsbeginn</p>
+          <Auswahl
+            id="arbeitsbeginn"
+            label="Arbeitsbeginn"
+            wert={String(a.beginn)}
+            aendern={(v) => void speichern(Number(v), a.mittagVon, a.mittagBis)}
+            optionen={beginnListe.map((m) => ({ wert: String(m), text: uhrzeit(m) }))}
+            suche={false}
+            art="pille"
+          />
+        </div>
+        <div className="space-y-1.5">
+          <p className="lbl">Mittag ab</p>
+          <Auswahl
+            id="mittag-ab"
+            label="Beginn des Mittags"
+            wert={String(a.mittagVon)}
+            aendern={(v) => { const von = Number(v); void speichern(a.beginn, von, von + dauer); }}
+            optionen={mittagListe.map((m) => ({ wert: String(m), text: uhrzeit(m) }))}
+            suche={false}
+            art="pille"
+          />
+        </div>
+        <div className="space-y-1.5">
+          <p className="lbl">Mittag dauert</p>
+          <Segment
+            label="Dauer des Mittags"
+            optionen={dauerListe.map((d) => ({ wert: d, text: d % 60 === 0 ? `${d / 60} h` : `${d} Min.` }))}
+            wert={dauer}
+            aendern={(d) => void speichern(a.beginn, a.mittagVon, a.mittagVon + d)}
+          />
+        </div>
+      </div>
+
+      <p className="rounded-[12px] bg-ground px-3.5 py-2.5 text-xs text-ink2">
+        Vorgabe im Teamgerät: Vormittag <b className="text-ink">{uhrzeit(a.beginn)}–{uhrzeit(a.mittagVon)}</b>, Nachmittag ab{' '}
+        <b className="text-ink">{uhrzeit(a.mittagBis)}</b> (das Ende trägt das Team ein). Mittag {uhrzeit(a.mittagVon)}–{uhrzeit(a.mittagBis)} unbezahlt.
+        Bei zwei Baustellen am Tag wählt das Team den Wechsel um {uhrzeit(a.mittagVon)} oder {uhrzeit(a.mittagBis)}.
+      </p>
+
+      {(meldung || speichert) && (
+        <p className={'text-sm font-semibold ' + (speichert ? 'text-ink3' : meldung?.art === 'ok' ? 'text-good-deep' : 'text-accent-deep')}>
+          {speichert ? 'Speichert …' : meldung?.text}
+        </p>
+      )}
+      {ausDatenbank === false && (
+        <p className="rounded-[12px] border border-amber/40 bg-amber-soft px-3.5 py-2 text-xs text-amber-deep">
+          Die Datenbank kennt diese Einstellung noch nicht (Migration 0047 fehlt) — bis dahin gilt Arbeitsbeginn 7:00, Mittag 12:00–13:00.
+        </p>
+      )}
+    </section>
+  );
+}
+
+/**
  * Pause am Morgen (Migration 0036, Arbnor 10.10.2026; frei einstellbar seit 0044, 13.10.2026): Bei der Gerüst GmbH
  * dauert sie 9:00–9:15 und wird immer abgezogen — vom Vormittag 7–12 werden 4.75 h bezahlt. Andere Firmen wählen
  * Beginn und Dauer selbst und ziehen sie immer oder nur dann ab, wenn der Bauherr sie nicht zahlt («− Pause»).
  * Gilt für neue Meldungen; was gemeldet ist, bleibt.
  */
-const PAUSE_BEGINN = Array.from({ length: 15 }, (_, i) => 450 + i * 15); // 7:30 … 11:00
 const PAUSE_DAUER = [10, 15, 20, 30, 45];
 
 function ZnueniKarte() {
@@ -286,7 +391,8 @@ function ZnueniKarte() {
   const [meldung, setMeldung] = useState<{ text: string; art: 'ok' | 'fehler' } | null>(null);
   const ausDatenbank = znueniAusDatenbank();
   const dauer = z.bis - z.von;
-  const vormittag = MITTAG_VON_MIN - ARBEITSBEGINN_MIN;
+  const a = arbeitstag(); // Vormittag der Firma (0047)
+  const vormittag = a.mittagVon - a.beginn;
 
   async function speichern(f: () => Promise<string | null>) {
     if (speichert) return;
@@ -298,11 +404,13 @@ function ZnueniKarte() {
     setZ(znueni());
     setMeldung({ text: 'Gespeichert ✓', art: 'ok' });
   }
-  /** Beginn verschieben, Dauer behalten — reicht sie nicht mehr bis 12:00, endet sie um 12:00 */
-  const beginnSetzen = (von: number) => void speichern(() => znueniSetzen(von, Math.min(von + dauer, ZNUENI_BEREICH.ende)));
+  /** Beginn verschieben, Dauer behalten — reicht sie nicht mehr bis zum Mittag, endet sie beim Mittag */
+  const beginnSetzen = (von: number) => void speichern(() => znueniSetzen(von, Math.min(von + dauer, a.mittagVon)));
   const dauerSetzen = (d: number) => void speichern(() => znueniSetzen(z.von, z.von + d));
 
-  const beginnListe = PAUSE_BEGINN.includes(z.von) ? PAUSE_BEGINN : [...PAUSE_BEGINN, z.von].sort((x, y) => x - y);
+  // Beginn im Vormittag der Firma: ½ h nach Arbeitsbeginn bis 1 h vor dem Mittag (Gerüst GmbH: 7:30 … 11:00)
+  const imVormittag = VIERTELSTUNDEN(Math.ceil((a.beginn + 30) / 15) * 15, Math.floor((a.mittagVon - 60) / 15) * 15);
+  const beginnListe = imVormittag.includes(z.von) ? imVormittag : [...imVormittag, z.von].sort((x, y) => x - y);
   const dauerListe = PAUSE_DAUER.includes(dauer) ? PAUSE_DAUER : [...PAUSE_DAUER, dauer].sort((x, y) => x - y);
 
   return (
@@ -357,9 +465,9 @@ function ZnueniKarte() {
       <p className="rounded-[12px] bg-ground px-3.5 py-2.5 text-xs text-ink2">
         Pause {uhrzeit(z.von)}–{uhrzeit(z.bis)} ({dauer} Min.).{' '}
         {z.immer ? (
-          <>Vormittag {uhrzeit(ARBEITSBEGINN_MIN)}–{uhrzeit(MITTAG_VON_MIN)} → <b className="text-ink">{stunden(vormittag - dauer)} h bezahlt</b>. Das Teamgerät zeigt {uhrzeit(ARBEITSBEGINN_MIN)}–{uhrzeit(z.von)} und {uhrzeit(z.bis)}–{uhrzeit(MITTAG_VON_MIN)}.</>
+          <>Vormittag {uhrzeit(a.beginn)}–{uhrzeit(a.mittagVon)} → <b className="text-ink">{stunden(vormittag - dauer)} h bezahlt</b>. Das Teamgerät zeigt {uhrzeit(a.beginn)}–{uhrzeit(z.von)} und {uhrzeit(z.bis)}–{uhrzeit(a.mittagVon)}.</>
         ) : (
-          <>Vormittag {uhrzeit(ARBEITSBEGINN_MIN)}–{uhrzeit(MITTAG_VON_MIN)} → <b className="text-ink">{stunden(vormittag)} h</b>. Zahlt der Bauherr die Pause nicht, tippt der Chefmonteur «− Pause» → {stunden(vormittag - dauer)} h.</>
+          <>Vormittag {uhrzeit(a.beginn)}–{uhrzeit(a.mittagVon)} → <b className="text-ink">{stunden(vormittag)} h</b>. Zahlt der Bauherr die Pause nicht, tippt der Chefmonteur «− Pause» → {stunden(vormittag - dauer)} h.</>
         )}
       </p>
 
@@ -556,6 +664,8 @@ function SpracheKarte() {
 
 export function Einstellungen() {
   const [werte, setWerte] = useState(einstellungen());
+  // Nach dem Speichern der Arbeitszeiten neu zeichnen — die Pause-Karte rechnet dann mit dem neuen Vormittag
+  const [, neuZeichnen] = useState(0);
   const [fehler, setFehler] = useState('');
   const [speichert, setSpeichert] = useState<string | null>(null);
   // Kam beim Start nichts aus der Datenbank, zeigt die Seite unten nur die Standardwerte — das muss dastehen
@@ -592,10 +702,11 @@ export function Einstellungen() {
       )}
       {fehler && <p className="rounded-[12px] border border-accent/40 bg-accent-soft px-4 py-2.5 text-sm text-accent-deep">{fehler}</p>}
 
+      <ArbeitstagKarte geaendert={() => neuZeichnen((n) => n + 1)} />
+      <ZnueniKarte />
       <NormaltagKarte />
       <MarkierenKarte />
       <NotizKarte />
-      <ZnueniKarte />
       <LieferwagenKarte />
       {modusWaehlbar && <SpracheKarte />}
 

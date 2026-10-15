@@ -231,13 +231,19 @@ Jede Meldung ist `normalfall = true`; `abweichung_typ` / `wer_hats_gewollt` blei
 
 **Zeiten von–bis** (Bauführer 20.09.): Umschalter «Stundenzahl | von – bis» fürs Team, je Person überschreibbar. Bis zu
 zwei Spannen (Vormittag, Nachmittag), native Uhrzeit-Wahl, Vorgabe **7:00–12:00 und 13:00–offen** — der Mittag 12–13
-ist unbezahlt (Amir 20.09., «denke ich» — mit Arbnor bestätigen) und darum als Lücke vorgegeben, **nie abgezogen**. Ohne
+ist unbezahlt (Amir 20.09., «denke ich» — mit Arbnor bestätigen) und darum als Lücke vorgegeben, **nie abgezogen**.
+**Arbeitsbeginn und Mittag je Firma** (0047, Amir 15.10.2026): `firma.arbeitsbeginn_min` / `mittag_von_min` /
+`mittag_bis_min`, gelesen über `arbeitstag()` in einstellungen.ts, gesetzt in Verwaltung → Einstellungen → «Arbeitszeiten»
+(`arbeitstagSetzen`). Daraus kommen Vorgabe (`standardSpannen(znueni(), arbeitstag())`), Mittag-Hinweis, «Nachmittag»-
+Beschriftung und die zwei Wechselzeiten bei zwei Baustellen (vor/nach dem Mittag, die gewählte markiert). Standard =
+Gerüst GmbH (7:00, 12–13); Texte sagen bei vollen Stunden weiter «Mittag 12–13» (`mittagText()`, englische Demo). Ohne
 «bis» lässt sich nicht speichern; überlappende Spannen auch nicht. Zählt der Mittag mit, sagt es ein Hinweis (kein
 Abzug). Summe → Normal (bis 8.4 h) + Überstunden. Spalten `zeiteintrag.von_min/bis_min/von2_min/bis2_min`
 (Migration 0016), nur gesetzt, wenn Zeiten eingetragen wurden; Cockpit und «Meine Woche» zeigen sie. Logik + Tests in
 `src/lib/zeiten.ts`. Arbeitszeit laut Bauführer 7:00–17:00. Pause am Morgen je Firma (0036, `znueni()` in einstellungen.ts): Standard 9:00–9:30
-bezahlt, Abzug nur auf Knopfdruck «− Pause»; Gerüst GmbH 9:00–9:15, immer abgezogen.
-**Offen mit Arbnor:** Mittag wirklich 12–13 und unbezahlt? Weitere Pausen? Trägt der Chefmonteur für alle ein?
+bezahlt, Abzug nur auf Knopfdruck «− Pause»; Gerüst GmbH 9:00–9:15, immer abgezogen. Seit 0047 muss sie im Vormittag
+der Firma liegen (Arbeitsbeginn bis Mittag) — wer die Arbeitszeiten ändert, muss eine Pause, die nicht mehr passt, zuerst verschieben.
+**Offen mit Arbnor:** Mittag wirklich unbezahlt? Weitere Pausen? Trägt der Chefmonteur für alle ein? (Die Zeiten selbst stellt jede Firma ein.)
 
 **Überstunden** brauchen ein Warum: die **Sprachnotiz** (Pflicht, ausser das Mikrofon fehlt). Seit 20.09. ist sie immer
 da — als **Bemerkung zum Tag**, freiwillig. Der Bauführer sieht Überstunden gelb in der Wochenübersicht, liest die Notiz,
@@ -419,7 +425,7 @@ Lesende Prüfung genauso, mit SQL statt `-f` (z. B. `select … from information
 - Eine Datei läuft als ein Block: scheitert eine Zeile, bleibt die ganze Datei draussen. Danach mit einer Abfrage
   bestätigen, nicht glauben.
 - Am Ende einer Migration mit neuen Spalten/Tabellen: `notify pgrst, 'reload schema';`.
-- **Stand:** 0001–0046 sind eingespielt (0034 neue Fassung, 0035–0039 am 11.10.2026, 0040–0044 am 13.10.2026, 0045/0046 am 14.10.2026; 0044 = Pause am Morgen mit eigenem Beginn `znueni_von_min`, Dauer 5–60 Min., Ende ≤ 12:00 — gespeichert beides zusammen über `znueniSetzen`).
+- **Stand:** 0001–0047 sind eingespielt (0034 neue Fassung, 0035–0039 am 11.10.2026, 0040–0044 am 13.10.2026, 0045/0046 am 14.10.2026, 0047 am 15.10.2026; 0044 = Pause am Morgen mit eigenem Beginn `znueni_von_min`, Dauer 5–60 Min., Ende ≤ 12:00 — gespeichert beides zusammen über `znueniSetzen`). 0047 = Arbeitsbeginn und Mittag je Firma, beide Firmen auf 7:00 / 12–13; Prüfregeln vorher zurückgerollt getestet.
 - Eine Migration mit Rechten zuerst **zurückgerollt testen**: Migration + Testfälle je Rolle (`set local role
   authenticated` + `request.jwt.claims`) in eine Datei, am Ende `raise exception` mit den Ergebnissen — der Fehler
   rollt alles zurück und zeigt, was erlaubt/gesperrt war. So geprüft: 0041 (34 Fälle), 0042 (8 Fälle).
@@ -473,7 +479,7 @@ src/ui/FotoGalerie.tsx            Vorschau aus dem Bucket «anhaenge» (signiert
 src/ui/Sprachnotiz.tsx            Pegelbalken während der Aufnahme, Text-Enthüllung nach dem Speichern
 src/ui/Shell.tsx                  Rahmen: Büro-Ansichten mit Bereichsleiste (md) / Seitenleiste (lg), Baustellen-Ansichten Handy-Spalte
 supabase/functions/transkribieren Sprachnotiz → Text (Mistral)
-supabase/migrations/              0001–0015 historisch (inkl. Regie-Tabellen) · 0016 Zeiten von–bis · 0017 Firmen-Schalter (durch 0019 abgelöst) · 0019 mehrere Firmen, Rechte je Firma · 0020 Dateien und Rapportnummern je Firma · 0021 Briefkopf je Firma · 0026 normaler Arbeitstag je Firma · 0027 Zusatzauftrag «erledigt» ohne Regie · 0028 «Gelb markieren ab» je Firma · 0029 dritte Zeitspanne (Znüni-Pause abziehen) · 0030 absichtlich leer · 0031 Korrekturen nach normalem Arbeitstag der Firma · 0032 Einladung und Gerät (verworfen) · 0033 persönliche Zugänge, entfernt 0032 wieder · 0034 Konten aus der Verwaltung, Mail-Domain je Firma, inaktiv = kein Zugang · 0035 Funktionen nie ohne Anmeldung · 0036 Wünsche Arbnor/Mehmeti 10.10. (Pause je Firma, Lieferwagen, Abwesenheiten, Einsatz je Person) · 0037 Spanisch (es, Azure es-ES) · 0038 Verlauf der Planung (plan_verlauf + Auslöser) · 0039 Demo: Verlauf nach «Demo laden» leeren · 0040 Firma der Subunternehmer · 0041 Rechte je Rolle · 0042 Dateien am Regierapport · 0043 Meldung ersetzen in einer Transaktion · 0044 Pause am Morgen frei einstellbar · 0045 Sprachnotiz Pflicht ab (Grenze je Firma) · 0046 dieselbe Grenze als Tagestotal — **nächste freie Nummer: 0047** (vor dem Anlegen `git pull`, damit nicht zwei dieselbe Nummer nehmen)
+supabase/migrations/              0001–0015 historisch (inkl. Regie-Tabellen) · 0016 Zeiten von–bis · 0017 Firmen-Schalter (durch 0019 abgelöst) · 0019 mehrere Firmen, Rechte je Firma · 0020 Dateien und Rapportnummern je Firma · 0021 Briefkopf je Firma · 0026 normaler Arbeitstag je Firma · 0027 Zusatzauftrag «erledigt» ohne Regie · 0028 «Gelb markieren ab» je Firma · 0029 dritte Zeitspanne (Znüni-Pause abziehen) · 0030 absichtlich leer · 0031 Korrekturen nach normalem Arbeitstag der Firma · 0032 Einladung und Gerät (verworfen) · 0033 persönliche Zugänge, entfernt 0032 wieder · 0034 Konten aus der Verwaltung, Mail-Domain je Firma, inaktiv = kein Zugang · 0035 Funktionen nie ohne Anmeldung · 0036 Wünsche Arbnor/Mehmeti 10.10. (Pause je Firma, Lieferwagen, Abwesenheiten, Einsatz je Person) · 0037 Spanisch (es, Azure es-ES) · 0038 Verlauf der Planung (plan_verlauf + Auslöser) · 0039 Demo: Verlauf nach «Demo laden» leeren · 0040 Firma der Subunternehmer · 0041 Rechte je Rolle · 0042 Dateien am Regierapport · 0043 Meldung ersetzen in einer Transaktion · 0044 Pause am Morgen frei einstellbar · 0045 Sprachnotiz Pflicht ab (Grenze je Firma) · 0046 dieselbe Grenze als Tagestotal · 0047 Arbeitsbeginn und Mittag je Firma (Pause im Vormittag der Firma) — **nächste freie Nummer: 0048** (vor dem Anlegen `git pull`, damit nicht zwei dieselbe Nummer nehmen)
 archiv/regie-und-board/           Stand vom 20.09. als Nachschlagewerk — nicht mehr die Quelle (Regie ist zurück, hinter Schaltern)
 ```
 
@@ -503,7 +509,7 @@ Was daraus als Regel bleibt:
 ## Offene Entscheidungen (nicht raten — nachfragen oder Annahme markieren)
 
 - Transkriptions-Anbieter für 13 Sprachen (Spike mit echten Aufnahmen ausstehend)
-- Mittag 12–13 unbezahlt — Annahme Amir, mit Arbnor bestätigen; weitere Pausen?
+- Mittag unbezahlt — Annahme Amir, mit Arbnor bestätigen; weitere Pausen? (Uhrzeiten stellt seit 0047 jede Firma selbst ein.)
 - öV ganz weg oder nur nicht Vorgabe?
 - Sieht der Bauführer alle Baustellen oder nur seine? (Rechte pro Bauführer)
 - ~~Login pro Rolle vor echten Kundendaten~~ — erledigt: persönliche Konten (0033/0034), Rechte je Rolle (0041)

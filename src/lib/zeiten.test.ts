@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { MAX_SPANNEN, ZNUENI_STANDARD, aufteilen, ausSpalten, ausUhrzeit, kannPauseAbziehen, markiertePersonen, mittagMinuten, pauseAbgezogen, pauseAbziehen, pauseZaehlen, spannenMinuten, spannenOffen, spannenUeberlappen, standardSpannen, ueberMarkiert, uhrzeit, uhrzeitFeld, zeitenText, zuSpalten, spannenTeilen, teileAufteilen } from './zeiten';
+import { ARBEITSTAG_STANDARD, MAX_SPANNEN, ZNUENI_STANDARD, aufteilen, gueltigerArbeitstag, mittagText, pausePasst, ausSpalten, ausUhrzeit, kannPauseAbziehen, markiertePersonen, mittagMinuten, pauseAbgezogen, pauseAbziehen, pauseZaehlen, spannenMinuten, spannenOffen, spannenUeberlappen, standardSpannen, ueberMarkiert, uhrzeit, uhrzeitFeld, zeitenText, zuSpalten, spannenTeilen, teileAufteilen } from './zeiten';
 import { NORMALTAG_MIN } from './datum';
 
 describe('Uhrzeit ↔ Minuten', () => {
@@ -298,5 +298,51 @@ describe('teileAufteilen — Überstunden über den ganzen Tag', () => {
     const t = teileAufteilen([285, 240, 90], 504);
     expect(t.reduce((s, x) => s + x.normal_min, 0)).toBe(aufteilen(615, 504).normal_min);
     expect(t.reduce((s, x) => s + x.ueber_min, 0)).toBe(aufteilen(615, 504).ueber_min);
+  });
+});
+
+describe('Arbeitstag je Firma (0047) — Arbeitsbeginn und Mittag einstellbar', () => {
+  const frueh = { beginn: 390, mittagVon: 690, mittagBis: 720 }; // 6:30, Mittag 11:30–12:00
+
+  it('ohne Einstellung bleibt alles wie bisher: 7:00, Mittag 12–13', () => {
+    expect(ARBEITSTAG_STANDARD).toEqual({ beginn: 420, mittagVon: 720, mittagBis: 780 });
+    expect(standardSpannen(ZNUENI_STANDARD, ARBEITSTAG_STANDARD)).toEqual(standardSpannen());
+    expect(mittagText()).toBe('12–13');
+  });
+  it('Vorgabe im Teamgerät folgt der Firma: Vormittag bis zum Mittag, Nachmittag ab Mittagsende, Ende offen', () => {
+    expect(standardSpannen(ZNUENI_STANDARD, frueh)).toEqual([{ von: 390, bis: 690 }, { von: 720, bis: null }]);
+  });
+  it('Pause immer abziehen funktioniert auch mit eigenem Arbeitstag', () => {
+    const s = standardSpannen({ von: 540, bis: 555, immer: true }, frueh);
+    expect(s).toEqual([{ von: 390, bis: 540 }, { von: 555, bis: 690 }, { von: 720, bis: null }]);
+    expect(spannenMinuten(s)).toBe(285);
+  });
+  it('Mittag-Hinweis rechnet mit dem Mittag der Firma', () => {
+    expect(mittagMinuten([{ von: 390, bis: 960 }], frueh)).toBe(30);
+    expect(mittagMinuten([{ von: 390, bis: 690 }, { von: 720, bis: 960 }], frueh)).toBe(0);
+    // 12:00–13:00 ist bei dieser Firma kein Mittag
+    expect(mittagMinuten([{ von: 720, bis: 780 }], frueh)).toBe(0);
+  });
+  it('Text: volle Stunden kurz, sonst mit Minuten', () => {
+    expect(mittagText(frueh)).toBe('11:30–12');
+    expect(mittagText({ beginn: 420, mittagVon: 720, mittagBis: 765 })).toBe('12–12:45');
+  });
+  it('Prüfregel wie die Datenbank: Beginn 5–10 Uhr, Mittag 10–15 Uhr und 2 h nach Beginn, 15 Min. bis 2 h', () => {
+    expect(gueltigerArbeitstag(420, 720, 780)).toEqual(ARBEITSTAG_STANDARD);
+    expect(gueltigerArbeitstag(300, 600, 615)).not.toBeNull();
+    expect(gueltigerArbeitstag(299, 720, 780)).toBeNull(); // vor 5:00
+    expect(gueltigerArbeitstag(601, 720, 780)).toBeNull(); // nach 10:00
+    expect(gueltigerArbeitstag(540, 600, 660)).toBeNull(); // Mittag nur 1 h nach Beginn
+    expect(gueltigerArbeitstag(420, 720, 730)).toBeNull(); // Mittag kürzer als 15 Min.
+    expect(gueltigerArbeitstag(420, 720, 850)).toBeNull(); // Mittag länger als 2 h
+    expect(gueltigerArbeitstag(420, 901, 960)).toBeNull(); // Mittag nach 15:00
+    expect(gueltigerArbeitstag('7:00', 720, 780)).toBeNull();
+    expect(gueltigerArbeitstag(420.5, 720, 780)).toBeNull();
+  });
+  it('die Pause am Morgen muss im Vormittag liegen', () => {
+    expect(pausePasst({ von: 540, bis: 555 }, ARBEITSTAG_STANDARD)).toBe(true);
+    expect(pausePasst({ von: 540, bis: 555 }, { beginn: 570, mittagVon: 720, mittagBis: 780 })).toBe(false); // Beginn 9:30
+    expect(pausePasst({ von: 690, bis: 720 }, frueh)).toBe(false); // endet nach 11:30
+    expect(pausePasst({ von: 660, bis: 690 }, frueh)).toBe(true);
   });
 });

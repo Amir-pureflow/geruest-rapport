@@ -12,7 +12,7 @@
  */
 import { supabase } from './supabase';
 import { NORMALTAG_MIN } from './datum';
-import { ZNUENI_STANDARD, markiertePersonen, type Znueni } from './zeiten';
+import { ARBEITSTAG_STANDARD, ZNUENI_STANDARD, gueltigerArbeitstag, markiertePersonen, pausePasst, uhrzeit, type Arbeitstag, type Znueni } from './zeiten';
 
 export interface Einstellungen {
   /** 'wochenblatt' = nur Normal + Überstunden · 'regie' = zusätzlich bei Überstunden «War das Regie?» → «Wer wollte das?», Stunden je Person */
@@ -43,6 +43,11 @@ export interface Einstellungen {
    * Regie braucht immer eine Notiz. Gebaut wie «Gelb markieren ab».
    */
   notizPflichtAbMin: number | null;
+  /** Arbeitsbeginn in Minuten (Migration 0047, Amir 15.10.2026). Standard 420 = 7:00. */
+  arbeitsbeginnMin: number;
+  /** Mittag von–bis in Minuten (0047), unbezahlt, im Teamgerät als Lücke vorgegeben. Standard 720–780 = 12:00–13:00. */
+  mittagVonMin: number;
+  mittagBisMin: number;
 }
 
 /** Für neue Firmen und solange nichts geladen ist: 9.0 h (wie die Vorgabe der Datenbank, 0046). */
@@ -52,6 +57,7 @@ export const STANDARD: Einstellungen = {
   erfassung: 'wochenblatt', sekretariat: 'stunden', normaltagMin: NORMALTAG_MIN, markierenAbMin: null,
   znueniVonMin: ZNUENI_STANDARD.von, znueniBisMin: ZNUENI_STANDARD.bis, znueniImmer: false, lieferwagenTagRp: null,
   notizPflichtAbMin: NOTIZ_PFLICHT_STANDARD,
+  arbeitsbeginnMin: ARBEITSTAG_STANDARD.beginn, mittagVonMin: ARBEITSTAG_STANDARD.mittagVon, mittagBisMin: ARBEITSTAG_STANDARD.mittagBis,
 };
 
 /** Erlaubtes Tagestotal für «Sprachnotiz Pflicht ab»: 6.0 bis 12.0 h (Prüfregel 0046). null = jede Überstunde. */
@@ -66,18 +72,23 @@ function gueltigerBetrag(x: unknown): number | null {
 }
 
 /**
- * Erlaubte Pause am Morgen (Migration 0044, wie die Prüfregel der Datenbank): Beginn 7:00–11:30, Dauer 5–60 Minuten,
- * Ende spätestens 12:00. Fehlt der Beginn (Zwischenspeicher von vor 0044), gilt 9:00.
+ * Erlaubte Pause am Morgen (Migration 0044, seit 0047 im Vormittag der Firma — wie die Prüfregel der Datenbank):
+ * Dauer 5–60 Minuten, nicht vor Arbeitsbeginn, Ende spätestens zum Mittag (Standard 7:00–12:00). Fehlt der Beginn
+ * (Zwischenspeicher von vor 0044), gilt 9:00.
  */
-export const ZNUENI_BEREICH = { vonMin: 420, vonMax: 690, dauerMin: 5, dauerMax: 60, ende: 720 } as const;
+export const ZNUENI_BEREICH = { dauerMin: 5, dauerMax: 60 } as const;
 
-export function gueltigeZnueni(von: unknown, bis: unknown): { von: number; bis: number } | null {
+export function gueltigeZnueni(von: unknown, bis: unknown, a: Arbeitstag = ARBEITSTAG_STANDARD): { von: number; bis: number } | null {
   const v = von === undefined || von === null ? ZNUENI_STANDARD.von : von;
   if (typeof v !== 'number' || typeof bis !== 'number' || !Number.isInteger(v) || !Number.isInteger(bis)) return null;
   const b = ZNUENI_BEREICH;
-  if (v < b.vonMin || v > b.vonMax) return null;
-  if (bis < v + b.dauerMin || bis > Math.min(v + b.dauerMax, b.ende)) return null;
+  if (bis < v + b.dauerMin || bis > v + b.dauerMax || !pausePasst({ von: v, bis }, a)) return null;
   return { von: v, bis };
+}
+
+/** Arbeitstag aus gespeicherten Werten — ungültig oder fehlend: der Standard (7:00, Mittag 12–13). */
+function arbeitstagAus(x: { arbeitsbeginnMin?: unknown; mittagVonMin?: unknown; mittagBisMin?: unknown }): Arbeitstag {
+  return gueltigerArbeitstag(x.arbeitsbeginnMin, x.mittagVonMin, x.mittagBisMin) ?? ARBEITSTAG_STANDARD;
 }
 
 /** Erlaubter Bereich für den normalen Arbeitstag: 6.0 bis 10.0 h, in Schritten von 6 Minuten (0.1 h). */
@@ -106,8 +117,13 @@ const SPALTE = {
   znueniImmer: 'znueni_immer',
   lieferwagenTagRp: 'lieferwagen_tag_rp',
   notizPflichtAbMin: 'notiz_pflicht_ab_min',
+  arbeitsbeginnMin: 'arbeitsbeginn_min',
+  mittagVonMin: 'mittag_von_min',
+  mittagBisMin: 'mittag_bis_min',
 } as const;
 
+/** Kam der Arbeitstag (Beginn, Mittag) aus der Datenbank? `false` = Migration 0047 fehlt, es gilt 7:00 / 12–13. */
+let arbeitstagGelesen: boolean | null = null;
 /** Kam «Sprachnotiz Pflicht ab» aus der Datenbank? `false` = Migration 0046 fehlt, es gelten 9.0 h. */
 let notizGelesen: boolean | null = null;
 /** Kam der Znüni aus der Datenbank? `false` = Migration 0036 fehlt, es gilt 9:00–9:30 auf Knopfdruck. */
@@ -169,7 +185,8 @@ function lesenLokal(): Einstellungen {
     return x
       ? {
           ...STANDARD, ...x, normaltagMin: gueltigerNormaltag(x.normaltagMin) ?? NORMALTAG_MIN, markierenAbMin: gueltigeMarkierung(x.markierenAbMin),
-          ...(() => { const g = gueltigeZnueni(x.znueniVonMin, x.znueniBisMin) ?? ZNUENI_STANDARD; return { znueniVonMin: g.von, znueniBisMin: g.bis }; })(),
+          ...(() => { const a = arbeitstagAus(x); return { arbeitsbeginnMin: a.beginn, mittagVonMin: a.mittagVon, mittagBisMin: a.mittagBis }; })(),
+          ...(() => { const g = gueltigeZnueni(x.znueniVonMin, x.znueniBisMin, arbeitstagAus(x)) ?? ZNUENI_STANDARD; return { znueniVonMin: g.von, znueniBisMin: g.bis }; })(),
           znueniImmer: x.znueniImmer === true,
           lieferwagenTagRp: gueltigerBetrag(x.lieferwagenTagRp),
           // Ein Wert aus 0045 (Überstunden-Minuten) ist hier ungültig → Vorgabe, bis die Datenbank antwortet
@@ -209,9 +226,19 @@ export function markierenAusDatenbank(): boolean | null {
   return markierenGelesen;
 }
 
+/** Arbeitstag dieser Firma (0047): Arbeitsbeginn und Mittag — Vorgabe, Zeilennamen und Mittag-Hinweis im Teamgerät. */
+export function arbeitstag(): Arbeitstag {
+  return arbeitstagAus(zwischenspeicher);
+}
+
+/** Stand der Arbeitstag in der Datenbank? `false` = Migration 0047 fehlt noch. */
+export function arbeitstagAusDatenbank(): boolean | null {
+  return arbeitstagGelesen;
+}
+
 /** Pause am Morgen dieser Firma: Beginn, Ende, und ob sie immer abgezogen wird. Erfassung und Wochenübersicht rechnen damit. */
 export function znueni(): Znueni {
-  const g = gueltigeZnueni(zwischenspeicher.znueniVonMin, zwischenspeicher.znueniBisMin) ?? ZNUENI_STANDARD;
+  const g = gueltigeZnueni(zwischenspeicher.znueniVonMin, zwischenspeicher.znueniBisMin, arbeitstag()) ?? ZNUENI_STANDARD;
   return { von: g.von, bis: g.bis, immer: zwischenspeicher.znueniImmer === true };
 }
 
@@ -304,10 +331,16 @@ export async function einstellungenLaden(): Promise<Einstellungen> {
   const zn = await supabase.from('firma').select('znueni_bis_min,znueni_immer,lieferwagen_tag_rp').eq('id', r.id).limit(1);
   const znZeile = !zn.error && zn.data?.[0] ? (zn.data[0] as { znueni_bis_min: unknown; znueni_immer: unknown; lieferwagen_tag_rp: unknown }) : null;
   znueniGelesen = znZeile !== null;
+  // Arbeitstag (0047) für sich: fehlt die Spalte noch, gilt 7:00 / Mittag 12–13 wie bisher; kurz kein Netz = letzter Stand
+  const at = await supabase.from('firma').select('arbeitsbeginn_min,mittag_von_min,mittag_bis_min').eq('id', r.id).limit(1);
+  const atZeile = !at.error && at.data?.[0] ? (at.data[0] as { arbeitsbeginn_min: unknown; mittag_von_min: unknown; mittag_bis_min: unknown }) : null;
+  const atWert = atZeile ? gueltigerArbeitstag(atZeile.arbeitsbeginn_min, atZeile.mittag_von_min, atZeile.mittag_bis_min) : null;
+  arbeitstagGelesen = atWert !== null;
+  const tag: Arbeitstag = atWert ?? (at.error && /fetch|network|kein Netz/i.test(at.error.message) ? arbeitstag() : ARBEITSTAG_STANDARD);
   // Beginn der Pause (0044) für sich: fehlt die Spalte noch, gilt 9:00 wie bisher
   const zv = await supabase.from('firma').select('znueni_von_min').eq('id', r.id).limit(1);
   const znVon = !zv.error && zv.data?.[0] ? (zv.data[0] as { znueni_von_min: unknown }).znueni_von_min : null;
-  const znGueltig = znZeile ? gueltigeZnueni(znVon ?? ZNUENI_STANDARD.von, znZeile.znueni_bis_min) : null;
+  const znGueltig = znZeile ? gueltigeZnueni(znVon ?? ZNUENI_STANDARD.von, znZeile.znueni_bis_min, tag) : null;
   // «Sprachnotiz Pflicht ab» (0046) für sich. null ist ein echter Wert («jede Überstunde») — zählt, ob die Abfrage
   // klappte und der Wert gültig ist (ein alter Wert aus 0045 zählt nicht)
   const np = await supabase.from('firma').select('notiz_pflicht_ab_min').eq('id', r.id).limit(1);
@@ -325,6 +358,7 @@ export async function einstellungenLaden(): Promise<Einstellungen> {
     // Antwortet die Datenbank, aber ohne Spalte (Migration fehlt), heisst das: null — kein Haken beim Melden
     lieferwagenTagRp: znZeile ? gueltigerBetrag(znZeile.lieferwagen_tag_rp) : zn.error && !/fetch|network|kein Netz/i.test(zn.error.message) ? null : zwischenspeicher.lieferwagenTagRp,
     notizPflichtAbMin: npWert !== undefined ? npWert : zwischenspeicher.notizPflichtAbMin,
+    arbeitsbeginnMin: tag.beginn, mittagVonMin: tag.mittagVon, mittagBisMin: tag.mittagBis,
   };
   zwischenspeicher = neu;
   try { localStorage.setItem(KEY, JSON.stringify(neu)); } catch { /* ohne Speicher läuft es auch */ }
@@ -338,18 +372,49 @@ export async function einstellungenLaden(): Promise<Einstellungen> {
 export async function znueniSetzen(von: number, bis: number): Promise<string | null> {
   if (!supabase) return 'Keine Datenverbindung.';
   if (!firma) return 'Die Firma ist noch nicht geladen. Seite neu laden und nochmals versuchen.';
-  if (!gueltigeZnueni(von, bis)) return 'Die Pause muss zwischen 7:00 und 12:00 liegen und 5 bis 60 Minuten dauern.';
+  const a = arbeitstag();
+  const bereich = `Die Pause muss im Vormittag liegen (${uhrzeit(a.beginn)}–${uhrzeit(a.mittagVon)}) und 5 bis 60 Minuten dauern.`;
+  if (!gueltigeZnueni(von, bis, a)) return bereich;
   const { error } = await supabase.from('firma').update({ znueni_von_min: von, znueni_bis_min: bis }).eq('id', firma.id);
   if (error) {
     if (/znueni_von_min/.test(error.message) && /does not exist|column|schema cache/i.test(error.message)) {
       return 'Die Datenbank kennt den Beginn der Pause noch nicht — Migration 0044 fehlt.';
     }
-    if (/check constraint/i.test(error.message)) return 'Die Pause muss zwischen 7:00 und 12:00 liegen und 5 bis 60 Minuten dauern.';
+    if (/check constraint/i.test(error.message)) return bereich;
     return /row-level security|permission denied/i.test(error.message)
       ? 'Die Datenbank lässt das nicht zu — Einstellungen ändert nur das Büro.'
       : error.message;
   }
   zwischenspeicher = { ...zwischenspeicher, znueniVonMin: von, znueniBisMin: bis };
+  try { localStorage.setItem(KEY, JSON.stringify(zwischenspeicher)); } catch { /* egal */ }
+  return null;
+}
+
+/**
+ * Arbeitsbeginn und Mittag in EINEM Schritt (0047) — wie bei der Pause: einzeln gespeichert, sähe die Prüfregel einen
+ * halben Stand. Die Pause am Morgen muss danach weiterhin im Vormittag liegen; sonst zuerst die Pause verschieben.
+ */
+export async function arbeitstagSetzen(beginn: number, mittagVon: number, mittagBis: number): Promise<string | null> {
+  if (!supabase) return 'Keine Datenverbindung.';
+  if (!firma) return 'Die Firma ist noch nicht geladen. Seite neu laden und nochmals versuchen.';
+  const neu = gueltigerArbeitstag(beginn, mittagVon, mittagBis);
+  if (!neu) return 'Arbeitsbeginn 5:00–10:00, Mittag zwischen 10:00 und 15:00 (frühestens 2 h nach Arbeitsbeginn), 15 Minuten bis 2 Stunden.';
+  const z = znueni();
+  if (!pausePasst(z, neu)) {
+    return `Die Pause am Morgen (${uhrzeit(z.von)}–${uhrzeit(z.bis)}) läge nicht mehr im Vormittag (${uhrzeit(neu.beginn)}–${uhrzeit(neu.mittagVon)}) — zuerst die Pause verschieben.`;
+  }
+  const { error } = await supabase.from('firma').update({ arbeitsbeginn_min: neu.beginn, mittag_von_min: neu.mittagVon, mittag_bis_min: neu.mittagBis }).eq('id', firma.id);
+  if (error) {
+    if (/arbeitsbeginn_min|mittag_(von|bis)_min/.test(error.message) && /does not exist|column|schema cache/i.test(error.message)) {
+      return 'Die Datenbank kennt Arbeitsbeginn und Mittag noch nicht — Migration 0047 fehlt.';
+    }
+    if (/check constraint/i.test(error.message)) return 'Die Datenbank lehnt diese Zeiten ab — liegt die Pause am Morgen im Vormittag?';
+    return /row-level security|permission denied/i.test(error.message)
+      ? 'Die Datenbank lässt das nicht zu — Einstellungen ändert nur das Büro.'
+      : error.message;
+  }
+  arbeitstagGelesen = true;
+  zwischenspeicher = { ...zwischenspeicher, arbeitsbeginnMin: neu.beginn, mittagVonMin: neu.mittagVon, mittagBisMin: neu.mittagBis };
   try { localStorage.setItem(KEY, JSON.stringify(zwischenspeicher)); } catch { /* egal */ }
   return null;
 }

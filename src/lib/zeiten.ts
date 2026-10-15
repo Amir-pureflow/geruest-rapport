@@ -22,13 +22,54 @@ export interface Spanne {
   bis: number | null;
 }
 
-/** Arbeitsbeginn laut Bauführer («7:00 bis 17:00 normale Arbeitszeit»). */
+/** Arbeitsbeginn laut Bauführer («7:00 bis 17:00 normale Arbeitszeit») — Standard, je Firma einstellbar (0047). */
 export const ARBEITSBEGINN_MIN = 7 * 60;
-/** Mittag 12:00–13:00, unbezahlt (Amir, 20.09. — «denke ich», mit Arbnor bestätigen). Die App zieht ihn NICHT ab, sie schlägt ihn als Lücke vor. */
+/** Mittag 12:00–13:00, unbezahlt (Amir, 20.09.) — Standard, je Firma einstellbar (0047). Die App zieht ihn NICHT ab, sie schlägt ihn als Lücke vor. */
 export const MITTAG_VON_MIN = 12 * 60;
 export const MITTAG_BIS_MIN = 13 * 60;
 /** Vorgabe für die zweite Zeit (Nachmittag): 13:00, Ende offen. */
 export const NACHMITTAG_MIN = MITTAG_BIS_MIN;
+
+/**
+ * Arbeitstag einer Firma (Migration 0047, Amir 15.10.2026: «dass die Firma die Arbeitszeiten, Mittag und alles selbst
+ * bestimmen kann»): Arbeitsbeginn und Mittag. Daraus macht das Teamgerät seine Vorgabe (Vormittag Beginn–Mittag,
+ * Nachmittag ab Mittagsende, Ende offen), die Zeilennamen, den Mittag-Hinweis und die Wechselzeiten bei zwei Baustellen.
+ */
+export interface Arbeitstag {
+  beginn: number;
+  mittagVon: number;
+  mittagBis: number;
+}
+/** Bisher fest im Code und ohne Migration 0047: 7:00, Mittag 12:00–13:00. */
+export const ARBEITSTAG_STANDARD: Arbeitstag = { beginn: ARBEITSBEGINN_MIN, mittagVon: MITTAG_VON_MIN, mittagBis: MITTAG_BIS_MIN };
+
+/**
+ * Erlaubter Arbeitstag (wie die Prüfregel der Datenbank, 0047): Beginn 5:00–10:00, Mittag beginnt 10:00–15:00 und
+ * mindestens 2 h nach Arbeitsbeginn, dauert 15 Minuten bis 2 Stunden.
+ */
+export const ARBEITSTAG_BEREICH = { beginnMin: 300, beginnMax: 600, mittagMin: 600, mittagMax: 900, vormittagMin: 120, dauerMin: 15, dauerMax: 120 } as const;
+
+export function gueltigerArbeitstag(beginn: unknown, mittagVon: unknown, mittagBis: unknown): Arbeitstag | null {
+  const b = ARBEITSTAG_BEREICH;
+  if (![beginn, mittagVon, mittagBis].every((x) => typeof x === 'number' && Number.isInteger(x))) return null;
+  const [s, v, e] = [beginn, mittagVon, mittagBis] as number[];
+  if (s < b.beginnMin || s > b.beginnMax) return null;
+  if (v < b.mittagMin || v > b.mittagMax || v < s + b.vormittagMin) return null;
+  if (e < v + b.dauerMin || e > v + b.dauerMax) return null;
+  return { beginn: s, mittagVon: v, mittagBis: e };
+}
+
+/** Liegt die Pause am Morgen ganz im Vormittag dieses Arbeitstags (nicht vor Arbeitsbeginn, endet spätestens zum Mittag)? */
+export function pausePasst(z: { von: number; bis: number }, a: Arbeitstag): boolean {
+  return z.von >= a.beginn && z.bis <= a.mittagVon;
+}
+
+/** Uhrzeit für Texte: volle Stunde kurz («12»), sonst «12:30». */
+const kurz = (min: number) => (min % 60 === 0 ? String(min / 60) : uhrzeit(min));
+/** So heisst der Mittag in den Texten: «12–13» bei vollen Stunden (wie bisher), sonst «12:30–13:15». */
+export function mittagText(a: Arbeitstag = ARBEITSTAG_STANDARD): string {
+  return `${kurz(a.mittagVon)}–${kurz(a.mittagBis)}`;
+}
 /** Znüni 9:00–9:30 — bezahlt, zählt mit. Abgezogen wird sie nur auf Knopfdruck, wenn der Bauherr sie nicht zahlt. */
 export const ZNUENI_VON_MIN = 9 * 60;
 export const ZNUENI_BIS_MIN = 9 * 60 + 30;
@@ -46,17 +87,18 @@ export interface Znueni {
 export const ZNUENI_STANDARD: Znueni = { von: ZNUENI_VON_MIN, bis: ZNUENI_BIS_MIN, immer: false };
 
 /**
- * Vorgabe: Vormittag 7:00–12:00 fertig, Nachmittag ab 13:00 mit offenem Ende — das «bis» muss das Team eintragen.
- * Zieht die Firma den Znüni immer ab, ist der Vormittag schon geteilt (7:00–9:00, 9:15–12:00). Immer frische Objekte.
+ * Vorgabe: Vormittag Arbeitsbeginn–Mittag fertig (Standard 7:00–12:00), Nachmittag ab Mittagsende (13:00) mit offenem
+ * Ende — das «bis» muss das Team eintragen. Zieht die Firma den Znüni immer ab, ist der Vormittag schon geteilt
+ * (7:00–9:00, 9:15–12:00). Immer frische Objekte.
  */
-export function standardSpannen(z: Znueni = ZNUENI_STANDARD): Spanne[] {
-  const s: Spanne[] = [{ von: ARBEITSBEGINN_MIN, bis: MITTAG_VON_MIN }, { von: NACHMITTAG_MIN, bis: null }];
+export function standardSpannen(z: Znueni = ZNUENI_STANDARD, a: Arbeitstag = ARBEITSTAG_STANDARD): Spanne[] {
+  const s: Spanne[] = [{ von: a.beginn, bis: a.mittagVon }, { von: a.mittagBis, bis: null }];
   return z.immer ? pauseAbziehen(s, z) : s;
 }
 
-/** Wie viele Minuten der (unbezahlten) Mittagspause 12–13 in den eingetragenen Zeiten mitgezählt sind — 0, wenn der Mittag die Lücke ist. Nur Hinweis, kein Abzug. */
-export function mittagMinuten(spannen: Spanne[]): number {
-  return spannen.reduce((s, x) => (spanneVollstaendig(x) ? s + Math.max(0, Math.min(x.bis, MITTAG_BIS_MIN) - Math.max(x.von, MITTAG_VON_MIN)) : s), 0);
+/** Wie viele Minuten der (unbezahlten) Mittagspause (Standard 12–13) in den eingetragenen Zeiten mitgezählt sind — 0, wenn der Mittag die Lücke ist. Nur Hinweis, kein Abzug. */
+export function mittagMinuten(spannen: Spanne[], a: Arbeitstag = ARBEITSTAG_STANDARD): number {
+  return spannen.reduce((s, x) => (spanneVollstaendig(x) ? s + Math.max(0, Math.min(x.bis, a.mittagBis) - Math.max(x.von, a.mittagVon)) : s), 0);
 }
 
 /** 420 → «7:00», 1020 → «17:00». Für Anzeige. */

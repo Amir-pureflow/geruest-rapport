@@ -14,8 +14,8 @@ import { Warteschlange, verlaufFilter } from './StartChef';
 import { addTage, iso, lang, stunden } from '../lib/datum';
 import { fotoVerkleinern } from '../lib/foto';
 import { kennzeichen } from '../lib/fahrzeug';
-import { einstellungen, lieferwagenTagRp, normaltagMin, notizPflichtAbMin, znueni } from '../lib/einstellungen';
-import { MAX_SPANNEN, MITTAG_VON_MIN, NACHMITTAG_MIN, ausUhrzeit, aufteilen, kannPauseAbziehen, mittagMinuten, pauseAbziehen, pauseZaehlen, spanneVollstaendig, spannenMinuten, spannenOffen, spannenTeilen, spannenUeberlappen, standardSpannen, umfasstPause, uhrzeit, uhrzeitFeld, zuSpalten, type Spanne } from '../lib/zeiten';
+import { arbeitstag, einstellungen, lieferwagenTagRp, normaltagMin, notizPflichtAbMin, znueni } from '../lib/einstellungen';
+import { MAX_SPANNEN, ausUhrzeit, aufteilen, kannPauseAbziehen, mittagMinuten, mittagText, pauseAbziehen, pauseZaehlen, spanneVollstaendig, spannenMinuten, spannenOffen, spannenTeilen, spannenUeberlappen, standardSpannen, umfasstPause, uhrzeit, uhrzeitFeld, zuSpalten, type Spanne } from '../lib/zeiten';
 import { baustellenSuchen } from '../lib/suche';
 import { FUNKTION_BUERO } from '../lib/benutzername';
 import { vorratLesen, vorratSchreiben } from '../lib/vorrat';
@@ -189,13 +189,14 @@ function Stepper({ wert, setWert, schritt, min, max, format }: { wert: number; s
 
 // Die Stundenzahl-Eingabe (Wochenblatt-Stil) ist raus (04.10.2026, Amir): erfasst wird nur noch von–bis.
 
-/** Hinweis, wenn der unbezahlte Mittag 12–13 in den Zeiten mitgezählt ist — die App zieht nichts ab, sie sagt es nur. */
+/** Hinweis, wenn der unbezahlte Mittag der Firma (Standard 12–13) in den Zeiten mitgezählt ist — die App zieht nichts ab, sie sagt es nur. */
 function MittagHinweis({ spannen }: { spannen: Spanne[] }) {
-  const min = mittagMinuten(spannen);
+  const a = arbeitstag();
+  const min = mittagMinuten(spannen, a);
   if (min === 0) return null;
   return (
     <p className="mt-1.5 rounded-[8px] bg-amber-soft px-2.5 py-1.5 text-[11px] text-amber-deep">
-      {min === 60 ? 'Der Mittag 12–13 ist mitgezählt' : `${min} Min. vom Mittag (12–13) sind mitgezählt`} — er ist unbezahlt. Durchgearbeitet? Dann stimmt es so. Sonst Vormittag bis 12:00 und Nachmittag ab 13:00 eintragen.
+      {min === a.mittagBis - a.mittagVon ? `Der Mittag ${mittagText(a)} ist mitgezählt` : `${min} Min. vom Mittag (${mittagText(a)}) sind mitgezählt`} — er ist unbezahlt. Durchgearbeitet? Dann stimmt es so. Sonst Vormittag bis {uhrzeit(a.mittagVon)} und Nachmittag ab {uhrzeit(a.mittagBis)} eintragen.
     </p>
   );
 }
@@ -241,14 +242,14 @@ function ZeitFeld({ wert, aendern, label, klasse }: { wert: string; aendern: (te
   );
 }
 
-/** Beschriftung einer Zeile: ab 12:00 «Nachmittag», die erste sonst «Vormittag», eine weitere vor 12:00 «nach Pause» (Znüni-Abzug). */
+/** Beschriftung einer Zeile: ab Mittagsbeginn der Firma (Standard 12:00) «Nachmittag», die erste sonst «Vormittag», eine weitere davor «nach Pause» (Znüni-Abzug). */
 function spannenName(s: Spanne, i: number): string {
-  return s.von >= MITTAG_VON_MIN ? 'Nachmittag' : i === 0 ? 'Vormittag' : 'nach Pause';
+  return s.von >= arbeitstag().mittagVon ? 'Nachmittag' : i === 0 ? 'Vormittag' : 'nach Pause';
 }
 
 /**
  * Zeiten von–bis: Vormittag und Nachmittag, nach einem Znüni-Abzug dazwischen «nach Pause». Native Uhrzeit-Wahl statt Tastatur (Regel 2).
- * Kein stiller Pausenabzug — die App zählt, was dasteht; der Mittag 12–13 (unbezahlt) ist als Lücke vorgegeben.
+ * Kein stiller Pausenabzug — die App zählt, was dasteht; der Mittag der Firma (Standard 12–13, unbezahlt) ist als Lücke vorgegeben.
  * Zahlt der Bauherr den Znüni nicht, schneidet «− Pause» 9:00–9:30 heraus (09.10.2026, Amir); das × der Zeile «nach Pause» nimmt es zurück.
  * Zieht die Firma den Znüni immer ab (0036, Gerüst GmbH 9:00–9:15), steht der Vormittag schon geteilt da — ohne Knopf und ohne ×.
  */
@@ -303,7 +304,7 @@ function SpannenEditor({ spannen, setSpannen, klein = false }: { spannen: Spanne
         })}
       </div>
       {nachmittagMoeglich && (
-        <button type="button" onClick={() => setSpannen([...spannen, { von: Math.max(NACHMITTAG_MIN, spannen[spannen.length - 1]?.bis ?? 0), bis: null }])} className="text-xs font-semibold text-steel">
+        <button type="button" onClick={() => setSpannen([...spannen, { von: Math.max(arbeitstag().mittagBis, spannen[spannen.length - 1]?.bis ?? 0), bis: null }])} className="text-xs font-semibold text-steel">
           + Nachmittag
         </button>
       )}
@@ -501,12 +502,12 @@ export function Erfassung() {
    * zählt die Zeit auf die zweite. Gespeichert in einem Durchgang als zwei Meldungen, Überstunden über den ganzen Tag.
    */
   const [zweite, setZweite] = useState<Baustelle | null>(null);
-  const [wechsel, setWechsel] = useState<number>(NACHMITTAG_MIN);
+  const [wechsel, setWechsel] = useState<number>(() => arbeitstag().mittagBis);
   const [wahlZweite, setWahlZweite] = useState(false);
   const [anw, setAnw] = useState<Record<string, Anwesenheit>>({});
   const [anreiseOffen, setAnreiseOffen] = useState<string | null>(null);
   // Zeiten von–bis, fürs Team gemeinsam — je Person unten anpassbar (Stundenzahl-Modus entfernt 04.10.2026)
-  const [teamSpannen, setTeamSpannen] = useState<Spanne[]>(standardSpannen(znueni()));
+  const [teamSpannen, setTeamSpannen] = useState<Spanne[]>(() => standardSpannen(znueni(), arbeitstag()));
   // Personen, die heute mithelfen, aber nicht fest zum Team gehören (Bauführer 20.09.: «Mitarbeiter hinzufüge»)
   const [gaeste, setGaeste] = useState<Person[]>([]);
   const [zeigeGast, setZeigeGast] = useState(false);
@@ -836,7 +837,7 @@ export function Erfassung() {
     setLaedtTeam(true);
     setLeute([]); setKacheln([]); setAlleGeplanten([]); setBaustelle(null); setZiffern(''); setSuchTreffer([]);
     setGaeste([]); setZeigeGast(false); setGastFilter('');
-    setZweite(null); setWahlZweite(false); setWechsel(NACHMITTAG_MIN);
+    setZweite(null); setWahlZweite(false); setWechsel(arbeitstag().mittagBis);
     // Ohne Netz: Leute und Kacheln, wie sie beim letzten Laden mit Netz waren (lib/vorrat.ts)
     type TeamVorrat = { personen: Person[]; gaeste: Person[]; kacheln: Baustelle[]; geplant: Baustelle[] };
     const ausVorrat = (): boolean => {
@@ -844,9 +845,9 @@ export function Erfassung() {
       if (!v) return false;
       setLeute(v.personen);
       const a: Record<string, Anwesenheit> = {};
-      for (const p of v.personen) a[p.id] = neueAnwesenheit(p, 'zeit', standardSpannen(znueni()));
+      for (const p of v.personen) a[p.id] = neueAnwesenheit(p, 'zeit', standardSpannen(znueni(), arbeitstag()));
       setAnw(a);
-      setTeamSpannen(standardSpannen(znueni()));
+      setTeamSpannen(standardSpannen(znueni(), arbeitstag()));
       setZuletztGaeste(v.gaeste);
       setKacheln(v.kacheln);
       setAlleGeplanten(v.geplant);
@@ -870,9 +871,9 @@ export function Erfassung() {
         .sort((a, b) => a.name.localeCompare(b.name));
       setLeute(personen);
       const a: Record<string, Anwesenheit> = {};
-      for (const p of personen) a[p.id] = neueAnwesenheit(p, 'zeit', standardSpannen(znueni()));
+      for (const p of personen) a[p.id] = neueAnwesenheit(p, 'zeit', standardSpannen(znueni(), arbeitstag()));
       setAnw(a);
-      setTeamSpannen(standardSpannen(znueni()));
+      setTeamSpannen(standardSpannen(znueni(), arbeitstag()));
 
       // Zuletzt auf diesem Gerät hinzugefügte Gäste — nur die, die es noch gibt und die nicht inzwischen fest im Team sind
       const gastIds = gaesteLesen(teamId).filter((id) => !personen.some((p) => p.id === id));
@@ -1992,8 +1993,10 @@ export function Erfassung() {
               <div className="flex flex-wrap items-center gap-2 border-t border-line pt-3">
                 <span className="text-sm text-ink2">Wechsel um</span>
                 <ZeitFeld wert={uhrzeitFeld(wechsel)} aendern={(t) => { const v = ausUhrzeit(t); if (v !== null) setWechsel(v); }} label="Wechselzeit" klasse="h-10 w-[5.4rem] rounded-[10px] border border-line bg-surface text-center font-mono text-[15px] font-semibold tabular-nums focus:border-accent focus:outline-none" />
-                {[MITTAG_VON_MIN, NACHMITTAG_MIN].filter((v, i, a) => a.indexOf(v) === i && v !== wechsel).map((v) => (
-                  <button key={v} type="button" onClick={() => setWechsel(v)} className="chip px-2.5 py-1.5 text-xs">{uhrzeit(v)}</button>
+                {/* Schnellwahl: Wechsel vor oder nach dem Mittag der Firma — beide stehen da, die gewählte ist markiert
+                    (Amir 15.10.2026: ein einzelnes «12:00» neben «13:00» sah wie ein Fehler aus) */}
+                {[arbeitstag().mittagVon, arbeitstag().mittagBis].map((v) => (
+                  <button key={v} type="button" onClick={() => setWechsel(v)} aria-pressed={wechsel === v} className={'chip px-2.5 py-1.5 text-xs ' + (wechsel === v ? 'chip-on font-semibold' : '')}>{uhrzeit(v)}</button>
                 ))}
               </div>
               <p className="text-[11px] text-ink3">Die Zeiten unten gelten für den ganzen Tag — die App teilt sie beim Wechsel auf die zwei Baustellen auf. Überstunden zählen über den ganzen Tag.</p>
@@ -2015,8 +2018,8 @@ export function Erfassung() {
             })()}
             <p className="mt-1 text-[11px] text-ink3">
               {znueni().immer
-                ? `Was hier steht, zählt. Die Pause ${uhrzeit(znueni().von)}–${uhrzeit(znueni().bis)} ist schon abgezogen, Mittag 12–13 ist als Lücke vorgegeben. Unten kann jede Person anders sein.`
-                : `Die App zieht von sich aus keine Pause ab — was hier steht, zählt. Mittag 12–13 ist als Lücke vorgegeben. Zahlt der Bauherr die Pause ${uhrzeit(znueni().von)}–${uhrzeit(znueni().bis)} nicht: «− Pause» tippen. Unten kann jede Person anders sein.`}
+                ? `Was hier steht, zählt. Die Pause ${uhrzeit(znueni().von)}–${uhrzeit(znueni().bis)} ist schon abgezogen, Mittag ${mittagText(arbeitstag())} ist als Lücke vorgegeben. Unten kann jede Person anders sein.`
+                : `Die App zieht von sich aus keine Pause ab — was hier steht, zählt. Mittag ${mittagText(arbeitstag())} ist als Lücke vorgegeben. Zahlt der Bauherr die Pause ${uhrzeit(znueni().von)}–${uhrzeit(znueni().bis)} nicht: «− Pause» tippen. Unten kann jede Person anders sein.`}
             </p>
             <MittagHinweis spannen={teamSpannen} />
             {/* Zweite Meldung am Tag (oder ein Gast, den schon ein anderes Team gemeldet hat): der normale Tag ist schon belegt */}
