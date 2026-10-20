@@ -74,6 +74,33 @@ function rapportName(r: Rapport): string {
   return r.nummer ? `Regierapport ${r.nummer}` : 'Regierapport';
 }
 
+/**
+ * Reservierte Domains (RFC 2606/6761), z. B. die erfundenen Kunden des Demo-Betriebs (`…@aebi-bau-ag.example`).
+ * Dorthin geht nie eine Mail raus (20.10.2026): jede käme bei Resend als Fehlzustellung zurück, und Fehlzustellungen
+ * drücken den Ruf der Absenderdomain — dann landen auch die echten Regierapporte im Spam. Der Versand wird nur simuliert.
+ */
+function fantasieAdresse(mail: string): boolean {
+  return /\.(example|test|invalid|localhost)$/i.test(mail.split('@')[1] ?? '');
+}
+
+/**
+ * Vollständiges HTML-Dokument statt eines losen <div> (20.10.2026): Spamfilter (SpamAssassin u. a.) werten HTML ohne
+ * <html>/<body> als Merkmal von Massenmails.
+ */
+function dokument(titel: string, inhalt: string): string {
+  return `<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>${titel}</title>
+</head>
+<body style="margin:0;padding:24px 16px;background:#ffffff">
+${inhalt}
+</body>
+</html>`;
+}
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: cors });
   try {
@@ -132,12 +159,19 @@ Deno.serve(async (req) => {
     const firma = eigene?.briefkopf_name ?? eigene?.name ?? k.MAIL_FIRMA ?? 'Rapporto';
     const gruss = absender.name ? `Freundliche Grüsse<br>${h(absender.name)}` : 'Freundliche Grüsse';
     const grussText = absender.name ? `Freundliche Grüsse\n${absender.name}` : 'Freundliche Grüsse';
-    const fuss = `${firma}${absender.email ? ` · Rückfragen an ${absender.email}` : ''}`;
-    // Absender: der Anzeigename ist die Firma, die Adresse die verifizierte aus `konfiguration`.
+    // Antworten gehen an ein echtes Postfach der Firma (Verwaltung → Einstellungen, Briefkopf-Mail), sonst an PureFlow.
+    // Nie an die Anmelde-Adresse des Bauführers (20.10.2026): das ist nur ein Login (vorname.nachname@<mail_domain>),
+    // kein Postfach — eine Antwortadresse ohne Postfach oder bei einer fremden Domain werten Spamfilter als Fälschung.
+    const antwortAn = eigene?.briefkopf_mail ?? k.MAIL_ANTWORT_AN ?? null;
+    const fuss = `${firma}${antwortAn ? ` · Rückfragen an ${antwortAn}` : ''}`;
+    // Absender: «<Firma> via Rapporto» an der verifizierten Adresse aus `konfiguration` (20.10.2026). Nur der Firmenname
+    // vor einer fremden Domain ist das Muster gefälschter Firmenmails; «via Rapporto» sagt, wer die Mail technisch schickt.
     const absenderAdresse = (k.MAIL_ABSENDER ?? '').match(/<([^>]+)>/)?.[1] ?? k.MAIL_ABSENDER ?? 'onboarding@resend.dev';
-    const von = `${firma} <${absenderAdresse}>`;
+    const von = firma === 'Rapporto' ? `Rapporto <${absenderAdresse}>` : `${firma} via Rapporto <${absenderAdresse}>`;
 
     async function resend(mail: Record<string, unknown>): Promise<{ ok: true; id: string } | { ok: false; fehler: string }> {
+      // Demo-Kunden mit erfundener Adresse: so tun, als wäre die Mail raus — ohne Resend, ohne Fehlzustellung
+      if ((mail.to as string[]).every(fantasieAdresse)) return { ok: true, id: 'simuliert' };
       const res = await fetch('https://api.resend.com/emails', {
         method: 'POST',
         headers: { Authorization: `Bearer ${k.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
@@ -160,25 +194,27 @@ Deno.serve(async (req) => {
       const versandTag = r.versendet_am ? new Date(r.versendet_am).toLocaleDateString('de-CH', { timeZone: 'Europe/Zurich' }) : null;
       const betreff = `Erinnerung: ${betreffBasis}${r.nummer ? ` · ${r.nummer}` : ''}`;
 
-      const html = `
+      // Wortlaut ohne «bestätigen Sie unter diesem Link — ohne Anmeldung» (20.10.2026): Link + «bestätigen» + «ohne
+      // Anmeldung» + Frist ist das Muster von Phishing-Mails und kostet bei Spamfiltern Punkte.
+      const html = dokument(h(betreff), `
         <div style="${STIL}">
         <p>Guten Tag</p>
         <p>Wir haben noch keine Rückmeldung zum <strong>${h(name)}</strong> für <strong>${h(bez)}</strong> (Konto ${h(knr)})${chf ? ` über Fr. ${chf}` : ''}${versandTag ? `, den wir Ihnen am ${versandTag} zugestellt haben` : ''}.</p>
         <p>${fristSatz}${r.frist_bis ? ` — die Frist war der ${new Date(r.frist_bis).toLocaleDateString('de-CH')}` : ''}.</p>
-        ${link ? `<p>Bitte bestätigen Sie ihn unter diesem Link — ohne Anmeldung:</p>
-        <p><a href="${h(link)}" style="${KNOPF}">${h(name)} ansehen &amp; bestätigen</a></p>
+        ${link ? `<p>Den Rapport mit allen Positionen können Sie hier ansehen und gegenzeichnen:</p>
+        <p><a href="${h(link)}" style="${KNOPF}">${h(name)} öffnen</a></p>
         <p style="${LEISE}">Oder den Link kopieren: ${h(link)}</p>` : ''}
         <p>Bei Fragen antworten Sie einfach auf diese Mail.</p>
         <p>${gruss}</p>
         <p style="font-size:12px;color:#6C7B81;border-top:1px solid #dfe5e4;padding-top:8px">${h(fuss)}</p>
-        </div>`;
+        </div>`);
       const text = [
         'Guten Tag',
         '',
         `Wir haben noch keine Rückmeldung zum ${name} für ${bez} (Konto ${knr})${chf ? ` über Fr. ${chf}` : ''}${versandTag ? `, den wir Ihnen am ${versandTag} zugestellt haben` : ''}.`,
         `${fristSatz}${r.frist_bis ? ` — die Frist war der ${new Date(r.frist_bis).toLocaleDateString('de-CH')}` : ''}.`,
         '',
-        ...(link ? ['Bitte bestätigen Sie ihn unter diesem Link — ohne Anmeldung:', link, ''] : []),
+        ...(link ? ['Den Rapport mit allen Positionen können Sie hier ansehen und gegenzeichnen:', link, ''] : []),
         'Bei Fragen antworten Sie einfach auf diese Mail.',
         '',
         grussText,
@@ -187,7 +223,7 @@ Deno.serve(async (req) => {
       ].join('\n');
 
       const mail: Record<string, unknown> = { from: von, to: [r.empfaenger_email], subject: betreff, html, text };
-      if (absender.email ?? eigene?.briefkopf_mail ?? k.MAIL_ANTWORT_AN) mail.reply_to = absender.email ?? eigene?.briefkopf_mail ?? k.MAIL_ANTWORT_AN;
+      if (antwortAn) mail.reply_to = antwortAn;
       const erg = await resend(mail);
       if (!erg.ok) return antwort(502, { fehler: erg.fehler });
 
@@ -195,7 +231,7 @@ Deno.serve(async (req) => {
         regierapport_id: r.id,
         an: r.empfaenger_email,
         ereignis: 'erinnert',
-        detail: { resend_id: erg.id, betreff, nummer: r.nummer },
+        detail: { resend_id: erg.id, betreff, nummer: r.nummer, ...(erg.id === 'simuliert' ? { simuliert: true } : {}) },
       });
       return antwort(200, { ok: true, resend_id: erg.id, modus: 'erinnerung' });
     }
@@ -249,20 +285,21 @@ Deno.serve(async (req) => {
       : 'Unter dem Link sehen Sie die einzelnen Positionen.';
     const fotoSatz = `<p>${fotoText}</p>`;
 
-    // Gegen Spam-Einstufung: Text-Teil, sichtbarer Link, Antwortadresse einer echten Person, Fusszeile mit Absender.
-    const html = `
+    // Gegen Spam-Einstufung: vollständiges HTML-Dokument mit Text-Teil, sichtbarer Link (Text = Ziel), Antwortadresse
+    // eines echten Postfachs, Fusszeile mit Absender, kein Phishing-Wortlaut («ohne Anmeldung bestätigen»).
+    const html = dokument(h(betreff), `
       <div style="${STIL}">
       <p>${h(anrede)}</p>
       <p>Anbei erhalten Sie den <strong>${h(name)}</strong> zu den ausgeführten Arbeiten auf <strong>${h(bez)}</strong> (Objekt ${h(knr)})${chf ? ` über Fr. ${chf}` : ''}.</p>
       ${r.beschrieb ? `<p style="border-left:3px solid #dfe5e4;padding-left:12px;color:#46565d">${h(r.beschrieb).replace(/\n/g, '<br>')}</p>` : ''}
       ${fotoSatz}
-      <p>Bitte bestätigen Sie ihn unter diesem Link — ohne Anmeldung:</p>
-      <p><a href="${h(link)}" style="${KNOPF}">${h(name)} ansehen &amp; bestätigen</a></p>
+      <p>Den Rapport mit allen Positionen können Sie hier ansehen und gegenzeichnen:</p>
+      <p><a href="${h(link)}" style="${KNOPF}">${h(name)} öffnen</a></p>
       <p style="${LEISE}">Oder den Link kopieren: ${h(link)}</p>
       <p style="${LEISE}">${fristSatz}.</p>
       <p>${gruss}</p>
       <p style="font-size:12px;color:#6C7B81;border-top:1px solid #dfe5e4;padding-top:8px">${h(fuss)}</p>
-      </div>`;
+      </div>`);
 
     const text = [
       anrede,
@@ -271,7 +308,7 @@ Deno.serve(async (req) => {
       ...(r.beschrieb ? ['', r.beschrieb, ''] : []),
       fotoText,
       '',
-      'Bitte bestätigen Sie ihn unter diesem Link — ohne Anmeldung:',
+      'Den Rapport mit allen Positionen können Sie hier ansehen und gegenzeichnen:',
       link,
       '',
       `${fristSatz}.`,
@@ -282,7 +319,7 @@ Deno.serve(async (req) => {
     ].join('\n');
 
     const mail: Record<string, unknown> = { from: von, to: [empfaenger_email], subject: betreff, html, text };
-    if (absender.email ?? eigene?.briefkopf_mail ?? k.MAIL_ANTWORT_AN) mail.reply_to = absender.email ?? eigene?.briefkopf_mail ?? k.MAIL_ANTWORT_AN;
+    if (antwortAn) mail.reply_to = antwortAn;
 
     // Anhang: das SORBA-Dokument, falls hochgeladen — sonst das automatisch erzeugte PDF (wie der SORBA-Ausdruck).
     const b64 = (buf: Uint8Array) => { let bin = ''; for (let i = 0; i < buf.length; i += 0x8000) bin += String.fromCharCode(...buf.subarray(i, i + 0x8000)); return btoa(bin); };
@@ -317,7 +354,7 @@ Deno.serve(async (req) => {
       regierapport_id: r.id,
       an: empfaenger_email,
       ereignis: 'gesendet',
-      detail: { resend_id: erg.id, betreff, nummer: r.nummer, fotos: fotoAnzahl ?? 0, testempfaenger: gewuenscht !== kundenMail, anhang: r.anhang_pfad ?? pdfInfo },
+      detail: { resend_id: erg.id, betreff, nummer: r.nummer, fotos: fotoAnzahl ?? 0, testempfaenger: gewuenscht !== kundenMail, anhang: r.anhang_pfad ?? pdfInfo, ...(erg.id === 'simuliert' ? { simuliert: true } : {}) },
     });
 
     return antwort(200, { ok: true, resend_id: erg.id, empfaenger_email });

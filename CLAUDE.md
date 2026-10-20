@@ -301,6 +301,20 @@ Das Ohr ist austauschbar: nur `stt()` in `supabase/functions/_shared/ohr.ts`. He
 (kann kein Albanisch, Arabisch/Polnisch schwach); geplant Azure AI Speech, Region Schweiz Nord — siehe
 «Offene Entscheidungen». Die Übersetzung aus bestätigtem Text ist geprüft für sq/pl/pt/ar (04.10.).
 
+## Regie-Mails: Postfach statt Spam (20.10.2026)
+
+Amir: «Sie dürfen nicht im Spam landen.» Regeln in `supabase/functions/regierapport-senden`:
+- **Nie an reservierte Domains** (`.example`, `.test`, `.invalid`, `.localhost` — die erfundenen Demo-Kunden): der Versand
+  wird nur simuliert (`resend_id: 'simuliert'`, `detail.simuliert`). Jede Fehlzustellung drückt den Ruf der Absenderdomain.
+- **Antwortadresse = echtes Postfach**: `firma.briefkopf_mail`, sonst `MAIL_ANTWORT_AN` — nie die Anmelde-Adresse des
+  Bauführers (`vorname.nachname@<mail_domain>` ist nur ein Login; `geruest.ch` gehört nicht einmal der Gerüst GmbH).
+- **Absender** `«<Firma> via Rapporto» <regie@mail.pureflow-ai.com>` — kein Firmenname allein vor fremder Domain.
+- **Vollständiges HTML-Dokument** (`<html>`/`<body>`) plus Text-Teil; kein Phishing-Wortlaut («ohne Anmeldung bestätigen»).
+- **Link-Domain**: `APP_URL` soll eine eigene Domain sein (`rapporto.pureflow-ai.com`), nicht `*.vercel.app` —
+  vercel.app-Links stufen Spamfilter als verdächtig ein.
+- DNS (Hostpoint): SPF + DKIM für `mail.pureflow-ai.com` bei Resend, DMARC von `pureflow-ai.com` (`p=quarantine`).
+  In Resend Klick-/Öffnen-Tracking für die Domain AUS lassen (Tracking schreibt Links um).
+
 ## Export (20.09.)
 
 Bauführer sieht unter `/export` nur das SORBA-Raster (Nav «SORBA-Raster»). Sekretariat: dazu Lohnstunden, Überstunden
