@@ -120,6 +120,9 @@ export function Abwesenheiten() {
     setSpeichert(false);
     const wer = personId === ALLE ? `${ziel.length} Personen` : ziel[0].name;
     setMeldung({ text: `Eingetragen ✓ ${artText(art)} · ${wer} · ${tage.length} ${tage.length === 1 ? 'Tag' : 'Tage'}`, art: 'ok' });
+    // Formular für die nächste Person frei machen (21.10.2026): sonst meldete es gleich nach dem Eintragen
+    // «N Tage sind schon eingetragen — wird ersetzt» — über genau die Tage, die eben eingetragen wurden.
+    setPersonId('');
     // Liste auf den Monat des Eintrags stellen, damit man ihn sieht
     const d = ausIso(von);
     const neu = new Date(d.getFullYear(), d.getMonth(), 1, 12);

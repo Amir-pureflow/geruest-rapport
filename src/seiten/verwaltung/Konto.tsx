@@ -183,12 +183,13 @@ export function Konto({ personId, name, funktion, domain, konto, onGeaendert }: 
       ) : (
         <>
           <RollenWahl wert={rolle} onWahl={setRolle} />
-          <div className="grid gap-3 sm:grid-cols-2">
+          {/* Adresse über die ganze Breite (21.10.2026): in der halben Spalte brach sie mitten im Wort um («…pureflow» / «-ai.com») */}
+          <div className="space-y-3">
             <div>
               <span className="lbl">E-Mail zum Anmelden</span>
-              <p className="break-all py-2 font-mono text-sm font-semibold">{vorschlag ? adresse : '—'}</p>
+              <p className="break-words py-1 font-mono text-sm font-semibold">{vorschlag ? adresse : '—'}</p>
             </div>
-            <label className="block">
+            <label className="block sm:max-w-xs">
               <span className="lbl">Passwort</span>
               <span className="flex items-center gap-2">
                 <input value={passwort} onChange={(e) => setPasswort(e.target.value)} className="field py-1.5 font-mono" />

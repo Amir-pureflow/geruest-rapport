@@ -42,7 +42,8 @@ export function Anmelden() {
         <div className="mb-8 text-center">
           <div className="mb-4 flex justify-center"><Marke className="h-16 w-16 rounded-[18px]" /></div>
           <p><Wortmarke gross /></p>
-          <p className="mx-auto mt-2 max-w-xs text-sm text-ink2">Tagesmeldung, Stunden und Freigabe. Ohne Papier, ohne Suchen.</p>
+          {/* Zweiter Satz zusammen (21.10.2026): sonst brach es «… Freigabe. Ohne» / «Papier, ohne Suchen.» */}
+          <p className="mx-auto mt-2 max-w-xs text-sm text-ink2">Tagesmeldung, Stunden und Freigabe. <span className="whitespace-nowrap">Ohne Papier, ohne Suchen.</span></p>
         </div>
 
         <form onSubmit={(e) => void absenden(e)} className="card space-y-3">

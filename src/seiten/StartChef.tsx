@@ -496,7 +496,8 @@ export function StartChef() {
             <p className="flex items-center gap-2 text-sm font-semibold text-amber-deep"><BellRing size={16} aria-hidden="true" /> Plan geändert</p>
             <ul className="mt-1.5 space-y-1 text-sm text-ink">
               {hinweise.map((h) => (
-                <li key={h.key}><b className="font-semibold">{h.tag}:</b> {h.text} <span className="whitespace-nowrap text-[11px] text-ink3">· {h.wann}</span></li>
+                // Zeitpunkt auf eigener Zeile (21.10.2026): angehängt brach er am Handy um und die Zeile begann mit «·»
+                <li key={h.key}><b className="font-semibold">{h.tag}:</b> {h.text} <span className="block text-[11px] text-ink3">{h.wann}</span></li>
               ))}
             </ul>
           </section>

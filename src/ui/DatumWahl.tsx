@@ -16,14 +16,14 @@ const SPALTEN = ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'];
 const TAG = ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa'];
 const SCHNELL: [string, number][] = [['Heute', 0], ['Morgen', 1], ['Übermorgen', 2]];
 
-/** «Do 8. Okt.» — mit «Heute ·» / «Morgen ·» davor, im anderen Jahr mit Jahreszahl. */
-function anzeige(wert: string, heuteIso: string): string {
+/** «Do 8. Okt.» — im anderen Jahr mit Jahreszahl; `vor` = «Heute» / «Morgen», steht nur da, wenn das Feld breit genug ist. */
+function anzeige(wert: string, heuteIso: string): { vor: string; text: string } {
   const d = ausIso(wert);
   const basis = `${TAG[d.getDay()]} ${d.getDate()}. ${MONATE_KURZ[d.getMonth()]}`;
   const jahr = d.getFullYear() !== ausIso(heuteIso).getFullYear() ? ` ${d.getFullYear()}` : '';
-  if (wert === heuteIso) return `Heute · ${basis}`;
-  if (wert === iso(addTage(ausIso(heuteIso), 1))) return `Morgen · ${basis}`;
-  return basis + jahr;
+  if (wert === heuteIso) return { vor: 'Heute', text: basis };
+  if (wert === iso(addTage(ausIso(heuteIso), 1))) return { vor: 'Morgen', text: basis };
+  return { vor: '', text: basis + jahr };
 }
 
 const ersterVon = (d: Date) => new Date(d.getFullYear(), d.getMonth(), 1, 12);
@@ -108,10 +108,13 @@ export function DatumWahl({
           if (!offen) setMonat(ersterVon(wert ? ausIso(wert) : new Date()));
           setOffen(!offen);
         }}
-        className={'field flex items-center gap-2.5 text-left ' + (wert && leerErlaubt ? 'pr-10 ' : '') + (offen ? 'border-accent shadow-[0_0_0_3px_rgb(224_48_30/0.12)]' : '')}
+        className={'@container field flex items-center gap-2.5 text-left ' + (wert && leerErlaubt ? 'pr-10 ' : '') + (offen ? 'border-accent shadow-[0_0_0_3px_rgb(224_48_30/0.12)]' : '')}
       >
         <CalendarDays size={16} className={'shrink-0 ' + (wert ? 'text-accent' : 'text-ink3')} aria-hidden="true" />
-        <span className={'min-w-0 flex-1 truncate ' + (wert ? 'font-medium text-ink' : 'text-ink3')}>{wert ? anzeige(wert, heuteIso) : platzhalter}</span>
+        {/* «Morgen ·» nur bei genug Platz (21.10.2026): im schmalen Feld beim Zusatzauftrag stand sonst «Morgen · Do 2…» */}
+        <span className={'min-w-0 flex-1 truncate ' + (wert ? 'font-medium text-ink' : 'text-ink3')}>
+          {wert ? (() => { const a = anzeige(wert, heuteIso); return <>{a.vor && <span className="hidden @min-[11rem]:inline">{a.vor}<span> · </span></span>}{a.text}</>; })() : platzhalter}
+        </span>
       </button>
       {wert && leerErlaubt && !offen && (
         <button type="button" aria-label="Datum entfernen" onClick={() => aendern('')}

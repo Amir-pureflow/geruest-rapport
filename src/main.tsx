@@ -258,7 +258,6 @@ function App() {
   if (sitzung && ohneFirma && !window.location.pathname.startsWith('/b/')) return <OhneFirma stand={ohneFirma} />;
 
   const hat = (seite: string) => sitzung && !!ansicht && seitenFuer(ansicht).includes(seite);
-  const regieModus = einstellungen().erfassung === 'regie';
 
   return (
     <BrowserRouter>
@@ -275,7 +274,9 @@ function App() {
         {hat('export') && <Route path="/export" element={<Export />} />}
         {hat('verwaltung') && <Route path="/verwaltung" element={<Verwaltung />} />}
         {/* Regie-Modus: Kundenlink ohne Login, Zusatzauftrag, Regierapporte, Auswertung, Planung */}
-        {regieModus && <Route path="/b/:token" element={<Bestaetigung />} />}
+        {/* Immer, nicht nur im Regie-Modus (21.10.2026): Die Bauleitung ist nicht angemeldet, ihr Gerät kennt die Firma
+            nicht — einstellungen() stand auf «wochenblatt», die Route fehlte und der Link aus der Mail zeigte «Wer bist du?». */}
+        <Route path="/b/:token" element={<Bestaetigung />} />
         {hat('zusatzauftrag') && <Route path="/zusatzauftrag" element={<Zusatzauftrag />} />}
         {hat('regie') && <Route path="/regie" element={<RegieListe />} />}
         {hat('regie') && <Route path="/regie/neu" element={<RegieVorschau />} />}

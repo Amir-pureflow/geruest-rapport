@@ -106,7 +106,8 @@ export function Bestaetigung() {
           <>
             <header>
               <p className="lbl mb-1">Regierapport</p>
-              <h1 className="font-display text-2xl font-semibold">{daten.bezeichnung ?? '—'}</h1>
+              {/* text-balance (21.10.2026): sonst stand die Hausnummer allein auf der zweiten Zeile («…Lorrainestrasse» / «18») */}
+              <h1 className="font-display text-2xl font-semibold text-balance">{daten.bezeichnung ?? '—'}</h1>
               <p className="mt-1 flex flex-wrap items-center gap-2 text-sm text-ink3">
                 {daten.konto_nr && <span className="knr">{daten.konto_nr}</span>}
                 {daten.betrag_rappen != null && (
@@ -149,8 +150,9 @@ export function Bestaetigung() {
 
             {daten.pdf_url && (
               <a href={daten.pdf_url} target="_blank" rel="noreferrer" className="btn-ghost flex items-center justify-between gap-3 px-4 py-3 text-sm">
-                <span>Regierapport {daten.nummer ?? ''} als PDF</span>
-                <span className="text-ink3">herunterladen ›</span>
+                <span className="min-w-0 text-left">Regierapport {daten.nummer ?? ''} als PDF</span>
+                {/* nowrap (21.10.2026): am Handy stand das «›» allein unter «herunterladen» */}
+                <span className="shrink-0 whitespace-nowrap text-ink3">herunterladen ›</span>
               </a>
             )}
             {(daten.fotos?.length ?? 0) > 0 && (
