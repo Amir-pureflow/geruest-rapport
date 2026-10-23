@@ -555,3 +555,33 @@
     color: var(--color-ink2);
   }
 }
+
+/* ── Tageskarte (24.10.2026): Punkte auf der Landkarte (src/ui/KarteLeaflet.tsx) ──────────────────────────── */
+.rp-icon { background: none; border: 0; }
+.rp-pin {
+  position: absolute; left: 0; top: 0; transform: translate(-50%, calc(-100% - 9px));
+  display: inline-flex; align-items: center; gap: 6px; white-space: nowrap;
+  padding: 4px 5px 4px 11px; border-radius: 999px; border: 1px solid rgb(17 17 19 / 0.12);
+  background: var(--color-surface); color: var(--color-ink);
+  font: 600 12px/1.2 var(--font-sans); letter-spacing: -0.005em;
+  box-shadow: 0 1px 2px rgb(17 17 19 / 0.08), 0 8px 18px -10px rgb(17 17 19 / 0.5);
+  cursor: pointer; transition: transform 120ms ease;
+}
+.rp-pin::after {
+  content: ''; position: absolute; left: 50%; bottom: -8px; transform: translateX(-50%);
+  border: 8px solid transparent; border-bottom: 0; border-top-color: var(--color-surface);
+  filter: drop-shadow(0 1px 0 rgb(17 17 19 / 0.12));
+}
+.rp-pin:hover { transform: translate(-50%, calc(-100% - 11px)); }
+.rp-pin-leute {
+  display: inline-grid; place-items: center; min-width: 20px; height: 20px; padding: 0 6px; border-radius: 999px;
+  background: var(--color-accent); color: #fff; font-size: 11px; font-variant-numeric: tabular-nums;
+}
+.rp-pin-an { background: var(--color-ink); color: #fff; border-color: var(--color-ink); }
+.rp-pin-an::after { border-top-color: var(--color-ink); }
+.rp-werkhof {
+  position: absolute; left: 0; top: 0; transform: translate(-50%, -50%);
+  display: grid; place-items: center; width: 34px; height: 34px; border-radius: 11px;
+  background: var(--color-ink); color: #fff; box-shadow: 0 6px 16px -8px rgb(17 17 19 / 0.6); border: 2px solid #fff;
+}
+.leaflet-container { font-family: var(--font-sans); background: var(--color-surface-2); }

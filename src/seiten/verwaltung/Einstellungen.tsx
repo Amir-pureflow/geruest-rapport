@@ -3,8 +3,10 @@
  * Ein Code für alle Firmen; die Schalter stehen in `konfiguration` (Migration 0017) und gelten
  * für alle Geräte dieser Firma. Nach dem Umschalten lädt die App neu, damit Menü und Erfassung passen.
  */
-import { useState } from 'react';
-import { Clock3, Coffee, Highlighter, Mic, Minus, Plus, Sunrise, Truck } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { Clock3, Coffee, Highlighter, Mic, Minus, Plus, Sunrise, Truck, Warehouse } from 'lucide-react';
+import { supabase } from '../../lib/supabase';
+import { AdressSuche } from '../../ui/AdressSuche';
 import {
   einstellungen, einstellungSetzen, schalterGelesen, eigeneFirma,
   briefkopf, briefkopfSetzen, normaltagMin, normaltagAusDatenbank, NORMALTAG_BEREICH,
@@ -544,6 +546,69 @@ function LieferwagenKarte() {
   );
 }
 
+/**
+ * Werkhof (0050, 24.10.2026): wo der Treffpunkt «Werkhof» ist — als Haus auf der Tageskarte, Mittelpunkt der
+ * Adresssuche für Baustellen. Gesucht wie eine Baustelle (geo.admin.ch), zuerst mit der Adresse aus dem Briefkopf.
+ */
+function WerkhofKarte() {
+  const firma = eigeneFirma();
+  const [wert, setWert] = useState<{ adresse: string | null; lat: number | null; lon: number | null } | null>(null);
+  const [fehlt, setFehlt] = useState(false);
+  const [offen, setOffen] = useState(false);
+  const [meldung, setMeldung] = useState<{ text: string; art: 'ok' | 'fehler' } | null>(null);
+
+  useEffect(() => {
+    if (!supabase || !firma) return;
+    void supabase.from('firma').select('werkhof_adresse,werkhof_lat,werkhof_lon').eq('id', firma.id).maybeSingle().then(({ data, error }) => {
+      if (error) { setFehlt(true); return; }
+      const d = data as { werkhof_adresse: string | null; werkhof_lat: number | null; werkhof_lon: number | null } | null;
+      setWert({ adresse: d?.werkhof_adresse ?? null, lat: d?.werkhof_lat ?? null, lon: d?.werkhof_lon ?? null });
+    });
+  }, [firma]);
+
+  async function speichern(neu: { adresse: string | null; lat: number | null; lon: number | null }) {
+    if (!supabase || !firma) return;
+    const { error } = await supabase.from('firma').update({ werkhof_adresse: neu.adresse, werkhof_lat: neu.lat, werkhof_lon: neu.lon }).eq('id', firma.id);
+    if (error) { setMeldung({ text: 'Nicht gespeichert: ' + error.message, art: 'fehler' }); return; }
+    setWert(neu);
+    setOffen(false);
+    setMeldung({ text: neu.adresse ? 'Gespeichert ✓' : 'Entfernt.', art: 'ok' });
+  }
+
+  return (
+    <section className="card space-y-4">
+      <div className="flex items-start gap-3">
+        <span className="grid h-10 w-10 shrink-0 place-items-center rounded-[12px] bg-steel text-white shadow-[0_4px_10px_-4px_rgb(43_108_176/0.6)]">
+          <Warehouse size={19} strokeWidth={2.2} aria-hidden="true" />
+        </span>
+        <div>
+          <h2 className="font-display text-[15px] font-semibold">Werkhof</h2>
+          <p className="mt-0.5 text-xs text-ink3">
+            Treffpunkt «Werkhof» bei den Einsätzen und das Haus auf der Tageskarte. Die Adresssuche für Baustellen zeigt
+            Treffer in der Nähe zuerst.
+          </p>
+        </div>
+      </div>
+      {fehlt ? (
+        <p className="rounded-[12px] border border-amber/40 bg-amber-soft px-3.5 py-2 text-xs text-amber-deep">Die Datenbank kennt den Werkhof noch nicht (Migration 0050 fehlt).</p>
+      ) : wert && (
+        <>
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded-[12px] border border-line bg-white px-3 py-2.5">
+            <span className={'text-sm ' + (wert.adresse ? 'font-medium text-ink' : 'text-ink3')}>{wert.adresse ?? 'Noch nicht erfasst'}</span>
+            <button type="button" onClick={() => setOffen(!offen)} className="btn-ghost py-1.5 text-xs">{offen ? 'Schliessen' : wert.adresse ? 'Ändern' : 'Adresse suchen'}</button>
+          </div>
+          {offen && (
+            <AdressSuche start={briefkopf().adresse} naehe={null}
+              onWaehlen={(t) => void speichern({ adresse: `${t.strasse}, ${t.plz} ${t.ort}`, lat: t.lat, lon: t.lon })}
+              fuss={wert.adresse && <button type="button" onClick={() => void speichern({ adresse: null, lat: null, lon: null })} className="font-semibold text-ink3 hover:text-accent-deep">Werkhof entfernen</button>} />
+          )}
+        </>
+      )}
+      {meldung && <p className={'text-sm font-semibold ' + (meldung.art === 'ok' ? 'text-good-deep' : 'text-accent-deep')}>{meldung.text}</p>}
+    </section>
+  );
+}
+
 /** Die Felder des Briefkopfs in der Reihenfolge, in der sie auf dem Rapport stehen. */
 const BRIEFKOPF_FELDER: { feld: keyof Briefkopf; label: string; platzhalter: string; breit?: boolean }[] = [
   { feld: 'name', label: 'Firmenname', platzhalter: 'Gerüst GmbH', breit: true },
@@ -708,6 +773,7 @@ export function Einstellungen() {
       <MarkierenKarte />
       <NotizKarte />
       <LieferwagenKarte />
+      <WerkhofKarte />
       {modusWaehlbar && <SpracheKarte />}
 
       {modusWaehlbar && WAHLEN.map((w) => (

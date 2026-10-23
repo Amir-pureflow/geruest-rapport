@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { ANSICHT_LABEL, festeAnsicht, useAnsicht, type Ansicht } from '../lib/ansicht';
-import { ChevronRight, ChevronDown, LayoutDashboard, CalendarDays, CalendarRange, Download, Settings, PhoneCall, FileText, BarChart3, CalendarPlus, ArrowLeftRight, LogOut, type LucideIcon } from 'lucide-react';
+import { ChevronRight, ChevronDown, LayoutDashboard, CalendarDays, CalendarRange, Download, Settings, PhoneCall, FileText, BarChart3, CalendarPlus, ArrowLeftRight, LogOut, Map as KarteIcon, type LucideIcon } from 'lucide-react';
 import { einstellungen } from '../lib/einstellungen';
 import { abmelden, ungesendet } from '../lib/konto';
 import { eigeneFirma } from '../lib/einstellungen';
@@ -208,6 +208,8 @@ export function navFuer(a: 'bauf' | 'sekretariat'): NavGruppe[] {
         ...(a === 'sekretariat' ? [{ zu: '/export', label: 'Export', icon: Download }] : []),
         // Planung seit 09.10.2026 auch ohne Regie (Amir: der Bauführer plant die Teams)
         { zu: '/planung', label: 'Planung', icon: CalendarPlus },
+        // Tageskarte (24.10.2026): wo die Teams an einem Tag sind
+        { zu: '/karte', label: 'Karte', icon: KarteIcon },
         { zu: '/verwaltung', label: 'Verwaltung', icon: Settings },
       ],
     },
@@ -246,6 +248,7 @@ const TITEL: Record<string, string> = {
   '/regie/neu': 'Neuer Rapport',
   '/auswertung': 'Auswertung',
   '/planung': 'Planung',
+  '/karte': 'Karte',
 };
 
 /** Brotkrumen: Übersicht › Wochenübersicht. Jede Stufe ist anklickbar, die letzte nicht. */

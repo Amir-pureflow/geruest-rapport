@@ -9,12 +9,17 @@
  */
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { BellRing, CheckCircle2, Clock } from 'lucide-react';
+import { BellRing, CheckCircle2, Clock, Flag, MapPin, MessageSquareText, Navigation, Share2, Users } from 'lucide-react';
 import { Shell } from '../ui/Shell';
 import { supabase } from '../lib/supabase';
 import { addTage, iso, kurz, kw, montag, stunden, WOCHENTAGE } from '../lib/datum';
 import { kennzeichen } from '../lib/fahrzeug';
-import { einstellungen } from '../lib/einstellungen';
+import { arbeitstag, einstellungen } from '../lib/einstellungen';
+import { adresseText, hatKoordinaten, istApple, navigationsLink } from '../lib/adresse';
+import { leuteAm, tagTitel, teilenText, type KartenEinsatz, type KartenPerson, type TagesKarte } from '../lib/tageskarte';
+import { uhrzeit } from '../lib/zeiten';
+import { useAuffrischen } from '../lib/auffrischen';
+import type { Versetzung } from '../lib/planung';
 import { taetigkeitText } from '../lib/zusatzauftrag';
 import {
   flushNachSupabase, meldungBeiseitelegen, nochmalsVersuchen, offeneMeldungen, warteStand, warteschlangeBeobachten, zeilenAuslassen,
@@ -102,6 +107,69 @@ export function verlaufFilter(teamId: string, personen: string[]): string {
   const teile = [`vorher->>team_id.eq.${teamId}`, `nachher->>team_id.eq.${teamId}`];
   if (personen.length > 0) teile.push(`vorher->>mitarbeiter_id.in.(${personen.join(',')})`, `nachher->>mitarbeiter_id.in.(${personen.join(',')})`);
   return teile.join(',');
+}
+
+// ── Karte «Heute» / «Morgen» (24.10.2026): wohin, ab wann, Treffpunkt, Hinweis, wer dabei ist ──────────────────
+
+const KARTE_PLAN = 'von,bis,soll_leute,beginn_min,treffpunkt,hinweis,baustelle:baustelle_id(id,konto_nr,bezeichnung,strasse,plz,ort,lat,lon)';
+/** Ohne 0049/0050 */
+const KARTE_PLAN_ALT = 'von,bis,baustelle:baustelle_id(id,konto_nr,bezeichnung,strasse,plz,ort)';
+interface KartenPlan { von: string; bis: string; soll_leute?: number | null; beginn_min?: number | null; treffpunkt?: 'baustelle' | 'werkhof' | null; hinweis?: string | null; baustelle: KartenEinsatz['baustelle'] | null }
+
+/** Baustelle, Adresse, Beginn, Treffpunkt, Hinweis — und «Navigieren» (nur ein Link, kein Kartendienst, kein Standort). */
+function EinsatzZeilen({ einsaetze, beginnFirma }: { einsaetze: KartenEinsatz[]; beginnFirma: number }) {
+  const apple = istApple(navigator.userAgent, navigator.maxTouchPoints);
+  return (
+    <div className="space-y-4">
+      {einsaetze.map((e) => {
+        const adr = adresseText(e.baustelle);
+        return (
+          <div key={e.baustelle.id} className="space-y-2">
+            {/* Name darf umbrechen (am Handy sonst «Wohnüberbauung Brünnenpar…») — er ist das Wichtigste der Karte */}
+            <p className="flex items-start gap-2 text-[15px] leading-snug">
+              <span className="knr mt-px">{e.baustelle.konto_nr}</span>
+              <span className="min-w-0 font-medium [overflow-wrap:anywhere]">{e.baustelle.bezeichnung || 'Baustelle'}</span>
+            </p>
+            <div className="space-y-1.5 text-sm text-ink2">
+              {adr && <p className="flex items-start gap-2"><MapPin size={15} className="mt-0.5 shrink-0 text-ink3" aria-hidden="true" />{adr}</p>}
+              <p className="flex flex-wrap items-center gap-x-4 gap-y-1">
+                <span className="inline-flex items-center gap-2"><Clock size={15} className="text-ink3" aria-hidden="true" />ab <b className={e.beginn_min != null ? 'font-semibold text-ink' : 'font-normal'}>{uhrzeit(e.beginn_min ?? beginnFirma)}</b></span>
+                {e.treffpunkt && <span className="inline-flex items-center gap-2"><Flag size={15} className="text-ink3" aria-hidden="true" />Treffpunkt <b className="font-semibold text-ink">{e.treffpunkt === 'werkhof' ? 'Werkhof' : 'auf der Baustelle'}</b></span>}
+              </p>
+              {e.hinweis && (
+                <p className="flex items-start gap-2 rounded-[10px] bg-steel-soft/60 px-2.5 py-1.5 text-ink">
+                  <MessageSquareText size={15} className="mt-0.5 shrink-0 text-steel" aria-hidden="true" />{e.hinweis}
+                </p>
+              )}
+            </div>
+            <a href={navigationsLink(e.baustelle, apple)} target="_blank" rel="noopener noreferrer"
+              className="flex items-center justify-center gap-2 rounded-[14px] border border-steel/25 bg-steel-soft/50 px-4 py-2.5 text-sm font-semibold text-steel transition hover:bg-steel-soft">
+              <Navigation size={16} aria-hidden="true" /> Navigieren
+              {!hatKoordinaten(e.baustelle) && <span className="text-xs font-normal text-ink3">· Ort nicht geprüft</span>}
+            </a>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/** Wer dabei ist: feste Leute, «+ Dritan» eingeteilt, «Luan krank», «Pedro → Team 3». */
+function LeuteZeile({ leute }: { leute: KartenPerson[] }) {
+  if (leute.length === 0) return null;
+  const klasse: Record<KartenPerson['art'], string> = {
+    da: 'bg-surface-2 text-ink2', dazu: 'bg-good-soft text-good-deep', abwesend: 'bg-surface-2 text-ink3', weg: 'bg-amber-soft text-amber-deep',
+  };
+  return (
+    <p className="flex flex-wrap items-center gap-1.5 text-xs">
+      <Users size={14} className="mr-0.5 text-ink3" aria-label="Leute" />
+      {leute.map((p) => (
+        <span key={p.id + p.art} className={'rounded-full px-2 py-0.5 font-semibold ' + klasse[p.art]}>
+          {p.art === 'dazu' ? '+ ' : ''}{p.name.split(' ')[0]}{p.art === 'abwesend' ? ` · ${p.info}` : ''}{p.art === 'weg' ? ` → ${p.info}` : ''}
+        </span>
+      ))}
+    </p>
+  );
 }
 
 /** «Di 13.10.» aus «2026-10-13» */
@@ -343,6 +411,75 @@ export function StartChef() {
   const korrekturJeZeit = useMemo(() => korrekturenZusammenfassen(korrekturen), [korrekturen]);
 
   /**
+   * Karten «Heute» und nächster Arbeitstag (24.10.2026): Plan mit Adresse und Einsatzfeldern, die Leute des Tages wie in
+   * der Planung (`leuteAm` = `besetzung`), Abwesende. Der Stand bleibt im Gerät — ohne Netz steht der letzte mit Uhrzeit.
+   */
+  const [karten, setKarten] = useState<{ stand: string; tage: TagesKarte[]; offline: boolean } | null>(null);
+  const [geteilt, setGeteilt] = useState<string | null>(null);
+  const chefName = team?.chefmonteur?.name ?? null;
+  const kartenLaden = useCallback(async () => {
+    if (!supabase || !teamId) return;
+    const c = supabase;
+    const tageK = heuteUndNaechster(new Date());
+    const vorratName = `tageskarten:${teamId}`;
+    try {
+      const planLaden = (spalten: string) => c.from('jahresplan').select(spalten).eq('team_id', teamId).lte('von', tageK[1]).gte('bis', tageK[0]);
+      let pl = await planLaden(KARTE_PLAN);
+      if (pl.error && /column|soll_leute|lat|lon/i.test(pl.error.message)) pl = await planLaden(KARTE_PLAN_ALT);
+      const [mg, ep] = await Promise.all([
+        c.from('team_mitglied').select('mitarbeiter:mitarbeiter_id(id,name,aktiv)').eq('team_id', teamId).is('bis', null),
+        c.from('einsatz_person').select('mitarbeiter_id,team_id,datum').in('datum', tageK),
+      ]);
+      if (pl.error || mg.error) throw new Error((pl.error ?? mg.error)!.message);
+      const fest = ((mg.data ?? []) as unknown as { mitarbeiter: { id: string; name: string; aktiv: boolean } | null }[])
+        .map((r) => r.mitarbeiter).filter((m): m is { id: string; name: string; aktiv: boolean } => !!m && m.aktiv)
+        .sort((a, b) => (a.name === chefName ? -1 : b.name === chefName ? 1 : a.name.localeCompare(b.name, 'de')));
+      const festIds = fest.map((p) => p.id);
+      const versetzt = (ep.error ? [] : (ep.data ?? []) as Versetzung[]).filter((v) => v.team_id === teamId || festIds.includes(v.mitarbeiter_id));
+      const dazuIds = [...new Set(versetzt.filter((v) => v.team_id === teamId && !festIds.includes(v.mitarbeiter_id)).map((v) => v.mitarbeiter_id))];
+      const nachIds = [...new Set(versetzt.filter((v) => v.team_id !== teamId).map((v) => v.team_id))];
+      const [ab, ma, tm] = await Promise.all([
+        c.from('abwesenheit').select('mitarbeiter_id,datum,art').in('datum', tageK).in('mitarbeiter_id', [...festIds, ...dazuIds].length ? [...festIds, ...dazuIds] : ['00000000-0000-0000-0000-000000000000']),
+        dazuIds.length ? c.from('mitarbeiter').select('id,name').in('id', dazuIds) : Promise.resolve({ data: [] as { id: string; name: string }[], error: null }),
+        nachIds.length ? c.from('team').select('id,bezeichnung').in('id', nachIds) : Promise.resolve({ data: [] as { id: string; bezeichnung: string }[], error: null }),
+      ]);
+      const abw = (ab.error ? [] : (ab.data ?? [])) as { mitarbeiter_id: string; datum: string; art: string }[];
+      const namen = new Map(((ma.data ?? []) as { id: string; name: string }[]).map((m) => [m.id, m.name]));
+      const teamNamen = new Map(((tm.data ?? []) as { id: string; bezeichnung: string }[]).map((t) => [t.id, t.bezeichnung]));
+      const plaene = (pl.data ?? []) as unknown as KartenPlan[];
+      const tage: TagesKarte[] = tageK.map((datum) => ({
+        datum,
+        einsaetze: plaene.filter((p) => p.von <= datum && p.bis >= datum && p.baustelle).map((p) => ({
+          baustelle: p.baustelle!, beginn_min: p.beginn_min ?? null, treffpunkt: p.treffpunkt ?? null, hinweis: p.hinweis ?? null, soll_leute: p.soll_leute ?? null,
+        })),
+        leute: leuteAm({ teamId, fest, versetzt, abwesend: new Map(abw.filter((a) => a.datum === datum).map((a) => [a.mitarbeiter_id, a.art])), namen, teamNamen, datum }),
+      }));
+      const stand = new Date().toISOString();
+      vorratSchreiben(vorratName, { stand, tage });
+      setKarten({ stand, tage, offline: false });
+    } catch {
+      // Ohne Netz: der letzte Stand aus dem Gerät — nur Tage ab heute, mit der Uhrzeit, von wann er ist
+      const v = vorratLesen<{ stand: string; tage: TagesKarte[] }>(vorratName);
+      const heuteK = iso(new Date());
+      if (v && Array.isArray(v.tage)) setKarten({ stand: v.stand, tage: v.tage.filter((k) => k.datum >= heuteK), offline: true });
+    }
+  }, [teamId, chefName]);
+  useEffect(() => { setKarten(null); void kartenLaden(); }, [kartenLaden]);
+  // Plan und Leute ändern sich während des Tages — beim Zurückholen der App und alle 5 Minuten still neu
+  useAuffrischen(() => kartenLaden());
+
+  /** Teilen: Text für den Team-Chat. Am Handy das Teilen-Menü, am PC in die Zwischenablage. */
+  async function teilen(k: TagesKarte) {
+    const text = teilenText({ team: team?.bezeichnung ?? 'Team', karte: k, heuteIso: iso(new Date()), beginnFirma: arbeitstag().beginn });
+    try {
+      if (navigator.share) { await navigator.share({ text }); return; }
+    } catch (e) {
+      if (e instanceof DOMException && e.name === 'AbortError') return;
+    }
+    try { await navigator.clipboard.writeText(text); setGeteilt(k.datum); setTimeout(() => setGeteilt(null), 3000); } catch { setGeteilt('fehler'); }
+  }
+
+  /**
    * Plan geändert (11.10.2026, Amir): Umplanungen müssen das Team erreichen — «heute Viktoriastrasse statt Eigerplatz»,
    * «morgen ist Marco in Team 3». Aus dem Verlauf der Planung (0038), für heute und den nächsten Arbeitstag, Änderungen
    * der letzten drei Tage. Ohne Netz oder ohne Migration: nichts.
@@ -472,6 +609,10 @@ export function StartChef() {
 
   const heutige = meldungen.filter((m) => m.datum === heuteIso);
   const planHeute = plan.find((p) => p.von <= heuteIso && p.bis >= heuteIso)?.baustelle ?? null;
+  const karteHeute = karten?.tage.find((k) => k.datum === heuteIso) ?? null;
+  const karteNaechster = karten?.tage.find((k) => k.datum > heuteIso) ?? null;
+  const beginnFirma = arbeitstag().beginn;
+  const standText = karten?.offline ? `Ohne Netz — Stand von ${new Date(karten.stand).toLocaleTimeString('de-CH', { hour: '2-digit', minute: '2-digit' })}` : null;
   const tage = Array.from({ length: 7 }, (_, i) => addTage(wochenStart, i));
   // Arbeitstage bis heute (Mo–Fr) und wie viele davon gemeldet sind — statt «120.0 h total» fürs ganze Team
   const vergangeneWerktage = tage.filter((d, i) => i < 5 && iso(d) <= heuteIso);
@@ -533,6 +674,8 @@ export function StartChef() {
                   {!m.normalfall && <span className="shrink-0 rounded-md bg-amber-soft px-1.5 py-0.5 text-[10px] font-semibold text-amber-deep">{ABWEICHUNG[m.abweichung_typ ?? ''] ?? 'Abweichung'}</span>}
                 </p>
               ))
+            ) : karteHeute && karteHeute.einsaetze.length > 0 ? (
+              <EinsatzZeilen einsaetze={karteHeute.einsaetze} beginnFirma={beginnFirma} />
             ) : planHeute ? (
               <p className="flex items-center gap-2 text-[15px]">
                 <span className="knr">{planHeute.konto_nr}</span>
@@ -541,6 +684,8 @@ export function StartChef() {
             ) : (
               <p className="text-sm text-ink3">Keine Baustelle geplant — du wählst sie beim Melden.</p>
             )}
+            {heutige.length === 0 && karteHeute && karteHeute.einsaetze.length > 0 && <LeuteZeile leute={karteHeute.leute} />}
+            {standText && heutige.length === 0 && karteHeute && <p className="text-[11px] text-amber-deep">{standText}</p>}
             <Link to="/erfassung" className={heutige.length > 0 ? 'btn-ghost block w-full text-center' : 'cta'}>
               {heutige.length > 0 ? 'Ändern oder nochmals melden' : 'Tag melden'}
             </Link>
@@ -550,6 +695,26 @@ export function StartChef() {
           </section>
         ) : (
           <button type="button" onClick={() => setWochenStart(montag(heute))} className="btn-ghost w-full">Zurück zu heute</button>
+        )}
+
+        {/* Nächster Arbeitstag (24.10.2026): was morgen gilt — mit «Teilen» für den Team-Chat am Abend */}
+        {istDieseWoche && karteNaechster && (
+          <section className="card space-y-3" aria-label={`${tagTitel(karteNaechster.datum, heuteIso)}: Plan`}>
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-sm font-semibold text-ink">
+                {tagTitel(karteNaechster.datum, heuteIso)} <span className="font-normal text-ink3">· {tagKurz(karteNaechster.datum)}</span>
+              </p>
+              <button type="button" onClick={() => void teilen(karteNaechster)} className="inline-flex items-center gap-1.5 rounded-full border border-ink/10 bg-white px-3 py-1.5 text-xs font-semibold text-ink2 shadow-[0_1px_2px_rgb(17_17_19/0.06)] hover:text-ink">
+                <Share2 size={14} aria-hidden="true" /> {geteilt === karteNaechster.datum ? 'Kopiert ✓' : 'Teilen'}
+              </button>
+            </div>
+            {karteNaechster.einsaetze.length > 0
+              ? <EinsatzZeilen einsaetze={karteNaechster.einsaetze} beginnFirma={beginnFirma} />
+              : <p className="text-sm text-ink3">Noch keine Baustelle geplant — das Büro plant noch.</p>}
+            <LeuteZeile leute={karteNaechster.leute} />
+            {standText && <p className="text-[11px] text-amber-deep">{standText}</p>}
+            {geteilt === 'fehler' && <p className="text-[11px] text-accent-deep">Teilen ging nicht — der Browser erlaubt es hier nicht.</p>}
+          </section>
         )}
 
         {/* Woche: ein Tag = eine Zeile, Stunden je Person, Stand als Zeichen statt Wort */}

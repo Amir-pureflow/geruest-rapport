@@ -1,15 +1,90 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Plus } from 'lucide-react';
+import { MapPin, Navigation, Plus } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { alle } from '../../lib/abfrage';
-import { ausIso, iso, lang } from '../../lib/datum';
+import { ausIso, iso, kurz, lang } from '../../lib/datum';
 import { baustellenSuchen } from '../../lib/suche';
+import { hatKoordinaten, istApple, navigationsLink, suchText, type Treffer } from '../../lib/adresse';
+import { AdressSuche } from '../../ui/AdressSuche';
 import { Auswahl } from '../../ui/Auswahl';
 import { LoeschLeiste, useLoeschFrage } from '../../ui/LoeschFrage';
 import { baustelleEntfernen, baustellePruefen } from '../../lib/entfernen';
 
-interface Baustelle { id: string; konto_nr: string; bezeichnung: string | null; plz: string | null; status: 'aktiv' | 'fertig_gemeldet' | 'abgeschlossen'; fertigstellung_am: string | null; kunde_id: string | null }
+interface Baustelle {
+  id: string; konto_nr: string; bezeichnung: string | null; plz: string | null; status: 'aktiv' | 'fertig_gemeldet' | 'abgeschlossen'; fertigstellung_am: string | null; kunde_id: string | null;
+  /** Adresse und Lage (Strasse/Ort seit 0001, Koordinaten seit 0050) — ohne 0050 undefined */
+  strasse?: string | null; ort?: string | null; lat?: number | null; lon?: number | null; lage_quelle?: 'suche' | 'von_hand' | null; lage_geprueft_am?: string | null;
+}
 interface Kunde { id: string; name: string }
+
+const SPALTEN = 'id,konto_nr,bezeichnung,plz,status,fertigstellung_am,kunde_id,strasse,ort,lat,lon,lage_quelle,lage_geprueft_am';
+/** Ohne Migration 0050 */
+const SPALTEN_ALT = 'id,konto_nr,bezeichnung,plz,status,fertigstellung_am,kunde_id';
+
+/**
+ * Adresse der Baustelle (24.10.2026, Amir: Karte und Navigieren). «Adresse prüfen» sucht bei der Adresssuche des Bundes
+ * (geo.admin.ch) mit Bezeichnung und PLZ; das Büro tippt den richtigen Treffer an — gespeichert werden Strasse, PLZ, Ort
+ * und die Koordinaten. Nichts wird ungefragt übernommen: «Lorrainestrasse 18» ohne PLZ fand zuerst Herzogenbuchsee.
+ */
+function AdresseFeld({ b, speichern, naehe, sofortSuchen = false }: {
+  b: Baustelle;
+  speichern: (patch: Partial<Baustelle>) => Promise<string | null>;
+  /** Gebiet der Firma (Mittelpunkt der geprüften Baustellen) — nähere Treffer zuerst */
+  naehe: { lat: number; lon: number } | null;
+  sofortSuchen?: boolean;
+}) {
+  const [offen, setOffen] = useState(sofortSuchen);
+  const [meldung, setMeldung] = useState<{ text: string; ok: boolean } | null>(null);
+  const apple = istApple(navigator.userAgent, navigator.maxTouchPoints);
+
+  async function waehlen(t: Treffer) {
+    const f = await speichern({ strasse: t.strasse, plz: t.plz, ort: t.ort, lat: t.lat, lon: t.lon, lage_quelle: 'suche', lage_geprueft_am: new Date().toISOString() });
+    setMeldung(f ? { text: 'Nicht gespeichert: ' + f, ok: false } : { text: 'Adresse gespeichert ✓', ok: true });
+    if (!f) setOffen(false);
+  }
+  async function entfernen() {
+    // Die PLZ kam mit dem Treffer — sie geht mit, sonst bliebe die PLZ einer falschen Adresse stehen («7610» aus Soglio)
+    const f = await speichern({ strasse: null, ort: null, plz: b.ort ? null : b.plz, lat: null, lon: null, lage_quelle: null, lage_geprueft_am: null });
+    setMeldung(f ? { text: 'Nicht gespeichert: ' + f, ok: false } : { text: 'Adresse entfernt.', ok: true });
+  }
+
+  const geprueft = hatKoordinaten(b);
+  return (
+    <div className="space-y-2">
+      <span className="lbl">Adresse</span>
+      <div className="flex flex-wrap items-center justify-between gap-2 rounded-[12px] border border-line bg-white px-3 py-2.5">
+        <span className="flex min-w-0 items-start gap-2">
+          <MapPin size={16} className={'mt-0.5 shrink-0 ' + (geprueft ? 'text-good' : 'text-ink3')} aria-hidden="true" />
+          <span className="min-w-0">
+            {b.strasse || b.ort ? (
+              <span className="block text-sm font-medium text-ink">{[b.strasse, [b.plz, b.ort].filter(Boolean).join(' ')].filter(Boolean).join(', ')}</span>
+            ) : (
+              <span className="block text-sm text-ink3">Noch keine Adresse — «Adresse prüfen» sucht mit der Bezeichnung.</span>
+            )}
+            <span className={'block text-[11px] ' + (geprueft ? 'text-good-deep' : 'text-amber-deep')}>
+              {geprueft ? `Ort geprüft${b.lage_geprueft_am ? ` am ${kurz(new Date(b.lage_geprueft_am))}` : ''} — «Navigieren» führt genau hierhin` : 'Ort nicht geprüft — «Navigieren» sucht nur nach dem Text'}
+            </span>
+          </span>
+        </span>
+        <span className="flex shrink-0 flex-wrap items-center gap-2">
+          {(b.strasse || b.bezeichnung) && (
+            <a href={navigationsLink(b, apple)} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-xs font-semibold text-steel hover:underline">
+              <Navigation size={13} aria-hidden="true" /> Navigieren testen
+            </a>
+          )}
+          <button type="button" onClick={() => { setOffen(!offen); setMeldung(null); }} className="btn-ghost py-1.5 text-xs">
+            {offen ? 'Schliessen' : geprueft ? 'Ändern' : 'Adresse prüfen'}
+          </button>
+        </span>
+      </div>
+      {offen && (
+        <AdressSuche start={suchText(b)} plz={b.plz} naehe={naehe} onWaehlen={(t) => void waehlen(t)}
+          fuss={(b.strasse || geprueft) && <button type="button" onClick={() => void entfernen()} className="font-semibold text-ink3 hover:text-accent-deep">Adresse entfernen</button>} />
+      )}
+      {meldung && <p className={'text-xs ' + (meldung.ok ? 'text-good-deep' : 'font-semibold text-accent-deep')}>{meldung.text}</p>}
+    </div>
+  );
+}
 
 /**
  * Postleitzahl als eigenes Feld (13.10.2026, Amir: «dass man Postleitzahlen noch eingeben kann … separat»). Schweizer
@@ -65,14 +140,20 @@ export function Baustellen() {
   const [ladeFehler, setLadeFehler] = useState('');
   const [legtAn, setLegtAn] = useState(false);
   const [hinweis, setHinweis] = useState('');
+  /** Nur Baustellen ohne geprüften Ort — zum Nachtragen (die Gerüst GmbH hat 217 Konten ohne Adresse) */
+  const [ohneOrt, setOhneOrt] = useState(false);
+  /** Eben angelegt: Adresssuche gleich offen */
+  const [neuAngelegt, setNeuAngelegt] = useState<string | null>(null);
 
   // Seitenweise (13.10.2026): heute 217 aktive, über die Jahre mehr als 1000 Konten — sonst fehlten die neuesten still
   const laden = useCallback(async () => {
     if (!supabase) return;
     const c = supabase;
     try {
+      const baustellen = (spalten: string) => alle<Baustelle>((von, bis) => c.from('baustelle').select(spalten).order('bezeichnung').order('id').range(von, bis));
       const [b, k] = await Promise.all([
-        alle<Baustelle>((von, bis) => c.from('baustelle').select('id,konto_nr,bezeichnung,plz,status,fertigstellung_am,kunde_id').order('bezeichnung').order('id').range(von, bis)),
+        // Ohne Migration 0050 (Koordinaten) wie bisher
+        baustellen(SPALTEN).catch((e: unknown) => (/lat|lage_quelle|column/i.test(e instanceof Error ? e.message : String(e)) ? baustellen(SPALTEN_ALT) : Promise.reject(e))),
         alle<Kunde>((von, bis) => c.from('kunde').select('id,name').order('name').order('id').range(von, bis)),
       ]);
       setListe(b);
@@ -100,9 +181,9 @@ export function Baustellen() {
 
   const sichtbar = useMemo(() => {
     const q = suche.trim();
-    const imFilter = liste.filter((b) => filter === 'alle' || b.status === filter);
+    const imFilter = liste.filter((b) => (filter === 'alle' || b.status === filter) && (!ohneOrt || !hatKoordinaten(b)));
     return q ? baustellenSuchen(imFilter, q, 60) : imFilter.slice(0, 60);
-  }, [liste, suche, filter]);
+  }, [liste, suche, filter, ohneOrt]);
 
   async function aendern(id: string, patch: Partial<Baustelle>): Promise<string | null> {
     if (!supabase) return 'Keine Datenverbindung.';
@@ -119,14 +200,27 @@ export function Baustellen() {
     if ('fehler' in p) { setFehler(p.fehler); return; }
     // Doppelklick: sonst meldete der zweite Klick «gibt es schon» über eine eben angelegte Baustelle
     setLegtAn(true);
-    const { error } = await supabase.from('baustelle').insert({ konto_nr: neuNr.trim(), bezeichnung: neuBez.trim(), plz: p.plz });
+    const { data, error } = await supabase.from('baustelle').insert({ konto_nr: neuNr.trim(), bezeichnung: neuBez.trim(), plz: p.plz }).select('id').single();
     setLegtAn(false);
     if (error) { setFehler(error.message.includes('unique') ? 'Diese Kontonummer gibt es schon.' : error.message); return; }
     setFehler(''); setNeuNr(''); setNeuBez(''); setNeuPlz('');
+    // Gleich aufklappen und die Adresse suchen — dann hat jede neue Baustelle von Anfang an einen geprüften Ort
+    const id = (data as { id: string } | null)?.id ?? null;
+    setNeuAngelegt(id);
+    setOffen(id);
+    setFilter('aktiv');
+    setSuche('');
+    setOhneOrt(false);
     void laden();
   }
 
   const zaehl = (s: Baustelle['status']) => liste.filter((b) => b.status === s).length;
+  // Gebiet der Firma für die Adresssuche: Mittelpunkt der schon geprüften Baustellen (später: der Werkhof)
+  const naehe = useMemo(() => {
+    const mit = liste.filter((b): b is Baustelle & { lat: number; lon: number } => hatKoordinaten(b));
+    if (mit.length === 0) return null;
+    return { lat: mit.reduce((s, b) => s + b.lat, 0) / mit.length, lon: mit.reduce((s, b) => s + b.lon, 0) / mit.length };
+  }, [liste]);
 
   return (
     <div className="space-y-3">
@@ -150,6 +244,11 @@ export function Baustellen() {
         {(['aktiv', 'fertig_gemeldet', 'abgeschlossen', 'alle'] as const).map((k) => (
           <button key={k} type="button" onClick={() => setFilter(k)} className={'chip px-3 py-1 text-xs ' + (filter === k ? 'chip-on' : '')}>{k === 'alle' ? 'alle' : STATUS[k][0]}</button>
         ))}
+        {liste.some((b) => b.lat !== undefined) && (
+          <button type="button" onClick={() => setOhneOrt(!ohneOrt)} aria-pressed={ohneOrt} className={'chip ml-auto px-3 py-1 text-xs ' + (ohneOrt ? 'chip-on' : '')}>
+            ohne geprüften Ort · {liste.filter((b) => (filter === 'alle' || b.status === filter) && !hatKoordinaten(b)).length}
+          </button>
+        )}
       </div>
 
       <div className="card divide-y divide-line p-0">
@@ -160,6 +259,7 @@ export function Baustellen() {
                 <span className="block truncate text-sm font-medium">{b.bezeichnung}</span>
                 <span className="mt-0.5 flex items-center gap-2 text-[11px] text-ink3">
                   <span className="knr">{b.konto_nr}</span>
+                  {hatKoordinaten(b) && <MapPin size={12} className="text-good" aria-label="Ort geprüft" />}
                   {b.plz && <span className="font-mono">{b.plz}</span>}
                   <span>{kunden.find((k) => k.id === b.kunde_id)?.name ?? 'kein Kunde'}</span>
                 </span>
@@ -168,6 +268,7 @@ export function Baustellen() {
             </button>
             {offen === b.id && (
               <div className="space-y-2 bg-surface-2 px-3 py-3">
+                {b.lat !== undefined && <AdresseFeld key={b.id} b={b} naehe={naehe} speichern={(patch) => aendern(b.id, patch)} sofortSuchen={neuAngelegt === b.id} />}
                 <PlzFeld wert={b.plz} speichern={(plz) => aendern(b.id, { plz })} />
                 <div>
                   <span className="lbl">Kunde / Bauleitung</span>

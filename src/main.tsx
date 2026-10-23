@@ -22,6 +22,8 @@ const NACHLADEN = {
   regieVorschau: () => import('./seiten/RegieVorschau'),
   auswertung: () => import('./seiten/Auswertung'),
   planung: () => import('./seiten/Planung'),
+  // Tageskarte (24.10.2026) — Leaflet selbst lädt erst die Seite, wenn sie gezeigt wird
+  karte: () => import('./seiten/Karte'),
   bestaetigung: () => import('./seiten/Bestaetigung'),
 };
 const Zusatzauftrag = lazy(() => NACHLADEN.zusatzauftrag().then((m) => ({ default: m.Zusatzauftrag })));
@@ -30,6 +32,7 @@ const RegieDetail = lazy(() => NACHLADEN.regieDetail().then((m) => ({ default: m
 const RegieVorschau = lazy(() => NACHLADEN.regieVorschau().then((m) => ({ default: m.RegieVorschau })));
 const Auswertung = lazy(() => NACHLADEN.auswertung().then((m) => ({ default: m.Auswertung })));
 const Planung = lazy(() => NACHLADEN.planung().then((m) => ({ default: m.Planung })));
+const Tageskarte = lazy(() => NACHLADEN.karte().then((m) => ({ default: m.Karte })));
 const Bestaetigung = lazy(() => NACHLADEN.bestaetigung().then((m) => ({ default: m.Bestaetigung })));
 
 /** Nach dem Start, wenn der Browser Luft hat: die nachgeladenen Seiten schon holen (ohne Regie nur den Zusatzauftrag). */
@@ -283,6 +286,8 @@ function App() {
         {hat('regie') && <Route path="/regie/:id" element={<RegieDetail />} />}
         {hat('auswertung') && <Route path="/auswertung" element={<Auswertung />} />}
         {hat('planung') && <Route path="/planung" element={<Planung />} />}
+        {/* Wer plant, sieht auch die Tageskarte (24.10.2026) */}
+        {hat('planung') && <Route path="/karte" element={<Tageskarte />} />}
         {/* Das Board ist seit 06.10.2026 die Planung — alte Lesezeichen leiten weiter */}
         {hat('planung') && <Route path="/board" element={<Navigate to="/planung" replace />} />}
         {sitzung && ansicht && <Route path="*" element={<FremdeSeite ansicht={ansicht} />} />}
