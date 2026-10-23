@@ -19,6 +19,7 @@
  */
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { belegeLesen, db, exklusiv, warteschlangeGeaendert, type MeldungPayload } from './db';
+import { rpcFehlt } from './regie';
 
 /** Eine frühere Meldung des Tages, wie die Erfassung sie kennt. */
 export interface AlteMeldung {
@@ -54,6 +55,18 @@ export function ersetzbarGrund(b: Befund): string | null {
 
 const OHNE_VERBINDUNG = 'Gerade keine Verbindung zum Server — ob die Meldung schon beim Bauführer ist, lässt sich jetzt nicht prüfen.';
 
+/**
+ * Regierapporte zu einer Meldung zählen. Seit 0048 liest nur das Büro Regierapporte (Beträge); der Chefmonteur bekommt
+ * über `meldung_regierapporte()` nur die Zahl. Fehlt die Migration, wie bisher direkt zählen.
+ */
+async function regieZaehlen(client: SupabaseClient, id: string): Promise<{ count: number | null; error: unknown }> {
+  const r = await client.rpc('meldung_regierapporte', { p_meldung: id });
+  if (!r.error) return { count: (r.data as number | null) ?? 0, error: null };
+  if (!rpcFehlt(r.error)) return { count: null, error: r.error };
+  const q = await client.from('regierapport').select('id', { count: 'exact', head: true }).eq('tagesmeldung_id', id);
+  return { count: q.count, error: q.error };
+}
+
 /** Den Befund beim Server holen. null = keine Antwort (Verbindung, Fehler) — dann lieber nicht ersetzen. */
 async function befundLaden(client: SupabaseClient, id: string): Promise<Befund | null> {
   const [k, z] = await Promise.all([
@@ -68,7 +81,7 @@ async function befundLaden(client: SupabaseClient, id: string): Promise<Befund |
       ? client.from('freigabe_log').select('id', { count: 'exact', head: true }).in('zeiteintrag_id', zeilen.map((x) => x.id))
       : Promise.resolve({ count: 0, error: null }),
     client.from('foto').select('id', { count: 'exact', head: true }).eq('tagesmeldung_id', id),
-    client.from('regierapport').select('id', { count: 'exact', head: true }).eq('tagesmeldung_id', id),
+    regieZaehlen(client, id),
   ]);
   if (fl.error || fo.error || rr.error) return null;
   return {

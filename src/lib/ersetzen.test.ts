@@ -11,7 +11,7 @@ import { zugangVergessen } from './zugang';
 
 type Zeile = Record<string, unknown>;
 
-function speicherClient(tabellen: Record<string, Zeile[]>, opts: { warten?: (tabelle: string, op: string) => Promise<void>; loeschFehler?: (tabelle: string) => { code?: string; message: string } | null } = {}) {
+function speicherClient(tabellen: Record<string, Zeile[]>, opts: { warten?: (tabelle: string, op: string) => Promise<void>; loeschFehler?: (tabelle: string) => { code?: string; message: string } | null; ohne0048?: boolean } = {}) {
   const aufrufe: string[] = [];
   const liste = (t: string) => (tabellen[t] ??= []);
   function abfrage(t: string, op: 'select' | 'delete' | 'update', werte?: Zeile, kopf = false) {
@@ -58,8 +58,13 @@ function speicherClient(tabellen: Record<string, Zeile[]>, opts: { warten?: (tab
     }),
     storage: { from: () => ({ upload: async () => ({ data: null, error: null }) }) },
     // `tagesmeldung_entfernen` (0043): prüft und löscht in einem Schritt, wie die Datenbank
-    rpc: async (name: string, args: { p_id: string }) => {
+    rpc: async (name: string, args: { p_id: string; p_meldung?: string }) => {
       aufrufe.push(`rpc ${name}`);
+      // `meldung_regierapporte` (0048): nur die Zahl, auch für den Chefmonteur, der Regierapporte nicht lesen darf
+      if (name === 'meldung_regierapporte') {
+        if (opts.ohne0048) return { data: null, error: { code: 'PGRST202', message: 'Could not find the function' } };
+        return { data: liste('regierapport').filter((r) => r.tagesmeldung_id === args.p_meldung).length, error: null };
+      }
       if (name !== 'tagesmeldung_entfernen') return { data: null, error: { message: `unbekannte Funktion ${name}` } };
       const fehler = opts.loeschFehler?.('tagesmeldung') ?? null;
       if (fehler) return { data: null, error: fehler };
@@ -125,6 +130,25 @@ describe('ersetzen — Server', () => {
     expect(r.ok).toBe(false);
     expect(tabellen.zeiteintrag).toHaveLength(1);
     expect(tabellen.tagesmeldung).toHaveLength(1);
+  });
+
+  it('Regierapport: der Chefmonteur erfährt es über die Zahl (0048), ohne die Regierapporte lesen zu dürfen', async () => {
+    const t = aufServer();
+    t.regierapport.push({ id: 'r1', tagesmeldung_id: 's-1' });
+    const { client, aufrufe } = speicherClient(t);
+    const alte = [{ lokal: false, schluessel: 's-1', bezeichnung: 'Aarstrasse' }];
+    expect((await ersetzenPruefen(client, alte))[0].grund).toBe('Zu dieser Meldung gibt es schon einen Regierapport.');
+    expect(aufrufe).toContain('rpc meldung_regierapporte');
+    expect(aufrufe).not.toContain('select regierapport');
+  });
+
+  it('ohne Migration 0048: zählt die Regierapporte wie bisher direkt', async () => {
+    const t = aufServer();
+    t.regierapport.push({ id: 'r1', tagesmeldung_id: 's-1' });
+    const { client, aufrufe } = speicherClient(t, { ohne0048: true });
+    const alte = [{ lokal: false, schluessel: 's-1', bezeichnung: 'Aarstrasse' }];
+    expect((await ersetzenPruefen(client, alte))[0].grund).toBe('Zu dieser Meldung gibt es schon einen Regierapport.');
+    expect(aufrufe).toContain('select regierapport');
   });
 
   it('ersetzbar: Zeilen und Kopf weg', async () => {
