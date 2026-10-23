@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { arbeitstage, ausschnitt, besetzung, einteilungenBuendeln, heuteUndNaechster, istBalken, naechsterTeamName, ohneTag, planAm, planHinweise, planIst, spuren, tageZwischen, ueberschneiden, zeitraumVorschlag, type VerlaufZeile } from './planung';
+import { arbeitstage, ausschnitt, besetzung, einteilungenBuendeln, heuteUndNaechster, istBalken, konflikte, konflikteBuendeln, naechsterTeamName, ohneTag, planAm, planHinweise, planIst, spuren, tageZwischen, ueberschneiden, zeitraumVorschlag, type EinsatzSoll, type VerlaufZeile } from './planung';
 import { ausIso } from './datum';
 
 describe('planung', () => {
@@ -219,5 +219,99 @@ describe('heuteUndNaechster', () => {
   it('Freitag → Montag, Mittwoch → Donnerstag', () => {
     expect(heuteUndNaechster(new Date(2026, 9, 9, 12))).toEqual(['2026-10-09', '2026-10-12']);
     expect(heuteUndNaechster(new Date(2026, 9, 7, 12))).toEqual(['2026-10-07', '2026-10-08']);
+  });
+  it('über Feiertage: Do 24.12. → Mo 28.12., Do 31.12. → Mo 4.1.', () => {
+    expect(heuteUndNaechster(new Date(2026, 11, 24, 12))).toEqual(['2026-12-24', '2026-12-28']);
+    expect(heuteUndNaechster(new Date(2026, 11, 31, 12))).toEqual(['2026-12-31', '2027-01-04']);
+  });
+});
+
+describe('arbeitstage über Feiertage', () => {
+  it('Weihnachtswoche 21.–25.12.2026: 4 Arbeitstage (Fr ist Weihnachten)', () => {
+    expect(arbeitstage({ von: '2026-12-21', bis: '2026-12-25' })).toBe(4);
+  });
+});
+
+describe('konflikte — was in der Planung zu lösen ist', () => {
+  // Woche Mo 26.10. – Fr 30.10.2026. Team 1: Chef c1, a1, a2 · Team 2: Chef c2, b1 · Team 3 und 4 ohne Einsatz
+  const teams = [{ id: 't1', chefmonteur_id: 'c1' }, { id: 't2', chefmonteur_id: 'c2' }, { id: 't3', chefmonteur_id: null }, { id: 't4', chefmonteur_id: null }];
+  const basis = new Map([['t1', ['c1', 'a1', 'a2']], ['t2', ['c2', 'b1']], ['t3', []], ['t4', ['d1']]]);
+  const plaene: EinsatzSoll[] = [
+    { team_id: 't1', baustelle_id: 'B1', von: '2026-10-26', bis: '2026-10-30', soll_leute: 3 },
+    { team_id: 't2', baustelle_id: 'B2', von: '2026-10-26', bis: '2026-10-30', soll_leute: null },
+  ];
+  const abw = (eintraege: [string, string, string][]) => {
+    const m = new Map<string, Map<string, string>>();
+    for (const [datum, id, art] of eintraege) m.set(datum, (m.get(datum) ?? new Map()).set(id, art));
+    return m;
+  };
+  const lauf = (o: Partial<Parameters<typeof konflikte>[0]>) => konflikte({ tage: ['2026-10-26'], teams, basis, versetzt: [], plaene, abwesend: new Map(), ...o });
+
+  it('alles besetzt: nichts zu lösen', () => expect(lauf({})).toEqual([]));
+
+  it('unter Soll: Team 1 braucht 3, a1 ist krank', () => {
+    expect(lauf({ tage: ['2026-10-27'], abwesend: abw([['2026-10-27', 'a1', 'krank']]) }))
+      .toEqual([{ art: 'unter-soll', datum: '2026-10-27', team_id: 't1', ist: 2, soll: 3, baustelle_id: 'B1' }]);
+  });
+
+  it('ohne «Leute nötig» keine Meldung, auch wenn jemand fehlt', () => {
+    expect(lauf({ tage: ['2026-10-27'], abwesend: abw([['2026-10-27', 'b1', 'ferien']]) })).toEqual([]);
+  });
+
+  it('Chefmonteur fehlt: abwesend — und versetzt (mit Ziel-Team)', () => {
+    expect(lauf({ tage: ['2026-10-28'], abwesend: abw([['2026-10-28', 'c2', 'ferien']]) }))
+      .toEqual([{ art: 'chef-fehlt', datum: '2026-10-28', team_id: 't2', mitarbeiter_id: 'c2', baustelle_id: 'B2' }]);
+    const r = lauf({ tage: ['2026-10-28'], versetzt: [{ datum: '2026-10-28', mitarbeiter_id: 'c2', team_id: 't1' }] });
+    expect(r).toEqual([{ art: 'chef-fehlt', datum: '2026-10-28', team_id: 't2', mitarbeiter_id: 'c2', baustelle_id: 'B2', nach_team: 't1' }]);
+  });
+
+  it('niemand da: nur «ohne Leute», nicht zusätzlich «Chef fehlt»', () => {
+    const r = lauf({ tage: ['2026-10-29'], versetzt: [{ datum: '2026-10-29', mitarbeiter_id: 'c2', team_id: 't1' }], abwesend: abw([['2026-10-29', 'b1', 'krank']]) });
+    expect(r.filter((k) => k.team_id === 't2')).toEqual([{ art: 'ohne-leute', datum: '2026-10-29', team_id: 't2', ist: 0, soll: undefined, baustelle_id: 'B2' }]);
+  });
+
+  it('abwesend, aber eingeteilt', () => {
+    const r = lauf({ tage: ['2026-10-30'], versetzt: [{ datum: '2026-10-30', mitarbeiter_id: 'b1', team_id: 't1' }], abwesend: abw([['2026-10-30', 'b1', 'krank']]) });
+    expect(r).toContainEqual({ art: 'abwesend-eingeteilt', datum: '2026-10-30', team_id: 't1', mitarbeiter_id: 'b1' });
+  });
+
+  it('eingeteilt, aber das Team hat keine Baustelle', () => {
+    const r = lauf({ versetzt: [{ datum: '2026-10-26', mitarbeiter_id: 'a2', team_id: 't3' }] });
+    expect(r).toContainEqual({ art: 'eingeteilt-ohne-einsatz', datum: '2026-10-26', team_id: 't3', ist: 1 });
+  });
+
+  it('Team mit Leuten ohne Baustelle: nur für heute und den nächsten Arbeitstag', () => {
+    expect(lauf({ tage: ['2026-10-26', '2026-10-27'], ohneEinsatzTage: ['2026-10-26'] }))
+      .toEqual([{ art: 'ohne-einsatz', datum: '2026-10-26', team_id: 't4', ist: 1 }]);
+  });
+
+  it('Wochenende und Feiertag: nie ein Konflikt', () => {
+    const p: EinsatzSoll[] = [{ team_id: 't1', baustelle_id: 'B1', von: '2026-12-24', bis: '2026-12-27', soll_leute: 5 }];
+    expect(lauf({ tage: ['2026-12-25', '2026-12-26', '2026-12-27'], plaene: p })).toEqual([]);
+    expect(lauf({ tage: ['2026-12-24'], plaene: p })).toEqual([{ art: 'unter-soll', datum: '2026-12-24', team_id: 't1', ist: 3, soll: 5, baustelle_id: 'B1' }]);
+  });
+
+  it('bündeln: dieselbe Lücke Mo–Fr ist eine Zeile; über das Wochenende weiter, eine andere Zahl trennt', () => {
+    const p: EinsatzSoll[] = [{ team_id: 't1', baustelle_id: 'B1', von: '2026-10-26', bis: '2026-11-03', soll_leute: 4 }];
+    const tage = ['2026-10-26', '2026-10-27', '2026-10-28', '2026-10-29', '2026-10-30', '2026-11-02', '2026-11-03'];
+    // Am Di 3.11. ist a1 krank: 2 statt 3 Leute — eigener Block
+    const r = konflikteBuendeln(lauf({ tage, plaene: p, abwesend: abw([['2026-11-03', 'a1', 'krank']]) }));
+    expect(r.map((k) => `${k.datum}–${k.bis} ${k.tage} ${k.ist}/${k.soll}`)).toEqual(['2026-10-26–2026-11-02 6 3/4', '2026-11-03–2026-11-03 1 2/4']);
+  });
+
+  it('bündeln: eine Lücke (Mittwoch ohne Konflikt) trennt die Blöcke', () => {
+    const k = (datum: string) => ({ art: 'chef-fehlt' as const, datum, team_id: 't2', mitarbeiter_id: 'c2' });
+    expect(konflikteBuendeln([k('2026-10-26'), k('2026-10-27'), k('2026-10-29')]).map((b) => `${b.datum}–${b.bis}`)).toEqual(['2026-10-26–2026-10-27', '2026-10-29–2026-10-29']);
+  });
+
+  it('zwei Einsätze am Tag: das grössere Soll gilt; sortiert nach Tag, dann Schwere', () => {
+    const p: EinsatzSoll[] = [
+      { team_id: 't1', baustelle_id: 'B1', von: '2026-10-26', bis: '2026-10-26', soll_leute: 2 },
+      { team_id: 't1', baustelle_id: 'B9', von: '2026-10-26', bis: '2026-10-26', soll_leute: 4 },
+      { team_id: 't2', baustelle_id: 'B2', von: '2026-10-26', bis: '2026-10-27', soll_leute: null },
+    ];
+    const r = lauf({ tage: ['2026-10-27', '2026-10-26'], plaene: p, abwesend: abw([['2026-10-27', 'c2', 'krank'], ['2026-10-27', 'b1', 'krank']]) });
+    expect(r.map((k) => `${k.datum} ${k.art} ${k.team_id}`)).toEqual(['2026-10-26 unter-soll t1', '2026-10-27 ohne-leute t2']);
+    expect(r[0]).toMatchObject({ ist: 3, soll: 4, baustelle_id: 'B9' });
   });
 });

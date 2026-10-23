@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { CalendarOff, Users } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { CalendarOff, TriangleAlert, Users } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
-import { alle } from '../../lib/abfrage';
+import { alle, stuecke } from '../../lib/abfrage';
+import { seitenFuer, useAnsicht } from '../../lib/ansicht';
 import { useNeuesteAnfrage } from '../../lib/auffrischen';
 import { addTage, ausIso, iso, stunden } from '../../lib/datum';
 import { normaltagMin } from '../../lib/einstellungen';
@@ -26,6 +28,55 @@ interface Person { id: string; name: string; funktion: string }
 const ALLE = 'alle';
 const STUECK = 500;
 
+/**
+ * Rückfrage nach dem Eintragen (24.10.2026, Caturix-Analyse): Ist die Person an diesen Tagen in ein Team eingeteilt,
+ * stünde sie dort weiter auf dem Plan — Einteilung löschen? Fehlt sie ihrem festen Team an geplanten Tagen, ein Hinweis
+ * mit Link in die Planung (dort steht es auch unter «Zu lösen»).
+ */
+interface PlanFrage {
+  einteilungen: { mitarbeiter_id: string; datum: string; team: string }[];
+  /** Festes Team mit Einsatz an diesen Tagen (nur bei einer Person) */
+  weniger: { team: string; tage: number; chef: boolean }[];
+  woche: string;
+  geloescht: number;
+}
+
+async function planungPruefen(ids: string[], tage: string[]): Promise<PlanFrage | null> {
+  if (!supabase || ids.length === 0 || tage.length === 0) return null;
+  const c = supabase;
+  const von = tage[0];
+  const bis = tage[tage.length - 1];
+  const tagSet = new Set(tage);
+  const [ep, tm, tt] = await Promise.all([
+    Promise.all(stuecke(ids).map((s) => c.from('einsatz_person').select('mitarbeiter_id,datum,team_id').in('mitarbeiter_id', s).gte('datum', von).lte('datum', bis))),
+    ids.length === 1 ? c.from('team_mitglied').select('team_id').eq('mitarbeiter_id', ids[0]).is('bis', null) : Promise.resolve({ data: [] as { team_id: string }[], error: null }),
+    c.from('team').select('id,bezeichnung,chefmonteur_id').eq('aktiv', true),
+  ]);
+  // Ohne Einteilungen (0036) oder ohne Verbindung: keine Rückfrage — die Abwesenheit ist ja gespeichert
+  if (ep.some((r) => r.error) || tm.error || tt.error) return null;
+  const teams = (tt.data ?? []) as { id: string; bezeichnung: string; chefmonteur_id: string | null }[];
+  const teamName = (id: string) => teams.find((t) => t.id === id)?.bezeichnung ?? 'anderes Team';
+  const einteilungen = ep.flatMap((r) => (r.data ?? []) as { mitarbeiter_id: string; datum: string; team_id: string }[])
+    .filter((e) => tagSet.has(e.datum))
+    .sort((a, b) => a.datum.localeCompare(b.datum))
+    .map((e) => ({ mitarbeiter_id: e.mitarbeiter_id, datum: e.datum, team: teamName(e.team_id) }));
+  const weniger: PlanFrage['weniger'] = [];
+  const fest = ((tm.data ?? []) as { team_id: string }[]).map((x) => x.team_id);
+  if (fest.length > 0) {
+    const jp = await c.from('jahresplan').select('team_id,von,bis').in('team_id', fest).lte('von', bis).gte('bis', von);
+    if (!jp.error) {
+      const plaene = (jp.data ?? []) as { team_id: string; von: string; bis: string }[];
+      for (const t of fest) {
+        // Tage, an denen das feste Team geplant ist — ohne die, an denen die Person ohnehin in einem anderen Team wäre
+        const n = tage.filter((d) => plaene.some((p) => p.team_id === t && p.von <= d && p.bis >= d) && !einteilungen.some((e) => e.datum === d)).length;
+        if (n > 0) weniger.push({ team: teamName(t), tage: n, chef: teams.find((x) => x.id === t)?.chefmonteur_id === ids[0] });
+      }
+    }
+  }
+  if (einteilungen.length === 0 && weniger.length === 0) return null;
+  return { einteilungen, weniger, woche: von, geloescht: 0 };
+}
+
 /** Heute, am Wochenende der nächste Montag — Ferien trägt man selten für einen Sonntag ein. */
 function naechsterArbeitstag(): string {
   let d = new Date();
@@ -37,6 +88,16 @@ function naechsterArbeitstag(): string {
 function tag(isoDatum: string): string {
   const d = ausIso(isoDatum);
   return `${['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa'][d.getDay()]} ${d.getDate()}.${d.getMonth() + 1}.`;
+}
+
+/** «Ivo Meier ist Mi 28.10. in Team 3 eingeteilt.» · «Ivo Meier ist an 3 Tagen eingeteilt (Team 3).» · «7 Einteilungen …» */
+function einteilungText(e: PlanFrage['einteilungen'], name: (id: string) => string): string {
+  const personen = new Set(e.map((x) => x.mitarbeiter_id));
+  if (personen.size > 1) return `An diesen Tagen sind ${e.length} Einteilungen in Teams geplant — die Leute fehlen dort.`;
+  const teams = [...new Set(e.map((x) => x.team))].join(', ');
+  return e.length === 1
+    ? `${name(e[0].mitarbeiter_id)} ist ${tag(e[0].datum)} in ${teams} eingeteilt.`
+    : `${name(e[0].mitarbeiter_id)} ist an ${e.length} dieser Tage eingeteilt (${teams}).`;
 }
 
 function fehlerText(m: string): string {
@@ -62,6 +123,10 @@ export function Abwesenheiten() {
   const [laedt, setLaedt] = useState(true);
   const [fehler, setFehler] = useState('');
   const [frage, setFrage] = useState<Frage<Block> | null>(null);
+  const [planFrage, setPlanFrage] = useState<PlanFrage | null>(null);
+  const [loeschtEinteilung, setLoeschtEinteilung] = useState(false);
+  const ansicht = useAnsicht();
+  const darfPlanen = ansicht ? seitenFuer(ansicht).includes('planung') : false;
   const anfrage = useNeuesteAnfrage();
 
   const monatVon = iso(monat);
@@ -111,6 +176,7 @@ export function Abwesenheiten() {
     if (tage.length === 0) { setMeldung({ text: bis < von ? '«Bis» liegt vor «von».' : 'Im Zeitraum liegt kein Arbeitstag (Mo–Fr).', art: 'fehler' }); return; }
     setSpeichert(true);
     setMeldung(null);
+    setPlanFrage(null);
     const zeilen = ziel.flatMap((p) => tage.map((datum) => ({ mitarbeiter_id: p.id, datum, art, minuten })));
     // Gleicher Tag schon eingetragen → ersetzen (Korrektur), nicht doppelt
     for (let i = 0; i < zeilen.length; i += STUECK) {
@@ -120,6 +186,7 @@ export function Abwesenheiten() {
     setSpeichert(false);
     const wer = personId === ALLE ? `${ziel.length} Personen` : ziel[0].name;
     setMeldung({ text: `Eingetragen ✓ ${artText(art)} · ${wer} · ${tage.length} ${tage.length === 1 ? 'Tag' : 'Tage'}`, art: 'ok' });
+    void planungPruefen(ziel.map((p) => p.id), tage).then(setPlanFrage);
     // Formular für die nächste Person frei machen (21.10.2026): sonst meldete es gleich nach dem Eintragen
     // «N Tage sind schon eingetragen — wird ersetzt» — über genau die Tage, die eben eingetragen wurden.
     setPersonId('');
@@ -127,6 +194,20 @@ export function Abwesenheiten() {
     const d = ausIso(von);
     const neu = new Date(d.getFullYear(), d.getMonth(), 1, 12);
     if (iso(neu) !== monatVon) setMonat(neu); else void laden();
+  }
+
+  /** Rückfrage «Einteilung löschen»: die Person ist an diesen Tagen wieder im festen Team (dort abwesend). */
+  async function einteilungenLoeschen() {
+    if (!supabase || !planFrage || loeschtEinteilung) return;
+    setLoeschtEinteilung(true);
+    const jePerson = new Map<string, string[]>();
+    for (const e of planFrage.einteilungen) jePerson.set(e.mitarbeiter_id, [...(jePerson.get(e.mitarbeiter_id) ?? []), e.datum]);
+    for (const [id, daten] of jePerson) {
+      const { error } = await supabase.from('einsatz_person').delete().eq('mitarbeiter_id', id).in('datum', daten);
+      if (error) { setLoeschtEinteilung(false); setMeldung({ text: 'Einteilung nicht gelöscht: ' + error.message, art: 'fehler' }); return; }
+    }
+    setLoeschtEinteilung(false);
+    setPlanFrage({ ...planFrage, einteilungen: [], geloescht: planFrage.einteilungen.length });
   }
 
   async function loeschen() {
@@ -224,6 +305,31 @@ export function Abwesenheiten() {
           </button>
         </div>
         {meldung && <p className={'text-sm font-semibold ' + (meldung.art === 'ok' ? 'text-good-deep' : 'text-accent-deep')}>{meldung.text}</p>}
+        {planFrage && (
+          <div className="space-y-2.5 rounded-[14px] border border-amber/40 bg-amber-soft/70 px-4 py-3 text-sm" role="status">
+            <p className="flex items-center gap-2 font-semibold text-amber-deep"><TriangleAlert size={15} aria-hidden="true" /> Betrifft die Planung</p>
+            {planFrage.einteilungen.length > 0 && (
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <span className="text-ink2">{einteilungText(planFrage.einteilungen, name)}</span>
+                <span className="flex shrink-0 gap-1.5">
+                  <button type="button" disabled={loeschtEinteilung} onClick={() => void einteilungenLoeschen()} className="cta whitespace-nowrap px-3.5 py-1.5 text-xs disabled:opacity-50">
+                    {loeschtEinteilung ? 'Löscht …' : planFrage.einteilungen.length === 1 ? 'Einteilung löschen' : 'Einteilungen löschen'}
+                  </button>
+                  <button type="button" onClick={() => setPlanFrage({ ...planFrage, einteilungen: [] })} className="btn-ghost whitespace-nowrap px-3 py-1.5 text-xs">So lassen</button>
+                </span>
+              </div>
+            )}
+            {planFrage.geloescht > 0 && <p className="font-medium text-good-deep">✓ {planFrage.geloescht === 1 ? 'Einteilung gelöscht' : `${planFrage.geloescht} Einteilungen gelöscht`} — wieder im festen Team.</p>}
+            {planFrage.weniger.map((w) => (
+              <p key={w.team} className="text-ink2">
+                {w.team} hat an {w.tage === 1 ? 'einem geplanten Tag' : `${w.tage} geplanten Tagen`} eine Person weniger{w.chef ? ' — und keinen Chefmonteur' : ''}.
+              </p>
+            ))}
+            {darfPlanen && planFrage.weniger.length > 0 && (
+              <Link to={`/planung?woche=${planFrage.woche}`} className="inline-block text-xs font-semibold text-steel hover:underline">In der Planung ansehen →</Link>
+            )}
+          </div>
+        )}
       </section>
 
       <section className="card overflow-hidden p-0">

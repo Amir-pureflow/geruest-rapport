@@ -7,6 +7,7 @@
  * die sich überschneiden (halber Tag hier, halber Tag dort), und die Schnellwahl der Zeiträume.
  */
 import { addTage, ausIso, iso } from './datum';
+import { istArbeitstag } from './feiertage';
 
 export interface Zeitraum {
   von: string;
@@ -60,14 +61,11 @@ export function zeitraumVorschlag(art: Schnellwahl, tag: Date): Zeitraum {
   return { von, bis: iso(addTage(freitagVon(tag), 7 * wochen)) };
 }
 
-/** Arbeitstage (Mo–Fr) im Zeitraum — für den Satz unter den Datumsfeldern. */
+/** Arbeitstage (Mo–Fr ohne Feiertage) im Zeitraum — für den Satz unter den Datumsfeldern. */
 export function arbeitstage(z: Zeitraum): number {
   const n = tageZwischen(z.von, z.bis);
   let zahl = 0;
-  for (let i = 0; i <= n; i++) {
-    const wt = (addTage(ausIso(z.von), i).getDay() + 6) % 7;
-    if (wt <= 4) zahl++;
-  }
+  for (let i = 0; i <= n; i++) if (istArbeitstag(addTage(ausIso(z.von), i))) zahl++;
   return zahl;
 }
 
@@ -315,9 +313,123 @@ export function planHinweise(
   return out;
 }
 
-/** Heute und der nächste Arbeitstag (Fr → Mo) — die Tage, für die der Chefmonteur Änderungen sehen muss. */
+/** Heute und der nächste Arbeitstag (Fr → Mo, über Feiertage hinweg) — die Tage, für die der Chefmonteur Änderungen sehen muss. */
 export function heuteUndNaechster(heute: Date): string[] {
   let n = addTage(heute, 1);
-  while (n.getDay() === 0 || n.getDay() === 6) n = addTage(n, 1);
+  while (!istArbeitstag(n)) n = addTage(n, 1);
   return [iso(heute), iso(n)];
+}
+
+// ── Konfliktliste (24.10.2026, Caturix-Analyse «Als Nächstes» Nr. 1) ──────────────────────────────
+
+/** Ein Einsatz mit dem, was die Konfliktliste braucht (`soll_leute` seit Migration 0049, sonst null). */
+export interface EinsatzSoll extends Zeitraum {
+  team_id: string | null;
+  baustelle_id: string | null;
+  soll_leute: number | null;
+}
+
+export type KonfliktArt = 'ohne-leute' | 'chef-fehlt' | 'unter-soll' | 'abwesend-eingeteilt' | 'eingeteilt-ohne-einsatz' | 'ohne-einsatz';
+
+export interface Konflikt {
+  art: KonfliktArt;
+  datum: string;
+  team_id: string;
+  /** Person, um die es geht (abwesend eingeteilt, Chefmonteur fehlt) */
+  mitarbeiter_id?: string;
+  /** Leute an dem Tag (ohne Abwesende) */
+  ist?: number;
+  soll?: number;
+  /** Baustelle des Einsatzes mit dem höchsten Soll bzw. die erste geplante */
+  baustelle_id?: string | null;
+  /** Chefmonteur fehlt: in welchem Team er an dem Tag ist (sonst abwesend) */
+  nach_team?: string;
+}
+
+const RANG: Record<KonfliktArt, number> = { 'ohne-leute': 0, 'chef-fehlt': 1, 'unter-soll': 2, 'abwesend-eingeteilt': 3, 'eingeteilt-ohne-einsatz': 4, 'ohne-einsatz': 5 };
+
+/**
+ * Was in der Planung zu lösen ist — wenige Regeln, damit die Liste ernst genommen wird (lieber eine Meldung zu wenig
+ * als zehn, die niemand liest). Nur Arbeitstage (Mo–Fr ohne Feiertage), je Team und Tag:
+ *
+ *  - ohne-leute: ein Einsatz ist geplant, aber niemand ist da (alle abwesend, versetzt oder nie eingeteilt)
+ *  - chef-fehlt: der Chefmonteur des Teams ist abwesend oder in einem anderen Team — wer meldet den Tag?
+ *  - unter-soll: weniger Leute da, als der Einsatz braucht (nur wenn «Leute nötig» gesetzt ist; bei zwei Einsätzen am
+ *    Tag gilt das grössere Soll)
+ *  - abwesend-eingeteilt: jemand ist für den Tag in ein Team eingeteilt, aber abwesend gemeldet
+ *  - eingeteilt-ohne-einsatz: Leute sind eingeteilt, das Team hat an dem Tag aber keine Baustelle
+ *  - ohne-einsatz: ein Team mit Leuten hat keine Baustelle — nur für `ohneEinsatzTage` (heute und der nächste
+ *    Arbeitstag), sonst stünde jede noch nicht geplante Zukunftswoche voll
+ *
+ * Mehrere Teams auf derselben Baustelle sind normal (Glossar) und kein Konflikt; ein Team auf zwei Baustellen am selben
+ * Tag auch nicht (halber Tag hier, halber Tag dort — der Einsatz-Dialog weist darauf hin).
+ */
+export function konflikte(o: {
+  tage: string[];
+  teams: { id: string; chefmonteur_id: string | null }[];
+  basis: Map<string, string[]>;
+  versetzt: Versetzung[];
+  plaene: EinsatzSoll[];
+  /** datum → (Person → Art der Abwesenheit) */
+  abwesend: Map<string, Map<string, string>>;
+  ohneEinsatzTage?: string[];
+}): Konflikt[] {
+  const out: Konflikt[] = [];
+  for (const datum of o.tage) {
+    if (!istArbeitstag(datum)) continue;
+    const bz = besetzung(o.basis, o.versetzt, datum);
+    const abw = o.abwesend.get(datum) ?? new Map<string, string>();
+    for (const team of o.teams) {
+      const b = bz.get(team.id) ?? { ids: [], dazu: [], weg: [] };
+      const da = b.ids.filter((id) => !abw.has(id));
+      const n = da.length;
+      const einsaetze = o.plaene.filter((p) => p.team_id === team.id && p.von <= datum && p.bis >= datum);
+      for (const id of b.dazu) if (abw.has(id)) out.push({ art: 'abwesend-eingeteilt', datum, team_id: team.id, mitarbeiter_id: id });
+      if (einsaetze.length > 0) {
+        const mitSoll = einsaetze.filter((p) => p.soll_leute !== null).sort((x, y) => (y.soll_leute ?? 0) - (x.soll_leute ?? 0));
+        const haupt = mitSoll[0] ?? einsaetze[0];
+        if (n === 0) {
+          out.push({ art: 'ohne-leute', datum, team_id: team.id, ist: 0, soll: mitSoll[0]?.soll_leute ?? undefined, baustelle_id: haupt.baustelle_id });
+          continue;
+        }
+        const chef = team.chefmonteur_id;
+        if (chef && (o.basis.get(team.id) ?? []).includes(chef) && !da.includes(chef)) {
+          const weg = b.weg.find((w) => w.id === chef);
+          out.push({ art: 'chef-fehlt', datum, team_id: team.id, mitarbeiter_id: chef, baustelle_id: haupt.baustelle_id, ...(weg ? { nach_team: weg.nach } : {}) });
+        }
+        const soll = mitSoll[0]?.soll_leute;
+        if (soll !== undefined && soll !== null && n < soll) out.push({ art: 'unter-soll', datum, team_id: team.id, ist: n, soll, baustelle_id: haupt.baustelle_id });
+      } else if (b.dazu.length > 0) {
+        out.push({ art: 'eingeteilt-ohne-einsatz', datum, team_id: team.id, ist: b.dazu.length });
+      } else if (n > 0 && o.ohneEinsatzTage?.includes(datum)) {
+        out.push({ art: 'ohne-einsatz', datum, team_id: team.id, ist: n });
+      }
+    }
+  }
+  return out.sort((x, y) => x.datum.localeCompare(y.datum) || RANG[x.art] - RANG[y.art]);
+}
+
+/** Ein Konflikt über mehrere aufeinanderfolgende Arbeitstage: `datum` = erster Tag, `bis` = letzter. */
+export interface KonfliktBlock extends Konflikt { bis: string; tage: number }
+
+/**
+ * Derselbe Konflikt an aufeinanderfolgenden Arbeitstagen wird eine Zeile («Mo 26.10. – Fr 30.10.: 3 von 4 Leuten»):
+ * fehlt einem Team für einen zweiwöchigen Einsatz eine Person, stünden sonst zehn gleiche Zeilen in der Liste.
+ * Gleich heisst: dieselbe Art, dasselbe Team, dieselbe Person, Zahlen und Baustelle. Wochenende und Feiertage
+ * dazwischen unterbrechen nicht.
+ */
+export function konflikteBuendeln(liste: Konflikt[]): KonfliktBlock[] {
+  const schluessel = (k: Konflikt) => [k.art, k.team_id, k.mitarbeiter_id ?? '', k.ist ?? '', k.soll ?? '', k.baustelle_id ?? '', k.nach_team ?? ''].join('|');
+  const naechsterArbeitstag = (d: string) => { let n = addTage(ausIso(d), 1); while (!istArbeitstag(n)) n = addTage(n, 1); return iso(n); };
+  const offen = new Map<string, KonfliktBlock>();
+  const bloecke: KonfliktBlock[] = [];
+  for (const k of [...liste].sort((x, y) => x.datum.localeCompare(y.datum))) {
+    const s = schluessel(k);
+    const b = offen.get(s);
+    if (b && naechsterArbeitstag(b.bis) === k.datum) { b.bis = k.datum; b.tage++; continue; }
+    const neu = { ...k, bis: k.datum, tage: 1 };
+    offen.set(s, neu);
+    bloecke.push(neu);
+  }
+  return bloecke.sort((x, y) => x.datum.localeCompare(y.datum) || RANG[x.art] - RANG[y.art]);
 }

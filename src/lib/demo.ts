@@ -282,7 +282,7 @@ export interface TeamRow { id: string; bezeichnung: string; fahrzeug: string; ch
 export interface TeamMitgliedRow { team_id: string; mitarbeiter_id: string; von: string }
 export interface KundeRow { id: string; name: string; praeferenz: 'einzel' | 'sammel'; ansprechperson: string; email: string; telefon: string }
 export interface BaustelleUpdate { id: string; konto_nr: string; bezeichnung: string | null; kunde_id: string | null; status: 'aktiv' | 'fertig_gemeldet' | 'abgeschlossen'; fertigstellung_am: string | null }
-export interface JahresplanRow { id: string; baustelle_id: string; team_id: string; von: string; bis: string }
+export interface JahresplanRow { id: string; baustelle_id: string; team_id: string; von: string; bis: string; soll_leute?: number | null; beginn_min?: number | null; treffpunkt?: 'baustelle' | 'werkhof' | null; hinweis?: string | null }
 export interface TagesmeldungRow { id: string; client_uuid: string; team_id: string; datum: string; baustelle_id: string; normalfall: boolean; abweichung_typ: string | null; wer_hats_gewollt: string | null; transkript: string | null; transkript_quelle: string | null; transkript_sprache: string | null; audio_sekunden: number | null; erfasst_von: string; erfasst_am: string; status: 'offen' | 'freigegeben' }
 export interface ZeiteintragRow { id: string; tagesmeldung_id: string; mitarbeiter_id: string; normal_min: number; ueber_min: number; oev: boolean; km: number; baustelle_id: string; konto_nr: string; status: 'offen' | 'freigegeben'; von_min: number | null; bis_min: number | null; von2_min: number | null; bis2_min: number | null }
 export interface FreigabeLogRow { id: string; zeiteintrag_id: string; wer: string; wann: string; feld: string; alt: string; neu: string }
@@ -461,6 +461,18 @@ export function erzeugeDemoBetrieb(opts: { baustellen: BaustelleQuelle[]; heute:
     }
     plan(team, neueBaustelle(), mo(2), fr(2 + z.int(1, 3)));
   }
+  // Einsatzfelder (0049) für die Vorführung: laufende und kommende Einsätze brauchen so viele Leute, wie das Team fest
+  // hat — beim ersten Team einen mehr, das steht dann unter «Zu lösen». Zwei Teams haben Treffpunkt, Beginn und Hinweis.
+  const festImTeam = (teamId: string) => teamMitglieder.filter((m) => m.team_id === teamId).length;
+  const ab = iso(heute);
+  const tagJetzt = heute.getDay() === 0 || heute.getDay() === 6 ? iso(mo(1)) : ab;
+  const laufend = (teamIdx: number) => jahresplan.find((j) => j.team_id === teams[teamIdx]?.id && j.von <= tagJetzt && j.bis >= tagJetzt);
+  for (const j of jahresplan) if (j.bis >= ab) j.soll_leute = festImTeam(j.team_id);
+  const e0 = laufend(0), e1 = laufend(1), e2 = laufend(2);
+  if (e0) e0.soll_leute = festImTeam(e0.team_id) + 1;
+  if (e1) Object.assign(e1, { beginn_min: 6 * 60 + 30, treffpunkt: 'werkhof', hinweis: 'Kran kommt um 9 — Zufahrt über den Hinterhof' });
+  if (e2) Object.assign(e2, { treffpunkt: 'baustelle', hinweis: 'Schlüssel beim Hauswart, Herr Brunner' });
+
   /** Baustelle eines Teams an einem Tag laut Planung — Einsätze überschneiden sich in der Demo nie. */
   const baustelleAm = (teamId: string, tagIso: string): BaustelleUpdate => {
     const treffer = jahresplan.filter((j) => j.team_id === teamId && j.von <= tagIso && j.bis >= tagIso);
