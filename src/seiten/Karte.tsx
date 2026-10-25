@@ -8,7 +8,7 @@
  */
 import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { CalendarX2, ChevronLeft, ChevronRight, Clock, Flag, MapPin, MapPinOff, MessageSquareText, Search, Users, X } from 'lucide-react';
+import { CalendarX2, ChevronLeft, ChevronRight, Clock, Flag, MapPin, MapPinOff, MessageSquareText, Search, Users } from 'lucide-react';
 import { Shell } from '../ui/Shell';
 import { Avatar } from '../ui/Dialog';
 import { supabase } from '../lib/supabase';
@@ -185,9 +185,9 @@ export function Karte() {
           {/* Karte — am Handy oben */}
           <section className="card relative order-1 h-[55vh] min-h-[360px] overflow-hidden p-0 lg:order-2 lg:h-[calc(100vh-200px)] lg:min-h-[520px]">
             <Suspense fallback={<p className="p-6 text-sm text-ink3">Karte lädt …</p>}>
-              <Landkarte punkte={sichtbar} werkhof={daten?.werkhof ?? null} auswahl={auswahl} onAuswahl={(id) => setAuswahl(id)} luftbild={luftbild} />
+              <Landkarte punkte={sichtbar} werkhof={daten?.werkhof ?? null} auswahl={auswahl} onAuswahl={(id) => setAuswahl(id)} luftbild={luftbild}
+                blase={gewaehlt && <TeamBlase punkt={gewaehlt} tag={tag} />} onSchliessen={() => setAuswahl(null)} />
             </Suspense>
-            {gewaehlt && <Details punkt={gewaehlt} tag={tag} onZu={() => setAuswahl(null)} />}
             <div className="absolute right-3 top-3 z-[500] flex rounded-full border border-ink/10 bg-white p-1 shadow-[0_2px_8px_-2px_rgb(17_17_19/0.25)]" role="group" aria-label="Kartenart">
               {([false, true] as const).map((lb) => (
                 <button key={String(lb)} type="button" aria-pressed={luftbild === lb} onClick={() => setLuftbild(lb)}
@@ -204,12 +204,11 @@ export function Karte() {
 }
 
 /**
- * Detailkarte (25.10.2026, Amir: «wenn ich auf ein Team klicke, die Details sehen — wer dort ist, clean»): Baustelle mit
- * Adresse, je Team Chefmonteur, Beginn, Treffpunkt, Hinweis und die Leute des Tages mit Namen — da, eingeteilt, fehlt,
- * abwesend, in einem anderen Team. Über der Karte oben links, am Handy über die ganze Breite.
+ * Blase über der gewählten Baustelle (25.10.2026, Amir: «auf der Karte sehen, wer im Team ist — einfach Details zum
+ * Team»): je Team Chefmonteur, «x von y», Beginn, Treffpunkt, Hinweis und die Leute mit Namen — da, eingeteilt, fehlt,
+ * abwesend, in einem anderen Team. Sitzt als Popup direkt über dem Punkt (Landkarte), × oder Klick daneben schliesst.
  */
-function Details({ punkt, tag, onZu }: { punkt: KartenPunkt; tag: string; onZu: () => void }) {
-  const b = punkt.baustelle;
+function TeamBlase({ punkt, tag }: { punkt: KartenPunkt; tag: string }) {
   const markeVon = (p: KartenPerson) =>
     p.art === 'dazu' ? { text: 'eingeteilt', klasse: 'bg-good-soft text-good-deep' }
       : p.art === 'fehlt' ? { text: 'fehlt gemeldet', klasse: 'bg-amber-soft text-amber-deep' }
@@ -217,55 +216,47 @@ function Details({ punkt, tag, onZu }: { punkt: KartenPunkt; tag: string; onZu: 
           : p.art === 'weg' ? { text: `→ ${p.info ?? 'anderes Team'}`, klasse: 'bg-surface-2 text-ink3' }
             : null;
   return (
-    <aside className="absolute inset-x-3 bottom-3 z-[600] flex max-h-[calc(100%-24px)] flex-col overflow-hidden rounded-[16px] border border-ink/10 bg-white shadow-[0_18px_40px_-16px_rgb(17_17_19/0.45)] sm:inset-x-auto sm:bottom-auto sm:left-3 sm:top-3 sm:w-[360px]" aria-label="Details zur Baustelle">
-      <div className="flex items-start gap-2 border-b border-line px-4 py-3">
-        <div className="min-w-0 flex-1">
-          <p className="flex items-start gap-2"><span className="knr mt-px">{b.konto_nr}</span><span className="text-[15px] font-semibold leading-snug text-ink">{b.bezeichnung || 'Baustelle'}</span></p>
-          {adresseText(b) && <p className="mt-1 flex items-center gap-1.5 text-xs text-ink3"><MapPin size={12} aria-hidden="true" />{adresseText(b)}</p>}
-        </div>
-        <button type="button" onClick={onZu} aria-label="Details schliessen" className="grid h-8 w-8 shrink-0 place-items-center rounded-full text-ink3 hover:bg-surface-2 hover:text-ink"><X size={17} /></button>
-      </div>
-      <div className="min-h-0 flex-1 divide-y divide-line overflow-y-auto">
+    <div className="max-h-[min(340px,42vh)] w-[290px] max-w-[calc(100vw-80px)] overflow-y-auto text-left">
+      <p className="pr-6 text-[12px] leading-snug text-ink3"><span className="font-mono">{punkt.baustelle.konto_nr}</span> · {punkt.baustelle.bezeichnung || 'Baustelle'}</p>
+      <div className="mt-1 divide-y divide-line">
         {punkt.teams.map((t) => {
           const da = (t.personen ?? []).filter((p) => p.art === 'da' || p.art === 'dazu').length;
           const knapp = t.soll !== null && da < t.soll;
           return (
-            <section key={t.teamId} className="space-y-2.5 px-4 py-3">
+            <section key={t.teamId} className="space-y-2 py-2.5 first:pt-1.5 last:pb-0.5">
               <div className="flex items-baseline justify-between gap-2">
-                <p className="text-sm font-semibold text-ink">{t.team}{t.chef && <span className="font-normal text-ink3"> · {t.chef}</span>}</p>
+                <p className="text-[15px] font-semibold text-ink">{t.team}{t.chef && <span className="text-[13px] font-normal text-ink3"> · {t.chef}</span>}</p>
                 <span className={'inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold ' + (knapp ? 'bg-amber-soft text-amber-deep' : 'bg-surface-2 text-ink2')}>
                   <Users size={11} aria-hidden="true" />{da}{t.soll !== null ? ` von ${t.soll}` : ''}
                 </span>
               </div>
               {(t.beginn_min !== null || t.treffpunkt) && (
-                <p className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-ink2">
-                  {t.beginn_min !== null && <span className="inline-flex items-center gap-1.5"><Clock size={13} className="text-ink3" aria-hidden="true" />ab <b className="font-semibold text-ink">{uhrzeit(t.beginn_min)}</b></span>}
-                  {t.treffpunkt && <span className="inline-flex items-center gap-1.5"><Flag size={13} className="text-ink3" aria-hidden="true" />Treffpunkt <b className="font-semibold text-ink">{t.treffpunkt === 'werkhof' ? 'Werkhof' : 'Baustelle'}</b></span>}
+                <p className="flex flex-wrap gap-x-3 gap-y-0.5 text-[12px] text-ink2">
+                  {t.beginn_min !== null && <span className="inline-flex items-center gap-1"><Clock size={12} className="text-ink3" aria-hidden="true" />ab <b className="font-semibold text-ink">{uhrzeit(t.beginn_min)}</b></span>}
+                  {t.treffpunkt && <span className="inline-flex items-center gap-1"><Flag size={12} className="text-ink3" aria-hidden="true" />{t.treffpunkt === 'werkhof' ? 'Werkhof' : 'Baustelle'}</span>}
                 </p>
               )}
-              {t.hinweis && <p className="flex items-start gap-1.5 rounded-[10px] bg-steel-soft px-2.5 py-1.5 text-xs text-ink"><MessageSquareText size={13} className="mt-0.5 shrink-0 text-steel" aria-hidden="true" />{t.hinweis}</p>}
+              {t.hinweis && <p className="flex items-start gap-1.5 rounded-[8px] bg-steel-soft px-2 py-1 text-[12px] text-ink"><MessageSquareText size={12} className="mt-0.5 shrink-0 text-steel" aria-hidden="true" />{t.hinweis}</p>}
               {(t.personen ?? []).length > 0 ? (
                 <ul className="space-y-1">
                   {(t.personen ?? []).map((p) => {
                     const m = markeVon(p);
                     const weg = p.art === 'abwesend' || p.art === 'weg' || p.art === 'fehlt';
                     return (
-                      <li key={p.id + p.art} className="flex items-center gap-2.5">
+                      <li key={p.id + p.art} className="flex items-center gap-2">
                         <Avatar name={p.name} />
-                        <span className={'min-w-0 flex-1 truncate text-sm ' + (weg ? 'text-ink3' : 'text-ink')}>{p.name}</span>
-                        {m && <span className={'shrink-0 rounded-full px-2 py-0.5 text-[10.5px] font-semibold ' + m.klasse}>{m.text}</span>}
+                        <span className={'min-w-0 flex-1 truncate text-[13.5px] ' + (weg ? 'text-ink3' : 'text-ink')}>{p.name}</span>
+                        {m && <span className={'shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-semibold ' + m.klasse}>{m.text}</span>}
                       </li>
                     );
                   })}
                 </ul>
-              ) : <p className="text-xs text-ink3">Niemand eingeteilt.</p>}
+              ) : <p className="text-[12px] text-ink3">Niemand eingeteilt.</p>}
             </section>
           );
         })}
       </div>
-      <div className="border-t border-line px-4 py-2.5">
-        <Link to={`/planung?woche=${iso(montag(ausIso(tag)))}`} className="text-xs font-semibold text-steel hover:underline">In der Planung öffnen →</Link>
-      </div>
-    </aside>
+      <Link to={`/planung?woche=${iso(montag(ausIso(tag)))}`} className="mt-2 inline-block text-[12px] font-semibold text-steel hover:underline">In der Planung öffnen →</Link>
+    </div>
   );
 }

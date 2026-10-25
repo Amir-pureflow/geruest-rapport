@@ -4,7 +4,8 @@
  * «Luftbild» = Luftbild mit Strassen und Namen. Nur auf der Tageskarte im Büro geladen (Seite wird nachgeladen).
  * Keine Google-Konten, kein Schlüssel, keine Standortabfrage. Braucht WebGL — ohne steht ein Hinweis da.
  */
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import type { KartenPunkt } from '../lib/karte';
 // Bibliothek, Worker und Kartenstile gemeinsam mit dem Ort der Baustelle (Verwaltung)
 import { maplibregl, START, STIL_KARTE as KARTE, STIL_LUFTBILD as LUFTBILD } from './kartenstil';
@@ -38,12 +39,15 @@ function passenAuf(m: maplibregl.Map, a: { grenzen: maplibregl.LngLatBounds; anz
   else m.fitBounds(a.grenzen, { padding: 70, maxZoom: 15, duration: 0 });
 }
 
-export function Landkarte({ punkte, werkhof, auswahl, onAuswahl, luftbild }: {
+export function Landkarte({ punkte, werkhof, auswahl, onAuswahl, luftbild, blase, onSchliessen }: {
   punkte: KartenPunkt[];
   werkhof: { lat: number; lon: number; adresse: string | null } | null;
   auswahl: string | null;
   onAuswahl: (baustelleId: string) => void;
   luftbild: boolean;
+  /** Inhalt der Blase über der gewählten Baustelle (wer im Team ist) — 25.10.2026, Amir: «auf der Karte sehen, wer im Team ist» */
+  blase?: ReactNode;
+  onSchliessen?: () => void;
 }) {
   const box = useRef<HTMLDivElement>(null);
   const karte = useRef<maplibregl.Map | null>(null);
@@ -58,6 +62,12 @@ export function Landkarte({ punkte, werkhof, auswahl, onAuswahl, luftbild }: {
   const ausschnitt = useRef<{ grenzen: maplibregl.LngLatBounds; anzahl: number } | null>(null);
   const beruehrt = useRef(false);
   const passen = (m: maplibregl.Map) => passenAuf(m, ausschnitt.current);
+  // Blase: MapLibre-Popup über dem Punkt, der Inhalt kommt als React-Teil hinein (Portal)
+  const blasenInhalt = useRef<HTMLDivElement>(document.createElement('div'));
+  const popup = useRef<maplibregl.Popup | null>(null);
+  const selbstZu = useRef(false);
+  const schliessen = useRef(onSchliessen);
+  useEffect(() => { schliessen.current = onSchliessen; });
 
   // Einmal anlegen, beim Verlassen der Seite wieder abbauen
   useEffect(() => {
@@ -125,16 +135,30 @@ export function Landkarte({ punkte, werkhof, auswahl, onAuswahl, luftbild }: {
     }
   }, [punkte, werkhof, auswahl, schluessel]);
 
-  // Gewählte Baustelle in die Mitte holen
+  // Gewählte Baustelle anfliegen — etwas unter die Mitte, damit die Blase darüber Platz hat
   useEffect(() => {
     const m = karte.current;
     const p = punkte.find((x) => x.baustelle.id === auswahl);
     if (!m || !p) return;
-    beruehrt.current = true; // gewählte Baustelle bleibt in der Mitte, auch wenn sich die Grösse ändert
-    // Die Detailkarte liegt links (am Handy unten) über der Karte — den Punkt daneben statt darunter zeigen
-    const breit = window.matchMedia('(min-width: 640px)').matches;
-    m.flyTo({ center: [p.baustelle.lon!, p.baustelle.lat!], zoom: Math.max(m.getZoom(), 15), duration: 600, offset: breit ? [190, 0] : [0, -110] });
+    beruehrt.current = true; // gewählte Baustelle bleibt im Bild, auch wenn sich die Grösse ändert
+    m.flyTo({ center: [p.baustelle.lon!, p.baustelle.lat!], zoom: Math.max(m.getZoom(), 15), duration: 600, offset: [0, 140] });
   }, [auswahl]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Blase über dem Punkt öffnen bzw. schliessen
+  useEffect(() => {
+    const m = karte.current;
+    const p = punkte.find((x) => x.baustelle.id === auswahl);
+    const zu = () => { if (popup.current) { selbstZu.current = true; popup.current.remove(); selbstZu.current = false; } };
+    if (!m || !p || !blase) { zu(); return; }
+    if (!popup.current) {
+      // Über der Fahne (die steht ~40 px über dem Ort); schliessen per × oder Klick daneben
+      popup.current = new maplibregl.Popup({ anchor: 'bottom', offset: [0, -44], closeButton: true, closeOnClick: true, maxWidth: '330px', className: 'rp-blase', focusAfterOpen: false })
+        .setDOMContent(blasenInhalt.current);
+      popup.current.on('close', () => { if (!selbstZu.current) schliessen.current?.(); });
+    }
+    popup.current.setLngLat([p.baustelle.lon!, p.baustelle.lat!]);
+    if (!popup.current.isOpen()) popup.current.addTo(m);
+  }, [auswahl, punkte, blase]);
 
   if (ohneWebgl) {
     return <p className="p-6 text-sm text-ink3">Die Karte braucht WebGL — auf diesem Gerät ausgeschaltet. Die Liste links zeigt alle Einsätze.</p>;
@@ -143,6 +167,7 @@ export function Landkarte({ punkte, werkhof, auswahl, onAuswahl, luftbild }: {
     <div className="relative h-full w-full bg-[#fcfcfc]">
       {!bereit && <p className="absolute inset-0 flex items-center justify-center text-sm text-ink3" aria-live="polite">Karte lädt …</p>}
       <div ref={box} className={'h-full w-full transition-opacity duration-300 ' + (bereit ? 'opacity-100' : 'opacity-0')} role="region" aria-label="Karte der Baustellen" />
+      {createPortal(blase ?? null, blasenInhalt.current)}
     </div>
   );
 }

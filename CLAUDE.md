@@ -437,10 +437,11 @@ Umplanung in der Vorführung erschiene nicht.
   gewählt (die graue Landeskarte wirkte technisch und unruhig; Google Maps hätte Konto, Kreditkarte und Daten an Google
   bedeutet). Braucht WebGL, sonst ein Satz statt der Karte. Erscheint erst, wenn alle Kacheln geladen sind (sanft
   eingeblendet, vorher «Karte lädt …») — sonst baute sie sich sichtbar auf (zuerst nur Relief); solange niemand selbst
-  verschiebt, bleiben bei Grössenänderungen alle Punkte im Bild. **Detailkarte** (25.10.2026, Amir: «wenn ich auf ein Team
-  klicke, die Details sehen»): Klick auf Punkt oder Listeneintrag zeigt oben links Baustelle, Adresse und je Team
-  Chefmonteur, Beginn, Treffpunkt, Hinweis, «x von y» und die Leute mit Namen (da, eingeteilt, fehlt, abwesend, weg) —
-  `leuteAm` wie auf dem Teamgerät; der gewählte Punkt fliegt neben die Karte statt darunter.
+  verschiebt, bleiben bei Grössenänderungen alle Punkte im Bild. **Blase am Punkt** (25.10.2026, Amir: «auf der Karte sehen,
+  wer im Team ist — einfach Details zum Team»): Klick auf Punkt oder Listeneintrag öffnet direkt über dem Punkt eine
+  Blase (MapLibre-Popup, Inhalt per React-Portal) mit je Team Chefmonteur, Beginn, Treffpunkt, Hinweis, «x von y» und den
+  Leuten mit Namen (da, eingeteilt, fehlt, abwesend, weg — `leuteAm` wie auf dem Teamgerät); × oder Klick daneben schliesst.
+  Zuerst stand das als Box oben links — Amir wollte es beim Team.
 - **Ort von Hand** (Schritt 7, 25.10.2026): Verwaltung → Baustellen → aufklappen: Karte unter der Adresse (`ui/OrtWahl.tsx`,
   nachgeladen) — Nadel ziehen oder auf die Karte tippen, dann «Punkt speichern» (`lage_quelle = 'von_hand'`), auch ganz
   ohne Adresse; Karte/Luftbild. Für Areale, Neubauten ohne Nummer, Zufahrt auf der Rückseite. «Navigieren» und die

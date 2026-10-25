@@ -589,3 +589,8 @@
 /* Ort der Baustelle (Schritt 7, 25.10.2026): Nadel zum Ziehen, Spitze auf dem Ort (src/ui/OrtWahl.tsx) */
 .rp-nadel { color: var(--color-accent); cursor: grab; line-height: 0; filter: drop-shadow(0 4px 6px rgb(17 17 19 / 0.35)); }
 .rp-nadel:active { cursor: grabbing; }
+
+/* Blase über der gewählten Baustelle auf der Tageskarte (25.10.2026): wer im Team ist */
+.rp-blase .maplibregl-popup-content { padding: 12px 14px 12px; border-radius: 14px; box-shadow: 0 18px 40px -14px rgb(17 17 19 / 0.45); font-family: var(--font-sans); }
+.rp-blase .maplibregl-popup-close-button { top: 6px; right: 6px; width: 26px; height: 26px; border-radius: 999px; font-size: 18px; line-height: 1; color: var(--color-ink3); }
+.rp-blase .maplibregl-popup-close-button:hover { background: var(--color-surface-2); color: var(--color-ink); }
