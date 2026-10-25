@@ -4,20 +4,22 @@
  * Regierapport, Wochenübersicht). Texte aus `eintragText()` (lib/posteingang.ts).
  */
 import { useNavigate } from 'react-router-dom';
-import { AlarmClock, CalendarClock, CheckCircle2, ClipboardPen, Inbox, MessageCircleQuestion, TriangleAlert, UserRound, type LucideIcon } from 'lucide-react';
+import { AlarmClock, CalendarClock, CheckCircle2, ClipboardPen, Inbox, MessageCircleQuestion, TriangleAlert, UserRound, UserX, type LucideIcon } from 'lucide-react';
 import { Shell } from '../ui/Shell';
 import { useAnsicht } from '../lib/ansicht';
 import { iso } from '../lib/datum';
 import { alsGelesen, eintragText, istNeu, usePosteingang, wannText, type Eintrag } from '../lib/posteingang';
 
 const ICON: Record<Eintrag['art'], LucideIcon> = {
-  plan: CalendarClock, korrektur: ClipboardPen, rueckfrage: MessageCircleQuestion, bestaetigt: CheckCircle2, frist: AlarmClock, abweichung: TriangleAlert,
+  plan: CalendarClock, korrektur: ClipboardPen, rueckfrage: MessageCircleQuestion, bestaetigt: CheckCircle2, frist: AlarmClock, abweichung: TriangleAlert, fehlt: UserX,
 };
 
 /** Bernstein für Hinweise (Plan, Abweichung, Frist), Rot nur, wo jemand handeln muss (Rückfrage), Grün für erledigt */
 const TON: Record<Eintrag['art'], string> = {
   plan: 'bg-amber-soft text-amber-deep', abweichung: 'bg-amber-soft text-amber-deep', frist: 'bg-amber-soft text-amber-deep',
   rueckfrage: 'bg-accent-soft text-accent-deep', korrektur: 'bg-steel-soft text-steel', bestaetigt: 'bg-good-soft text-good-deep',
+  // Jemand fehlt: das Büro muss handeln (Ersatz) — Rot wie die Rückfrage
+  fehlt: 'bg-accent-soft text-accent-deep',
 };
 
 function Zeile({ e, heuteIso, jetzt, onWahl }: { e: Eintrag; heuteIso: string; jetzt: Date; onWahl: (e: Eintrag, ziel: string) => void }) {
@@ -44,7 +46,7 @@ function Zeile({ e, heuteIso, jetzt, onWahl }: { e: Eintrag; heuteIso: string; j
               {t.zeilen.map((z, i) => <span key={i} className={'block text-[13.5px] leading-snug ' + (neu ? 'text-ink2' : 'text-ink3')}>{z}</span>)}
             </span>
           )}
-          {e.erledigt_am && (e.art === 'rueckfrage' || e.art === 'frist' || e.art === 'abweichung') && (
+          {e.erledigt_am && (e.art === 'rueckfrage' || e.art === 'frist' || e.art === 'abweichung' || e.art === 'fehlt') && (
             <span className="mt-1 inline-flex items-center gap-1 text-[11.5px] text-good-deep"><CheckCircle2 size={12} aria-hidden="true" /> erledigt</span>
           )}
         </span>
@@ -70,7 +72,7 @@ export function Posteingang() {
   }
 
   const leer = buero
-    ? 'Hier erscheinen Rückfragen und Bestätigungen der Kunden zu Regierapporten, abgelaufene Fristen und Meldungen mit Abweichung.'
+    ? 'Hier erscheinen Leute, die das Team als «fehlt» meldet, Rückfragen und Bestätigungen der Kunden zu Regierapporten, abgelaufene Fristen und Meldungen mit Abweichung.'
     : ansicht === 'chef'
       ? 'Hier erscheint, wenn das Büro den Plan für heute oder den nächsten Arbeitstag ändert, jemand fehlt oder Stunden korrigiert werden.'
       : 'Hier erscheint, wenn du in einem anderen Team eingeteilt wirst oder das Büro deine Stunden korrigiert.';

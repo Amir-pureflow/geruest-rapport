@@ -49,7 +49,7 @@ export function Karte() {
     const aktuell = anfrage();
     if (!still) setLaedt(true);
     const firma = eigeneFirma();
-    const [t, p, m, v, a, f] = await Promise.all([
+    const [t, p, m, v, a, f, fm] = await Promise.all([
       c.from('team').select('id,bezeichnung,chefmonteur:chefmonteur_id(name)').eq('aktiv', true),
       alleOderFehler<{ team_id: string | null; soll_leute: number | null; beginn_min: number | null; baustelle: PunktBaustelle | null }>((von, bis) =>
         c.from('jahresplan').select('team_id,soll_leute,beginn_min,baustelle:baustelle_id(id,konto_nr,bezeichnung,strasse,plz,ort,lat,lon)').lte('von', tag).gte('bis', tag).order('id').range(von, bis)),
@@ -57,6 +57,8 @@ export function Karte() {
       c.from('einsatz_person').select('datum,mitarbeiter_id,team_id').eq('datum', tag),
       c.from('abwesenheit').select('mitarbeiter_id').eq('datum', tag),
       firma ? c.from('firma').select('werkhof_adresse,werkhof_lat,werkhof_lon').eq('id', firma.id).maybeSingle() : Promise.resolve({ data: null, error: null }),
+      // Vom Team als «fehlt» gemeldet (0053) — zählt wie abwesend
+      c.from('fehlmeldung').select('mitarbeiter_id').eq('status', 'offen').eq('datum', tag),
     ]);
     if (!aktuell()) return;
     const err = t.error ?? p.error ?? m.error;
@@ -68,7 +70,7 @@ export function Karte() {
       if (!x.mitarbeiter?.aktiv || x.mitarbeiter.funktion === FUNKTION_BUERO) continue;
       basis.set(x.team_id, [...(basis.get(x.team_id) ?? []), x.mitarbeiter.id]);
     }
-    const abwesend = new Set(((a.data ?? []) as { mitarbeiter_id: string }[]).map((x) => x.mitarbeiter_id));
+    const abwesend = new Set([...((a.data ?? []) as { mitarbeiter_id: string }[]), ...((fm.error ? [] : fm.data ?? []) as { mitarbeiter_id: string }[])].map((x) => x.mitarbeiter_id));
     const leute = new Map<string, number>();
     for (const [teamId, b] of besetzung(basis, (v.error ? [] : (v.data ?? [])) as Versetzung[], tag)) leute.set(teamId, b.ids.filter((id) => !abwesend.has(id)).length);
     const w = f.error ? null : (f.data as { werkhof_adresse: string | null; werkhof_lat: number | null; werkhof_lon: number | null } | null);

@@ -44,6 +44,12 @@ function werkhofElement(): HTMLElement {
   return h;
 }
 
+function passenAuf(m: maplibregl.Map, a: { grenzen: maplibregl.LngLatBounds; anzahl: number } | null) {
+  if (!a || a.anzahl === 0) return;
+  if (a.anzahl === 1) m.jumpTo({ center: a.grenzen.getCenter(), zoom: 15 });
+  else m.fitBounds(a.grenzen, { padding: 70, maxZoom: 15, duration: 0 });
+}
+
 export function Landkarte({ punkte, werkhof, auswahl, onAuswahl, luftbild }: {
   punkte: KartenPunkt[];
   werkhof: { lat: number; lon: number; adresse: string | null } | null;
@@ -57,6 +63,13 @@ export function Landkarte({ punkte, werkhof, auswahl, onAuswahl, luftbild }: {
   const wahl = useRef(onAuswahl);
   useEffect(() => { wahl.current = onAuswahl; });
   const [ohneWebgl, setOhneWebgl] = useState(false);
+  // Erst zeigen, wenn alles geladen ist: sonst erscheint zuerst nur das Relief (graue Schatten, keine Strassen) und die
+  // Karte baut sich vor den Augen auf (25.10.2026, Amir: «am Anfang nicht direkt clean»)
+  const [bereit, setBereit] = useState(false);
+  // Ausschnitt mit allen Punkten — gilt, bis jemand selbst verschiebt oder zoomt
+  const ausschnitt = useRef<{ grenzen: maplibregl.LngLatBounds; anzahl: number } | null>(null);
+  const beruehrt = useRef(false);
+  const passen = (m: maplibregl.Map) => passenAuf(m, ausschnitt.current);
 
   // Einmal anlegen, beim Verlassen der Seite wieder abbauen
   useEffect(() => {
@@ -74,10 +87,15 @@ export function Landkarte({ punkte, werkhof, auswahl, onAuswahl, luftbild }: {
     m.touchZoomRotate.disableRotation();
     m.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'bottom-right');
     karte.current = m;
-    // Die Karte sitzt in einem Raster, das sich nach dem ersten Zeichnen noch setzt — Grösse nachmessen
-    const r = new ResizeObserver(() => m.resize());
+    // Einblenden, sobald alle Kacheln da sind — spätestens nach 6 s (langsames Netz: lieber halb als gar nicht)
+    m.once('idle', () => setBereit(true));
+    const frist = setTimeout(() => setBereit(true), 6000);
+    m.on('movestart', (e) => { if ((e as { originalEvent?: unknown }).originalEvent) beruehrt.current = true; });
+    // Die Karte sitzt in einem Raster, das sich nach dem ersten Zeichnen noch setzt — Grösse nachmessen und, solange
+    // niemand selbst verschoben hat, alle Punkte wieder ins Bild holen (sonst lag ein Teil ausserhalb)
+    const r = new ResizeObserver(() => { m.resize(); if (!beruehrt.current) passen(m); });
     r.observe(box.current);
-    return () => { r.disconnect(); m.remove(); karte.current = null; };
+    return () => { clearTimeout(frist); r.disconnect(); m.remove(); karte.current = null; };
   }, []);
 
   // Karte ↔ Luftbild: nur der Stil wechselt, die Punkte (eigene Elemente) bleiben
@@ -113,8 +131,9 @@ export function Landkarte({ punkte, werkhof, auswahl, onAuswahl, luftbild }: {
     }
     if (schluessel !== letzterSchluessel.current) {
       letzterSchluessel.current = schluessel;
-      if (anzahl === 1) m.jumpTo({ center: grenzen.getCenter(), zoom: 15 });
-      else if (anzahl > 1) m.fitBounds(grenzen, { padding: 70, maxZoom: 15, duration: 0 });
+      ausschnitt.current = { grenzen, anzahl };
+      beruehrt.current = false;
+      passen(m);
     }
   }, [punkte, werkhof, auswahl, schluessel]);
 
@@ -123,11 +142,17 @@ export function Landkarte({ punkte, werkhof, auswahl, onAuswahl, luftbild }: {
     const m = karte.current;
     const p = punkte.find((x) => x.baustelle.id === auswahl);
     if (!m || !p) return;
+    beruehrt.current = true; // gewählte Baustelle bleibt in der Mitte, auch wenn sich die Grösse ändert
     m.flyTo({ center: [p.baustelle.lon!, p.baustelle.lat!], zoom: Math.max(m.getZoom(), 15), duration: 600 });
   }, [auswahl]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (ohneWebgl) {
     return <p className="p-6 text-sm text-ink3">Die Karte braucht WebGL — auf diesem Gerät ausgeschaltet. Die Liste links zeigt alle Einsätze.</p>;
   }
-  return <div ref={box} className="h-full w-full" role="region" aria-label="Karte der Baustellen" />;
+  return (
+    <div className="relative h-full w-full bg-[#fcfcfc]">
+      {!bereit && <p className="absolute inset-0 flex items-center justify-center text-sm text-ink3" aria-live="polite">Karte lädt …</p>}
+      <div ref={box} className={'h-full w-full transition-opacity duration-300 ' + (bereit ? 'opacity-100' : 'opacity-0')} role="region" aria-label="Karte der Baustellen" />
+    </div>
+  );
 }

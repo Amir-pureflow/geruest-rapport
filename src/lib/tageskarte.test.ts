@@ -64,3 +64,14 @@ describe('teilenText — für den Team-Chat', () => {
     expect(teilenText({ team: 'Team 1', karte: { ...karte, einsaetze: [], leute: [] }, heuteIso: '2026-10-27', beginnFirma: 420 })).toBe('Team 1 · Heute, Di 27.10.\nNoch keine Baustelle geplant.');
   });
 });
+
+describe('leuteAm mit «Fehlt gemeldet» (0053)', () => {
+  it('gemeldete Person steht als «fehlt» mit ihrer Meldung, nach den Anwesenden; eine Abwesenheit geht vor', () => {
+    const l = leuteAm({
+      teamId: 't1', fest: [{ id: 'c', name: 'Sandro Meier' }, { id: 'p', name: 'Pascal Müller' }, { id: 'd', name: 'Dominik Frei' }],
+      versetzt: [], namen: new Map(), teamNamen: new Map(), datum: '2026-10-26',
+      abwesend: new Map([['d', 'krank']]), fehlt: new Map([['p', 'f1'], ['d', 'f2']]),
+    });
+    expect(l.map((p) => `${p.name.split(' ')[0]}:${p.art}${p.fehlmeldung ? ':' + p.fehlmeldung : ''}`)).toEqual(['Sandro:da', 'Pascal:fehlt:f1', 'Dominik:abwesend']);
+  });
+});

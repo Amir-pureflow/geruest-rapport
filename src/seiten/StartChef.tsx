@@ -157,21 +157,70 @@ function EinsatzZeilen({ einsaetze, beginnFirma }: { einsaetze: KartenEinsatz[];
   );
 }
 
-/** Wer dabei ist: feste Leute, «+ Dritan» eingeteilt, «Luan krank», «Pedro → Team 3». */
-function LeuteZeile({ leute }: { leute: KartenPerson[] }) {
+/**
+ * Wer dabei ist: feste Leute, «+ Dritan» eingeteilt, «Luan krank», «Pedro → Team 3».
+ * «Fehlt melden» (0053, 25.10.2026): Name antippen → «fehlt» — statt am Morgen im Büro anzurufen. Freiwillig; das Büro sieht
+ * es im Posteingang und plant Ersatz. Eine gemeldete Person antippen nimmt die Meldung zurück (vertippt, kam doch).
+ */
+function LeuteZeile({ leute, tagWort, onFehlt, onZurueck }: {
+  leute: KartenPerson[];
+  /** «heute», «morgen», «am Montag» — für die Frage */
+  tagWort?: string;
+  onFehlt?: (p: KartenPerson) => Promise<string | null>;
+  onZurueck?: (p: KartenPerson) => Promise<string | null>;
+}) {
+  const [frage, setFrage] = useState<KartenPerson | null>(null);
+  const [laeuft, setLaeuft] = useState(false);
+  const [antwort, setAntwort] = useState<{ text: string; ok: boolean } | null>(null);
   if (leute.length === 0) return null;
   const klasse: Record<KartenPerson['art'], string> = {
-    da: 'bg-surface-2 text-ink2', dazu: 'bg-good-soft text-good-deep', abwesend: 'bg-surface-2 text-ink3', weg: 'bg-amber-soft text-amber-deep',
+    da: 'bg-surface-2 text-ink2', dazu: 'bg-good-soft text-good-deep', abwesend: 'bg-surface-2 text-ink3', fehlt: 'bg-amber-soft text-amber-deep', weg: 'bg-amber-soft text-amber-deep',
   };
+  const antippbar = (p: KartenPerson) => !!onFehlt && (p.art === 'da' || p.art === 'dazu' || (p.art === 'fehlt' && !!p.fehlmeldung));
+  async function los() {
+    if (!frage) return;
+    setLaeuft(true);
+    const f = frage.art === 'fehlt' ? await onZurueck?.(frage) : await onFehlt?.(frage);
+    setLaeuft(false);
+    setAntwort(f ? { text: f, ok: false } : { text: frage.art === 'fehlt' ? `Zurückgenommen — ${frage.name.split(' ')[0]} ist wieder dabei.` : 'Gemeldet — das Büro sieht es sofort und plant Ersatz.', ok: true });
+    if (!f) setFrage(null);
+  }
   return (
-    <p className="flex flex-wrap items-center gap-1.5 text-xs">
-      <Users size={14} className="mr-0.5 text-ink3" aria-label="Leute" />
-      {leute.map((p) => (
-        <span key={p.id + p.art} className={'rounded-full px-2 py-0.5 font-semibold ' + klasse[p.art]}>
-          {p.art === 'dazu' ? '+ ' : ''}{p.name.split(' ')[0]}{p.art === 'abwesend' ? ` · ${p.info}` : ''}{p.art === 'weg' ? ` → ${p.info}` : ''}
-        </span>
-      ))}
-    </p>
+    <div className="space-y-2">
+      <p className="flex flex-wrap items-center gap-1.5 text-xs">
+        <Users size={14} className="mr-0.5 text-ink3" aria-label="Leute" />
+        {leute.map((p) => {
+          const text = <>{p.art === 'dazu' ? '+ ' : ''}{p.name.split(' ')[0]}{p.art === 'abwesend' ? ` · ${p.info}` : ''}{p.art === 'fehlt' ? ' · fehlt' : ''}{p.art === 'weg' ? ` → ${p.info}` : ''}</>;
+          return antippbar(p) ? (
+            <button key={p.id + p.art} type="button" aria-pressed={frage?.id === p.id} onClick={() => { setAntwort(null); setFrage(frage?.id === p.id ? null : p); }}
+              className={'rounded-full px-2 py-0.5 font-semibold transition ' + klasse[p.art] + (frage?.id === p.id ? ' ring-2 ring-ink/70' : ' hover:ring-1 hover:ring-ink/20')}>
+              {text}
+            </button>
+          ) : (
+            <span key={p.id + p.art} className={'rounded-full px-2 py-0.5 font-semibold ' + klasse[p.art]}>{text}</span>
+          );
+        })}
+      </p>
+      {frage && (
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-[12px] bg-ground px-3 py-2.5" role="dialog" aria-label="Fehlt melden">
+          <span className="text-sm text-ink">
+            {frage.art === 'fehlt'
+              ? <>«Fehlt» für <b className="font-semibold">{frage.name}</b> zurücknehmen?</>
+              : <><b className="font-semibold">{frage.name}</b> fehlt {tagWort ?? 'heute'}?</>}
+          </span>
+          <span className="flex shrink-0 gap-1.5">
+            <button type="button" disabled={laeuft} onClick={() => void los()} className="rounded-full bg-ink px-3.5 py-1.5 text-xs font-semibold text-white disabled:opacity-50">
+              {laeuft ? '…' : frage.art === 'fehlt' ? 'Zurücknehmen' : 'Fehlt melden'}
+            </button>
+            <button type="button" onClick={() => setFrage(null)} className="btn-ghost px-3 py-1.5 text-xs">Abbrechen</button>
+          </span>
+        </div>
+      )}
+      {antwort && <p className={'text-xs ' + (antwort.ok ? 'text-good-deep' : 'text-accent-deep')} role="status">{antwort.text}</p>}
+      {!frage && !antwort && onFehlt && leute.some((p) => p.art === 'da' || p.art === 'dazu') && (
+        <p className="text-[11px] text-ink3">Fehlt jemand? Namen antippen — das Büro sieht es sofort.</p>
+      )}
+    </div>
   );
 }
 
@@ -441,12 +490,16 @@ export function StartChef() {
       const versetzt = (ep.error ? [] : (ep.data ?? []) as Versetzung[]).filter((v) => v.team_id === teamId || festIds.includes(v.mitarbeiter_id));
       const dazuIds = [...new Set(versetzt.filter((v) => v.team_id === teamId && !festIds.includes(v.mitarbeiter_id)).map((v) => v.mitarbeiter_id))];
       const nachIds = [...new Set(versetzt.filter((v) => v.team_id !== teamId).map((v) => v.team_id))];
-      const [ab, ma, tm] = await Promise.all([
-        c.from('abwesenheit').select('mitarbeiter_id,datum,art').in('datum', tageK).in('mitarbeiter_id', [...festIds, ...dazuIds].length ? [...festIds, ...dazuIds] : ['00000000-0000-0000-0000-000000000000']),
+      const personIds = [...festIds, ...dazuIds].length ? [...festIds, ...dazuIds] : ['00000000-0000-0000-0000-000000000000'];
+      const [ab, ma, tm, fm] = await Promise.all([
+        c.from('abwesenheit').select('mitarbeiter_id,datum,art').in('datum', tageK).in('mitarbeiter_id', personIds),
         dazuIds.length ? c.from('mitarbeiter').select('id,name').in('id', dazuIds) : Promise.resolve({ data: [] as { id: string; name: string }[], error: null }),
         nachIds.length ? c.from('team').select('id,bezeichnung').in('id', nachIds) : Promise.resolve({ data: [] as { id: string; bezeichnung: string }[], error: null }),
+        // Offene Fehlmeldungen (0053) — ohne die Migration: keine
+        c.from('fehlmeldung').select('id,mitarbeiter_id,datum').eq('status', 'offen').in('datum', tageK).in('mitarbeiter_id', personIds),
       ]);
       const abw = (ab.error ? [] : (ab.data ?? [])) as { mitarbeiter_id: string; datum: string; art: string }[];
+      const fehltListe = (fm.error ? [] : (fm.data ?? [])) as { id: string; mitarbeiter_id: string; datum: string }[];
       const namen = new Map(((ma.data ?? []) as { id: string; name: string }[]).map((m) => [m.id, m.name]));
       const teamNamen = new Map(((tm.data ?? []) as { id: string; bezeichnung: string }[]).map((t) => [t.id, t.bezeichnung]));
       const plaene = (pl.data ?? []) as unknown as KartenPlan[];
@@ -455,7 +508,11 @@ export function StartChef() {
         einsaetze: plaene.filter((p) => p.von <= datum && p.bis >= datum && p.baustelle).map((p) => ({
           baustelle: p.baustelle!, beginn_min: p.beginn_min ?? null, treffpunkt: p.treffpunkt ?? null, hinweis: p.hinweis ?? null, soll_leute: p.soll_leute ?? null,
         })),
-        leute: leuteAm({ teamId, fest, versetzt, abwesend: new Map(abw.filter((a) => a.datum === datum).map((a) => [a.mitarbeiter_id, a.art])), namen, teamNamen, datum }),
+        leute: leuteAm({
+          teamId, fest, versetzt, namen, teamNamen, datum,
+          abwesend: new Map(abw.filter((a) => a.datum === datum).map((a) => [a.mitarbeiter_id, a.art])),
+          fehlt: new Map(fehltListe.filter((f) => f.datum === datum).map((f) => [f.mitarbeiter_id, f.id])),
+        }),
       }));
       const stand = new Date().toISOString();
       vorratSchreiben(vorratName, { stand, tage });
@@ -468,6 +525,24 @@ export function StartChef() {
     }
   }, [teamId, chefName]);
   useEffect(() => { setKarten(null); void kartenLaden(); }, [kartenLaden]);
+
+  /** «Fehlt melden» (0053): direkt, ohne Warteschlange — ohne Netz lieber anrufen, das Büro muss es sofort wissen. */
+  async function fehltMelden(p: KartenPerson, datum: string): Promise<string | null> {
+    if (!supabase || !teamId) return 'Keine Verbindung — bitte im Büro anrufen.';
+    if (!navigator.onLine) return 'Ohne Netz — bitte im Büro anrufen.';
+    const { error } = await supabase.rpc('fehlt_melden', { p_person: p.id, p_team: teamId, p_datum: datum });
+    if (error) return /function|schema cache/i.test(error.message) ? 'Das geht noch nicht (Migration 0053 fehlt) — bitte anrufen.' : error.message;
+    await kartenLaden();
+    return null;
+  }
+  async function fehltZurueck(p: KartenPerson): Promise<string | null> {
+    if (!supabase || !p.fehlmeldung) return 'Keine Verbindung.';
+    const { error } = await supabase.rpc('fehlt_zuruecknehmen', { p_id: p.fehlmeldung });
+    if (error) return /nicht \(mehr\)/i.test(error.message) ? 'Das Büro hat die Meldung schon bearbeitet — bitte anrufen.' : error.message;
+    await kartenLaden();
+    return null;
+  }
+  const tagWortFuer = (datum: string) => { const t = tagTitel(datum, heuteIso); return t === 'Heute' ? 'heute' : t === 'Morgen' ? 'morgen' : `am ${t}`; };
   // Plan und Leute ändern sich während des Tages — beim Zurückholen der App und alle 5 Minuten still neu
   useAuffrischen(() => kartenLaden());
 
@@ -716,7 +791,9 @@ export function StartChef() {
             ) : (
               <p className="text-sm text-ink3">Keine Baustelle geplant — du wählst sie beim Melden.</p>
             )}
-            {heutige.length === 0 && karteHeute && karteHeute.einsaetze.length > 0 && <LeuteZeile leute={karteHeute.leute} />}
+            {heutige.length === 0 && karteHeute && karteHeute.einsaetze.length > 0 && (
+              <LeuteZeile leute={karteHeute.leute} tagWort={tagWortFuer(karteHeute.datum)} onFehlt={(p) => fehltMelden(p, karteHeute.datum)} onZurueck={fehltZurueck} />
+            )}
             {standText && heutige.length === 0 && karteHeute && <p className="text-[11px] text-amber-deep">{standText}</p>}
             <Link to="/erfassung" className={heutige.length > 0 ? 'btn-ghost block w-full text-center' : 'cta'}>
               {heutige.length > 0 ? 'Ändern oder nochmals melden' : 'Tag melden'}
@@ -743,7 +820,7 @@ export function StartChef() {
             {karteNaechster.einsaetze.length > 0
               ? <EinsatzZeilen einsaetze={karteNaechster.einsaetze} beginnFirma={beginnFirma} />
               : <p className="text-sm text-ink3">Noch keine Baustelle geplant — das Büro plant noch.</p>}
-            <LeuteZeile leute={karteNaechster.leute} />
+            <LeuteZeile leute={karteNaechster.leute} tagWort={tagWortFuer(karteNaechster.datum)} onFehlt={(p) => fehltMelden(p, karteNaechster.datum)} onZurueck={fehltZurueck} />
             {standText && <p className="text-[11px] text-amber-deep">{standText}</p>}
             {geteilt === 'fehler' && <p className="text-[11px] text-accent-deep">Teilen ging nicht — der Browser erlaubt es hier nicht.</p>}
           </section>

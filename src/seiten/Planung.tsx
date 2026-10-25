@@ -10,12 +10,12 @@ import { alleOderFehler, stuecke } from '../lib/abfrage';
 import { useAuffrischen, useNeuesteAnfrage } from '../lib/auffrischen';
 import { addTage, ausIso, iso, kurz, kw, lang, montag, WOCHENTAGE } from '../lib/datum';
 import {
-  arbeitstage, besetzung, heuteUndNaechster, istBalken, konflikte, konflikteBuendeln, naechsterTeamName, ohneTag, planAm, planIst, spuren, ueberschneiden, zeitraumVorschlag,
-  type KonfliktBlock, type PlanIst, type Schnellwahl, type TagesBesetzung, type VerlaufZeile, type Versetzung, type Zeitraum,
+  arbeitstage, besetzung, ersatzVorschlaege, heuteUndNaechster, istBalken, konflikte, konflikteBuendeln, naechsterTeamName, ohneTag, planAm, planIst, spuren, ueberschneiden, zeitraumVorschlag,
+  type FehltGemeldet, type KonfliktBlock, type PlanIst, type Schnellwahl, type TagesBesetzung, type VerlaufZeile, type Versetzung, type Zeitraum,
 } from '../lib/planung';
 import { artText, werktage } from '../lib/abwesenheit';
 import { feiertag } from '../lib/feiertage';
-import { arbeitstag } from '../lib/einstellungen';
+import { arbeitstag, einstellungen } from '../lib/einstellungen';
 import { ausUhrzeit, uhrzeit, uhrzeitFeld } from '../lib/zeiten';
 import { FUNKTION_BUERO } from '../lib/benutzername';
 import { DatumWahl } from '../ui/DatumWahl';
@@ -132,6 +132,8 @@ export function Planung() {
   const [personen, setPersonen] = useState<Person[]>([]);
   const [versetzungen, setVersetzungen] = useState<Versetzung[]>([]);
   const [abwesend, setAbwesend] = useState<Abw[]>([]);
+  /** Vom Team als «fehlt» gemeldet, noch offen (0053) */
+  const [fehltOffen, setFehltOffen] = useState<FehltGemeldet[]>([]);
   const [ist, setIst] = useState<IstZeile[]>([]);
   /** einsatz_person fehlt noch (Migration 0036) — Versetzen geht dann nicht */
   const [einsatzFehlt, setEinsatzFehlt] = useState(false);
@@ -198,7 +200,7 @@ export function Planung() {
     const montagFrueh = ausIso(startIso);
     montagFrueh.setHours(6, 0, 0, 0);
     const mitVergangenem = startIso <= heuteIso;
-    const [v, a, i, vl] = await Promise.all([
+    const [v, a, i, vl, fm] = await Promise.all([
       alleOderFehler<Versetzung>((von, bis) => c.from('einsatz_person').select('datum,mitarbeiter_id,team_id').gte('datum', startIso).lte('datum', endeIso).order('id').range(von, bis)),
       alleOderFehler<Abw>((von, bis) => c.from('abwesenheit').select('datum,mitarbeiter_id,art').gte('datum', startIso).lte('datum', endeIso).order('id').range(von, bis)),
       mitVergangenem
@@ -207,6 +209,8 @@ export function Planung() {
       mitVergangenem
         ? alleOderFehler<VerlaufZeile>((von, bis) => c.from('plan_verlauf').select('tabelle,datensatz_id,aktion,vorher,nachher,zeit').eq('tabelle', 'jahresplan').gte('zeit', montagFrueh.toISOString()).order('zeit').order('id').range(von, bis))
         : Promise.resolve({ data: [] as VerlaufZeile[], error: null }),
+      // Fehlmeldungen der Teams (0053) — ohne die Migration: keine
+      alleOderFehler<FehltGemeldet>((von, bis) => c.from('fehlmeldung').select('id,datum,mitarbeiter_id,team_id').eq('status', 'offen').gte('datum', startIso).lte('datum', endeIso).order('id').range(von, bis)),
     ]);
     if (!aktuell()) return;
     const verlaufNeu = vl.error ? [] : (vl.data ?? []);
@@ -235,6 +239,7 @@ export function Planung() {
     setEinsatzFehlt(!!v.error);
     setVersetzungen(v.error ? [] : (v.data ?? []));
     setAbwesend(a.error ? [] : (a.data ?? []));
+    setFehltOffen(fm.error ? [] : (fm.data ?? []));
     setIst(i.error ? [] : (i.data ?? []));
     setLaedt(false);
   }, [startIso, endeIso, heuteIso, anfrage]);
@@ -281,8 +286,14 @@ export function Planung() {
       t.set(a.mitarbeiter_id, a.art);
       m.set(a.datum, t);
     }
+    // «Fehlt» gemeldet zählt an dem Tag wie abwesend — eine eingetragene Abwesenheit geht vor
+    for (const f of fehltOffen) {
+      const t = m.get(f.datum) ?? new Map<string, string>();
+      if (!t.has(f.mitarbeiter_id)) t.set(f.mitarbeiter_id, 'fehlt');
+      m.set(f.datum, t);
+    }
     return m;
-  }, [abwesend]);
+  }, [abwesend, fehltOffen]);
 
   const istJe = useMemo(() => {
     const m = new Map<string, { baustellen: Map<string, { konto_nr: string; bezeichnung: string | null }>; personen: Set<string> }>();
@@ -381,7 +392,60 @@ export function Planung() {
     plaene: plaene.map((p) => ({ team_id: p.team_id, baustelle_id: p.baustelle?.id ?? null, von: p.von, bis: p.bis, soll_leute: p.soll_leute ?? null })),
     abwesend: abwJeTag,
     ohneEinsatzTage: naechsteTage,
-  })), [lesend, tage, heuteIso, teams, basis, versetzungen, plaene, abwJeTag, naechsteTage]);
+    fehlt: fehltOffen,
+  })), [lesend, tage, heuteIso, teams, basis, versetzungen, plaene, abwJeTag, naechsteTage, fehltOffen]);
+
+  /** Ersatz für eine Fehlmeldung (0053): höchstens drei Vorschläge mit Grund, nur ab heute */
+  const ersatzFuer = useCallback((teamId: string, datum: string) => {
+    if (datum < heuteIso) return [];
+    return ersatzVorschlaege({
+      datum, fuerTeam: teamId, teams, basis, versetzt: versetzungen, personen,
+      plaene: plaene.map((p) => ({ team_id: p.team_id, baustelle_id: p.baustelle?.id ?? null, von: p.von, bis: p.bis, soll_leute: p.soll_leute ?? null })),
+      abwesend: abwJeTag.get(datum) ?? new Map(),
+    }).map((k) => ({ ...k, name: namen.get(k.id) ?? 'Person', woher: k.team_id ? teams.find((t) => t.id === k.team_id)?.bezeichnung ?? 'Team' : 'ohne festes Team' }));
+  }, [heuteIso, teams, basis, versetzungen, personen, plaene, abwJeTag, namen]);
+
+  /**
+   * Ist die Lücke der Fehlmeldung gefüllt? So viele Leute wie fest im Team (höchstens so viele wie nötig) — fehlten schon
+   * vorher Leute, steht das als eigene Zeile «x von y» in der Liste. Gibt die Namen der Eingeteilten mit.
+   */
+  const vollstaendig = useCallback((teamId: string, datum: string) => {
+    const abw = abwJeTag.get(datum) ?? new Map<string, string>();
+    const b = besetzung(basis, versetzungen, datum).get(teamId);
+    const da = (b?.ids ?? []).filter((id) => !abw.has(id)).length;
+    const fest = (basis.get(teamId) ?? []).length;
+    const soll = Math.max(-1, ...plaene.filter((p) => p.team_id === teamId && p.von <= datum && p.bis >= datum).map((p) => p.soll_leute ?? -1));
+    const noetig = soll >= 0 ? Math.min(soll, fest) : fest;
+    const ersatz = (b?.dazu ?? []).filter((id) => !abw.has(id)).map((id) => (namen.get(id) ?? 'Person').split(' ')[0]);
+    return { voll: da >= noetig, ersatz };
+  }, [abwJeTag, basis, versetzungen, plaene, namen]);
+
+  /** Ersatz einteilen: die Person arbeitet an dem Tag im Team — beide Teams erfahren es (Posteingang, Nachricht) */
+  async function ersatzEinteilen(personId: string, teamId: string, datum: string) {
+    if (!supabase) return;
+    const { error } = await supabase.from('einsatz_person').upsert({ datum, mitarbeiter_id: personId, team_id: teamId }, { onConflict: 'mitarbeiter_id,datum' });
+    if (error) { setFehler('Ersatz nicht eingeteilt: ' + error.message); return; }
+    setRueckmeldung(`${namen.get(personId) ?? 'Person'} ist ${tagKurz(ausIso(datum))} in ${teamName(teamId)}.`);
+    void laden(true);
+  }
+
+  /** Fehlmeldung als Abwesenheit «krank» übernehmen (ganzer Tag) — die Datenbank setzt die Meldung dann auf erledigt */
+  async function alsKrankEintragen(personId: string, datum: string) {
+    if (!supabase) return;
+    const { error } = await supabase.from('abwesenheit').upsert({ mitarbeiter_id: personId, datum, art: 'krank', minuten: einstellungen().normaltagMin }, { onConflict: 'mitarbeiter_id,datum' });
+    if (error) { setFehler('Abwesenheit nicht eingetragen: ' + error.message); return; }
+    setRueckmeldung(`${namen.get(personId) ?? 'Person'} ist ${tagKurz(ausIso(datum))} als krank eingetragen.`);
+    void laden(true);
+  }
+
+  /** «Ist doch da»: Fehlmeldung verwerfen */
+  async function dochDa(fehlmeldungId: string, personId: string) {
+    if (!supabase) return;
+    const { error } = await supabase.rpc('fehlmeldung_erledigen', { p_id: fehlmeldungId, p_status: 'verworfen' });
+    if (error) { setFehler('Nicht gespeichert: ' + error.message); return; }
+    setRueckmeldung(`${namen.get(personId) ?? 'Person'} ist doch da.`);
+    void laden(true);
+  }
   const konfliktJe = useMemo(() => new Set(konfliktListe.map((k) => `${k.team_id}|${k.datum}`)), [konfliktListe]);
   const konfliktBloecke = useMemo(() => konflikteBuendeln(konfliktListe), [konfliktListe]);
 
@@ -525,6 +589,11 @@ export function Planung() {
             onTag={(teamId, datum, dazu) => setTagWahl({ teamId, datum, dazu })}
             onEinsatz={(teamId, datum) => neu(teamId, ausIso(datum))}
             onEinteilungLoeschen={(id, von, bis) => void einteilungLoeschen(id, von, bis)}
+            ersatzFuer={ersatzFuer}
+            vollstaendig={vollstaendig}
+            onErsatz={(id, teamId, datum) => void ersatzEinteilen(id, teamId, datum)}
+            onKrank={(id, datum) => void alsKrankEintragen(id, datum)}
+            onDochDa={(fid, id) => void dochDa(fid, id)}
           />
         )}
 
@@ -773,7 +842,9 @@ export function Planung() {
  * Was ab heute in der angezeigten Woche zu lösen ist — je Zeile ein Satz in Worten und ein Knopf, der direkt zur Lösung
  * führt. Warnfarbe Bernstein, Rot nur für die Aktion (CLAUDE.md). Ohne Konflikte: ein ruhiges «alles besetzt».
  */
-function ZuLoesen({ liste, heuteIso, naechster, teamName, name, baustelle, artAm, chefVon, onTag, onEinsatz, onEinteilungLoeschen }: {
+interface Ersatz { id: string; name: string; grund: 'frei' | 'ueberzaehlig'; woher: string }
+
+function ZuLoesen({ liste, heuteIso, naechster, teamName, name, baustelle, artAm, chefVon, onTag, onEinsatz, onEinteilungLoeschen, ersatzFuer, vollstaendig, onErsatz, onKrank, onDochDa }: {
   liste: KonfliktBlock[];
   heuteIso: string;
   naechster: string;
@@ -785,6 +856,11 @@ function ZuLoesen({ liste, heuteIso, naechster, teamName, name, baustelle, artAm
   onTag: (teamId: string, datum: string, dazu?: boolean) => void;
   onEinsatz: (teamId: string, datum: string) => void;
   onEinteilungLoeschen: (mitarbeiterId: string, von: string, bis: string) => void;
+  ersatzFuer: (teamId: string, datum: string) => Ersatz[];
+  vollstaendig: (teamId: string, datum: string) => { voll: boolean; ersatz: string[] };
+  onErsatz: (mitarbeiterId: string, teamId: string, datum: string) => void;
+  onKrank: (mitarbeiterId: string, datum: string) => void;
+  onDochDa: (fehlmeldungId: string, mitarbeiterId: string) => void;
 }) {
   const [alle, setAlle] = useState(false);
   const ANZAHL = 5;
@@ -796,12 +872,36 @@ function ZuLoesen({ liste, heuteIso, naechster, teamName, name, baustelle, artAm
     );
   }
   const vorname = (id: string) => name(id).split(' ')[0];
-  const zeile = (k: KonfliktBlock): { text: string; knoepfe: { text: string; aktion: () => void; haupt?: boolean }[] } => {
+  const zeile = (k: KonfliktBlock): { text: string; zusatz?: string; knoepfe: { text: string; aktion: () => void; haupt?: boolean; titel?: string }[] } => {
     const team = teamName(k.team_id);
     const tag = { text: 'Tag öffnen', aktion: () => onTag(k.team_id, k.datum) };
     const dazu = { text: 'Leute dazunehmen', aktion: () => onTag(k.team_id, k.datum, true), haupt: true };
     const einsatz = { text: 'Einsatz planen', aktion: () => onEinsatz(k.team_id, k.datum), haupt: true };
     switch (k.art) {
+      case 'fehlt-gemeldet': {
+        // Vom Team gemeldet (0053): zuerst Ersatz (ab heute), dann die Meldung erledigen — als Abwesenheit oder «doch da»
+        const wer = k.mitarbeiter_id ?? '';
+        const erledigen = [
+          { text: 'Als krank eintragen', aktion: () => onKrank(wer, k.datum) },
+          { text: 'Ist doch da', aktion: () => onDochDa(k.fehlmeldung_id ?? '', wer) },
+        ];
+        if (k.datum < heuteIso) return { text: `${team}: ${name(wer)} fehlte — vom Team gemeldet.`, knoepfe: erledigen };
+        const stand = vollstaendig(k.team_id, k.datum);
+        const schon = stand.ersatz.length ? ` Ersatz: ${stand.ersatz.join(', ')} ✓` : '';
+        if (stand.voll) return { text: `${team}: ${name(wer)} fehlt — vom Team gemeldet.${schon}`, zusatz: 'Bleibt offen, bis die Abwesenheit eingetragen ist.', knoepfe: erledigen };
+        const ersatz = ersatzFuer(k.team_id, k.datum);
+        return {
+          text: `${team}: ${name(wer)} fehlt — vom Team gemeldet.${schon}`,
+          zusatz: ersatz.length
+            ? 'Vorschlag: ' + ersatz.map((e) => `${e.name.split(' ')[0]} (${e.grund === 'frei' ? (e.woher === 'ohne festes Team' ? 'ohne festes Team' : `${e.woher} hat keine Baustelle`) : `${e.woher} hat eine Person zu viel`})`).join(' · ')
+            : 'Niemand frei — jemanden aus einem anderen Team dazunehmen.',
+          knoepfe: [
+            ...ersatz.map((e, i) => ({ text: `${e.name.split(' ')[0]} dazu`, aktion: () => onErsatz(e.id, k.team_id, k.datum), haupt: i === 0, titel: `${e.name} für diesen Tag in ${team}` })),
+            ...(ersatz.length ? [] : [dazu]),
+            ...erledigen,
+          ],
+        };
+      }
       case 'ohne-leute':
         return { text: `${team} · ${baustelle(k.baustelle_id ?? null)}: niemand da${k.soll ? ` — ${k.soll} nötig` : ''}.`, knoepfe: [dazu] };
       case 'chef-fehlt': {
@@ -849,10 +949,10 @@ function ZuLoesen({ liste, heuteIso, naechster, teamName, name, baustelle, artAm
                   {(k.tage > 1 ? [wann === 'heute' || wann === 'morgen' ? `ab ${wann}` : null, `${k.tage} Tage`] : [wann]).filter(Boolean).join(' · ')}
                 </span>
               </span>
-              <span className="min-w-[12rem] flex-1 text-sm text-ink2">{z.text}</span>
+              <span className="min-w-[12rem] flex-1 text-sm text-ink2">{z.text}{z.zusatz && <span className="mt-0.5 block text-[11.5px] text-ink3">{z.zusatz}</span>}</span>
               <span className="flex shrink-0 flex-wrap gap-1.5">
                 {z.knoepfe.map((b) => (
-                  <button key={b.text} type="button" onClick={b.aktion}
+                  <button key={b.text} type="button" onClick={b.aktion} title={b.titel}
                     className={'rounded-full px-3 py-1.5 text-xs font-semibold transition ' + (b.haupt ? 'bg-accent text-white shadow-[0_6px_14px_-8px_rgb(224_48_30/0.7)] hover:-translate-y-px' : 'border border-ink/10 bg-white text-ink2 hover:text-ink')}>
                     {b.text}
                   </button>

@@ -155,3 +155,13 @@ describe('empfaengerFuer', () => {
     expect(empfaengerFuer('monteur', lies({ 'monteur-id': 'm9', 'teamgeraet-team-id': 't1' }))).toEqual({ art: 'baustelle', team: null, person: 'm9' });
   });
 });
+
+describe('eintragText · Fehlt gemeldet (0053)', () => {
+  it('Büro: Team, Name, Tag — und in die Planung der Woche', () => {
+    const t = eintragText(eintrag({ an: 'buero', team_id: null, art: 'fehlt', tag: '2026-10-26', bezug_id: 'f1',
+      inhalt: { name: 'Pascal Müller', team: 'Team 1', team_id: 't1', gemeldet_am: new Date(2026, 9, 26, 6, 45).toISOString() } }), HEUTE);
+    expect(t.titel).toBe('Team 1: Pascal Müller fehlt Montag 26.10.');
+    expect(t.zeilen).toEqual(['Vom Team gemeldet um 6:45', 'Ersatz vorschlagen und eintragen →']);
+    expect(t.ziel).toBe('/planung?woche=2026-10-26');
+  });
+});

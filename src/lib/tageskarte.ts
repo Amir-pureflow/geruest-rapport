@@ -19,7 +19,8 @@ export interface KartenEinsatz {
   hinweis: string | null;
   soll_leute: number | null;
 }
-export interface KartenPerson { id: string; name: string; art: 'da' | 'dazu' | 'abwesend' | 'weg'; info?: string }
+/** `fehlt`: vom Team als «fehlt» gemeldet (0053), das Büro hat es noch nicht erledigt — `fehlmeldung` zum Zurücknehmen */
+export interface KartenPerson { id: string; name: string; art: 'da' | 'dazu' | 'abwesend' | 'fehlt' | 'weg'; info?: string; fehlmeldung?: string }
 export interface TagesKarte { datum: string; einsaetze: KartenEinsatz[]; leute: KartenPerson[] }
 
 /**
@@ -32,21 +33,25 @@ export function leuteAm(o: {
   versetzt: Versetzung[];
   /** Person → Art der Abwesenheit an diesem Tag */
   abwesend: Map<string, string>;
+  /** Person → offene Fehlmeldung an diesem Tag (0053) */
+  fehlt?: Map<string, string>;
   namen: Map<string, string>;
   teamNamen: Map<string, string>;
   datum: string;
 }): KartenPerson[] {
   const b = besetzung(new Map([[o.teamId, o.fest.map((p) => p.id)]]), o.versetzt, o.datum).get(o.teamId) ?? { ids: [], dazu: [], weg: [] };
   const name = (id: string) => o.namen.get(id) ?? o.fest.find((p) => p.id === id)?.name ?? 'Person';
-  const da: KartenPerson[] = [], dazu: KartenPerson[] = [], abw: KartenPerson[] = [];
+  const da: KartenPerson[] = [], dazu: KartenPerson[] = [], fehlt: KartenPerson[] = [], abw: KartenPerson[] = [];
   for (const id of b.ids) {
     const art = o.abwesend.get(id);
+    const meldung = o.fehlt?.get(id);
     if (art) abw.push({ id, name: name(id), art: 'abwesend', info: artText(art) });
+    else if (meldung) fehlt.push({ id, name: name(id), art: 'fehlt', info: 'fehlt', fehlmeldung: meldung });
     else if (b.dazu.includes(id)) dazu.push({ id, name: name(id), art: 'dazu' });
     else da.push({ id, name: name(id), art: 'da' });
   }
   const weg = b.weg.map((w): KartenPerson => ({ id: w.id, name: name(w.id), art: 'weg', info: o.teamNamen.get(w.nach) ?? 'anderes Team' }));
-  return [...da, ...dazu, ...abw, ...weg];
+  return [...da, ...dazu, ...fehlt, ...abw, ...weg];
 }
 
 /** «Heute», «Morgen» oder der Wochentag («Montag»), wenn der nächste Arbeitstag nicht morgen ist. */
@@ -76,7 +81,7 @@ export function teilenText(o: { team: string; karte: TagesKarte; heuteIso: strin
     z.push(`Route: ${navigationsLink(e.baustelle, false)}`);
   }
   const da = o.karte.leute.filter((p) => p.art === 'da' || p.art === 'dazu').map((p) => vorname(p.name));
-  const fehlen = o.karte.leute.filter((p) => p.art === 'abwesend' || p.art === 'weg').map((p) => `${vorname(p.name)} (${p.art === 'weg' ? p.info : (p.info ?? 'abwesend').toLowerCase()})`);
+  const fehlen = o.karte.leute.filter((p) => p.art === 'abwesend' || p.art === 'fehlt' || p.art === 'weg').map((p) => `${vorname(p.name)} (${p.art === 'weg' ? p.info : (p.info ?? 'abwesend').toLowerCase()})`);
   z.push('');
   if (da.length) z.push(`Leute: ${da.join(', ')}`);
   if (fehlen.length) z.push(`Nicht dabei: ${fehlen.join(', ')}`);

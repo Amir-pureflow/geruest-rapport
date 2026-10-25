@@ -945,9 +945,17 @@ export function Erfassung() {
   useEffect(() => {
     if (!supabase || leute.length === 0) { setAbwesend({}); return; }
     let veraltet = false;
-    void supabase.from('abwesenheit').select('mitarbeiter_id,art').eq('datum', tagIso).in('mitarbeiter_id', leute.map((p) => p.id)).then(({ data, error }) => {
+    const ids = leute.map((p) => p.id);
+    // Dazu die Fehlmeldungen des Teams (0053): «Fehlt gemeldet» — ohne die Migration: keine
+    void Promise.all([
+      supabase.from('abwesenheit').select('mitarbeiter_id,art').eq('datum', tagIso).in('mitarbeiter_id', ids),
+      supabase.from('fehlmeldung').select('mitarbeiter_id').eq('status', 'offen').eq('datum', tagIso).in('mitarbeiter_id', ids),
+    ]).then(([{ data, error }, fm]) => {
       if (veraltet || error) return;
-      const m: Record<string, string> = Object.fromEntries(((data ?? []) as { mitarbeiter_id: string; art: string }[]).map((r) => [r.mitarbeiter_id, r.art]));
+      const m: Record<string, string> = Object.fromEntries([
+        ...((fm.error ? [] : fm.data ?? []) as { mitarbeiter_id: string }[]).map((r) => [r.mitarbeiter_id, 'fehlt']),
+        ...((data ?? []) as { mitarbeiter_id: string; art: string }[]).map((r) => [r.mitarbeiter_id, r.art]),
+      ]);
       const vorher = autoAbgehakt.current;
       autoAbgehakt.current = new Set(Object.keys(m));
       setAbwesend(m);

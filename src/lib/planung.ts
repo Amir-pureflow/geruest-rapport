@@ -329,7 +329,7 @@ export interface EinsatzSoll extends Zeitraum {
   soll_leute: number | null;
 }
 
-export type KonfliktArt = 'ohne-leute' | 'chef-fehlt' | 'unter-soll' | 'abwesend-eingeteilt' | 'eingeteilt-ohne-einsatz' | 'ohne-einsatz';
+export type KonfliktArt = 'fehlt-gemeldet' | 'ohne-leute' | 'chef-fehlt' | 'unter-soll' | 'abwesend-eingeteilt' | 'eingeteilt-ohne-einsatz' | 'ohne-einsatz';
 
 export interface Konflikt {
   art: KonfliktArt;
@@ -344,9 +344,14 @@ export interface Konflikt {
   baustelle_id?: string | null;
   /** Chefmonteur fehlt: in welchem Team er an dem Tag ist (sonst abwesend) */
   nach_team?: string;
+  /** Fehlt gemeldet (0053): die Meldung des Teams */
+  fehlmeldung_id?: string;
 }
 
-const RANG: Record<KonfliktArt, number> = { 'ohne-leute': 0, 'chef-fehlt': 1, 'unter-soll': 2, 'abwesend-eingeteilt': 3, 'eingeteilt-ohne-einsatz': 4, 'ohne-einsatz': 5 };
+/** Vom Team gemeldet: «fehlt» (Migration 0053), noch nicht vom Büro erledigt */
+export interface FehltGemeldet { id: string; datum: string; mitarbeiter_id: string; team_id: string }
+
+const RANG: Record<KonfliktArt, number> = { 'fehlt-gemeldet': -1, 'ohne-leute': 0, 'chef-fehlt': 1, 'unter-soll': 2, 'abwesend-eingeteilt': 3, 'eingeteilt-ohne-einsatz': 4, 'ohne-einsatz': 5 };
 
 /**
  * Was in der Planung zu lösen ist — wenige Regeln, damit die Liste ernst genommen wird (lieber eine Meldung zu wenig
@@ -360,6 +365,11 @@ const RANG: Record<KonfliktArt, number> = { 'ohne-leute': 0, 'chef-fehlt': 1, 'u
  *  - eingeteilt-ohne-einsatz: Leute sind eingeteilt, das Team hat an dem Tag aber keine Baustelle
  *  - ohne-einsatz: ein Team mit Leuten hat keine Baustelle — nur für `ohneEinsatzTage` (heute und der nächste
  *    Arbeitstag), sonst stünde jede noch nicht geplante Zukunftswoche voll
+ *  - fehlt-gemeldet (0053): das Team hat jemanden als «fehlt» gemeldet, das Büro hat es noch nicht erledigt — zuoberst,
+ *    mit Ersatzvorschlag. Auch für vergangene Tage der Ansicht (dann ohne Ersatz: Abwesenheit eintragen oder verwerfen).
+ *    Die Person zählt an dem Tag als abwesend (der Aufrufer gibt sie in `abwesend` mit Art 'fehlt'). «Abwesend, aber
+ *    eingeteilt» entfällt für sie; «unter Soll» nur, wenn die Lücke allein von der Fehlmeldung kommt — fehlten schon
+ *    vorher Leute, bleibt diese Zeile stehen.
  *
  * Mehrere Teams auf derselben Baustelle sind normal (Glossar) und kein Konflikt; ein Team auf zwei Baustellen am selben
  * Tag auch nicht (halber Tag hier, halber Tag dort — der Einsatz-Dialog weist darauf hin).
@@ -373,8 +383,13 @@ export function konflikte(o: {
   /** datum → (Person → Art der Abwesenheit) */
   abwesend: Map<string, Map<string, string>>;
   ohneEinsatzTage?: string[];
+  /** offene Fehlmeldungen in der Ansicht (auch vergangene Tage) */
+  fehlt?: FehltGemeldet[];
 }): Konflikt[] {
   const out: Konflikt[] = [];
+  for (const f of o.fehlt ?? []) {
+    out.push({ art: 'fehlt-gemeldet', datum: f.datum, team_id: f.team_id, mitarbeiter_id: f.mitarbeiter_id, fehlmeldung_id: f.id });
+  }
   for (const datum of o.tage) {
     if (!istArbeitstag(datum)) continue;
     const bz = besetzung(o.basis, o.versetzt, datum);
@@ -384,7 +399,7 @@ export function konflikte(o: {
       const da = b.ids.filter((id) => !abw.has(id));
       const n = da.length;
       const einsaetze = o.plaene.filter((p) => p.team_id === team.id && p.von <= datum && p.bis >= datum);
-      for (const id of b.dazu) if (abw.has(id)) out.push({ art: 'abwesend-eingeteilt', datum, team_id: team.id, mitarbeiter_id: id });
+      for (const id of b.dazu) if (abw.has(id) && abw.get(id) !== 'fehlt') out.push({ art: 'abwesend-eingeteilt', datum, team_id: team.id, mitarbeiter_id: id });
       if (einsaetze.length > 0) {
         const mitSoll = einsaetze.filter((p) => p.soll_leute !== null).sort((x, y) => (y.soll_leute ?? 0) - (x.soll_leute ?? 0));
         const haupt = mitSoll[0] ?? einsaetze[0];
@@ -398,7 +413,12 @@ export function konflikte(o: {
           out.push({ art: 'chef-fehlt', datum, team_id: team.id, mitarbeiter_id: chef, baustelle_id: haupt.baustelle_id, ...(weg ? { nach_team: weg.nach } : {}) });
         }
         const soll = mitSoll[0]?.soll_leute;
-        if (soll !== undefined && soll !== null && n < soll) out.push({ art: 'unter-soll', datum, team_id: team.id, ist: n, soll, baustelle_id: haupt.baustelle_id });
+        // Solange die Lücke einer Fehlmeldung offen ist und sie allein den Mangel erklärt, steht er schon als Fehlmeldung
+        // in der Liste. Ist Ersatz da (so viele wie fest im Team) oder fehlten schon vorher Leute: «x von y» zeigen.
+        const gemeldet = b.ids.filter((id) => abw.get(id) === 'fehlt').length;
+        const fest = (o.basis.get(team.id) ?? []).length;
+        const nurFehlt = gemeldet > 0 && soll !== undefined && soll !== null && n < Math.min(soll, fest) && n + gemeldet >= soll;
+        if (soll !== undefined && soll !== null && n < soll && !nurFehlt) out.push({ art: 'unter-soll', datum, team_id: team.id, ist: n, soll, baustelle_id: haupt.baustelle_id });
       } else if (b.dazu.length > 0) {
         out.push({ art: 'eingeteilt-ohne-einsatz', datum, team_id: team.id, ist: b.dazu.length });
       } else if (n > 0 && o.ohneEinsatzTage?.includes(datum)) {
@@ -419,7 +439,7 @@ export interface KonfliktBlock extends Konflikt { bis: string; tage: number }
  * dazwischen unterbrechen nicht.
  */
 export function konflikteBuendeln(liste: Konflikt[]): KonfliktBlock[] {
-  const schluessel = (k: Konflikt) => [k.art, k.team_id, k.mitarbeiter_id ?? '', k.ist ?? '', k.soll ?? '', k.baustelle_id ?? '', k.nach_team ?? ''].join('|');
+  const schluessel = (k: Konflikt) => [k.art, k.team_id, k.mitarbeiter_id ?? '', k.ist ?? '', k.soll ?? '', k.baustelle_id ?? '', k.nach_team ?? '', k.fehlmeldung_id ?? ''].join('|');
   const naechsterArbeitstag = (d: string) => { let n = addTage(ausIso(d), 1); while (!istArbeitstag(n)) n = addTage(n, 1); return iso(n); };
   const offen = new Map<string, KonfliktBlock>();
   const bloecke: KonfliktBlock[] = [];
@@ -432,4 +452,66 @@ export function konflikteBuendeln(liste: Konflikt[]): KonfliktBlock[] {
     bloecke.push(neu);
   }
   return bloecke.sort((x, y) => x.datum.localeCompare(y.datum) || RANG[x.art] - RANG[y.art]);
+}
+
+// ── Ersatzvorschlag (25.10.2026, «Fehlt melden», Migration 0053) ──────────────────────────────────
+
+export interface ErsatzKandidat {
+  id: string;
+  /** frei: das eigene Team hat an dem Tag keine Baustelle (oder die Person hat kein festes Team) · ueberzaehlig: das
+   *  Team hat mehr Leute, als der Einsatz braucht */
+  grund: 'frei' | 'ueberzaehlig';
+  /** Team, in dem die Person an dem Tag sonst wäre (null = ohne Team) */
+  team_id: string | null;
+}
+
+/**
+ * Wer kann für `fuerTeam` an `datum` einspringen, ohne anderswo ein Loch zu reissen? Zuerst Leute, deren Team an dem
+ * Tag nichts geplant hat (und Leute ohne festes Team), dann Leute aus Teams mit mehr Leuten als «Leute nötig» — dort nur
+ * so viele, wie zu viel sind, und nie der Chefmonteur. Nicht: Abwesende (auch «fehlt»), wer schon im Team ist.
+ * Reihenfolge: frei vor überzählig, dann nach Name. Nur Vorschläge — entscheiden tut das Büro.
+ */
+export function ersatzVorschlaege(o: {
+  datum: string;
+  fuerTeam: string;
+  teams: { id: string; chefmonteur_id: string | null }[];
+  basis: Map<string, string[]>;
+  versetzt: Versetzung[];
+  plaene: EinsatzSoll[];
+  /** Person → Art der Abwesenheit an diesem Tag (inkl. 'fehlt') */
+  abwesend: Map<string, string>;
+  /** alle aktiven Leute (für die ohne festes Team) */
+  personen: { id: string; name: string }[];
+  max?: number;
+}): ErsatzKandidat[] {
+  const bz = besetzung(o.basis, o.versetzt, o.datum);
+  const name = new Map(o.personen.map((p) => [p.id, p.name]));
+  const imZiel = new Set(bz.get(o.fuerTeam)?.ids ?? []);
+  const verplant = new Set<string>();
+  const out: (ErsatzKandidat & { n: string })[] = [];
+  for (const team of o.teams) {
+    if (team.id === o.fuerTeam) continue;
+    const ids = (bz.get(team.id)?.ids ?? []).filter((id) => !o.abwesend.has(id));
+    ids.forEach((id) => verplant.add(id));
+    const einsaetze = o.plaene.filter((p) => p.team_id === team.id && p.von <= o.datum && p.bis >= o.datum);
+    if (einsaetze.length === 0) {
+      for (const id of ids) out.push({ id, grund: 'frei', team_id: team.id, n: name.get(id) ?? '' });
+      continue;
+    }
+    const soll = Math.max(...einsaetze.map((p) => p.soll_leute ?? -1));
+    if (soll < 0 || ids.length <= soll) continue;
+    const kandidaten = ids.filter((id) => id !== team.chefmonteur_id).sort((a, b) => (name.get(a) ?? '').localeCompare(name.get(b) ?? '', 'de'));
+    for (const id of kandidaten.slice(0, ids.length - soll)) out.push({ id, grund: 'ueberzaehlig', team_id: team.id, n: name.get(id) ?? '' });
+  }
+  // Ohne festes Team (Springer, neu): frei, wenn an dem Tag nirgends eingeteilt und nicht abwesend
+  for (const p of o.personen) {
+    if (imZiel.has(p.id) || verplant.has(p.id) || o.abwesend.has(p.id)) continue;
+    const inEinemTeam = [...o.basis.values()].some((ids) => ids.includes(p.id)) || o.versetzt.some((v) => v.datum === o.datum && v.mitarbeiter_id === p.id);
+    if (!inEinemTeam) out.push({ id: p.id, grund: 'frei', team_id: null, n: p.name });
+  }
+  return out
+    .filter((k) => !imZiel.has(k.id))
+    .sort((a, b) => (a.grund === b.grund ? a.n.localeCompare(b.n, 'de') : a.grund === 'frei' ? -1 : 1))
+    .slice(0, o.max ?? 3)
+    .map(({ id, grund, team_id }) => ({ id, grund, team_id }));
 }

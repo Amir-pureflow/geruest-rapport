@@ -21,6 +21,8 @@ export const ARTEN: { wert: AbwesenheitArt; text: string; hinweis?: string; beza
 ];
 
 export function artText(art: string): string {
+  // «fehlt» ist keine Abwesenheit, sondern die Meldung des Teams (0053) — bis das Büro sie erledigt
+  if (art === 'fehlt') return 'Fehlt gemeldet';
   return ARTEN.find((a) => a.wert === art)?.text ?? art;
 }
 

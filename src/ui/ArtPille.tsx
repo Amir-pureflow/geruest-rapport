@@ -10,6 +10,8 @@ const FARBE: Record<string, string> = {
   todesfall: 'bg-ink/[0.08] text-ink',
   freitag: 'bg-good-soft text-good-deep',
   unbezahlt: 'bg-surface-2 text-ink3',
+  // vom Team gemeldet (0053), noch keine Abwesenheit — Bernstein wie eine Warnung, mit Rand: noch offen
+  fehlt: 'bg-amber-soft text-amber-deep ring-1 ring-amber/60',
 };
 
 /** Kleine Pille «Ferien», «Krank» … */

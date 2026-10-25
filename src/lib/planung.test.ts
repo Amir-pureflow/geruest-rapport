@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { arbeitstage, ausschnitt, besetzung, einteilungenBuendeln, heuteUndNaechster, istBalken, konflikte, konflikteBuendeln, naechsterTeamName, ohneTag, planAm, planHinweise, planIst, spuren, tageZwischen, ueberschneiden, zeitraumVorschlag, type EinsatzSoll, type VerlaufZeile } from './planung';
+import { arbeitstage, ausschnitt, besetzung, einteilungenBuendeln, ersatzVorschlaege, heuteUndNaechster, istBalken, konflikte, konflikteBuendeln, naechsterTeamName, ohneTag, planAm, planHinweise, planIst, spuren, tageZwischen, ueberschneiden, zeitraumVorschlag, type EinsatzSoll, type VerlaufZeile } from './planung';
 import { ausIso } from './datum';
 
 describe('planung', () => {
@@ -313,5 +313,68 @@ describe('konflikte — was in der Planung zu lösen ist', () => {
     const r = lauf({ tage: ['2026-10-27', '2026-10-26'], plaene: p, abwesend: abw([['2026-10-27', 'c2', 'krank'], ['2026-10-27', 'b1', 'krank']]) });
     expect(r.map((k) => `${k.datum} ${k.art} ${k.team_id}`)).toEqual(['2026-10-26 unter-soll t1', '2026-10-27 ohne-leute t2']);
     expect(r[0]).toMatchObject({ ist: 3, soll: 4, baustelle_id: 'B9' });
+  });
+});
+
+describe('Fehlt gemeldet und Ersatzvorschlag (0053)', () => {
+  // Mo 26.10.2026. Team 1 (Chef c1, a1, a2) braucht 3 · Team 2 (Chef c2, b1, b2, b3) braucht 3 → einer zu viel
+  // Team 3 (d1, d2) ohne Einsatz · s1 ohne festes Team
+  const teams = [{ id: 't1', chefmonteur_id: 'c1' }, { id: 't2', chefmonteur_id: 'c2' }, { id: 't3', chefmonteur_id: 'd1' }];
+  const basis = new Map([['t1', ['c1', 'a1', 'a2']], ['t2', ['c2', 'b1', 'b2', 'b3']], ['t3', ['d1', 'd2']]]);
+  const plaene: EinsatzSoll[] = [
+    { team_id: 't1', baustelle_id: 'B1', von: '2026-10-26', bis: '2026-10-30', soll_leute: 3 },
+    { team_id: 't2', baustelle_id: 'B2', von: '2026-10-26', bis: '2026-10-30', soll_leute: 3 },
+  ];
+  const personen = [
+    { id: 'c1', name: 'Chef Eins' }, { id: 'a1', name: 'Arben' }, { id: 'a2', name: 'Pascal' },
+    { id: 'c2', name: 'Chef Zwei' }, { id: 'b1', name: 'Bujar' }, { id: 'b2', name: 'Dani' }, { id: 'b3', name: 'Luca' },
+    { id: 'd1', name: 'Marco' }, { id: 'd2', name: 'Tom' }, { id: 's1', name: 'Sami' },
+  ];
+  const fehlt = [{ id: 'f1', datum: '2026-10-26', mitarbeiter_id: 'a2', team_id: 't1' }];
+  const abw = new Map([['2026-10-26', new Map([['a2', 'fehlt']])]]);
+
+  it('steht zuoberst, und «unter Soll» für dasselbe Team entfällt', () => {
+    const r = konflikte({ tage: ['2026-10-26'], teams, basis, versetzt: [], plaene, abwesend: abw, fehlt });
+    expect(r).toEqual([{ art: 'fehlt-gemeldet', datum: '2026-10-26', team_id: 't1', mitarbeiter_id: 'a2', fehlmeldung_id: 'f1' }]);
+  });
+
+  it('fehlten schon vorher Leute, bleibt «x von y» — auch nachdem Ersatz eingeteilt ist', () => {
+    const p4: EinsatzSoll[] = [{ ...plaene[0], soll_leute: 4 }, plaene[1]];
+    const vorher = konflikte({ tage: ['2026-10-26'], teams, basis, versetzt: [], plaene: p4, abwesend: abw, fehlt });
+    expect(vorher.map((k) => `${k.art} ${k.ist ?? ''}`)).toEqual(['fehlt-gemeldet ', 'unter-soll 2']);
+    const mitErsatz = konflikte({ tage: ['2026-10-26'], teams, basis, versetzt: [{ datum: '2026-10-26', mitarbeiter_id: 'd1', team_id: 't1' }], plaene: p4, abwesend: abw, fehlt });
+    expect(mitErsatz.map((k) => `${k.art} ${k.ist ?? ''}`)).toEqual(['fehlt-gemeldet ', 'unter-soll 3']);
+  });
+
+  it('Ersatz eingeteilt und das Soll erreicht: nur noch die Fehlmeldung (bis die Abwesenheit eingetragen ist)', () => {
+    const r = konflikte({ tage: ['2026-10-26'], teams, basis, versetzt: [{ datum: '2026-10-26', mitarbeiter_id: 'd1', team_id: 't1' }], plaene, abwesend: abw, fehlt });
+    expect(r.map((k) => k.art)).toEqual(['fehlt-gemeldet']);
+  });
+
+  it('eingeteilt und als fehlt gemeldet: keine zweite Zeile «abwesend, aber eingeteilt»', () => {
+    const versetzt = [{ datum: '2026-10-26', mitarbeiter_id: 'b3', team_id: 't1' }];
+    const r = konflikte({ tage: ['2026-10-26'], teams, basis, versetzt, plaene, abwesend: new Map([['2026-10-26', new Map([['b3', 'fehlt']])]]), fehlt: [{ id: 'f2', datum: '2026-10-26', mitarbeiter_id: 'b3', team_id: 't1' }] });
+    expect(r.map((k) => k.art)).toEqual(['fehlt-gemeldet']);
+  });
+
+  it('Ersatz: zuerst frei (Team ohne Einsatz, ohne festes Team), dann überzählig — nie der Chef, nie Abwesende', () => {
+    const r = ersatzVorschlaege({ datum: '2026-10-26', fuerTeam: 't1', teams, basis, versetzt: [], plaene, abwesend: abw.get('2026-10-26')!, personen, max: 5 });
+    expect(r).toEqual([
+      { id: 'd1', grund: 'frei', team_id: 't3' },
+      { id: 's1', grund: 'frei', team_id: null },
+      { id: 'd2', grund: 'frei', team_id: 't3' },
+      { id: 'b1', grund: 'ueberzaehlig', team_id: 't2' },
+    ]);
+  });
+
+  it('höchstens so viele aus einem Team, wie dort zu viel sind; Abwesende zählen nicht mit', () => {
+    const r = ersatzVorschlaege({ datum: '2026-10-26', fuerTeam: 't1', teams, basis, versetzt: [], plaene, abwesend: new Map([['a2', 'fehlt'], ['b1', 'krank']]), personen, max: 9 });
+    expect(r.filter((k) => k.grund === 'ueberzaehlig')).toEqual([]);
+  });
+
+  it('wer schon im Team ist oder anderswo eingeteilt, wird nicht vorgeschlagen', () => {
+    const versetzt = [{ datum: '2026-10-26', mitarbeiter_id: 's1', team_id: 't2' }, { datum: '2026-10-26', mitarbeiter_id: 'd2', team_id: 't1' }];
+    const r = ersatzVorschlaege({ datum: '2026-10-26', fuerTeam: 't1', teams, basis, versetzt, plaene, abwesend: abw.get('2026-10-26')!, personen, max: 9 });
+    expect(r.map((k) => k.id)).toEqual(['d1', 'b1', 'b2']);
   });
 });

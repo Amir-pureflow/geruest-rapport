@@ -5,7 +5,7 @@
  *   Teamgerät / Chefmonteur: Plan für heute oder den nächsten Arbeitstag geändert, Leute dazu oder weg, jemand fehlt,
  *     Stunden vom Büro korrigiert.
  *   Monteur mit eigenem Zugang: in einem anderen Team eingeteilt, eigene Stunden korrigiert.
- *   Büro: Rückfrage des Kunden, Regierapport bestätigt, Frist abgelaufen, Meldung mit Abweichung.
+ *   Büro: Rückfrage des Kunden, Regierapport bestätigt, Frist abgelaufen, Meldung mit Abweichung, «fehlt» vom Team (0053).
  *
  * Die Bündel tragen den Stand vorher und nachher (`inhalt.posten`); den Satz dazu baut `eintragText()` hier — so
  * bleibt die Sprache in der App und die Datenbank speichert nur Daten. Ohne Netz zeigt die Glocke den letzten Stand
@@ -20,7 +20,7 @@ import { uhrzeit } from './zeiten';
 import { festeAnsicht, seitenFuer, type Ansicht } from './ansicht';
 import { useAuffrischen } from './auffrischen';
 
-export type PostArt = 'plan' | 'korrektur' | 'rueckfrage' | 'bestaetigt' | 'frist' | 'abweichung';
+export type PostArt = 'plan' | 'korrektur' | 'rueckfrage' | 'bestaetigt' | 'frist' | 'abweichung' | 'fehlt';
 
 /** Ein Posten eines Bündels: Stand vor der ersten Änderung und jetzt (null = gab es nicht / gibt es nicht mehr). */
 export interface Posten {
@@ -199,6 +199,16 @@ export function eintragText(e: Eintrag, heuteIso: string): EintragText {
       const frist = text(i.frist_bis);
       const z = [baustelle, frist ? `Frist bis ${tagKurz(frist)} — noch nicht bestätigt` : 'Noch nicht bestätigt'];
       return { titel: `Frist abgelaufen: ${nummer}`, zeilen: z.filter((x): x is string => !!x), ziel: regie };
+    }
+    case 'fehlt': {
+      // Vom Team gemeldet (0053): in die Planung der Woche — dort steht es zuoberst unter «Zu lösen», mit Ersatzvorschlag
+      const tag = e.tag;
+      const um = text(i.gemeldet_am) ? (() => { const d = new Date(String(i.gemeldet_am)); return `${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}`; })() : null;
+      return {
+        titel: `${text(i.team) ?? 'Ein Team'}: ${text(i.name) ?? 'Jemand'} fehlt ${tag ? tagWort(tag, heuteIso) : ''}`.trim(),
+        zeilen: [um ? `Vom Team gemeldet um ${um}` : 'Vom Team gemeldet', e.erledigt_am ? 'Erledigt' : 'Ersatz vorschlagen und eintragen →'],
+        ziel: tag ? `/planung?woche=${iso(montag(ausIso(tag)))}` : '/planung',
+      };
     }
     case 'abweichung': {
       const typ = ABWEICHUNG[String(i.typ)] ?? 'Abweichung';
