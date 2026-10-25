@@ -459,7 +459,15 @@ Umplanung in der Vorführung erschiene nicht.
   des gewählten Teams, ohne Person. Lesen: Büro alles der Firma, Chefmonteur seine Teams + eigene, Monteur eigene.
 - **«Plan geändert»** auf der Team-Startseite zeigt seit 0051 dieselben Zeilen (aus dem Posteingang); die alte Berechnung
   aus `plan_verlauf` nur noch, wenn die Tabelle fehlt.
-- Fehler im Posteingang verhindern **nie** das Speichern (jeder Auslöser fängt sie ab). Aufräumen nach 90 Tagen (pg_cron
+- Fehler im Posteingang verhindern **nie** das Speichern (jeder Auslöser fängt sie ab).
+- **Benachrichtigungen (0052, 25.10.2026, Amir: «es soll eine Benachrichtigung kommen, mehr nicht — oder bei einer
+  Änderung»):** keine Quittung, kein «gesehen», keine Erinnerung. An Teamgerät/Chefmonteur (nicht Monteur): **16:00** an
+  Arbeitstagen «Plan für <nächster Arbeitstag>» (Baustelle · ab · Treffpunkt · Hinweis, `push_plan_text`) und bei jeder
+  **Änderung** am Plan für heute/den nächsten Arbeitstag (Bündel des Posteingangs, 2 Minuten nach der letzten Änderung,
+  `push_aenderung_text`). Ein verschicktes Bündel bleibt wie verschickt (wie «gelesen»), sonst käme die Rücknahme nie an.
+  Ablauf: `push_ausgang` → pg_net → Edge Function `push-senden` → Web Push an `push_abo` (je Gerät und Team). Einschalten
+  auf der Team-Startseite (`ui/PushKarte.tsx`, `lib/push.ts`), Empfang in `public/push-sw.js` (workbox.importScripts).
+  iPhone nur als App auf dem Home-Bildschirm. Schlüssel in `konfiguration` (siehe supabase/functions/README.md). Aufräumen nach 90 Tagen (pg_cron
   `posteingang_aufraeumen`), Demo: `demo_verlauf_leeren()` leert auch den Posteingang. Ohne Netz: letzter Stand aus dem Vorrat.
 
 ## iPad (20.09.)
@@ -512,7 +520,8 @@ Lesende Prüfung genauso, mit SQL statt `-f` (z. B. `select … from information
 - Eine Datei läuft als ein Block: scheitert eine Zeile, bleibt die ganze Datei draussen. Danach mit einer Abfrage
   bestätigen, nicht glauben.
 - Am Ende einer Migration mit neuen Spalten/Tabellen: `notify pgrst, 'reload schema';`.
-- **Stand:** 0001–0051 sind eingespielt (0051 = Posteingang, am 24.10.2026 nach zurückgerolltem Test mit Büro, Chefmonteur,
+- **Stand:** 0001–0052 sind eingespielt (0052 = Benachrichtigungen, am 25.10.2026 nach zurückgerolltem Test: Rechte je Rolle,
+  16:00 nur an Arbeitstagen und nur einmal, Änderung erst nach 2 Minuten Ruhe, Rücknahme nach Versand kommt an; 0051 = Posteingang, am 24.10.2026 nach zurückgerolltem Test mit Büro, Chefmonteur,
   fremder Firma, Bündeln, Aufrechnen und «gelesen = abgeschlossen»; 0050 = Ort der Baustelle und Werkhof, am 24.10.2026 nach zurückgerolltem Test — Prüfregeln mit ausdrücklichem «is not null», sonst liess «null in (…)» halbe Angaben durch; 0048 = Regie lesen nur Büro, am 24.10.2026 nach zurückgerolltem Test mit Büro, Chefmonteur, Monteur und fremder Firma; 0049 = Einsatzfelder, am 24.10.2026 nach zurückgerolltem Test (Büro schreibt, Chefmonteur nur lesen, Prüfregeln); 0034 neue Fassung, 0035–0039 am 11.10.2026, 0040–0044 am 13.10.2026, 0045/0046 am 14.10.2026, 0047 am 15.10.2026; 0044 = Pause am Morgen mit eigenem Beginn `znueni_von_min`, Dauer 5–60 Min., Ende ≤ 12:00 — gespeichert beides zusammen über `znueniSetzen`). 0047 = Arbeitsbeginn und Mittag je Firma, beide Firmen auf 7:00 / 12–13; Prüfregeln vorher zurückgerollt getestet.
 - Eine Migration mit Rechten zuerst **zurückgerollt testen**: Migration + Testfälle je Rolle (`set local role
   authenticated` + `request.jwt.claims`) in eine Datei, am Ende `raise exception` mit den Ergebnissen — der Fehler
@@ -565,6 +574,11 @@ src/lib/karte.ts                  Tageskarte: ein Punkt je Baustelle, Suche (+ T
 src/seiten/Karte.tsx              Tageskarte /karte (Liste + Landkarte)
 src/lib/posteingang.ts            Posteingang: Texte der Einträge, wer liest was, Laden/gelesen, Glocke (+ Tests)
 src/seiten/Posteingang.tsx        Posteingang /posteingang (Neu / Früher)
+src/lib/push.ts                   Benachrichtigungen ein-/ausschalten, Abo dem Team des Geräts zuordnen (+ Tests)
+src/ui/PushKarte.tsx              Hinweis «Plan für morgen aufs Handy» auf der Team-Startseite
+public/push-sw.js                 Empfang im Service Worker (Anzeigen, Tippen öffnet die App)
+supabase/functions/push-senden/   Versand (Web Push, Schlüssel aus konfiguration)
+supabase/functions/_shared/webpush.ts  VAPID + aes128gcm nur mit WebCrypto
 src/ui/Landkarte.tsx              MapLibre mit swisstopo-Vektorkarten (nur von Karte.tsx nachgeladen)
 src/ui/AdressSuche.tsx            Adresssuche mit Trefferliste (Baustellen, Werkhof)
 src/seiten/Bestaetigung.tsx       Kundenlink ohne Login (/b/:token) — nur im Regie-Modus
@@ -576,7 +590,7 @@ src/ui/FotoGalerie.tsx            Vorschau aus dem Bucket «anhaenge» (signiert
 src/ui/Sprachnotiz.tsx            Pegelbalken während der Aufnahme, Text-Enthüllung nach dem Speichern
 src/ui/Shell.tsx                  Rahmen: Büro-Ansichten mit Bereichsleiste (md) / Seitenleiste (lg), Baustellen-Ansichten Handy-Spalte
 supabase/functions/transkribieren Sprachnotiz → Text (Mistral)
-supabase/migrations/              0001–0015 historisch (inkl. Regie-Tabellen) · 0016 Zeiten von–bis · 0017 Firmen-Schalter (durch 0019 abgelöst) · 0019 mehrere Firmen, Rechte je Firma · 0020 Dateien und Rapportnummern je Firma · 0021 Briefkopf je Firma · 0026 normaler Arbeitstag je Firma · 0027 Zusatzauftrag «erledigt» ohne Regie · 0028 «Gelb markieren ab» je Firma · 0029 dritte Zeitspanne (Znüni-Pause abziehen) · 0030 absichtlich leer · 0031 Korrekturen nach normalem Arbeitstag der Firma · 0032 Einladung und Gerät (verworfen) · 0033 persönliche Zugänge, entfernt 0032 wieder · 0034 Konten aus der Verwaltung, Mail-Domain je Firma, inaktiv = kein Zugang · 0035 Funktionen nie ohne Anmeldung · 0036 Wünsche Arbnor/Mehmeti 10.10. (Pause je Firma, Lieferwagen, Abwesenheiten, Einsatz je Person) · 0037 Spanisch (es, Azure es-ES) · 0038 Verlauf der Planung (plan_verlauf + Auslöser) · 0039 Demo: Verlauf nach «Demo laden» leeren · 0040 Firma der Subunternehmer · 0041 Rechte je Rolle · 0042 Dateien am Regierapport · 0043 Meldung ersetzen in einer Transaktion · 0044 Pause am Morgen frei einstellbar · 0045 Sprachnotiz Pflicht ab (Grenze je Firma) · 0046 dieselbe Grenze als Tagestotal · 0047 Arbeitsbeginn und Mittag je Firma (Pause im Vormittag der Firma) · 0048 Regie-Beträge liest nur das Büro · 0049 Einsatzfelder (Leute nötig, Beginn, Treffpunkt, Hinweis) · 0050 Ort der Baustelle (Koordinaten) und Werkhof · 0051 Posteingang (Auslöser, Bündel, gelesen je Zugang, Feiertage Bern in SQL) — **nächste freie Nummer: 0052** (vor dem Anlegen `git pull`, damit nicht zwei dieselbe Nummer nehmen)
+supabase/migrations/              0001–0015 historisch (inkl. Regie-Tabellen) · 0016 Zeiten von–bis · 0017 Firmen-Schalter (durch 0019 abgelöst) · 0019 mehrere Firmen, Rechte je Firma · 0020 Dateien und Rapportnummern je Firma · 0021 Briefkopf je Firma · 0026 normaler Arbeitstag je Firma · 0027 Zusatzauftrag «erledigt» ohne Regie · 0028 «Gelb markieren ab» je Firma · 0029 dritte Zeitspanne (Znüni-Pause abziehen) · 0030 absichtlich leer · 0031 Korrekturen nach normalem Arbeitstag der Firma · 0032 Einladung und Gerät (verworfen) · 0033 persönliche Zugänge, entfernt 0032 wieder · 0034 Konten aus der Verwaltung, Mail-Domain je Firma, inaktiv = kein Zugang · 0035 Funktionen nie ohne Anmeldung · 0036 Wünsche Arbnor/Mehmeti 10.10. (Pause je Firma, Lieferwagen, Abwesenheiten, Einsatz je Person) · 0037 Spanisch (es, Azure es-ES) · 0038 Verlauf der Planung (plan_verlauf + Auslöser) · 0039 Demo: Verlauf nach «Demo laden» leeren · 0040 Firma der Subunternehmer · 0041 Rechte je Rolle · 0042 Dateien am Regierapport · 0043 Meldung ersetzen in einer Transaktion · 0044 Pause am Morgen frei einstellbar · 0045 Sprachnotiz Pflicht ab (Grenze je Firma) · 0046 dieselbe Grenze als Tagestotal · 0047 Arbeitsbeginn und Mittag je Firma (Pause im Vormittag der Firma) · 0048 Regie-Beträge liest nur das Büro · 0049 Einsatzfelder (Leute nötig, Beginn, Treffpunkt, Hinweis) · 0050 Ort der Baustelle (Koordinaten) und Werkhof · 0051 Posteingang (Auslöser, Bündel, gelesen je Zugang, Feiertage Bern in SQL) · 0052 Benachrichtigungen (push_abo, push_ausgang, 16:00 und Änderungen) — **nächste freie Nummer: 0053** (vor dem Anlegen `git pull`, damit nicht zwei dieselbe Nummer nehmen)
 archiv/regie-und-board/           Stand vom 20.09. als Nachschlagewerk — nicht mehr die Quelle (Regie ist zurück, hinter Schaltern)
 ```
 
