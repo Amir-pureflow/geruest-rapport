@@ -437,7 +437,15 @@ Umplanung in der Vorführung erschiene nicht.
   gewählt (die graue Landeskarte wirkte technisch und unruhig; Google Maps hätte Konto, Kreditkarte und Daten an Google
   bedeutet). Braucht WebGL, sonst ein Satz statt der Karte. Erscheint erst, wenn alle Kacheln geladen sind (sanft
   eingeblendet, vorher «Karte lädt …») — sonst baute sie sich sichtbar auf (zuerst nur Relief); solange niemand selbst
-  verschiebt, bleiben bei Grössenänderungen alle Punkte im Bild. Ein Punkt je Baustelle mit Teams und Leuten
+  verschiebt, bleiben bei Grössenänderungen alle Punkte im Bild. **Detailkarte** (25.10.2026, Amir: «wenn ich auf ein Team
+  klicke, die Details sehen»): Klick auf Punkt oder Listeneintrag zeigt oben links Baustelle, Adresse und je Team
+  Chefmonteur, Beginn, Treffpunkt, Hinweis, «x von y» und die Leute mit Namen (da, eingeteilt, fehlt, abwesend, weg) —
+  `leuteAm` wie auf dem Teamgerät; der gewählte Punkt fliegt neben die Karte statt darunter.
+- **Ort von Hand** (Schritt 7, 25.10.2026): Verwaltung → Baustellen → aufklappen: Karte unter der Adresse (`ui/OrtWahl.tsx`,
+  nachgeladen) — Nadel ziehen oder auf die Karte tippen, dann «Punkt speichern» (`lage_quelle = 'von_hand'`), auch ganz
+  ohne Adresse; Karte/Luftbild. Für Areale, Neubauten ohne Nummer, Zufahrt auf der Rückseite. «Navigieren» und die
+  Tageskarte nehmen den Punkt. Kartenbibliothek, Worker und Stile gemeinsam in `ui/kartenstil.ts` (nicht im Vorab-Download
+  der PWA: `globIgnores` für Landkarte, kartenstil, OrtWahl). Ein Punkt je Baustelle mit Teams und Leuten
   (`lib/karte.ts`), Werkhof als Haus, Baustellen ohne Ort in eigener Liste mit «Orte prüfen →». Zeigt nur Baustellen,
   **nie Personen** (keine Standortverfolgung).
 
@@ -595,6 +603,8 @@ src/seiten/Karte.tsx              Tageskarte /karte (Liste + Landkarte)
 src/lib/posteingang.ts            Posteingang: Texte der Einträge, wer liest was, Laden/gelesen, Glocke (+ Tests)
 src/seiten/Posteingang.tsx        Posteingang /posteingang (Neu / Früher)
 src/ui/Landkarte.tsx              (siehe oben) — blendet erst ein, wenn alles geladen ist
+src/ui/kartenstil.ts              MapLibre, Worker und swisstopo-Stile für alle Karten (nur aus nachgeladenen Teilen)
+src/ui/OrtWahl.tsx                Ort der Baustelle: Karte mit verschiebbarer Nadel (Verwaltung → Baustellen)
 src/lib/push.ts                   Benachrichtigungen ein-/ausschalten, Abo dem Team des Geräts zuordnen (+ Tests)
 src/ui/PushKarte.tsx              Hinweis «Plan für morgen aufs Handy» auf der Team-Startseite
 public/push-sw.js                 Empfang im Service Worker (Anzeigen, Tippen öffnet die App)

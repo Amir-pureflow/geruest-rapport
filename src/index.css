@@ -585,3 +585,7 @@
   background: var(--color-ink); color: #fff; box-shadow: 0 6px 16px -8px rgb(17 17 19 / 0.6); border: 2px solid #fff;
 }
 .maplibregl-map { font-family: var(--font-sans); background: var(--color-surface-2); }
+
+/* Ort der Baustelle (Schritt 7, 25.10.2026): Nadel zum Ziehen, Spitze auf dem Ort (src/ui/OrtWahl.tsx) */
+.rp-nadel { color: var(--color-accent); cursor: grab; line-height: 0; filter: drop-shadow(0 4px 6px rgb(17 17 19 / 0.35)); }
+.rp-nadel:active { cursor: grabbing; }

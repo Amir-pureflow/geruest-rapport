@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import { MapPin, Navigation, Plus } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { alle } from '../../lib/abfrage';
@@ -9,6 +9,9 @@ import { AdressSuche } from '../../ui/AdressSuche';
 import { Auswahl } from '../../ui/Auswahl';
 import { LoeschLeiste, useLoeschFrage } from '../../ui/LoeschFrage';
 import { baustelleEntfernen, baustellePruefen } from '../../lib/entfernen';
+
+// Karte mit verschiebbarem Punkt (Schritt 7) — nachgeladen, die Kartenbibliothek ist gross
+const OrtWahl = lazy(() => import('../../ui/OrtWahl').then((m) => ({ default: m.OrtWahl })));
 
 interface Baustelle {
   id: string; konto_nr: string; bezeichnung: string | null; plz: string | null; status: 'aktiv' | 'fertig_gemeldet' | 'abgeschlossen'; fertigstellung_am: string | null; kunde_id: string | null;
@@ -25,6 +28,8 @@ const SPALTEN_ALT = 'id,konto_nr,bezeichnung,plz,status,fertigstellung_am,kunde_
  * Adresse der Baustelle (24.10.2026, Amir: Karte und Navigieren). «Adresse prüfen» sucht bei der Adresssuche des Bundes
  * (geo.admin.ch) mit Bezeichnung und PLZ; das Büro tippt den richtigen Treffer an — gespeichert werden Strasse, PLZ, Ort
  * und die Koordinaten. Nichts wird ungefragt übernommen: «Lorrainestrasse 18» ohne PLZ fand zuerst Herzogenbuchsee.
+ * Darunter die Karte (25.10.2026, Schritt 7): Punkt ziehen oder tippen, wenn die Zufahrt nicht an der Adresse liegt —
+ * gespeichert als «von Hand gesetzt», auch ganz ohne Adresse.
  */
 function AdresseFeld({ b, speichern, naehe, sofortSuchen = false }: {
   b: Baustelle;
@@ -59,10 +64,12 @@ function AdresseFeld({ b, speichern, naehe, sofortSuchen = false }: {
             {b.strasse || b.ort ? (
               <span className="block text-sm font-medium text-ink">{[b.strasse, [b.plz, b.ort].filter(Boolean).join(' ')].filter(Boolean).join(', ')}</span>
             ) : (
-              <span className="block text-sm text-ink3">Noch keine Adresse — «Adresse prüfen» sucht mit der Bezeichnung.</span>
+              <span className="block text-sm text-ink3">{geprueft ? 'Keine Adresse — nur der Punkt auf der Karte.' : 'Noch keine Adresse — «Adresse prüfen» sucht mit der Bezeichnung.'}</span>
             )}
             <span className={'block text-[11px] ' + (geprueft ? 'text-good-deep' : 'text-amber-deep')}>
-              {geprueft ? `Ort geprüft${b.lage_geprueft_am ? ` am ${kurz(new Date(b.lage_geprueft_am))}` : ''} — «Navigieren» führt genau hierhin` : 'Ort nicht geprüft — «Navigieren» sucht nur nach dem Text'}
+              {geprueft
+                ? `${b.lage_quelle === 'von_hand' ? 'Punkt von Hand gesetzt' : 'Ort geprüft'}${b.lage_geprueft_am ? ` am ${kurz(new Date(b.lage_geprueft_am))}` : ''} — «Navigieren» führt genau hierhin`
+                : 'Ort nicht geprüft — «Navigieren» sucht nur nach dem Text'}
             </span>
           </span>
         </span>
@@ -82,6 +89,10 @@ function AdresseFeld({ b, speichern, naehe, sofortSuchen = false }: {
           fuss={(b.strasse || geprueft) && <button type="button" onClick={() => void entfernen()} className="font-semibold text-ink3 hover:text-accent-deep">Adresse entfernen</button>} />
       )}
       {meldung && <p className={'text-xs ' + (meldung.ok ? 'text-good-deep' : 'font-semibold text-accent-deep')}>{meldung.text}</p>}
+      <Suspense fallback={<div className="h-64 rounded-[12px] border border-line bg-white sm:h-72" />}>
+        <OrtWahl lat={b.lat ?? null} lon={b.lon ?? null} naehe={naehe} vonHand={b.lage_quelle === 'von_hand'}
+          onSpeichern={(o) => speichern({ lat: o.lat, lon: o.lon, lage_quelle: 'von_hand', lage_geprueft_am: new Date().toISOString() })} />
+      </Suspense>
     </div>
   );
 }

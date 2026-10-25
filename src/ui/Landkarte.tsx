@@ -5,21 +5,9 @@
  * Keine Google-Konten, kein Schlüssel, keine Standortabfrage. Braucht WebGL — ohne steht ein Hinweis da.
  */
 import { useEffect, useRef, useState } from 'react';
-import * as maplibregl from 'maplibre-gl';
-import 'maplibre-gl/dist/maplibre-gl.css';
-// Den Worker (zerlegt die Vektorkacheln) ausdrücklich mitgeben: MapLibre sucht ihn neben der eigenen Datei, Vite packt die
-// Bibliothek aber um — ohne das blieb die Basiskarte leer («Worker failed to load», 25.10.2026), nur das Luftbild kam
-import workerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?url';
-
-maplibregl.setWorkerUrl(workerUrl);
 import type { KartenPunkt } from '../lib/karte';
-
-const STIL = (name: string) => `https://vectortiles.geo.admin.ch/styles/${name}/style.json`;
-const KARTE = STIL('ch.swisstopo.lightbasemap.vt');
-const LUFTBILD = STIL('ch.swisstopo.imagerybasemap.vt');
-
-/** Bern, falls noch nichts zu zeigen ist */
-const START: [number, number] = [7.447, 46.948];
+// Bibliothek, Worker und Kartenstile gemeinsam mit dem Ort der Baustelle (Verwaltung)
+import { maplibregl, START, STIL_KARTE as KARTE, STIL_LUFTBILD as LUFTBILD } from './kartenstil';
 
 const schutz = (s: string) => s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
 
@@ -143,7 +131,9 @@ export function Landkarte({ punkte, werkhof, auswahl, onAuswahl, luftbild }: {
     const p = punkte.find((x) => x.baustelle.id === auswahl);
     if (!m || !p) return;
     beruehrt.current = true; // gewählte Baustelle bleibt in der Mitte, auch wenn sich die Grösse ändert
-    m.flyTo({ center: [p.baustelle.lon!, p.baustelle.lat!], zoom: Math.max(m.getZoom(), 15), duration: 600 });
+    // Die Detailkarte liegt links (am Handy unten) über der Karte — den Punkt daneben statt darunter zeigen
+    const breit = window.matchMedia('(min-width: 640px)').matches;
+    m.flyTo({ center: [p.baustelle.lon!, p.baustelle.lat!], zoom: Math.max(m.getZoom(), 15), duration: 600, offset: breit ? [190, 0] : [0, -110] });
   }, [auswahl]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (ohneWebgl) {

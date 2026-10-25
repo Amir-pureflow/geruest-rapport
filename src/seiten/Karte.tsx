@@ -8,13 +8,15 @@
  */
 import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { CalendarX2, ChevronLeft, ChevronRight, Clock, MapPin, MapPinOff, Search, Users } from 'lucide-react';
+import { CalendarX2, ChevronLeft, ChevronRight, Clock, Flag, MapPin, MapPinOff, MessageSquareText, Search, Users, X } from 'lucide-react';
 import { Shell } from '../ui/Shell';
+import { Avatar } from '../ui/Dialog';
 import { supabase } from '../lib/supabase';
 import { alleOderFehler } from '../lib/abfrage';
 import { useAuffrischen, useNeuesteAnfrage } from '../lib/auffrischen';
-import { addTage, ausIso, iso, kurz } from '../lib/datum';
+import { addTage, ausIso, iso, kurz, montag } from '../lib/datum';
 import { besetzung, type Versetzung } from '../lib/planung';
+import { leuteAm, type KartenPerson } from '../lib/tageskarte';
 import { feiertag } from '../lib/feiertage';
 import { adresseText } from '../lib/adresse';
 import { punktPasst, punkteAm, type KartenPunkt, type PunktBaustelle } from '../lib/karte';
@@ -49,33 +51,49 @@ export function Karte() {
     const aktuell = anfrage();
     if (!still) setLaedt(true);
     const firma = eigeneFirma();
-    const [t, p, m, v, a, f, fm] = await Promise.all([
-      c.from('team').select('id,bezeichnung,chefmonteur:chefmonteur_id(name)').eq('aktiv', true),
-      alleOderFehler<{ team_id: string | null; soll_leute: number | null; beginn_min: number | null; baustelle: PunktBaustelle | null }>((von, bis) =>
-        c.from('jahresplan').select('team_id,soll_leute,beginn_min,baustelle:baustelle_id(id,konto_nr,bezeichnung,strasse,plz,ort,lat,lon)').lte('von', tag).gte('bis', tag).order('id').range(von, bis)),
-      c.from('team_mitglied').select('team_id,mitarbeiter:mitarbeiter_id(id,aktiv,funktion)').is('bis', null),
+    const [t, p, m, v, a, f, fm, ma] = await Promise.all([
+      c.from('team').select('id,bezeichnung,chefmonteur_id,chefmonteur:chefmonteur_id(name)').eq('aktiv', true),
+      alleOderFehler<{ team_id: string | null; soll_leute: number | null; beginn_min: number | null; treffpunkt: string | null; hinweis: string | null; baustelle: PunktBaustelle | null }>((von, bis) =>
+        c.from('jahresplan').select('team_id,soll_leute,beginn_min,treffpunkt,hinweis,baustelle:baustelle_id(id,konto_nr,bezeichnung,strasse,plz,ort,lat,lon)').lte('von', tag).gte('bis', tag).order('id').range(von, bis)),
+      c.from('team_mitglied').select('team_id,mitarbeiter:mitarbeiter_id(id,name,aktiv,funktion)').is('bis', null),
       c.from('einsatz_person').select('datum,mitarbeiter_id,team_id').eq('datum', tag),
-      c.from('abwesenheit').select('mitarbeiter_id').eq('datum', tag),
+      c.from('abwesenheit').select('mitarbeiter_id,art').eq('datum', tag),
       firma ? c.from('firma').select('werkhof_adresse,werkhof_lat,werkhof_lon').eq('id', firma.id).maybeSingle() : Promise.resolve({ data: null, error: null }),
       // Vom Team als «fehlt» gemeldet (0053) — zählt wie abwesend
-      c.from('fehlmeldung').select('mitarbeiter_id').eq('status', 'offen').eq('datum', tag),
+      c.from('fehlmeldung').select('id,mitarbeiter_id').eq('status', 'offen').eq('datum', tag),
+      // Namen für die Detailkarte (auch Eingeteilte aus anderen Teams und ohne Team)
+      c.from('mitarbeiter').select('id,name').eq('aktiv', true),
     ]);
     if (!aktuell()) return;
     const err = t.error ?? p.error ?? m.error;
     if (err) { setFehler('Karte konnte nicht geladen werden: ' + err.message); setLaedt(false); return; }
-    const teams = new Map(((t.data ?? []) as unknown as { id: string; bezeichnung: string; chefmonteur: { name: string } | null }[]).map((x) => [x.id, { name: x.bezeichnung, chef: x.chefmonteur?.name ?? null }]));
+    const teamZeilen = (t.data ?? []) as unknown as { id: string; bezeichnung: string; chefmonteur_id: string | null; chefmonteur: { name: string } | null }[];
+    const teams = new Map(teamZeilen.map((x) => [x.id, { name: x.bezeichnung, chef: x.chefmonteur?.name ?? null }]));
     // Leute je Team an diesem Tag — wie die Planung: feste Leute, versetzt, eingeteilt, ohne Abwesende
     const basis = new Map<string, string[]>();
-    for (const x of (m.data ?? []) as unknown as { team_id: string; mitarbeiter: { id: string; aktiv: boolean; funktion: string } | null }[]) {
+    const fest = new Map<string, { id: string; name: string }[]>();
+    for (const x of (m.data ?? []) as unknown as { team_id: string; mitarbeiter: { id: string; name: string; aktiv: boolean; funktion: string } | null }[]) {
       if (!x.mitarbeiter?.aktiv || x.mitarbeiter.funktion === FUNKTION_BUERO) continue;
       basis.set(x.team_id, [...(basis.get(x.team_id) ?? []), x.mitarbeiter.id]);
+      fest.set(x.team_id, [...(fest.get(x.team_id) ?? []), { id: x.mitarbeiter.id, name: x.mitarbeiter.name }]);
     }
-    const abwesend = new Set([...((a.data ?? []) as { mitarbeiter_id: string }[]), ...((fm.error ? [] : fm.data ?? []) as { mitarbeiter_id: string }[])].map((x) => x.mitarbeiter_id));
+    const abwArt = new Map(((a.data ?? []) as { mitarbeiter_id: string; art: string }[]).map((x) => [x.mitarbeiter_id, x.art]));
+    const fehlt = new Map(((fm.error ? [] : fm.data ?? []) as { id: string; mitarbeiter_id: string }[]).map((x) => [x.mitarbeiter_id, x.id]));
+    const abwesend = new Set([...abwArt.keys(), ...fehlt.keys()]);
+    const versetzt = (v.error ? [] : (v.data ?? [])) as Versetzung[];
     const leute = new Map<string, number>();
-    for (const [teamId, b] of besetzung(basis, (v.error ? [] : (v.data ?? [])) as Versetzung[], tag)) leute.set(teamId, b.ids.filter((id) => !abwesend.has(id)).length);
+    for (const [teamId, b] of besetzung(basis, versetzt, tag)) leute.set(teamId, b.ids.filter((id) => !abwesend.has(id)).length);
+    // Wer je Team da ist, dazukommt, fehlt oder weg ist — für die Detailkarte, Chefmonteur zuerst
+    const namen = new Map(((ma.data ?? []) as { id: string; name: string }[]).map((x) => [x.id, x.name]));
+    const teamNamen = new Map(teamZeilen.map((x) => [x.id, x.bezeichnung]));
+    const personen = new Map<string, KartenPerson[]>();
+    for (const tz of teamZeilen) {
+      const liste = [...(fest.get(tz.id) ?? [])].sort((x, y) => (x.id === tz.chefmonteur_id ? -1 : y.id === tz.chefmonteur_id ? 1 : x.name.localeCompare(y.name, 'de')));
+      personen.set(tz.id, leuteAm({ teamId: tz.id, fest: liste, versetzt, abwesend: abwArt, fehlt, namen, teamNamen, datum: tag }));
+    }
     const w = f.error ? null : (f.data as { werkhof_adresse: string | null; werkhof_lat: number | null; werkhof_lon: number | null } | null);
     setDaten({
-      punkte: punkteAm({ einsaetze: p.data ?? [], teams, leute }),
+      punkte: punkteAm({ einsaetze: p.data ?? [], teams, leute, personen }),
       werkhof: w && w.werkhof_lat != null && w.werkhof_lon != null ? { lat: w.werkhof_lat, lon: w.werkhof_lon, adresse: w.werkhof_adresse } : null,
     });
     setFehler(p.error ? 'Einsätze konnten nicht geladen werden.' : null);
@@ -91,6 +109,7 @@ export function Karte() {
   const anzahl = (daten?.punkte.mitOrt.length ?? 0) + (daten?.punkte.ohneOrt.length ?? 0);
   const leer = !laedt && daten && anzahl === 0;
   const heute = iso(new Date());
+  const gewaehlt = auswahl ? [...(daten?.punkte.mitOrt ?? []), ...(daten?.punkte.ohneOrt ?? [])].find((p) => p.baustelle.id === auswahl) ?? null : null;
 
   return (
     <Shell zurueck breit>
@@ -168,6 +187,7 @@ export function Karte() {
             <Suspense fallback={<p className="p-6 text-sm text-ink3">Karte lädt …</p>}>
               <Landkarte punkte={sichtbar} werkhof={daten?.werkhof ?? null} auswahl={auswahl} onAuswahl={(id) => setAuswahl(id)} luftbild={luftbild} />
             </Suspense>
+            {gewaehlt && <Details punkt={gewaehlt} tag={tag} onZu={() => setAuswahl(null)} />}
             <div className="absolute right-3 top-3 z-[500] flex rounded-full border border-ink/10 bg-white p-1 shadow-[0_2px_8px_-2px_rgb(17_17_19/0.25)]" role="group" aria-label="Kartenart">
               {([false, true] as const).map((lb) => (
                 <button key={String(lb)} type="button" aria-pressed={luftbild === lb} onClick={() => setLuftbild(lb)}
@@ -180,5 +200,72 @@ export function Karte() {
         </div>
       </div>
     </Shell>
+  );
+}
+
+/**
+ * Detailkarte (25.10.2026, Amir: «wenn ich auf ein Team klicke, die Details sehen — wer dort ist, clean»): Baustelle mit
+ * Adresse, je Team Chefmonteur, Beginn, Treffpunkt, Hinweis und die Leute des Tages mit Namen — da, eingeteilt, fehlt,
+ * abwesend, in einem anderen Team. Über der Karte oben links, am Handy über die ganze Breite.
+ */
+function Details({ punkt, tag, onZu }: { punkt: KartenPunkt; tag: string; onZu: () => void }) {
+  const b = punkt.baustelle;
+  const markeVon = (p: KartenPerson) =>
+    p.art === 'dazu' ? { text: 'eingeteilt', klasse: 'bg-good-soft text-good-deep' }
+      : p.art === 'fehlt' ? { text: 'fehlt gemeldet', klasse: 'bg-amber-soft text-amber-deep' }
+        : p.art === 'abwesend' ? { text: p.info ?? 'abwesend', klasse: 'bg-surface-2 text-ink3' }
+          : p.art === 'weg' ? { text: `→ ${p.info ?? 'anderes Team'}`, klasse: 'bg-surface-2 text-ink3' }
+            : null;
+  return (
+    <aside className="absolute inset-x-3 bottom-3 z-[600] flex max-h-[calc(100%-24px)] flex-col overflow-hidden rounded-[16px] border border-ink/10 bg-white shadow-[0_18px_40px_-16px_rgb(17_17_19/0.45)] sm:inset-x-auto sm:bottom-auto sm:left-3 sm:top-3 sm:w-[360px]" aria-label="Details zur Baustelle">
+      <div className="flex items-start gap-2 border-b border-line px-4 py-3">
+        <div className="min-w-0 flex-1">
+          <p className="flex items-start gap-2"><span className="knr mt-px">{b.konto_nr}</span><span className="text-[15px] font-semibold leading-snug text-ink">{b.bezeichnung || 'Baustelle'}</span></p>
+          {adresseText(b) && <p className="mt-1 flex items-center gap-1.5 text-xs text-ink3"><MapPin size={12} aria-hidden="true" />{adresseText(b)}</p>}
+        </div>
+        <button type="button" onClick={onZu} aria-label="Details schliessen" className="grid h-8 w-8 shrink-0 place-items-center rounded-full text-ink3 hover:bg-surface-2 hover:text-ink"><X size={17} /></button>
+      </div>
+      <div className="min-h-0 flex-1 divide-y divide-line overflow-y-auto">
+        {punkt.teams.map((t) => {
+          const da = (t.personen ?? []).filter((p) => p.art === 'da' || p.art === 'dazu').length;
+          const knapp = t.soll !== null && da < t.soll;
+          return (
+            <section key={t.teamId} className="space-y-2.5 px-4 py-3">
+              <div className="flex items-baseline justify-between gap-2">
+                <p className="text-sm font-semibold text-ink">{t.team}{t.chef && <span className="font-normal text-ink3"> · {t.chef}</span>}</p>
+                <span className={'inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold ' + (knapp ? 'bg-amber-soft text-amber-deep' : 'bg-surface-2 text-ink2')}>
+                  <Users size={11} aria-hidden="true" />{da}{t.soll !== null ? ` von ${t.soll}` : ''}
+                </span>
+              </div>
+              {(t.beginn_min !== null || t.treffpunkt) && (
+                <p className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-ink2">
+                  {t.beginn_min !== null && <span className="inline-flex items-center gap-1.5"><Clock size={13} className="text-ink3" aria-hidden="true" />ab <b className="font-semibold text-ink">{uhrzeit(t.beginn_min)}</b></span>}
+                  {t.treffpunkt && <span className="inline-flex items-center gap-1.5"><Flag size={13} className="text-ink3" aria-hidden="true" />Treffpunkt <b className="font-semibold text-ink">{t.treffpunkt === 'werkhof' ? 'Werkhof' : 'Baustelle'}</b></span>}
+                </p>
+              )}
+              {t.hinweis && <p className="flex items-start gap-1.5 rounded-[10px] bg-steel-soft px-2.5 py-1.5 text-xs text-ink"><MessageSquareText size={13} className="mt-0.5 shrink-0 text-steel" aria-hidden="true" />{t.hinweis}</p>}
+              {(t.personen ?? []).length > 0 ? (
+                <ul className="space-y-1">
+                  {(t.personen ?? []).map((p) => {
+                    const m = markeVon(p);
+                    const weg = p.art === 'abwesend' || p.art === 'weg' || p.art === 'fehlt';
+                    return (
+                      <li key={p.id + p.art} className="flex items-center gap-2.5">
+                        <Avatar name={p.name} />
+                        <span className={'min-w-0 flex-1 truncate text-sm ' + (weg ? 'text-ink3' : 'text-ink')}>{p.name}</span>
+                        {m && <span className={'shrink-0 rounded-full px-2 py-0.5 text-[10.5px] font-semibold ' + m.klasse}>{m.text}</span>}
+                      </li>
+                    );
+                  })}
+                </ul>
+              ) : <p className="text-xs text-ink3">Niemand eingeteilt.</p>}
+            </section>
+          );
+        })}
+      </div>
+      <div className="border-t border-line px-4 py-2.5">
+        <Link to={`/planung?woche=${iso(montag(ausIso(tag)))}`} className="text-xs font-semibold text-steel hover:underline">In der Planung öffnen →</Link>
+      </div>
+    </aside>
   );
 }

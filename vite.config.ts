@@ -30,9 +30,9 @@ export default defineConfig({
       },
       workbox: {
         globPatterns: ['**/*.{js,css,html,svg,png,woff2}'],
-        // Die Landkarte (MapLibre, ~1 MB) braucht nur das Büro auf /karte, und nur mit Netz (Kacheln von swisstopo) —
+        // Die Karten (MapLibre, ~1 MB) braucht nur das Büro (Tageskarte, Ort der Baustelle), und nur mit Netz —
         // nicht bei jedem Update auf jedes Teamgerät laden (25.10.2026)
-        globIgnores: ['**/Landkarte-*.{js,css}'],
+        globIgnores: ['**/Landkarte-*.{js,css}', '**/kartenstil-*.{js,css}', '**/OrtWahl-*.{js,css}'],
         // Benachrichtigungen «Plan für morgen» empfangen und antippen (25.10.2026, public/push-sw.js)
         importScripts: ['push-sw.js'],
         // Kein skipWaiting mehr: die neue Version übernimmt erst, wenn main.tsx sie ruft (Hintergrund, Seitenwechsel).
