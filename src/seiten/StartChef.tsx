@@ -27,6 +27,8 @@ import {
 } from '../lib/db';
 import { vorratLesen, vorratSchreiben } from '../lib/vorrat';
 import { heuteUndNaechster, planHinweise, type VerlaufZeile } from '../lib/planung';
+import { useAnsicht } from '../lib/ansicht';
+import { eintragText, usePosteingang } from '../lib/posteingang';
 import { istDemoFirma } from '../lib/demo';
 import { nachtragMoeglich } from '../lib/nachtrag';
 
@@ -547,6 +549,27 @@ export function StartChef() {
     return () => { veraltet = true; };
   }, [teamId]);
 
+  /**
+   * Seit 0051 kommt «Plan geändert» aus dem Posteingang (24.10.2026): dieselben Zeilen wie unter der Glocke — auch
+   * Beginn, Treffpunkt, Hinweis und wer fehlt, je Tag gebündelt. Die Berechnung oben bleibt für Datenbanken ohne 0051.
+   */
+  const ansicht = useAnsicht();
+  const post = usePosteingang(ansicht);
+  const planGeaendert = useMemo(() => {
+    if (post.fehlt || !post.geladen || !teamId) {
+      return hinweise.map((h) => ({ key: h.key, tag: h.tag, zeilen: [h.text], wann: h.wann }));
+    }
+    const tageH = heuteUndNaechster(new Date());
+    return post.eintraege
+      .filter((e) => e.art === 'plan' && e.an === 'team' && e.team_id === teamId && !!e.tag && tageH.includes(e.tag))
+      .map((e) => {
+        const d = new Date(e.geaendert_am);
+        const wann = `geändert ${WOCHENTAGE[(d.getDay() + 6) % 7]} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+        return { key: e.id, tag: tagTitel(e.tag!, heuteIso), zeilen: eintragText(e, heuteIso).zeilen, wann };
+      })
+      .filter((h) => h.zeilen.length > 0);
+  }, [post, teamId, heuteIso, hinweise]);
+
   if (!teamId || (teams.length > 0 && !team)) {
     return (
       <Shell>
@@ -632,13 +655,18 @@ export function StartChef() {
           <button type="button" className="btn-ghost shrink-0 text-xs" onClick={() => { localStorage.removeItem(TEAM_KEY); setTeamId(null); }}>Team wechseln</button>
         </header>
 
-        {hinweise.length > 0 && (
+        {planGeaendert.length > 0 && (
           <section className="rounded-[16px] border border-amber/40 bg-amber-soft px-4 py-3" role="status">
             <p className="flex items-center gap-2 text-sm font-semibold text-amber-deep"><BellRing size={16} aria-hidden="true" /> Plan geändert</p>
-            <ul className="mt-1.5 space-y-1 text-sm text-ink">
-              {hinweise.map((h) => (
+            <ul className="mt-1.5 space-y-1.5 text-sm text-ink">
+              {planGeaendert.map((h) => (
                 // Zeitpunkt auf eigener Zeile (21.10.2026): angehängt brach er am Handy um und die Zeile begann mit «·»
-                <li key={h.key}><b className="font-semibold">{h.tag}:</b> {h.text} <span className="block text-[11px] text-ink3">{h.wann}</span></li>
+                <li key={h.key}>
+                  {h.zeilen.length === 1
+                    ? <><b className="font-semibold">{h.tag}:</b> {h.zeilen[0]}</>
+                    : <><b className="font-semibold">{h.tag}:</b><span className="block space-y-0.5">{h.zeilen.map((z, i) => <span key={i} className="block">{z}</span>)}</span></>}
+                  <span className="block text-[11px] text-ink3">{h.wann}</span>
+                </li>
               ))}
             </ul>
           </section>

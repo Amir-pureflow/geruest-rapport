@@ -144,6 +144,9 @@ export const WOERTER = new Map<string, string>(Object.entries({
   'an diesem Tag in': 'on this day in', 'für den Tag dazu': 'added for the day', 'in einem anderen Team': 'in another team', 'nachtragen ›': 'add later ›',
   'nur dieser Tag': 'this day only', 'vom Bauführer freigegeben': 'approved by the site manager', 'zurückholen': 'bring back', 'Heute:': 'Today:', 'Morgen:': 'Tomorrow:',
   'eingeteilt': 'assigned', 'Gast': 'Guest', 'Leute': 'people', 'Ganzer Einsatz': 'Whole assignment',
+  // Posteingang (24.10.2026) — die Zeilen der Einträge bleiben deutsch, nur der Rahmen
+  'Posteingang': 'Inbox', 'Alle gelesen': 'Mark all read', 'Neu': 'New', 'Früher': 'Earlier', 'Nichts Neues': 'Nothing new',
+  'Einträge der letzten 30 Tage.': 'Entries from the last 30 days.',
   // Sprachnotiz-Text im Video (die App übersetzt ins Deutsche; die Demo zeigt ihn auf Englisch)
   'Wir haben das Gerüst auf die Nordseite versetzt. Etwa eine Stunde mehr.': 'We moved the scaffold to the north side. About one hour more.',
 }));

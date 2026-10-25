@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { ANSICHT_LABEL, festeAnsicht, useAnsicht, type Ansicht } from '../lib/ansicht';
-import { ChevronRight, ChevronDown, LayoutDashboard, CalendarDays, CalendarRange, Download, Settings, PhoneCall, FileText, BarChart3, CalendarPlus, ArrowLeftRight, LogOut, Map as KarteIcon, type LucideIcon } from 'lucide-react';
+import { ChevronRight, ChevronDown, LayoutDashboard, CalendarDays, CalendarRange, Download, Settings, PhoneCall, FileText, BarChart3, CalendarPlus, ArrowLeftRight, LogOut, Map as KarteIcon, Bell, Inbox, type LucideIcon } from 'lucide-react';
 import { einstellungen } from '../lib/einstellungen';
 import { abmelden, ungesendet } from '../lib/konto';
 import { eigeneFirma } from '../lib/einstellungen';
+import { empfaengerFuer, usePosteingang } from '../lib/posteingang';
 
 /**
  * Bildmarke: Gerüst als Netz — zwei Stiele, zwei Lagen, eine Strebe, und an den Knoten leuchtende Punkte
@@ -144,6 +145,38 @@ function Konto({ ansicht, platz = 'kopf' }: { ansicht: Ansicht; platz?: 'kopf' |
   );
 }
 
+/** Zahl der neuen Einträge auf Glocke und Menüeintrag: rot, weil jemand hinschauen muss; ab 10 «9+». */
+function Zahl({ n, className = '' }: { n: number; className?: string }) {
+  if (n <= 0) return null;
+  return (
+    <span className={'grid h-[18px] min-w-[18px] place-items-center rounded-full bg-accent px-1 text-[10.5px] font-semibold leading-none text-white ' + className}>
+      {n > 9 ? '9+' : n}
+    </span>
+  );
+}
+
+/**
+ * Glocke (Posteingang, 24.10.2026): in der Kopfzeile, neben dem Konto — am Handy und auf dem iPad; am PC steht der
+ * Posteingang in der Seitenleiste. Fehlt die Tabelle (0051 nicht eingespielt), gibt es keine Glocke.
+ */
+function Glocke({ ansicht }: { ansicht: Ansicht }) {
+  const p = usePosteingang(ansicht);
+  const { pathname } = useLocation();
+  if (p.fehlt || !empfaengerFuer(ansicht)) return null;
+  const an = pathname === '/posteingang';
+  return (
+    <Link
+      to="/posteingang"
+      aria-label={p.neu > 0 ? `Posteingang, ${p.neu} neu` : 'Posteingang'}
+      aria-current={an ? 'page' : undefined}
+      className={'relative grid h-9 w-9 place-items-center rounded-[12px] border transition-colors ' + (an ? 'border-line-strong bg-surface-2' : 'border-line bg-surface hover:bg-surface-2')}
+    >
+      <Bell size={17} strokeWidth={1.8} className="text-ink2" aria-hidden="true" />
+      <Zahl n={p.neu} className="absolute -right-1.5 -top-1.5" />
+    </Link>
+  );
+}
+
 /**
  * Büro-Ansichten (Bauführer, Sekretariat) laufen am PC: ab «lg» eine Seitenleiste mit allen
  * Bereichen, der Inhalt wird breit. Baustellen-Ansichten (Chefmonteur, Monteur) bleiben
@@ -154,7 +187,7 @@ function Konto({ ansicht, platz = 'kopf' }: { ansicht: Ansicht; platz?: 'kopf' |
  */
 const BUERO: Ansicht[] = ['bauf', 'sekretariat'];
 
-interface NavEintrag { zu: string; label: string; icon?: LucideIcon }
+interface NavEintrag { zu: string; label: string; icon?: LucideIcon; zahl?: number }
 interface NavGruppe { titel?: string; eintraege: NavEintrag[] }
 
 /**
@@ -229,6 +262,7 @@ function NavLink({ e, aktiv }: { e: NavEintrag; aktiv: boolean }) {
     >
       {e.icon && <e.icon size={17} strokeWidth={1.8} className={aktiv ? 'text-accent' : 'text-ink3'} aria-hidden="true" />}
       {e.label}
+      {!!e.zahl && <Zahl n={e.zahl} className="ml-auto" />}
     </Link>
   );
 }
@@ -249,6 +283,7 @@ const TITEL: Record<string, string> = {
   '/auswertung': 'Auswertung',
   '/planung': 'Planung',
   '/karte': 'Karte',
+  '/posteingang': 'Posteingang',
 };
 
 /** Brotkrumen: Übersicht › Wochenübersicht. Jede Stufe ist anklickbar, die letzte nicht. */
@@ -300,6 +335,11 @@ export function Shell({
   const { pathname } = useLocation();
   const buero = ansicht !== null && BUERO.includes(ansicht);
   const nav = ansicht === 'bauf' || ansicht === 'sekretariat' ? navFuer(ansicht) : null;
+  // Posteingang in der Seitenleiste (PC) gleich unter der Übersicht, mit der Zahl der neuen Einträge
+  const post = usePosteingang(ansicht);
+  const leiste = nav && !post.fehlt && empfaengerFuer(ansicht)
+    ? [{ ...nav[0], eintraege: [...nav[0].eintraege, { zu: '/posteingang', label: 'Posteingang', icon: Inbox, zahl: post.neu }] }, ...nav.slice(1)]
+    : nav;
   const istAktiv = (zu: string) => {
     const pfad = zu.split('?')[0];
     return pfad === '/' ? pathname === '/' : pathname === pfad || pathname.startsWith(pfad + '/');
@@ -317,7 +357,7 @@ export function Shell({
             <Wortmarke />
           </Link>
           <nav className="mt-8 flex flex-col gap-6" aria-label="Bereiche">
-            {nav.map((g, i) => (
+            {(leiste ?? nav).map((g, i) => (
               <div key={g.titel ?? i}>
                 {g.titel && <p className="mb-1 px-3 text-xs font-medium text-ink3">{g.titel}</p>}
                 <div className="flex flex-col gap-0.5">
@@ -338,6 +378,7 @@ export function Shell({
               <Wortmarke />
             </Link>
             <span className="flex items-center gap-1.5">
+              {ansicht && <Glocke ansicht={ansicht} />}
               {wechsel}
             </span>
           </div>

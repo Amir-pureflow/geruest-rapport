@@ -11,6 +11,9 @@ import { Cockpit } from './seiten/Cockpit';
 import { Tag } from './seiten/Tag';
 import { Export } from './seiten/Export';
 import { Verwaltung } from './seiten/verwaltung/Verwaltung';
+// Posteingang (24.10.2026): klein und fürs Teamgerät ohne Netz — nicht nachladen
+import { Posteingang } from './seiten/Posteingang';
+import { empfaengerFuer } from './lib/posteingang';
 // Regie-Seiten: nur erreichbar, wenn die Firma mit Regie arbeitet (Firmen-Schalter MODUS_ERFASSUNG).
 // Nachgeladen, damit der Start schnell bleibt — und gleich nach dem Start im Hintergrund vorgeladen (siehe vorladen()),
 // damit der erste Klick auf «Regierapporte» nicht erst auf den Code warten muss (08.10.2026: weisses Aufblitzen).
@@ -276,6 +279,7 @@ function App() {
         {hat('cockpit') && <Route path="/cockpit" element={<Cockpit />} />}
         {hat('export') && <Route path="/export" element={<Export />} />}
         {hat('verwaltung') && <Route path="/verwaltung" element={<Verwaltung />} />}
+        {sitzung && empfaengerFuer(ansicht) && <Route path="/posteingang" element={<Posteingang />} />}
         {/* Regie-Modus: Kundenlink ohne Login, Zusatzauftrag, Regierapporte, Auswertung, Planung */}
         {/* Immer, nicht nur im Regie-Modus (21.10.2026): Die Bauleitung ist nicht angemeldet, ihr Gerät kennt die Firma
             nicht — einstellungen() stand auf «wochenblatt», die Route fehlte und der Link aus der Mail zeigte «Wer bist du?». */}
