@@ -144,7 +144,7 @@ export function Karte() {
                 <div className="flex flex-col items-center gap-3 px-4 py-10 text-center">
                   <span className="grid h-10 w-10 place-items-center rounded-full bg-surface-2 text-ink3"><CalendarX2 size={18} aria-hidden="true" /></span>
                   <p className="text-sm text-ink2">Für diesen Tag sind keine Einsätze geplant.</p>
-                  <Link to={`/planung?woche=${tag}`} className="btn-ghost py-1.5 text-sm">Planung öffnen</Link>
+                  <Link to={`/planung?woche=${tag}&tag=${tag}`} className="btn-ghost py-1.5 text-sm">Planung öffnen</Link>
                 </div>
               )}
               {sichtbar.map((p) => {
@@ -256,7 +256,8 @@ function TeamBlase({ punkt, tag }: { punkt: KartenPunkt; tag: string }) {
           );
         })}
       </div>
-      <Link to={`/planung?woche=${iso(montag(ausIso(tag)))}`} className="mt-2 inline-block text-[12px] font-semibold text-steel hover:underline">In der Planung öffnen →</Link>
+      {/* Planung mit diesem Tag, den Teams und dem Einsatz markiert — wie der Sprung in die Wochenübersicht */}
+      <Link to={`/planung?woche=${iso(montag(ausIso(tag)))}&tag=${tag}&team=${punkt.teams.map((t) => t.teamId).join(',')}&baustelle=${punkt.baustelle.id}`} className="mt-2 inline-block text-[12px] font-semibold text-steel hover:underline">In der Planung öffnen →</Link>
     </div>
   );
 }

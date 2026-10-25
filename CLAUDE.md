@@ -441,7 +441,10 @@ Umplanung in der Vorführung erschiene nicht.
   wer im Team ist — einfach Details zum Team»): Klick auf Punkt oder Listeneintrag öffnet direkt über dem Punkt eine
   Blase (MapLibre-Popup, Inhalt per React-Portal) mit je Team Chefmonteur, Beginn, Treffpunkt, Hinweis, «x von y» und den
   Leuten mit Namen (da, eingeteilt, fehlt, abwesend, weg — `leuteAm` wie auf dem Teamgerät); × oder Klick daneben schliesst.
-  Zuerst stand das als Box oben links — Amir wollte es beim Team.
+  Zuerst stand das als Box oben links — Amir wollte es beim Team. «In der Planung öffnen →» springt mit
+  `?woche&tag&team=a,b&baustelle` in die Planung: Tag als blaue Pille und blaue Spalte, Teamzeile mit blauem Strich, der
+  Einsatz mit blauem Umriss, die Tageszelle weiss; scrollt hin (am Handy auch seitlich). Weg bei anderer Woche, anderem
+  geöffnetem Tag oder «Markierung aufheben» — wie die Tagesmarkierung der Wochenübersicht.
 - **Ort von Hand** (Schritt 7, 25.10.2026): Verwaltung → Baustellen → aufklappen: Karte unter der Adresse (`ui/OrtWahl.tsx`,
   nachgeladen) — Nadel ziehen oder auf die Karte tippen, dann «Punkt speichern» (`lage_quelle = 'von_hand'`), auch ganz
   ohne Adresse; Karte/Luftbild. Für Areale, Neubauten ohne Nummer, Zufahrt auf der Rückseite. «Navigieren» und die

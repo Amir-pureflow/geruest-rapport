@@ -140,11 +140,23 @@ export function Planung() {
   const [laedt, setLaedt] = useState(true);
   const [fehler, setFehler] = useState<string | null>(null);
   // ?woche=2026-10-28 (z. B. aus «Abwesenheit eintragen»): diese Woche zeigen
-  const [params] = useSearchParams();
+  const [params, setParams] = useSearchParams();
   const [start, setStart] = useState(() => {
-    const w = params.get('woche');
+    const w = params.get('woche') ?? params.get('tag');
     return w && /^\d{4}-\d{2}-\d{2}$/.test(w) ? montag(ausIso(w)) : montag(new Date());
   });
+  // Sprung von der Tageskarte mit ?tag&team=a,b&baustelle (25.10.2026, Amir: «da sehe ich nicht genau, welche es ist»):
+  // wie in der Wochenübersicht den Tag blau markieren, dazu die Teams und ihren Einsatz. Weg beim Wochenwechsel, beim
+  // Öffnen eines anderen Tags oder per «Markierung aufheben» — auch aus der Adresse, damit «Zurück» sie nicht wiederbringt.
+  const [mark, setMark] = useState<{ tag: string; teams: string[]; baustelle: string | null } | null>(() => {
+    const t = params.get('tag');
+    if (!t || !/^\d{4}-\d{2}-\d{2}$/.test(t)) return null;
+    return { tag: t, teams: (params.get('team') ?? '').split(',').filter(Boolean), baustelle: params.get('baustelle') };
+  });
+  const markierungWeg = useCallback(() => {
+    setMark(null);
+    setParams((p) => { const n = new URLSearchParams(p); n.delete('tag'); n.delete('team'); n.delete('baustelle'); return n; }, { replace: true });
+  }, [setParams]);
   const [anzahlTage, setAnzahlTage] = useState<7 | 14>(7);
   const [entwurf, setEntwurf] = useState<Entwurf | null>(null);
   /** `dazu`: gleich «Person dazunehmen» öffnen (aus der Konfliktliste) */
@@ -468,9 +480,35 @@ export function Planung() {
   const titel = anzahlTage === 7
     ? `KW ${kw(start)} · ${kurz(start)} – ${kurz(addTage(start, 6))}`
     : `KW ${kw(start)}–${kw(addTage(start, 7))} · ${kurz(start)} – ${kurz(addTage(start, 13))}`;
-  /** Hintergrund je Tag: Wochenende grau, heute rötlich, Linie zwischen zwei Wochen */
+  /** Hintergrund je Tag: markierter Tag blau, Wochenende grau, heute rötlich, Linie zwischen zwei Wochen */
   const tagHintergrund = (d: Date, i: number) =>
-    (iso(d) === heuteIso ? 'bg-accent-soft/35 ' : istFrei(d) ? 'bg-ink/[0.025] ' : '') + (i === 7 ? 'border-l border-line-strong ' : i > 0 ? 'border-l border-line/60 ' : '');
+    (iso(d) === mark?.tag ? 'bg-steel-soft/60 ' : iso(d) === heuteIso ? 'bg-accent-soft/35 ' : istFrei(d) ? 'bg-ink/[0.025] ' : '') + (i === 7 ? 'border-l border-line-strong ' : i > 0 ? 'border-l border-line/60 ' : '');
+
+  // Markierung: gilt nur für den Sprung — andere Woche oder anderer Tag geöffnet, dann ist sie weg (wie in der Wochenübersicht)
+  useEffect(() => {
+    if (mark && (mark.tag < startIso || mark.tag > endeIso)) markierungWeg();
+  }, [startIso, endeIso]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (mark && tagWahl && (tagWahl.datum !== mark.tag || (mark.teams.length > 0 && !mark.teams.includes(tagWahl.teamId)))) markierungWeg();
+  }, [tagWahl]); // eslint-disable-line react-hooks/exhaustive-deps
+  const markTeams = mark ? teams.filter((t) => mark.teams.includes(t.id)) : [];
+  // Den markierten Tag des ersten Teams einmal ins Bild holen — am Handy auch seitlich, in die Mitte der Fläche rechts
+  // der Teamspalte (die steht fest und würde den Tag sonst halb verdecken)
+  const markZelle = useRef<HTMLButtonElement | null>(null);
+  const markGescrollt = useRef(false);
+  useEffect(() => {
+    const z = markZelle.current;
+    if (laedt || markGescrollt.current || !z) return;
+    markGescrollt.current = true;
+    const rahmen = z.closest<HTMLElement>('.overflow-x-auto');
+    if (rahmen) {
+      const team = rahmen.querySelector<HTMLElement>('.sticky')?.offsetWidth ?? 0;
+      const r = z.getBoundingClientRect();
+      const f = rahmen.getBoundingClientRect();
+      rahmen.scrollLeft += r.left + r.width / 2 - (f.left + team + (f.width - team) / 2);
+    }
+    z.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
+  }, [laedt]);
 
   const schliessen = useCallback(() => setEntwurf(null), []);
   const tagSchliessen = useCallback(() => setTagWahl(null), []);
@@ -597,6 +635,17 @@ export function Planung() {
           />
         )}
 
+        {mark && (
+          <p className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-ink2">
+            <span className="inline-flex items-center gap-1.5 font-semibold text-steel">
+              <span className="h-2 w-2 rounded-full bg-steel" aria-hidden="true" />
+              {WOCHENTAGE[(ausIso(mark.tag).getDay() + 6) % 7]} {kurz(ausIso(mark.tag))}{markTeams.length > 0 && ` · ${markTeams.map((t) => t.bezeichnung).join(', ')}`} markiert
+            </span>
+            <span className="text-ink3">von der Tageskarte — Tag antippen öffnet ihn</span>
+            <button type="button" className="text-xs font-semibold text-ink3 underline underline-offset-2 hover:text-ink" onClick={markierungWeg}>Markierung aufheben</button>
+          </p>
+        )}
+
         <section className="card overflow-hidden p-0">
           <div className="overflow-x-auto">
             <div className={TEAM_SPALTE_KLASSE} style={{ minWidth: minBreite }}>
@@ -606,14 +655,16 @@ export function Planung() {
                 <div className="grid" style={{ gridTemplateColumns: tagSpalten }}>
                   {tage.map((d, i) => {
                     const istHeute = iso(d) === heuteIso;
+                    const markiert = iso(d) === mark?.tag;
                     const we = istFrei(d);
                     const fei = feiertag(iso(d));
                     return (
                       <span key={iso(d)} className={'flex flex-col items-center gap-1 pb-3 pt-4 ' + tagHintergrund(d, i)}>
-                        <span className={'text-[10px] font-semibold uppercase tracking-[0.1em] ' + (istHeute ? 'text-accent' : we ? 'text-ink3/60' : 'text-ink3')}>
+                        <span className={'text-[10px] font-semibold uppercase tracking-[0.1em] ' + (markiert ? 'text-steel' : istHeute ? 'text-accent' : we ? 'text-ink3/60' : 'text-ink3')}>
                           {WOCHENTAGE[(d.getDay() + 6) % 7]}{anzahlTage === 14 && (d.getDay() === 1) && <span className="ml-1 font-medium normal-case tracking-normal text-ink3/70">KW {kw(d)}</span>}
                         </span>
-                        <span className={'whitespace-nowrap rounded-full px-2.5 py-0.5 font-display text-[13px] font-semibold tabular-nums leading-tight ' + (istHeute ? 'bg-accent text-white shadow-[0_4px_10px_-4px_rgb(224_48_30/0.6)]' : we ? 'text-ink3/70' : 'text-ink')}>{kurz(d)}</span>
+                        {/* Markierter Tag als blaue Pille (wie in der Wochenübersicht); ist er heute, rot mit blauem Ring */}
+                        <span className={'whitespace-nowrap rounded-full px-2.5 py-0.5 font-display text-[13px] font-semibold tabular-nums leading-tight ' + (markiert ? (istHeute ? 'bg-accent text-white ring-2 ring-steel ring-offset-2' : 'bg-steel text-white shadow-[0_4px_10px_-4px_rgb(43_108_176/0.6)]') : istHeute ? 'bg-accent text-white shadow-[0_4px_10px_-4px_rgb(224_48_30/0.6)]' : we ? 'text-ink3/70' : 'text-ink')}>{kurz(d)}</span>
                         {fei && <span className="max-w-full truncate px-1 text-[10px] font-medium text-ink3" title={`Feiertag: ${fei}`}>{fei}</span>}
                       </span>
                     );
@@ -632,12 +683,13 @@ export function Planung() {
                 const fest = basis.get(team.id) ?? [];
                 const geister = geisterJeTeam.get(team.id) ?? [];
                 const zeileTag = anzSpuren + (geister.length ? 2 : 1);
+                const teamMarkiert = !!mark && mark.teams.includes(team.id);
                 return (
-                  <div key={team.id} className="grid border-b border-line last:border-b-0" style={{ gridTemplateColumns: zeilenRaster }}>
-                    {/* Team mit seinen Leuten (Mehmeti: «die 3 Namen sehen») — bleibt beim seitlichen Scrollen stehen */}
-                    <div className="sticky left-0 z-20 flex min-w-0 flex-col justify-center gap-1 bg-white px-4 py-2.5 shadow-[1px_0_0_rgb(17_17_19/0.06)]">
+                  <div key={team.id} className={'grid border-b border-line last:border-b-0 ' + (teamMarkiert ? 'bg-[#f8fbfe]' : '')} style={{ gridTemplateColumns: zeilenRaster }}>
+                    {/* Team mit seinen Leuten (Mehmeti: «die 3 Namen sehen») — bleibt beim seitlichen Scrollen stehen; markiert mit blauem Strich links */}
+                    <div className={'sticky left-0 z-20 flex min-w-0 flex-col justify-center gap-1 px-4 py-2.5 ' + (teamMarkiert ? 'bg-[#f8fbfe] shadow-[inset_3px_0_0_var(--color-steel),1px_0_0_rgb(17_17_19/0.06)]' : 'bg-white shadow-[1px_0_0_rgb(17_17_19/0.06)]')}>
                       <span className="flex items-center gap-2">
-                        <span className="truncate font-display text-[14px] font-semibold text-ink">{team.bezeichnung}</span>
+                        <span className={'truncate font-display text-[14px] font-semibold ' + (teamMarkiert ? 'text-steel' : 'text-ink')}>{team.bezeichnung}</span>
                         <span className="inline-flex shrink-0 items-center gap-0.5 rounded-full bg-surface-2 px-1.5 py-px text-[10px] font-semibold tabular-nums text-ink3"><Users size={10} aria-hidden="true" />{fest.length}</span>
                       </span>
                       {fest.length > 0 ? (
@@ -676,6 +728,8 @@ export function Planung() {
                       {balken.map(({ plan, spur, ab, bis, links, rechts }) => {
                         const f = farbeVon(plan.baustelle?.id ?? plan.id);
                         const name = plan.baustelle?.bezeichnung || 'Baustelle';
+                        // Der Einsatz, von dem man kommt: blauer Rahmen (Umriss, damit die Farbe des Balkens bleibt)
+                        const balkenMarkiert = teamMarkiert && !!mark?.baustelle && plan.baustelle?.id === mark.baustelle && plan.von <= mark.tag && plan.bis >= mark.tag;
                         return (
                           <button
                             key={plan.id}
@@ -692,7 +746,8 @@ export function Planung() {
                             style={{ gridColumn: `${ab + 1} / ${bis + 2}`, gridRow: spur + 1 }}
                             className={
                               'relative z-10 mx-1 flex min-w-0 items-center gap-2 bg-gradient-to-br px-2.5 text-left ring-1 shadow-[0_1px_2px_rgb(17_17_19/0.05),0_6px_14px_-10px_rgb(17_17_19/0.35)] transition hover:-translate-y-px hover:shadow-[0_1px_2px_rgb(17_17_19/0.05),0_12px_22px_-12px_rgb(17_17_19/0.45)] ' +
-                              f.balken + ' ' + (links ? 'rounded-l-[4px]' : 'rounded-l-[10px]') + ' ' + (rechts ? 'rounded-r-[4px]' : 'rounded-r-[10px]')
+                              f.balken + ' ' + (links ? 'rounded-l-[4px]' : 'rounded-l-[10px]') + ' ' + (rechts ? 'rounded-r-[4px]' : 'rounded-r-[10px]') +
+                              (balkenMarkiert ? ' outline-2 outline-offset-2 outline-steel' : '')
                             }
                           >
                             {links && <span className="-ml-1 text-xs opacity-60" aria-hidden="true">‹</span>}
@@ -743,9 +798,12 @@ export function Planung() {
                         // Frei (Wochenende, Feiertag) ohne Plan und ohne Änderung: leer statt «3» — dort wird selten gearbeitet.
                         // Ein geplanter Tag ohne Leute zeigt dagegen «0» (steht auch in «Zu lösen»).
                         const leer = ((n === 0 && !geplantHier) || (istFrei(d) && !geplantHier)) && pillen.length === 0;
+                        const zelleMarkiert = teamMarkiert && dIso === mark?.tag;
                         return (
                           <button key={'t' + dIso} type="button" onClick={() => setTagWahl({ teamId: team.id, datum: dIso })}
-                            aria-label={`${team.bezeichnung} am ${lang(d)}: Leute und Baustelle${zuLoesen ? ' — zu lösen' : ''}`} style={{ gridColumn: i + 1, gridRow: zeileTag }} className={zelle}>
+                            ref={zelleMarkiert && team.id === markTeams[0]?.id ? markZelle : undefined}
+                            aria-label={`${team.bezeichnung} am ${lang(d)}: Leute und Baustelle${zuLoesen ? ' — zu lösen' : ''}${zelleMarkiert ? ' — markiert' : ''}`} style={{ gridColumn: i + 1, gridRow: zeileTag }}
+                            className={zelle + (zelleMarkiert ? ' border-steel/60! bg-white ring-2 ring-steel/25' : '')}>
                             {leer ? <span className="text-ink3/40" aria-hidden="true">·</span> : (
                               <>
                                 {zuLoesen && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-amber" title="zu lösen — siehe oben" aria-hidden="true" />}
