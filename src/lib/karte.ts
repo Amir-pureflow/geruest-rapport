@@ -1,7 +1,7 @@
 /**
  * Tageskarte (24.10.2026, Amir: «so etwas wäre auch krass — mit Karte und wo Einsätze geplant sind», Screenshot Caturix):
  * je Baustelle ein Punkt mit den Teams und Leuten des Tages. Hier nur die Rechnerei (getestet), die Karte zeichnet
- * src/ui/KarteLeaflet.tsx.
+ * src/ui/Landkarte.tsx.
  */
 import { hatKoordinaten, type Lage } from './adresse';
 

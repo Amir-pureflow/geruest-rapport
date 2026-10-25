@@ -431,9 +431,11 @@ Umplanung in der Vorführung erschiene nicht.
   (nur ein Link: Google Karten, iPhone/iPad Apple Karten; mit Koordinaten genau, sonst Text + «Schweiz») und **Teilen**
   (fertiger Text für den Team-Chat, `navigator.share`, sonst Zwischenablage). Stand im Vorrat (`tageskarten:<team>`),
   ohne Netz mit Uhrzeit. Frischt sich beim Zurückholen der App auf.
-- **Tageskarte** `/karte` (wer planen darf): links der Tag mit Suche und Liste, rechts Leaflet (BSD-2, `ui/KarteLeaflet.tsx`,
-  nur dort nachgeladen) mit swisstopo-Kacheln — Landeskarte **grau, 45 % Deckkraft** (die farbige hat rote Strassen, die volle
-  graue ist zu unruhig) und Luftbild, `detectRetina` (sonst unscharf). Ein Punkt je Baustelle mit Teams und Leuten
+- **Tageskarte** `/karte` (wer planen darf): links der Tag mit Suche und Liste, rechts MapLibre (BSD-3, `ui/Landkarte.tsx`,
+  nur dort nachgeladen) mit den Vektorkarten von swisstopo — «Karte» = **Basiskarte hell** (`ch.swisstopo.lightbasemap.vt`),
+  «Luftbild» = **Luftbild mit Strassen und Namen** (`ch.swisstopo.imagerybasemap.vt`); am 25.10.2026 von Amir im Vergleich
+  gewählt (die graue Landeskarte wirkte technisch und unruhig; Google Maps hätte Konto, Kreditkarte und Daten an Google
+  bedeutet). Braucht WebGL, sonst ein Satz statt der Karte. Ein Punkt je Baustelle mit Teams und Leuten
   (`lib/karte.ts`), Werkhof als Haus, Baustellen ohne Ort in eigener Liste mit «Orte prüfen →». Zeigt nur Baustellen,
   **nie Personen** (keine Standortverfolgung).
 
@@ -563,7 +565,7 @@ src/lib/karte.ts                  Tageskarte: ein Punkt je Baustelle, Suche (+ T
 src/seiten/Karte.tsx              Tageskarte /karte (Liste + Landkarte)
 src/lib/posteingang.ts            Posteingang: Texte der Einträge, wer liest was, Laden/gelesen, Glocke (+ Tests)
 src/seiten/Posteingang.tsx        Posteingang /posteingang (Neu / Früher)
-src/ui/KarteLeaflet.tsx           Leaflet mit swisstopo-Kacheln (nur von Karte.tsx nachgeladen)
+src/ui/Landkarte.tsx              MapLibre mit swisstopo-Vektorkarten (nur von Karte.tsx nachgeladen)
 src/ui/AdressSuche.tsx            Adresssuche mit Trefferliste (Baustellen, Werkhof)
 src/seiten/Bestaetigung.tsx       Kundenlink ohne Login (/b/:token) — nur im Regie-Modus
 src/lib/datum.ts                  Wochen-/Datumshelfer, NORMALTAG_MIN

@@ -25,7 +25,7 @@ const NACHLADEN = {
   regieVorschau: () => import('./seiten/RegieVorschau'),
   auswertung: () => import('./seiten/Auswertung'),
   planung: () => import('./seiten/Planung'),
-  // Tageskarte (24.10.2026) — Leaflet selbst lädt erst die Seite, wenn sie gezeigt wird
+  // Tageskarte (24.10.2026) — MapLibre lädt erst die Seite, wenn sie gezeigt wird
   karte: () => import('./seiten/Karte'),
   bestaetigung: () => import('./seiten/Bestaetigung'),
 };

@@ -556,8 +556,8 @@
   }
 }
 
-/* ── Tageskarte (24.10.2026): Punkte auf der Landkarte (src/ui/KarteLeaflet.tsx) ──────────────────────────── */
-.rp-icon { background: none; border: 0; }
+/* ── Tageskarte (24.10.2026): Punkte auf der Landkarte (src/ui/Landkarte.tsx) ──────────────────────────── */
+.rp-icon { width: 0; height: 0; background: none; border: 0; cursor: pointer; }
 .rp-pin {
   position: absolute; left: 0; top: 0; transform: translate(-50%, calc(-100% - 9px));
   display: inline-flex; align-items: center; gap: 6px; white-space: nowrap;
@@ -584,4 +584,4 @@
   display: grid; place-items: center; width: 34px; height: 34px; border-radius: 11px;
   background: var(--color-ink); color: #fff; box-shadow: 0 6px 16px -8px rgb(17 17 19 / 0.6); border: 2px solid #fff;
 }
-.leaflet-container { font-family: var(--font-sans); background: var(--color-surface-2); }
+.maplibregl-map { font-family: var(--font-sans); background: var(--color-surface-2); }

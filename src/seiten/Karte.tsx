@@ -22,8 +22,8 @@ import { eigeneFirma } from '../lib/einstellungen';
 import { FUNKTION_BUERO } from '../lib/benutzername';
 import { uhrzeit } from '../lib/zeiten';
 
-// Leaflet nur hier laden — die anderen Seiten (und das Teamgerät beim Start) brauchen es nicht
-const KarteLeaflet = lazy(() => import('../ui/KarteLeaflet').then((m) => ({ default: m.KarteLeaflet })));
+// Die Landkarte (MapLibre) nur hier laden — die anderen Seiten (und das Teamgerät beim Start) brauchen sie nicht
+const Landkarte = lazy(() => import('../ui/Landkarte').then((m) => ({ default: m.Landkarte })));
 
 const TAGE = ['Sonntag', 'Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag'];
 
@@ -164,7 +164,7 @@ export function Karte() {
           {/* Karte — am Handy oben */}
           <section className="card relative order-1 h-[55vh] min-h-[360px] overflow-hidden p-0 lg:order-2 lg:h-[calc(100vh-200px)] lg:min-h-[520px]">
             <Suspense fallback={<p className="p-6 text-sm text-ink3">Karte lädt …</p>}>
-              <KarteLeaflet punkte={sichtbar} werkhof={daten?.werkhof ?? null} auswahl={auswahl} onAuswahl={(id) => setAuswahl(id)} luftbild={luftbild} />
+              <Landkarte punkte={sichtbar} werkhof={daten?.werkhof ?? null} auswahl={auswahl} onAuswahl={(id) => setAuswahl(id)} luftbild={luftbild} />
             </Suspense>
             <div className="absolute right-3 top-3 z-[500] flex rounded-full border border-ink/10 bg-white p-1 shadow-[0_2px_8px_-2px_rgb(17_17_19/0.25)]" role="group" aria-label="Kartenart">
               {([false, true] as const).map((lb) => (
