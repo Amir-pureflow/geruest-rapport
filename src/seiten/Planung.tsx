@@ -897,7 +897,8 @@ function ZuLoesen({ liste, heuteIso, naechster, teamName, name, baustelle, artAm
             : 'Niemand frei — jemanden aus einem anderen Team dazunehmen.',
           knoepfe: [
             ...ersatz.map((e, i) => ({ text: `${e.name.split(' ')[0]} dazu`, aktion: () => onErsatz(e.id, k.team_id, k.datum), haupt: i === 0, titel: `${e.name} für diesen Tag in ${team}` })),
-            ...(ersatz.length ? [] : [dazu]),
+            // Immer auch frei wählen (Amir 25.10.2026): öffnet den Tag mit der Auswahl aller Leute, nach Teams geordnet
+            ersatz.length ? { text: 'Andere Person …', aktion: () => onTag(k.team_id, k.datum, true), titel: 'Jemand anderen für diesen Tag dazunehmen' } : dazu,
             ...erledigen,
           ],
         };
