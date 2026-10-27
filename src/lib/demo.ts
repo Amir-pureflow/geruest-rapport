@@ -129,6 +129,55 @@ const BAUSTELLEN_NAMEN = [
   'Mehrfamilienhaus Spiegel, Föhrenweg 7', 'Lift-Anbau Seftigenstrasse 41', 'Fassade Effingerstrasse 30', 'Reparatur Vordach Bümpliz Nord',
   'Wohnhaus Hinterkappelen, Aumatt 2', 'Sanierung Schosshalde, Laubeggstrasse 9', 'Dachfenster Marktgasse 16', 'Neubau Gümligen, Feldstrasse 3',
 ];
+/** Adressen der benannten Demo-Baustellen (25.10./27.10.2026): erfundene Projekte an echten Adressen in der Region Bern,
+ *  gesucht mit der Adresssuche des Bundes (scripts/demo_orte_suchen.py) — damit Tageskarte, «Navigieren» und Wetter
+ *  in der Vorführung etwas zeigen. [Strasse, PLZ, Ort, lat, lon] */
+export const DEMO_ORTE: Record<string, [string, string, string, number, number]> = {
+  'Wohnüberbauung Brünnenpark, Haus B': ['Gilberte-de-Courgenay-Platz 4', '3027', 'Bern', 46.944408, 7.374374],
+  'Mehrfamilienhaus Lorrainestrasse 18': ['Lorrainestrasse 18', '3013', 'Bern', 46.956196, 7.445133],
+  'Neubau Wankdorffeld, Baufeld C': ['Wankdorffeldstrasse 98', '3014', 'Bern', 46.964615, 7.456554],
+  'Dachsanierung Kramgasse 41': ['Kramgasse 41', '3011', 'Bern', 46.947853, 7.450256],
+  'Siedlung Holenacker, Etappe 2': ['Holenackerstrasse 65', '3027', 'Bern', 46.950432, 7.379666],
+  'Gewerbehaus Liebefeld Süd': ['Schwarzenburgstrasse 160', '3097', 'Liebefeld', 46.930775, 7.420196],
+  'Fassade Kirchenfeldstrasse 27': ['Kirchenfeldstrasse 27', '3005', 'Bern', 46.939655, 7.445778],
+  'Alterszentrum Ostermundigen, Anbau': ['Bernstrasse 70', '3072', 'Ostermundigen', 46.958172, 7.490120],
+  'Fassade Monbijoustrasse 55': ['Monbijoustrasse 55', '3011', 'Bern', 46.945454, 7.437252],
+  'Reihenhäuser Muri, Thunstrasse': ['Thunstrasse 50', '3074', 'Muri b. Bern', 46.932785, 7.482367],
+  'Schulanlage Zollikofen, Turnhalle': ['Bernstrasse 100', '3052', 'Zollikofen', 46.993671, 7.457821],
+  'Bürohaus Weltpoststrasse 9': ['Weltpoststrasse 9', '3015', 'Bern', 46.938526, 7.477039],
+  'Brückensanierung Worblaufen': ['Alte Tiefenaustrasse 2', '3048', 'Worblaufen', 46.979343, 7.457810],
+  'Wohnüberbauung Ittigen Talmatt': ['Talgut-Zentrum 5', '3063', 'Ittigen', 46.974037, 7.483492],
+  'Dachstock Gerechtigkeitsgasse 12': ['Gerechtigkeitsgasse 12', '3011', 'Bern', 46.948864, 7.455615],
+  'Mehrfamilienhaus Wabern, Gurtenweg 6': ['Gurtenweg 6', '3084', 'Wabern', 46.929386, 7.438905],
+  'Hotel Aarblick, Fassade': ['Aarstrasse 76', '3011', 'Bern', 46.946133, 7.448136],
+  'Pflegeheim Lindenegg, Neubau': ['Lindenrain 4', '3012', 'Bern', 46.948933, 7.429040],
+  'Lagerhalle Niederwangen': ['Freiburgstrasse 512', '3172', 'Niederwangen b. Bern', 46.928478, 7.381522],
+  'Wohnhaus Belp, Aemmenmatt 3': ['Aemmenmatt 3', '3123', 'Belp', 46.900177, 7.501641],
+  'Sanierung Breitenrainplatz 4': ['Breitenrainplatz 4', '3014', 'Bern', 46.958542, 7.453834],
+  'Neubau Köniz Zentrum, Haus A': ['Stapfenstrasse 13', '3098', 'Köniz', 46.922485, 7.415862],
+  'Fassade Bollwerk 21': ['Bollwerk 21', '3011', 'Bern', 46.949833, 7.440706],
+  'Villa Elfenauweg 8': ['Elfenauweg 8', '3006', 'Bern', 46.938866, 7.469400],
+  'Schulhaus Steigerhubel, Dach': ['Steigerhubelstrasse 65', '3008', 'Bern', 46.945759, 7.412107],
+  'Mehrfamilienhaus Burgdorf, Kirchbühl 7': ['Kirchbühl 7', '3400', 'Burgdorf', 47.056213, 7.626754],
+  'Turmgerüst Kirche Münsingen': ['Schlossstrasse 4', '3110', 'Münsingen', 46.876408, 7.561259],
+  'Wohnüberbauung Thun Lerchenfeld': ['Lerchenfeldstrasse 20', '3603', 'Thun', 46.766861, 7.603364],
+  'Gewerbebau Lyss, Industriering 14': ['Industriering 14', '3250', 'Lyss', 47.083282, 7.303334],
+  'Balkonsanierung Bethlehem, Block 4': ['Bethlehemstrasse 1', '3027', 'Bern', 46.948902, 7.394100],
+  'Fassade Schwarztorstrasse 70': ['Schwarztorstrasse 70', '3007', 'Bern', 46.944759, 7.429070],
+  'Wohnhaus Bremgarten, Kalchackerstr. 5': ['Kalchackerstrasse 5', '3047', 'Bremgarten b. Bern', 46.975662, 7.438420],
+  'Neubau Worb, Bahnhofareal': ['Bahnhofstrasse 10', '3076', 'Worb', 46.928642, 7.564074],
+  'Treppenhaus Länggasse, Fabrikstrasse 12': ['Fabrikstrasse 12', '3012', 'Bern', 46.952930, 7.423381],
+  'Dachsanierung Ostermundigen Rüti': ['Rütiweg 101b', '3072', 'Ostermundigen', 46.955704, 7.508811],
+  'Kindergarten Wylerfeld': ['Wylerfeldstrasse 2', '3014', 'Bern', 46.961449, 7.448047],
+  'Mehrfamilienhaus Spiegel, Föhrenweg 7': ['Föhrenweg 7', '3095', 'Spiegel b. Bern', 46.923840, 7.434122],
+  'Lift-Anbau Seftigenstrasse 41': ['Seftigenstrasse 41', '3007', 'Bern', 46.937050, 7.432560],
+  'Fassade Effingerstrasse 30': ['Effingerstrasse 30', '3011', 'Bern', 46.945679, 7.436747],
+  'Reparatur Vordach Bümpliz Nord': ['Bümplizstrasse 1', '3027', 'Bern', 46.948849, 7.397830],
+  'Wohnhaus Hinterkappelen, Aumatt 2': ['Aumatt 2', '3032', 'Hinterkappelen', 46.960064, 7.386787],
+  'Sanierung Schosshalde, Laubeggstrasse 9': ['Laubeggstrasse 9', '3006', 'Bern', 46.951797, 7.461481],
+  'Dachfenster Marktgasse 16': ['Marktgasse 16', '3011', 'Bern', 46.948097, 7.446392],
+  'Neubau Gümligen, Feldstrasse 3': ['Feldstrasse 3', '3073', 'Gümligen', 46.928761, 7.510423],
+};
 const STRASSEN = ['Bernstrasse', 'Dorfstrasse', 'Bahnhofstrasse', 'Kirchweg', 'Lindenweg', 'Gartenstrasse', 'Schulhausweg', 'Mühleweg', 'Sonnenweg', 'Birkenweg', 'Waldeggstrasse', 'Hofmattweg', 'Rosenweg', 'Feldweg', 'Aarestrasse', 'Grabenweg'];
 const ORTE = ['Bern', 'Köniz', 'Muri', 'Ittigen', 'Ostermundigen', 'Zollikofen', 'Belp', 'Worb', 'Bolligen', 'Kehrsatz', 'Wohlen', 'Münsingen', 'Lyss', 'Thun', 'Burgdorf'];
 
@@ -281,7 +330,11 @@ export interface MitarbeiterRow { id: string; name: string; typ: 'intern' | 'ext
 export interface TeamRow { id: string; bezeichnung: string; fahrzeug: string; chefmonteur_id: string; aktiv: boolean }
 export interface TeamMitgliedRow { team_id: string; mitarbeiter_id: string; von: string }
 export interface KundeRow { id: string; name: string; praeferenz: 'einzel' | 'sammel'; ansprechperson: string; email: string; telefon: string }
-export interface BaustelleUpdate { id: string; konto_nr: string; bezeichnung: string | null; kunde_id: string | null; status: 'aktiv' | 'fertig_gemeldet' | 'abgeschlossen'; fertigstellung_am: string | null }
+export interface BaustelleUpdate {
+  id: string; konto_nr: string; bezeichnung: string | null; kunde_id: string | null; status: 'aktiv' | 'fertig_gemeldet' | 'abgeschlossen'; fertigstellung_am: string | null;
+  /** Ort (0050): benannte Baustellen aus DEMO_ORTE, die übrigen ohne Ort (erscheinen unter «ohne Ort») */
+  strasse: string | null; plz: string | null; ort: string | null; lat: number | null; lon: number | null; lage_quelle: 'suche' | null; lage_geprueft_am: string | null;
+}
 export interface JahresplanRow { id: string; baustelle_id: string; team_id: string; von: string; bis: string; soll_leute?: number | null; beginn_min?: number | null; treffpunkt?: 'baustelle' | 'werkhof' | null; hinweis?: string | null }
 export interface TagesmeldungRow { id: string; client_uuid: string; team_id: string; datum: string; baustelle_id: string; normalfall: boolean; abweichung_typ: string | null; wer_hats_gewollt: string | null; transkript: string | null; transkript_quelle: string | null; transkript_sprache: string | null; audio_sekunden: number | null; erfasst_von: string; erfasst_am: string; status: 'offen' | 'freigegeben' }
 export interface ZeiteintragRow { id: string; tagesmeldung_id: string; mitarbeiter_id: string; normal_min: number; ueber_min: number; oev: boolean; km: number; baustelle_id: string; konto_nr: string; status: 'offen' | 'freigegeben'; von_min: number | null; bis_min: number | null; von2_min: number | null; bis2_min: number | null }
@@ -421,11 +474,16 @@ export function erzeugeDemoBetrieb(opts: { baustellen: BaustelleQuelle[]; heute:
   const baustellen: BaustelleUpdate[] = opts.baustellen.map((b, i) => {
     const status: BaustelleUpdate['status'] = i < A.aktiv ? 'aktiv' : i < A.aktiv + A.fertig ? 'fertig_gemeldet' : 'abgeschlossen';
     const kunde = z.pick(kunden).id;
+    const bezeichnung = ersatzName(i);
+    const o = DEMO_ORTE[bezeichnung];
     return {
-      id: b.id, konto_nr: b.konto_nr, bezeichnung: ersatzName(i),
+      id: b.id, konto_nr: b.konto_nr, bezeichnung,
       // Vorführung: alte, abgeschlossene Konten ohne Kunde — die Kundenliste zeigt nur, was gerade läuft
       kunde_id: status === 'abgeschlossen' && !A.kundeFuerAbgeschlossene ? null : kunde, status,
       fertigstellung_am: status === 'aktiv' ? null : iso(addTage(heute, status === 'fertig_gemeldet' ? -z.int(3, 45) : -z.int(60, 300))),
+      // Ort wie ein gewählter Treffer der Adresssuche — immer gesetzt (auch leer), damit kein alter Punkt am neuen Namen hängt
+      strasse: o?.[0] ?? null, plz: o?.[1] ?? null, ort: o?.[2] ?? null, lat: o?.[3] ?? null, lon: o?.[4] ?? null,
+      lage_quelle: o ? 'suche' : null, lage_geprueft_am: o ? heute.toISOString() : null,
     };
   });
   const aktive = baustellen.filter((b) => b.status === 'aktiv');

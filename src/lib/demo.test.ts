@@ -104,6 +104,25 @@ describe('Demo-Betrieb — Struktur wie im Gespräch mit Arbnor', () => {
     for (const k of d.kunden) expect(k.name).not.toMatch(/SBB|Post |Stadt Bern|Kanton/);
   });
 
+  it('Ort (0050): die benannten Baustellen liegen in der Region Bern, die übrigen ohne Ort — nie halbe Angaben', () => {
+    const mitOrt = d.baustellen.filter((b) => b.lat !== null);
+    expect(mitOrt).toHaveLength(44);
+    for (const b of d.baustellen) {
+      // wie die Prüfregel baustelle_lage_check: alles oder nichts
+      expect(b.lat === null).toBe(b.lon === null);
+      expect(b.lat === null).toBe(b.lage_quelle === null);
+    }
+    for (const b of mitOrt) {
+      expect(b.lage_quelle).toBe('suche');
+      expect(b.plz).toMatch(/^3\d{3}$/);
+      expect(b.lat!).toBeGreaterThan(46.7); expect(b.lat!).toBeLessThan(47.1);
+      expect(b.lon!).toBeGreaterThan(7.2); expect(b.lon!).toBeLessThan(7.7);
+    }
+    // Die Adresse im Namen steht auch als Strasse da (die Karte zeigt beides)
+    const kramgasse = d.baustellen.find((b) => b.bezeichnung === 'Dachsanierung Kramgasse 41')!;
+    expect([kramgasse.strasse, kramgasse.plz, kramgasse.ort]).toEqual(['Kramgasse 41', '3011', 'Bern']);
+  });
+
   it('Notizen stehen im Original und auf Deutsch, Team 3 spricht Italienisch', () => {
     const team3 = d.teams.find((t) => t.bezeichnung === 'Team 3')!;
     expect(d.mitarbeiter.find((m) => m.id === team3.chefmonteur_id)?.sprache).toBe('it');

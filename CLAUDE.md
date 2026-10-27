@@ -426,6 +426,9 @@ Umplanung in der Vorführung erschiene nicht.
   und Nähe zuerst (`trefferSortieren`), Hinweis wenn die Hausnummer fehlt (`hausnummerFehlt`). Filter «ohne geprüften Ort».
   Neue Baustelle → Adresssuche geht gleich auf.
 - **Werkhof** (Verwaltung → Einstellungen): `firma.werkhof_adresse/lat/lon` — Haus auf der Tageskarte.
+- **Demo-Orte** (27.10.2026, fürs Launch-Video): die 44 benannten Demo-Baustellen bekommen beim «Demo laden» echte Adressen
+  in der Region Bern (`DEMO_ORTE` in `demo.ts`, gesucht mit `scripts/demo_orte_suchen.py`, `lage_quelle = 'suche'`); die
+  übrigen stehen ohne Ort da. Steht im Namen eine Adresse, zeigt die Karte genau diese (Koordinaten vom nächsten Treffer).
 - **Karte «Heute» / nächster Arbeitstag** auf der Startseite Chefmonteur (`lib/tageskarte.ts` mit Tests): Baustelle,
   Adresse, Beginn (Einsatz oder Firma), Treffpunkt, Hinweis, Leute des Tages (`leuteAm` = `besetzung`), **Navigieren**
   (nur ein Link: Google Karten, iPhone/iPad Apple Karten; mit Koordinaten genau, sonst Text + «Schweiz») und **Teilen**
