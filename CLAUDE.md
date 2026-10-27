@@ -501,6 +501,20 @@ Umplanung in der Vorführung erschiene nicht.
 - Rechte (nur über Funktionen): Chefmonteur für sein Team, heute oder nächster Arbeitstag, nur Leute, die an dem Tag in
   seinem Team sind; Büro für jedes Team ab heute; erledigen nur das Büro.
 
+## Wetter in der Planung (0054, 25.10.2026, Amir: «Regen oder Sturm am Mittwoch»)
+
+- **Quelle:** MeteoSchweiz, Lokalprognose (Open Data, auch für Firmen frei; «Quelle: MeteoSchweiz» steht in der Legende).
+  Die Edge Function `wetter-laden` holt alle zwei Stunden (pg_cron `wetter_laden`, 25 */2) Tageswerte (Piktogramm,
+  Höchst-/Tiefstwert, Regen) und — in einem zweiten Aufruf — die stärkste Böe 06–18 Uhr aus den Stundenwerten (33 MB,
+  gestreamt; je Aufruf unter der Rechenzeit der Function). Nur Punkte, die eine offene Baustelle oder ein Gebiet braucht.
+- **Ort → Wetterpunkt:** mit Koordinaten der nächste PLZ-Mittelpunkt, sonst die PLZ; ohne beides kein Baustellenwetter.
+  **Gebiet der Firma** = Werkhof, sonst Mitte der Baustellen mit Ort. App liest nur über `wetter_tage(von, bis)`
+  (eigene Firma, eingeplante Baustellen; Tabellen ohne Schreibrechte).
+- **Anzeige:** Kopf der Planung je Tag Zeichen + Höchstwert im Gebiet (farbig bei Warnung); Tageszeile eines Teams ein
+  Warnzeichen, wenn an seiner Baustelle etwas ist; im Tag eine Zeile «Sturm, Böen bis 84 km/h · Viel Regen, 14 mm ·
+  6–9 °C». **Warnungen nach Zahlen** (`lib/wetter.ts`): Böen ab 50 km/h windig, ab 75 Sturm; Regen ab 2 mm, ab 10 viel;
+  Schnee/Gewitter nach Piktogramm; Frost ab −2 °C. Eigene Zeichen (lucide) — die Grafiken von MeteoSchweiz sind nicht frei.
+
 ## iPad (20.09.)
 
 Büro-Ansichten: ab `md` (iPad hochkant) quer scrollbare Bereichsleiste unter der Kopfzeile und breitere Spalte
@@ -551,7 +565,7 @@ Lesende Prüfung genauso, mit SQL statt `-f` (z. B. `select … from information
 - Eine Datei läuft als ein Block: scheitert eine Zeile, bleibt die ganze Datei draussen. Danach mit einer Abfrage
   bestätigen, nicht glauben.
 - Am Ende einer Migration mit neuen Spalten/Tabellen: `notify pgrst, 'reload schema';`.
-- **Stand:** 0001–0053 sind eingespielt (0053 = Fehlt melden, am 25.10.2026 nach zurückgerolltem Test: Rechte je Rolle,
+- **Stand:** 0001–0054 sind eingespielt (0054 = Wetter, am 25.10.2026 nach zurückgerolltem Test: Punkt nach Koordinaten vor PLZ, nur eigene Firma, Hilfsfunktionen und Schreiben gesperrt, Zeitplan; 0053 = Fehlt melden, am 25.10.2026 nach zurückgerolltem Test: Rechte je Rolle,
   Tag und Team, Zurücknehmen, Erledigen, Abwesenheit erledigt automatisch, Posteingang; 0052 = Benachrichtigungen, am 25.10.2026 nach zurückgerolltem Test: Rechte je Rolle,
   16:00 nur an Arbeitstagen und nur einmal, Änderung erst nach 2 Minuten Ruhe, Rücknahme nach Versand kommt an; 0051 = Posteingang, am 24.10.2026 nach zurückgerolltem Test mit Büro, Chefmonteur,
   fremder Firma, Bündeln, Aufrechnen und «gelesen = abgeschlossen»; 0050 = Ort der Baustelle und Werkhof, am 24.10.2026 nach zurückgerolltem Test — Prüfregeln mit ausdrücklichem «is not null», sonst liess «null in (…)» halbe Angaben durch; 0048 = Regie lesen nur Büro, am 24.10.2026 nach zurückgerolltem Test mit Büro, Chefmonteur, Monteur und fremder Firma; 0049 = Einsatzfelder, am 24.10.2026 nach zurückgerolltem Test (Büro schreibt, Chefmonteur nur lesen, Prüfregeln); 0034 neue Fassung, 0035–0039 am 11.10.2026, 0040–0044 am 13.10.2026, 0045/0046 am 14.10.2026, 0047 am 15.10.2026; 0044 = Pause am Morgen mit eigenem Beginn `znueni_von_min`, Dauer 5–60 Min., Ende ≤ 12:00 — gespeichert beides zusammen über `znueniSetzen`). 0047 = Arbeitsbeginn und Mittag je Firma, beide Firmen auf 7:00 / 12–13; Prüfregeln vorher zurückgerollt getestet.
@@ -620,6 +634,8 @@ src/seiten/Bestaetigung.tsx       Kundenlink ohne Login (/b/:token) — nur im R
 src/lib/datum.ts                  Wochen-/Datumshelfer, NORMALTAG_MIN
 src/lib/foto.ts                   Fotos verkleinern (1600 px, JPEG) vor Queue/Upload
 src/ui/Diagramm.tsx               DiagrammKarte, WochenTeams — je Tag eine Zeile mit Spur (Flächen, keine Bibliothek, kein SVG)
+src/lib/wetter.ts                 Wetter: Piktogramm → Art, Warnungen (Sturm, Regen, Schnee, Frost), Text (+ Tests)
+src/ui/WetterZeichen.tsx          Wetter im Kopf der Planung, Warnzeichen der Tageszeile, Zeile im Tag
 src/ui/TeamBoard.tsx              Tagesstand aller Teams (gemeldet / Überstunden / noch nicht)
 src/ui/FotoGalerie.tsx            Vorschau aus dem Bucket «anhaenge» (signierte Links)
 src/ui/Sprachnotiz.tsx            Pegelbalken während der Aufnahme, Text-Enthüllung nach dem Speichern

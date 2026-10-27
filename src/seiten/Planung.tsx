@@ -21,6 +21,8 @@ import { FUNKTION_BUERO } from '../lib/benutzername';
 import { DatumWahl } from '../ui/DatumWahl';
 import { Pille, Segment } from '../ui/Segment';
 import { baustellenSuchen } from '../lib/suche';
+import { warnungenZusammen, type WetterTag } from '../lib/wetter';
+import { WetterKopf, WetterWarnung, WetterZeile } from '../ui/WetterZeichen';
 
 /**
  * Planung (06.10.2026, ersetzt das Board): Zeilen = Teams, Spalten = Tage. Ein Einsatz ist ein Balken über
@@ -170,6 +172,8 @@ export function Planung() {
   /** Baustellen, die nur im Verlauf vorkommen (z. B. inzwischen abgeschlossen) */
   const [zusatzBaustellen, setZusatzBaustellen] = useState<Baustelle[]>([]);
   const [ansicht, setAnsicht] = useState<'plan' | 'montag' | 'ist'>('plan');
+  /** Wetter (0054): je Baustelle und Tag («id|datum») und im Gebiet der Firma (je Tag) — ab heute, MeteoSchweiz */
+  const [wetter, setWetter] = useState<{ ort: Map<string, WetterTag>; gebiet: Map<string, WetterTag> }>({ ort: new Map(), gebiet: new Map() });
 
   const tage = useMemo(() => Array.from({ length: anzahlTage }, (_, i) => addTage(start, i)), [start, anzahlTage]);
   const startIso = iso(start);
@@ -188,6 +192,18 @@ export function Planung() {
     const aktuell = anfrage();
     if (!still) setLaedt(true);
     const istBis = endeIso < heuteIso ? endeIso : heuteIso;
+    // Wetter nebenher (0054) — ohne Migration oder ohne Daten steht einfach keins; vergangene Tage haben keine Prognose
+    if (endeIso >= heuteIso) {
+      void c.rpc('wetter_tage', { p_von: startIso < heuteIso ? heuteIso : startIso, p_bis: endeIso }).then(({ data, error }) => {
+        if (!aktuell() || error) return;
+        const ort = new Map<string, WetterTag>();
+        const gebiet = new Map<string, WetterTag>();
+        for (const r of (data ?? []) as (WetterTag & { baustelle_id: string | null })[]) {
+          if (r.baustelle_id) ort.set(`${r.baustelle_id}|${r.datum}`, r); else gebiet.set(r.datum, r);
+        }
+        setWetter({ ort, gebiet });
+      });
+    } else setWetter({ ort: new Map(), gebiet: new Map() });
     const plaeneLaden = (spalten: string) =>
       alleOderFehler<Plan>((von, bis) => c.from('jahresplan').select(spalten).gte('bis', startIso).lte('von', endeIso).order('id').range(von, bis));
     const [t, b, p0, m, ma] = await Promise.all([
@@ -666,6 +682,7 @@ export function Planung() {
                         {/* Markierter Tag als blaue Pille (wie in der Wochenübersicht); ist er heute, rot mit blauem Ring */}
                         <span className={'whitespace-nowrap rounded-full px-2.5 py-0.5 font-display text-[13px] font-semibold tabular-nums leading-tight ' + (markiert ? (istHeute ? 'bg-accent text-white ring-2 ring-steel ring-offset-2' : 'bg-steel text-white shadow-[0_4px_10px_-4px_rgb(43_108_176/0.6)]') : istHeute ? 'bg-accent text-white shadow-[0_4px_10px_-4px_rgb(224_48_30/0.6)]' : we ? 'text-ink3/70' : 'text-ink')}>{kurz(d)}</span>
                         {fei && <span className="max-w-full truncate px-1 text-[10px] font-medium text-ink3" title={`Feiertag: ${fei}`}>{fei}</span>}
+                        {wetter.gebiet.get(iso(d)) && <WetterKopf w={wetter.gebiet.get(iso(d))!} />}
                       </span>
                     );
                   })}
@@ -799,6 +816,9 @@ export function Planung() {
                         // Ein geplanter Tag ohne Leute zeigt dagegen «0» (steht auch in «Zu lösen»).
                         const leer = ((n === 0 && !geplantHier) || (istFrei(d) && !geplantHier)) && pillen.length === 0;
                         const zelleMarkiert = teamMarkiert && dIso === mark?.tag;
+                        // Wetter an den Baustellen des Teams (nur mit Ort — ohne Ort steht das Gebiet oben im Kopf)
+                        const wetterHier = einsaetzeHier.map((p) => (p.baustelle ? wetter.ort.get(`${p.baustelle.id}|${dIso}`) : undefined)).filter((w): w is WetterTag => !!w);
+                        const wetterWarn = warnungenZusammen(wetterHier);
                         return (
                           <button key={'t' + dIso} type="button" onClick={() => setTagWahl({ teamId: team.id, datum: dIso })}
                             ref={zelleMarkiert && team.id === markTeams[0]?.id ? markZelle : undefined}
@@ -807,6 +827,7 @@ export function Planung() {
                             {leer ? <span className="text-ink3/40" aria-hidden="true">·</span> : (
                               <>
                                 {zuLoesen && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-amber" title="zu lösen — siehe oben" aria-hidden="true" />}
+                                <WetterWarnung liste={wetterWarn} ort={einsaetzeHier.map((p) => p.baustelle?.bezeichnung || 'Baustelle').join(', ')} />
                                 <span className={'inline-flex items-center gap-0.5 ' + (zuWenig ? 'font-semibold text-amber-deep' : 'text-ink3')}
                                   title={soll !== null ? `${n} von ${soll} Leuten an diesem Tag` : `${n} ${n === 1 ? 'Person' : 'Leute'} an diesem Tag`}>
                                   <Users size={11} aria-hidden="true" /><span>{n}{soll !== null && <span className="font-normal opacity-70">/{soll}</span>}</span>
@@ -840,6 +861,7 @@ export function Planung() {
               <span className="inline-flex items-center gap-1"><span className="h-1.5 w-1.5 rounded-full bg-amber" aria-hidden="true" /> zu lösen</span>
               <span><b className="rounded-full bg-good-soft px-1.5 text-good-deep">+ Name</b> für den Tag dazu</span>
               <span><b className="rounded-full bg-amber-soft px-1.5 text-amber-deep">− Name</b> in einem anderen Team</span>
+              <span className="inline-flex items-center gap-1"><WetterWarnung liste={[{ art: 'regen', text: 'Regen', stark: false }]} ort="" /> Wetter an der Baustelle (Sturm, Wind, Regen, Schnee) · Quelle: MeteoSchweiz</span>
             </>
           )}
         </div>
@@ -875,6 +897,12 @@ export function Planung() {
           baustellen={baustellen}
           einsatzFehlt={einsatzFehlt}
           dazuAuf={!!tagWahl.dazu}
+          wetterVon={(bid) => {
+            const w = wetter.ort.get(`${bid}|${tagWahl.datum}`);
+            if (w) return { w, gebiet: false };
+            const g = wetter.gebiet.get(tagWahl.datum);
+            return g ? { w: g, gebiet: true } : null;
+          }}
           onSchliessen={tagSchliessen}
           onEinsatz={(p) => { setTagWahl(null); setEntwurf({ id: p.id, teamId: tagTeam.id, baustelle: p.baustelle, von: p.von, bis: p.bis, tag: tagWahl.datum, ...felderVon(p) }); }}
           onNeuerEinsatz={() => { setTagWahl(null); neu(tagTeam.id, ausIso(tagWahl.datum)); }}
@@ -1069,7 +1097,7 @@ function BaustellenWahl({ baustellen, waehlen, autoFokus = false }: { baustellen
 // ── Dialog: ein Team an einem Tag (Leute versetzen, Baustelle nur heute ändern, Plan gegen Ist) ──
 
 function TagDialog({
-  team, datum, teams, personen, namen, basis, besetzungen, abwesend, geplant, gemeldet, vergangen, baustellen, einsatzFehlt, dazuAuf = false,
+  team, datum, teams, personen, namen, basis, besetzungen, abwesend, geplant, gemeldet, vergangen, baustellen, einsatzFehlt, dazuAuf = false, wetterVon,
   onSchliessen, onEinsatz, onNeuerEinsatz, onGeaendert, onNeuLaden,
 }: {
   team: Team;
@@ -1087,6 +1115,8 @@ function TagDialog({
   einsatzFehlt: boolean;
   /** Gleich die Liste «Person dazunehmen» öffnen (Konfliktliste: zu wenig Leute) */
   dazuAuf?: boolean;
+  /** Wetter (0054) an dieser Baustelle an diesem Tag, sonst im Gebiet der Firma; null = keins (Vergangenheit, kein Ort) */
+  wetterVon?: (baustelleId: string) => { w: WetterTag; gebiet: boolean } | null;
   onSchliessen: () => void;
   onEinsatz: (p: Plan) => void;
   onNeuerEinsatz: () => void;
@@ -1240,6 +1270,8 @@ function TagDialog({
                     <MessageSquareText size={13} className="mt-px shrink-0 text-steel" aria-hidden="true" />{p.hinweis}
                   </span>
                 )}
+                {/* Wetter an der Baustelle (MeteoSchweiz) — ohne Ort das Gebiet der Firma */}
+                {p.baustelle && (() => { const x = wetterVon?.(p.baustelle.id); return x ? <WetterZeile w={x.w} gebiet={x.gebiet} /> : null; })()}
               </span>
               <button type="button" onClick={() => onEinsatz(p)} className="shrink-0 text-xs font-semibold text-steel">{p.von === p.bis ? 'Einsatz ändern' : 'Ganzen Einsatz ändern'}</button>
             </div>
