@@ -39,9 +39,23 @@ function passenAuf(m: maplibregl.Map, a: { grenzen: maplibregl.LngLatBounds; anz
   else m.fitBounds(a.grenzen, { padding: 70, maxZoom: 15, duration: 0 });
 }
 
-export function Landkarte({ punkte, werkhof, auswahl, onAuswahl, luftbild, blase, onSchliessen }: {
+/** Ausschnitt mit Werkhof und allen Punkten */
+function ausschnittVon(punkte: KartenPunkt[], werkhof: { lat: number; lon: number } | null) {
+  const grenzen = new maplibregl.LngLatBounds();
+  let anzahl = 0;
+  if (werkhof) { grenzen.extend([werkhof.lon, werkhof.lat]); anzahl++; }
+  for (const p of punkte) { grenzen.extend([p.baustelle.lon!, p.baustelle.lat!]); anzahl++; }
+  return { grenzen, anzahl };
+}
+
+const schluesselVon = (punkte: KartenPunkt[], werkhof: { lat: number; lon: number } | null) =>
+  punkte.map((p) => p.baustelle.id).join(',') + '|' + (werkhof ? `${werkhof.lat},${werkhof.lon}` : '');
+
+export function Landkarte({ punkte, werkhof, wartet = false, auswahl, onAuswahl, luftbild, blase, onSchliessen }: {
   punkte: KartenPunkt[];
   werkhof: { lat: number; lon: number; adresse: string | null } | null;
+  /** Die Baustellen sind noch nicht geladen — die Karte lädt schon, wird aber erst mit den Punkten gezeigt */
+  wartet?: boolean;
   auswahl: string | null;
   onAuswahl: (baustelleId: string) => void;
   luftbild: boolean;
@@ -55,12 +69,14 @@ export function Landkarte({ punkte, werkhof, auswahl, onAuswahl, luftbild, blase
   const wahl = useRef(onAuswahl);
   useEffect(() => { wahl.current = onAuswahl; });
   const [ohneWebgl, setOhneWebgl] = useState(false);
-  // Erst zeigen, wenn alles geladen ist: sonst erscheint zuerst nur das Relief (graue Schatten, keine Strassen) und die
-  // Karte baut sich vor den Augen auf (25.10.2026, Amir: «am Anfang nicht direkt clean»)
+  // Erst zeigen, wenn das erste vollständige Bild steht: sonst erscheint zuerst nur das Relief (graue Schatten, keine
+  // Strassen) und die Karte baut sich vor den Augen auf (25.10.2026, Amir: «am Anfang nicht direkt clean»)
   const [bereit, setBereit] = useState(false);
+  const wartetJetzt = useRef(wartet);
   // Ausschnitt mit allen Punkten — gilt, bis jemand selbst verschiebt oder zoomt
   const ausschnitt = useRef<{ grenzen: maplibregl.LngLatBounds; anzahl: number } | null>(null);
   const beruehrt = useRef(false);
+  const letzterSchluessel = useRef('');
   const passen = (m: maplibregl.Map) => passenAuf(m, ausschnitt.current);
   // Blase: MapLibre-Popup über dem Punkt, der Inhalt kommt als React-Teil hinein (Portal)
   const blasenInhalt = useRef<HTMLDivElement>(document.createElement('div'));
@@ -73,9 +89,17 @@ export function Landkarte({ punkte, werkhof, auswahl, onAuswahl, luftbild, blase
   useEffect(() => {
     if (!box.current) return;
     let m: maplibregl.Map;
+    // Gleich mit dem richtigen Ausschnitt starten — vorher erst Bern, dann der Sprung zu den Baustellen: die Kacheln
+    // wurden zweimal geladen (30.10.2026, Amir: «warum braucht die Karte so lang»)
+    const a = ausschnittVon(punkte, werkhof);
+    ausschnitt.current = a;
+    letzterSchluessel.current = schluesselVon(punkte, werkhof);
+    const kamera = a.anzahl >= 2
+      ? { bounds: a.grenzen, fitBoundsOptions: { padding: 70, maxZoom: 15 } }
+      : { center: a.anzahl ? a.grenzen.getCenter() : START, zoom: a.anzahl ? 15 : 12 };
     try {
       m = new maplibregl.Map({
-        container: box.current, style: KARTE, center: START, zoom: 12,
+        container: box.current, style: KARTE, ...kamera,
         attributionControl: { compact: true }, dragRotate: false, pitchWithRotate: false, touchPitch: false,
       });
     } catch {
@@ -85,16 +109,18 @@ export function Landkarte({ punkte, werkhof, auswahl, onAuswahl, luftbild, blase
     m.touchZoomRotate.disableRotation();
     m.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'bottom-right');
     karte.current = m;
-    // Einblenden, sobald alle Kacheln da sind — spätestens nach 6 s (langsames Netz: lieber halb als gar nicht)
-    m.once('idle', () => setBereit(true));
-    const frist = setTimeout(() => setBereit(true), 6000);
+    // Einblenden beim ersten vollständigen Bild mit den Baustellen (Stil, Kacheln, Schrift da — wie «load») — nicht erst bei
+    // «idle», das wartete zusätzlich auf das Einblenden der letzten Beschriftung. Spätestens nach 4 s (langsames Netz)
+    const zeigen = () => { if (!wartetJetzt.current && m.loaded()) { setBereit(true); m.off('render', zeigen); } };
+    m.on('render', zeigen);
+    const frist = setTimeout(() => setBereit(true), 4000);
     m.on('movestart', (e) => { if ((e as { originalEvent?: unknown }).originalEvent) beruehrt.current = true; });
     // Die Karte sitzt in einem Raster, das sich nach dem ersten Zeichnen noch setzt — Grösse nachmessen und, solange
     // niemand selbst verschoben hat, alle Punkte wieder ins Bild holen (sonst lag ein Teil ausserhalb)
     const r = new ResizeObserver(() => { m.resize(); if (!beruehrt.current) passen(m); });
     r.observe(box.current);
     return () => { clearTimeout(frist); r.disconnect(); m.remove(); karte.current = null; };
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps -- nur der Ausschnitt beim Anlegen, danach der Punkte-Effekt
 
   // Karte ↔ Luftbild: nur der Stil wechselt, die Punkte (eigene Elemente) bleiben
   const ersterStil = useRef(true);
@@ -104,36 +130,33 @@ export function Landkarte({ punkte, werkhof, auswahl, onAuswahl, luftbild, blase
   }, [luftbild]);
 
   // Punkte zeichnen; bei neuen Punkten (anderer Tag, andere Suche) den Ausschnitt anpassen
-  const schluessel = punkte.map((p) => p.baustelle.id).join(',') + '|' + (werkhof ? `${werkhof.lat},${werkhof.lon}` : '');
-  const letzterSchluessel = useRef('');
+  const schluessel = schluesselVon(punkte, werkhof);
   useEffect(() => {
     const m = karte.current;
     if (!m) return;
     for (const x of marken.current) x.remove();
     marken.current = [];
-    const grenzen = new maplibregl.LngLatBounds();
-    let anzahl = 0;
-    if (werkhof) {
-      marken.current.push(new maplibregl.Marker({ element: werkhofElement() }).setLngLat([werkhof.lon, werkhof.lat]).addTo(m));
-      grenzen.extend([werkhof.lon, werkhof.lat]);
-      anzahl++;
-    }
+    if (werkhof) marken.current.push(new maplibregl.Marker({ element: werkhofElement() }).setLngLat([werkhof.lon, werkhof.lat]).addTo(m));
     for (const p of punkte) {
       const an = p.baustelle.id === auswahl;
       const el = pinElement(p, an, () => wahl.current(p.baustelle.id));
       // Gewählte Baustelle über den anderen
       if (an) el.style.zIndex = '2';
       marken.current.push(new maplibregl.Marker({ element: el }).setLngLat([p.baustelle.lon!, p.baustelle.lat!]).addTo(m));
-      grenzen.extend([p.baustelle.lon!, p.baustelle.lat!]);
-      anzahl++;
     }
     if (schluessel !== letzterSchluessel.current) {
       letzterSchluessel.current = schluessel;
-      ausschnitt.current = { grenzen, anzahl };
+      ausschnitt.current = ausschnittVon(punkte, werkhof);
       beruehrt.current = false;
       passen(m);
     }
   }, [punkte, werkhof, auswahl, schluessel]);
+
+  // Baustellen da (nach dem Sprung oben): beim nächsten Bild prüfen, ob alles steht
+  useEffect(() => {
+    wartetJetzt.current = wartet;
+    if (!wartet) karte.current?.triggerRepaint();
+  }, [wartet]);
 
   // Gewählte Baustelle anfliegen — etwas unter die Mitte, damit die Blase darüber Platz hat
   useEffect(() => {

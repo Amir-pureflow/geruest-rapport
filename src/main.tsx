@@ -49,6 +49,24 @@ function vorladen(regie: boolean) {
   else setTimeout(los, 1500);
 }
 
+/**
+ * Büro (Ansicht mit Planung): die Tageskarte schon vorbereiten — Seite, MapLibre, Worker, Stil von swisstopo —, damit sie
+ * beim Öffnen sofort steht. Teamgeräte haben keine Planung und laden nichts davon (MapLibre ist gross); am Handy
+ * (Bauführer unterwegs, Mobilnetz) auch nicht — nur am PC-Bildschirm.
+ */
+function karteVorladen() {
+  if (!window.matchMedia('(min-width: 1024px)').matches) return;
+  const los = () => {
+    void NACHLADEN.karte().catch(() => undefined);
+    void import('./ui/kartenstil').then((k) => k.vorwaermen()).catch(() => undefined);
+  };
+  // Erst nach dem Start der Übersicht, damit deren Daten Vorrang haben
+  setTimeout(() => {
+    if ('requestIdleCallback' in window) (window as unknown as { requestIdleCallback: (f: () => void) => void }).requestIdleCallback(los);
+    else los();
+  }, 2000);
+}
+
 /** Solange eine Seite zum ersten Mal lädt: ruhiger Grund statt einer weissen Fläche. */
 function SeiteLaedt() {
   return <div className="min-h-dvh bg-ground" aria-busy="true" />;
@@ -215,6 +233,8 @@ function App() {
   const [sitzung, setSitzung] = useState(!supabase);
   /** Angemeldet, aber die Datenbank kennt keine Firma dazu (10.10.2026: «Team weg», «row-level security») — oder die Person ist inaktiv. */
   const [ohneFirma, setOhneFirma] = useState<'inaktiv' | 'ohne_firma' | null>(null);
+  const mitKarte = sitzung && bereit && !!ansicht && seitenFuer(ansicht).includes('planung');
+  useEffect(() => { if (mitKarte) karteVorladen(); }, [mitKarte]);
 
   /**
    * Beim Start: ist eine Firma angemeldet? Erst dann die Schalter dieser Firma laden.
