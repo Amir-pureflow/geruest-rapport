@@ -364,7 +364,9 @@ Chefmonteur am Abend meldet» und «Was das Sekretariat sieht» stehen nur noch 
 
 **Markierter Tag in der Wochenübersicht** (Sprung `?tag=` aus der Freigabe-Karte): bleibt, solange man im markierten Tag
 arbeitet; einen anderen Tag öffnen oder die Woche wechseln hebt sie auf, auch in der Adresse (`markierungWeg()` in
-Cockpit.tsx, 12.10.2026).
+Cockpit.tsx, 12.10.2026). **Nur die offenen** (25.10.2026, Amir: «alle Tage gekennzeichnet, obwohl nur einer offen
+ist»): Kachel mit einem offenen Team → `?tag&team` (dessen Tag gleich aufgeklappt), mit mehreren → `?tag&teams=a,b`
+(nur diese Zellen markiert); ganz freigegebene Tage wie bisher den ganzen Tag (`offeneTeams` in `wochenTeams()`).
 
 ## Planung je Tag (0036, Mehmeti 10./11.10.2026)
 
@@ -452,8 +454,22 @@ Umplanung in der Vorführung erschiene nicht.
   nachgeladen) — Nadel ziehen oder auf die Karte tippen, dann «Punkt speichern» (`lage_quelle = 'von_hand'`), auch ganz
   ohne Adresse; Karte/Luftbild. Für Areale, Neubauten ohne Nummer, Zufahrt auf der Rückseite. «Navigieren» und die
   Tageskarte nehmen den Punkt. Kartenbibliothek, Worker und Stile gemeinsam in `ui/kartenstil.ts` (nicht im Vorab-Download
-  der PWA: `globIgnores` für Landkarte, kartenstil, OrtWahl). Ein Punkt je Baustelle mit Teams und Leuten
-  (`lib/karte.ts`), Werkhof als Haus, Baustellen ohne Ort in eigener Liste mit «Orte prüfen →». Zeigt nur Baustellen,
+  der PWA: `globIgnores` für Landkarte, kartenstil, OrtWahl). **Ladezeit** (02.11.2026, Amir: «warum braucht die Karte so
+  lang»): MapLibre nimmt in Chrome nur einen Worker → `setWorkerCount` (Kerne/2, max. 4) — das Zerlegen der Kacheln war der
+  Engpass, nicht das Netz. Eingeblendet beim ersten vollständigen Bild mit den Baustellen (`render` + `m.loaded()`, Prop
+  `wartet`), nicht bei `idle`; Ausschnitt schon beim Anlegen, wenn die Punkte da sind. Büro am PC (Ansicht mit Planung,
+  ≥ 1024 px) lädt Seite, MapLibre, Worker (`prewarm`) und Stil nach dem Start vor (`karteVorladen` in main.tsx); Teamgeräte
+  und Handys nicht. `vercel.json`: `/assets/*` immutable (Dateinamen mit Hash). Gemessen lokal (GPU): aus der Übersicht
+  1,7–3,1 s → 1,1–1,8 s, direkt 4,2–5,2 s → meist 3,6–4,0 s. Ein Punkt je Baustelle mit Teams und Leuten
+  (`lib/karte.ts`), Werkhof als Haus, Baustellen ohne Ort in eigener Liste mit «Orte prüfen →».
+- **Adressen nachtragen** (25.10.2026, 217 Konten der Gerüst GmbH ohne Adresse): Verwaltung → Baustellen, Karte «x Baustellen
+  ohne Ort» → «Adressen suchen» (`verwaltung/AdressenNachtragen.tsx`). Liest die Adresse aus der Bezeichnung
+  (`aufbereiten`: «Worbstr.262», «2-15», «19,21,23», «_») und teilt nach `trefferBewerten` ein: **sicher** nur, wenn
+  Strasse und Nummer genau so dastehen und es die Adresse nicht auch in einem nahen anderen Ort gibt — sonst «Bitte
+  prüfen» (bis drei Treffer zum Antippen, «selbst suchen» klappt die Baustelle unten auf) oder «Nicht gefunden». Ohne
+  bekanntes Gebiet zuerst schweizweit, dann die unklaren nochmals im Umkreis der sicheren. Gespeichert wird erst mit
+  «x Adressen übernehmen» (wie ein Treffer der Suche: `lage_quelle = 'suche'`). Probelauf mit den 217 echten
+  Bezeichnungen: 174 sicher, 37 prüfen, 6 ohne Treffer; Stichprobe ohne Fehltreffer. Zeigt nur Baustellen,
   **nie Personen** (keine Standortverfolgung).
 
 ## Posteingang (0051, 24.10.2026, Caturix-Analyse Schritt 4)
@@ -639,6 +655,7 @@ src/lib/foto.ts                   Fotos verkleinern (1600 px, JPEG) vor Queue/Up
 src/ui/Diagramm.tsx               DiagrammKarte, WochenTeams — je Tag eine Zeile mit Spur (Flächen, keine Bibliothek, kein SVG)
 src/lib/wetter.ts                 Wetter: Piktogramm → Art, Warnungen (Sturm, Regen, Schnee, Frost), Text (+ Tests)
 src/ui/WetterZeichen.tsx          Wetter im Kopf der Planung, Warnzeichen der Tageszeile, Zeile im Tag
+src/seiten/verwaltung/AdressenNachtragen.tsx  Adressen gesammelt aus den Bezeichnungen (sicher / prüfen / nicht gefunden)
 src/ui/TeamBoard.tsx              Tagesstand aller Teams (gemeldet / Überstunden / noch nicht)
 src/ui/FotoGalerie.tsx            Vorschau aus dem Bucket «anhaenge» (signierte Links)
 src/ui/Sprachnotiz.tsx            Pegelbalken während der Aufnahme, Text-Enthüllung nach dem Speichern

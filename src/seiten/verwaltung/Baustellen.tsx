@@ -9,6 +9,7 @@ import { AdressSuche } from '../../ui/AdressSuche';
 import { Auswahl } from '../../ui/Auswahl';
 import { LoeschLeiste, useLoeschFrage } from '../../ui/LoeschFrage';
 import { baustelleEntfernen, baustellePruefen } from '../../lib/entfernen';
+import { AdressenNachtragen } from './AdressenNachtragen';
 
 // Karte mit verschiebbarem Punkt (Schritt 7) — nachgeladen, die Kartenbibliothek ist gross
 const OrtWahl = lazy(() => import('../../ui/OrtWahl').then((m) => ({ default: m.OrtWahl })));
@@ -233,6 +234,19 @@ export function Baustellen() {
     return { lat: mit.reduce((s, b) => s + b.lat, 0) / mit.length, lon: mit.reduce((s, b) => s + b.lon, 0) / mit.length };
   }, [liste]);
 
+  // Ohne geprüften Ort (im gewählten Status) — für das gesammelte Nachtragen; ohne Migration 0050 (lat undefined) nicht
+  const ohneOrtListe = useMemo(() => liste.filter((b) => b.lat !== undefined && !hatKoordinaten(b) && (filter === 'alle' || b.status === filter)), [liste, filter]);
+  /** Aus dem Nachtragen: diese Baustelle unten aufklappen und hinscrollen (selbst suchen oder Punkt setzen) */
+  function oeffnen(id: string) {
+    const b = liste.find((x) => x.id === id);
+    if (!b) return;
+    setFilter('alle');
+    setOhneOrt(false);
+    setSuche(b.konto_nr);
+    setOffen(id);
+    setTimeout(() => document.getElementById('bs-' + id)?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 60);
+  }
+
   return (
     <div className="space-y-3">
       {ladeFehler && <p className="card text-sm font-semibold text-accent-deep">{ladeFehler}</p>}
@@ -250,6 +264,8 @@ export function Baustellen() {
         {fehler && <p className="text-sm font-semibold text-accent-deep">{fehler}</p>}
       </section>
 
+      <AdressenNachtragen baustellen={ohneOrtListe} naehe={naehe} onGespeichert={() => void laden()} onOeffnen={oeffnen} />
+
       <input value={suche} onChange={(e) => setSuche(e.target.value)} placeholder="Strasse, Nummer oder PLZ …" className="field" />
       <div className="flex gap-1.5">
         {(['aktiv', 'fertig_gemeldet', 'abgeschlossen', 'alle'] as const).map((k) => (
@@ -264,7 +280,7 @@ export function Baustellen() {
 
       <div className="card divide-y divide-line p-0">
         {sichtbar.map((b) => (
-          <div key={b.id}>
+          <div key={b.id} id={'bs-' + b.id} className="scroll-mt-20">
             <button type="button" onClick={() => { setOffen(offen === b.id ? null : b.id); loeschFrage.abbrechen(); setHinweis(''); }} className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left hover:bg-ground">
               <span className="min-w-0">
                 <span className="block truncate text-sm font-medium">{b.bezeichnung}</span>

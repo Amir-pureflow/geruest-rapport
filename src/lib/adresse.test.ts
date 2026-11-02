@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { adresseText, hausnummerFehlt, istApple, navigationsLink, suchText, trefferAusAntwort, trefferSortieren, wgsZuLv03 } from './adresse';
+import { adresseText, aufbereiten, hausnummerFehlt, istApple, navigationsLink, suchText, trefferAusAntwort, trefferBewerten, trefferSortieren, wgsZuLv03 } from './adresse';
 
 describe('wgsZuLv03 — Suchgebiet für die Adresssuche', () => {
   it('alte Sternwarte Bern ≈ 600 000 / 200 000 (Ursprung von LV03), Bundesplatz daneben', () => {
@@ -46,6 +46,81 @@ describe('suchText', () => {
     expect(suchText({ bezeichnung: 'Mehrfamilienhaus Lorrainestrasse 18', plz: '3013' })).toBe('Lorrainestrasse 18 3013');
     expect(suchText({ bezeichnung: 'Wohnüberbauung Brünnenpark, Haus B' })).toBe('Brünnenpark B');
     expect(suchText({ bezeichnung: 'Hausmattweg 4' })).toBe('Hausmattweg 4'); // «Haus» nur als ganzes Wort
+  });
+});
+
+describe('aufbereiten — Bezeichnungen, wie das Büro sie tippt (217 Konten der Gerüst GmbH)', () => {
+  it('«str.» ausgeschrieben, Nummer abgetrennt, Bereich = erste Nummer, Unterstrich = Leerschlag', () => {
+    expect(aufbereiten('Gümligen Worbstr.262')).toBe('Gümligen Worbstrasse 262');
+    expect(aufbereiten('Wabern Seftigenstr. 309 Grünau')).toBe('Wabern Seftigenstrasse 309 Grünau');
+    expect(aufbereiten('Zollikofen Linckweg 2-15')).toBe('Zollikofen Linckweg 2');
+    expect(aufbereiten('Ittigen Mühlestrasse 11-23')).toBe('Ittigen Mühlestrasse 11');
+    expect(aufbereiten('Aarstrasse_Hängegerüst')).toBe('Aarstrasse Hängegerüst');
+    expect(aufbereiten('Bottigenstrasse 217a')).toBe('Bottigenstrasse 217a');
+    expect(aufbereiten('Steffisburg Glockentalstr 4-10')).toBe('Steffisburg Glockentalstrasse 4');
+    expect(aufbereiten('Biel General-Dufour-Str. 104')).toBe('Biel General-Dufour-strasse 104');
+  });
+  it('Listen von Nummern: die erste; eine PLZ nach dem Komma bleibt', () => {
+    expect(aufbereiten('Moosseedorf Nassegasse19,21,23')).toBe('Moosseedorf Nassegasse 19');
+    expect(aufbereiten('Blumenweg 5+7')).toBe('Blumenweg 5');
+    expect(aufbereiten('Gümligen Vorackerrain 1 + 3')).toBe('Gümligen Vorackerrain 1');
+    expect(aufbereiten('Schosshaldenstrasse 22, 22a')).toBe('Schosshaldenstrasse 22');
+    expect(aufbereiten('Rubigen Schulhausgasse 2a + 4a')).toBe('Rubigen Schulhausgasse 2a');
+    expect(aufbereiten('Waldstrasse 6, 3052 Zollikofen')).toBe('Waldstrasse 6, 3052 Zollikofen');
+  });
+  it('suchText nimmt die aufbereitete Bezeichnung, Gerüst-Wörter fallen weg', () => {
+    expect(suchText({ bezeichnung: 'Aarstrasse_Hängegerüst' })).toBe('Aarstrasse');
+    expect(suchText({ bezeichnung: 'Billeweg 3_Längsbau Brünnen' })).toBe('Billeweg 3 Brünnen');
+    expect(suchText({ bezeichnung: 'Neuenegg Laupenstr. 10' })).toBe('Neuenegg Laupenstrasse 10');
+  });
+});
+
+describe('trefferBewerten — was das Büro gesammelt übernehmen darf', () => {
+  const t = (strasse: string, plz: string, ort: string, lat = 46.94, lon = 7.45) => ({ strasse, plz, ort, lat, lon });
+  it('Strasse und Nummer stimmen: sicher', () => {
+    expect(trefferBewerten('Muri Thunstrasse 99', [t('Thunstrasse 99', '3074', 'Muri b. Bern'), t('Thunstrasse 99b', '3074', 'Muri b. Bern')]).stufe).toBe('sicher');
+    expect(trefferBewerten('Morgenstrasse 70', [t('Morgenstrasse 70', '3018', 'Bern')]).stufe).toBe('sicher');
+    expect(trefferBewerten('Bottigenstrasse 217a', [t('Bottigenstrasse 217a', '3018', 'Bern')]).stufe).toBe('sicher');
+  });
+  it('andere Strasse oder andere Nummer: prüfen', () => {
+    const r = trefferBewerten('Spiegel Föhrenweg 54', [t('Spiegelstrasse 54', '3095', 'Spiegel b. Bern')]);
+    expect(r.stufe).toBe('pruefen');
+    expect(r.grund).toContain('Spiegelstrasse 54');
+    expect(trefferBewerten('Monbijoustrasse 55', [t('Monbijoustrasse 5', '3011', 'Bern')]).grund).toBe('Hausnummer 55 nicht im Verzeichnis');
+  });
+  it('ohne Hausnummer oder ohne Treffer', () => {
+    expect(trefferBewerten('Ittigen Altikofen', [t('Altikofenstrasse 2', '3048', 'Worblaufen')]).stufe).toBe('pruefen');
+    expect(trefferBewerten('Biel Schnyder', []).stufe).toBe('keiner');
+  });
+  it('gleiche Adresse in zwei Orten: nur sicher, wenn der Ort in der Bezeichnung steht', () => {
+    const zwei = [t('Hirschengraben 24', '3011', 'Bern'), t('Hirschengraben 24', '8001', 'Zürich', 47.37, 8.55)];
+    expect(trefferBewerten('Hirschengraben 24', zwei).stufe).toBe('pruefen');
+    expect(trefferBewerten('Bern Hirschengraben 24', zwei).stufe).toBe('sicher');
+  });
+  it('weit weg vom Gebiet der Firma: prüfen, ausser der Ort ist genannt', () => {
+    const zuerich = [t('Seminarstrasse 18', '8057', 'Zürich', 47.39, 8.54)];
+    expect(trefferBewerten('Seminarstrasse 18', zuerich, { lat: 46.95, lon: 7.45 }).stufe).toBe('pruefen');
+    expect(trefferBewerten('Zürich Seminarstrasse 18', zuerich, { lat: 46.95, lon: 7.45 }).stufe).toBe('sicher');
+  });
+  it('genau die gesuchte Nummer, auch wenn «15a» zuerst kommt', () => {
+    const r = trefferBewerten('Brückenstrasse 15', [t('Brückenstrasse 15a', '3005', 'Bern'), t('Brückenstrasse 15', '3005', 'Bern')]);
+    expect(r.stufe).toBe('sicher');
+    expect(r.treffer?.strasse).toBe('Brückenstrasse 15');
+  });
+  it('zweisprachige Strasse und Akzente', () => {
+    expect(trefferBewerten(suchText({ bezeichnung: 'Biel General-Dufour-Str. 104' }), [t('Rue du Général-Dufour / General-Dufour-Strasse 104', '2502', 'Biel/Bienne', 47.14, 7.25)]).stufe).toBe('sicher');
+    expect(trefferBewerten('Fribourg Route du Riedle 13', [t('Route du Riedlé 13', '1700', 'Fribourg', 46.8, 7.16)]).stufe).toBe('sicher');
+  });
+  it('gleiche Adresse in der Nähe: sicher nur, wenn die andere deutlich weiter weg liegt', () => {
+    const naehe = { lat: 46.947, lon: 7.435 };
+    const fabrik = [t('Fabrikstrasse 8', '3012', 'Bern', 46.955, 7.43), t('Fabrikstrasse 8', '3250', 'Lyss', 47.074, 7.306)];
+    expect(trefferBewerten('Fabrikstrasse 8', fabrik, naehe).stufe).toBe('sicher');
+    const bantiger = [t('Bantigerstrasse 20', '3006', 'Bern', 46.952, 7.46), t('Bantigerstrasse 20', '3072', 'Ostermundigen', 46.955, 7.485)];
+    expect(trefferBewerten('Bantigerstrasse 20', bantiger, naehe).stufe).toBe('pruefen');
+    expect(trefferBewerten('Fabrikstrasse 8', fabrik).stufe).toBe('pruefen'); // ohne Gebiet der Firma: lieber fragen
+  });
+  it('«str.» in der Bezeichnung zählt wie «strasse»', () => {
+    expect(trefferBewerten(suchText({ bezeichnung: 'Gümligen Worbstr.262' }), [t('Worbstrasse 262', '3073', 'Gümligen')]).stufe).toBe('sicher');
   });
 });
 
