@@ -19,6 +19,8 @@ export interface WochenTag {
   offen: number;
   /** Teams, deren Tag komplett freigegeben ist. */
   freigegeben: number;
+  /** Welche Teams offen sind — die Kachel springt genau dorthin, nicht auf den ganzen Tag (25.10.2026) */
+  offeneTeams: string[];
 }
 
 /**
@@ -35,6 +37,7 @@ export async function wochenTeams(c: SupabaseClient, bezug: Date): Promise<Woche
     datum: kurz(addTage(mo, i)),
     offen: 0,
     freigegeben: 0,
+    offeneTeams: [],
   }));
   // Eine Woche in der Hochsaison: 75 Leute × 6 Tage, mit zwei Baustellen am Tag mehr als 1000 Einträge
   const data = await alle<{
@@ -61,9 +64,11 @@ export async function wochenTeams(c: SupabaseClient, bezug: Date): Promise<Woche
     proTag[index].set(team, bisher || z.status !== 'freigegeben');
   }
   proTag.forEach((teams, i) => {
-    for (const offen of teams.values()) {
-      if (offen) tage[i].offen += 1;
-      else tage[i].freigegeben += 1;
+    for (const [team, offen] of teams) {
+      if (offen) {
+        tage[i].offen += 1;
+        if (team !== 'ohne-team') tage[i].offeneTeams.push(team);
+      } else tage[i].freigegeben += 1;
     }
   });
   return tage;

@@ -176,13 +176,23 @@ export function WochenTeams({
   tage,
   woche,
 }: {
-  tage: { label: string; offen: number; freigegeben: number; datum: string }[];
-  /** Montag der Woche (ISO). Jede Kachel öffnet die Wochenübersicht mit diesem Tag markiert (`?woche&tag`, 08.10.2026). */
+  tage: { label: string; offen: number; freigegeben: number; datum: string; offeneTeams?: string[] }[];
+  /**
+   * Montag der Woche (ISO). Jede Kachel öffnet die Wochenübersicht mit diesem Tag markiert (`?woche&tag`, 08.10.2026).
+   * Ist an dem Tag etwas offen, nur dorthin (25.10.2026, Amir: «alle Tage gekennzeichnet, obwohl nur einer offen ist»):
+   * ein offenes Team → dessen Tag gleich aufgeklappt (`&team`), mehrere → nur diese Zellen markiert (`&teams`).
+   */
   woche: string;
 }) {
   const mo = ausIso(woche);
+  const ziel = (t: { offeneTeams?: string[] }, tag: string) => {
+    const offen = t.offeneTeams ?? [];
+    if (offen.length === 1) return `/cockpit?woche=${woche}&tag=${tag}&team=${offen[0]}`;
+    if (offen.length > 1) return `/cockpit?woche=${woche}&tag=${tag}&teams=${offen.join(',')}`;
+    return `/cockpit?woche=${woche}&tag=${tag}`;
+  };
   const sichtbar = tage
-    .map((t, i) => ({ ...t, zu: `/cockpit?woche=${woche}&tag=${iso(addTage(mo, i))}` }))
+    .map((t, i) => ({ ...t, zu: ziel(t, iso(addTage(mo, i))) }))
     .filter((t, i) => i < 5 || t.offen + t.freigegeben > 0);
   const offen = tage.reduce((s, t) => s + t.offen, 0);
   const frei = tage.reduce((s, t) => s + t.freigegeben, 0);

@@ -224,6 +224,8 @@ export function Cockpit() {
   // ?tag ohne Team (Freigabe-Karte der Übersicht, 08.10.2026): den ganzen Tag markieren — Spalte im Kopf und die
   // Zellen aller Teams. Amir: «sonst macht es keinen Sinn, dass man pro Tag klicken kann und dann die ganze Woche sieht».
   const [markTag, setMarkTag] = useState<string | null>(() => (!params.get('team') && params.get('tag')) || null);
+  // ?teams=a,b (25.10.2026, Amir: «alle gekennzeichnet, obwohl nur einer offen ist»): nur die offenen Teams des Tages
+  const [markTeams] = useState<string[] | null>(() => params.get('teams')?.split(',').filter(Boolean) ?? null);
   // Aufgeklappter Tag eines Teams — die Tagesübersicht springt mit ?team&tag direkt hinein
   const [offen, setOffen] = useState<{ team: string; datum: string } | null>(() => {
     const t = params.get('team');
@@ -713,6 +715,7 @@ export function Cockpit() {
     const u = new URL(window.location.href);
     if (!u.searchParams.get('team') && u.searchParams.has('tag')) {
       u.searchParams.delete('tag');
+      u.searchParams.delete('teams');
       window.history.replaceState(window.history.state, '', u.pathname + u.search + u.hash);
     }
   }
@@ -871,7 +874,7 @@ export function Cockpit() {
           {markTag && wochenTage.includes(markTag) && (
             <p className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-ink2">
               <span className="inline-flex items-center gap-1.5 font-semibold text-steel">
-                <span className="h-2 w-2 rounded-full bg-steel" aria-hidden="true" />{tagName(markTag)} markiert
+                <span className="h-2 w-2 rounded-full bg-steel" aria-hidden="true" />{tagName(markTag)}{markTeams && markTeams.length > 0 ? ` · ${markTeams.length} offene Teams` : ''} markiert
               </span>
               <span className="text-ink3">Zelle antippen öffnet den Tag des Teams</span>
               <button type="button" className="text-xs font-semibold text-ink3 underline underline-offset-2 hover:text-ink" onClick={markierungWeg}>Markierung aufheben</button>
@@ -897,7 +900,7 @@ export function Cockpit() {
             {sichtbar.map((z) => {
               const auf = offen?.team === z.team.id;
               return (
-                <div key={z.team.id} ref={auf ? zielRef : undefined} className={'scroll-mt-20 border-b border-line transition-colors last:border-b-0 ' + (auf ? 'bg-steel-soft/20' : 'hover:bg-surface-2/40')}>
+                <div key={z.team.id} ref={auf || (!offen && markTag && z.team.id === sichtbar.find((x) => markTeams?.includes(x.team.id))?.team.id) ? zielRef : undefined} className={'scroll-mt-20 border-b border-line transition-colors last:border-b-0 ' + (auf ? 'bg-steel-soft/20' : 'hover:bg-surface-2/40')}>
                   <div className="px-4 py-3">
                     <div className="flex items-center justify-between gap-3">
                       <span className="flex min-w-0 items-center gap-2.5">
@@ -934,7 +937,7 @@ export function Cockpit() {
                     <div className="mt-2.5 grid grid-cols-7 gap-1.5">
                       {z.tage.map((t) => {
                         const aktiv = auf && offen?.datum === t.datum;
-                        const markiert = t.datum === markTag;
+                        const markiert = t.datum === markTag && (!markTeams || markTeams.includes(z.team.id));
                         return (
                           <button
                             key={t.datum}
