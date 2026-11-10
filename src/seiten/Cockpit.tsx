@@ -768,7 +768,7 @@ export function Cockpit() {
   const tagName = (d: string) => `${TAGE[(new Date(d + 'T12:00:00').getDay() + 6) % 7]} ${ch(new Date(d + 'T12:00:00'))}`;
 
   return (
-    <Shell zurueck>
+    <Shell zurueck breit>
       <div className="space-y-4">
         <header className="flex flex-wrap items-end justify-between gap-x-6 gap-y-3">
           <div className="min-w-0">
@@ -914,9 +914,9 @@ export function Cockpit() {
           <section className="card overflow-hidden p-0">
             {/* Kopfzeile Mo–So wie ein Kalender: Wochentag klein, Datum darunter, heute als rote Pille (08.10.2026);
                 ein markierter Tag (Sprung aus der Freigabe-Karte) als blaue Pille */}
-            <div className="border-b border-line bg-[#fbfaf8] px-4 pb-3 pt-4 lg:grid lg:lg:grid-cols-[220px_minmax(0,1fr)_150px] lg:items-end lg:gap-4 lg:px-5">
-              <span className="hidden pb-1 text-[10px] font-semibold uppercase tracking-[0.1em] text-ink3 lg:block">Team</span>
-              <div className="grid grid-cols-7 gap-1.5">
+            <div className="border-b border-line bg-[#fbfaf8] px-4 pb-3 pt-4 2xl:grid 2xl:2xl:grid-cols-[210px_minmax(0,1fr)_150px] 2xl:items-end 2xl:gap-4 2xl:px-5">
+              <span className="hidden pb-1 text-[10px] font-semibold uppercase tracking-[0.1em] text-ink3 2xl:block">Team</span>
+              <div className="grid grid-cols-7 gap-2">
               {wochenTage.map((datum, i) => {
                 const heute = datum === iso(new Date());
                 const wochenende = i >= 5;
@@ -929,16 +929,16 @@ export function Cockpit() {
                 );
               })}
               </div>
-              <span className="hidden pb-1 text-right text-[10px] font-semibold uppercase tracking-[0.1em] text-ink3 lg:block">Woche</span>
+              <span className="hidden pb-1 text-right text-[10px] font-semibold uppercase tracking-[0.1em] text-ink3 2xl:block">Woche</span>
             </div>
 
             {sichtbar.map((z) => {
               const auf = offen?.team === z.team.id;
               return (
                 <div key={z.team.id} ref={auf || (!offen && markTag && z.team.id === sichtbar.find((x) => markTeams?.includes(x.team.id))?.team.id) ? zielRef : undefined} className={'scroll-mt-20 border-b border-line transition-colors last:border-b-0 ' + (auf ? 'bg-steel-soft/20' : 'hover:bg-surface-2/40')}>
-                  <div className="px-4 py-3 lg:grid lg:lg:grid-cols-[220px_minmax(0,1fr)_150px] lg:items-center lg:gap-4 lg:px-5">
-                    <div className="flex items-center justify-between gap-3 lg:contents">
-                      <span className="flex min-w-0 items-center gap-2.5 lg:col-start-1 lg:row-start-1">
+                  <div className="px-4 py-3.5 2xl:grid 2xl:2xl:grid-cols-[210px_minmax(0,1fr)_150px] 2xl:items-center 2xl:gap-4 2xl:px-5">
+                    <div className="flex items-center justify-between gap-3 2xl:contents">
+                      <span className="flex min-w-0 items-center gap-2.5 2xl:col-start-1 2xl:row-start-1">
                         {/* Runder Pastell-Kreis mit den Initialen des Chefmonteurs (10.11.2026, Konzept A) — ohne Chefmonteur die Teamnummer */}
                         <span className={'grid h-9 w-9 shrink-0 place-items-center rounded-full font-display text-[13px] font-bold ' + teamFarbe(z.team.id)} aria-hidden="true">{initialen(z.team.chefmonteur?.name) ?? teamKuerzel(z.team.bezeichnung)}</span>
                         <span className="min-w-0">
@@ -951,13 +951,13 @@ export function Cockpit() {
                             {z.team.chefmonteur ? kurzName(z.team.chefmonteur.name) : 'kein Chefmonteur'}
                             {z.leute > 0 && <span className="hidden sm:inline"> · {z.leute} {z.leute === 1 ? 'Person' : 'Leute'}</span>}
                             {/* Am Handy steht das Wochentotal beim Namen; am PC in der eigenen Spalte «Woche» */}
-                            {z.totalMin > 0 && <span className="lg:hidden"> · <span className="font-mono font-semibold tabular-nums text-ink">{stunden(z.totalMin)} h</span></span>}
+                            {z.totalMin > 0 && <span className="2xl:hidden"> · <span className="font-mono font-semibold tabular-nums text-ink">{stunden(z.totalMin)} h</span></span>}
                           </span>
                         </span>
                       </span>
-                      <span className="flex shrink-0 items-center gap-3 text-xs lg:col-start-3 lg:row-start-1 lg:flex-col lg:items-end lg:gap-1.5">
+                      <span className="flex shrink-0 items-center gap-3 text-xs 2xl:col-start-3 2xl:row-start-1 2xl:flex-col 2xl:items-end 2xl:gap-1.5">
                         {z.totalMin > 0 && (
-                          <span className="hidden text-right lg:block">
+                          <span className="hidden text-right 2xl:block">
                             <span className="block font-mono text-[16px] font-bold tabular-nums text-ink">{stunden(z.totalMin)} h</span>
                             <span className="block text-[11px] text-ink3">{z.tage.filter((t) => t.status !== 'leer').length} von 5 Tagen</span>
                           </span>
@@ -979,12 +979,12 @@ export function Cockpit() {
                     {/* Team ohne jede Meldung in der Woche: nur eine schmale, leise Tagesleiste statt sieben leerer Kästen
                         (10.11.2026, Amir: «nicht clean») — das Schild rechts sagt schon «noch keine Meldung» */}
                     {z.alle.length === 0 ? (
-                      <div className="mt-2.5 grid grid-cols-7 gap-1.5 lg:col-start-2 lg:row-start-1 lg:mt-0" aria-hidden="true">
+                      <div className="mt-2.5 grid grid-cols-7 gap-2 2xl:col-start-2 2xl:row-start-1 2xl:mt-0" aria-hidden="true">
                         {z.tage.map((t, i) => <span key={t.datum} className={'h-1.5 rounded-full ' + (i >= 5 ? 'bg-surface-2/60' : 'bg-surface-2')} />)}
                       </div>
                     ) : (
                     /* Sieben Zellen: Teamsumme des Tages, Farbe = Stand. Antippen öffnet den Tag. */
-                    <div className="mt-2.5 grid grid-cols-7 gap-1.5 lg:col-start-2 lg:row-start-1 lg:mt-0">
+                    <div className="mt-2.5 grid grid-cols-7 gap-2 2xl:col-start-2 2xl:row-start-1 2xl:mt-0">
                       {z.tage.map((t, i) => {
                         const aktiv = auf && offen?.datum === t.datum;
                         // Leeres Wochenende ganz leise (kein Raster), leerer Werktag schraffiert
@@ -997,7 +997,7 @@ export function Cockpit() {
                             disabled={t.status === 'leer'}
                             onClick={() => tagUmschalten(z.team.id, t.datum)}
                             aria-label={`${tagName(t.datum)}: ${t.status === 'leer' ? 'keine Meldung' : stunden(t.min) + ' h'}`}
-                            className={'flex min-h-[52px] flex-col justify-center rounded-[12px] px-1 py-1.5 text-center leading-tight transition sm:items-start sm:px-2.5 sm:text-left ' + (leiseLeer ? 'bg-transparent' : ZELLE[t.status].kachel) + ' ' + (aktiv ? 'ring-2 ring-accent' : markiert ? 'ring-2 ring-steel/70' : ZELLE[t.status].rand)}
+                            className={'@container flex min-h-[56px] flex-col justify-center rounded-[12px] px-1 py-1.5 text-center leading-tight transition sm:items-start sm:px-2.5 sm:text-left ' + (leiseLeer ? 'bg-transparent' : ZELLE[t.status].kachel) + ' ' + (aktiv ? 'ring-2 ring-accent' : markiert ? 'ring-2 ring-steel/70' : ZELLE[t.status].rand)}
                           >
                             {t.status === 'leer' ? (
                               <span className="w-full text-center text-[13px] text-ink3/50" aria-hidden="true">–</span>
@@ -1005,11 +1005,11 @@ export function Cockpit() {
                               <>
                                 <span className="font-mono text-[14px] font-bold tabular-nums sm:text-[15px]">{stunden(t.min)}</span>
                                 {/* Das Wort zum Stand steht in der Zelle; am Handy (schmale Zellen) nur die Kurzform */}
-                                <span className={'mt-0.5 hidden items-center gap-1 font-sans text-[10.5px] font-semibold sm:flex ' + ZELLE[t.status].wort}>
+                                <span className={'mt-0.5 hidden items-center gap-1 font-sans text-[10.5px] font-semibold whitespace-nowrap @[84px]:flex ' + ZELLE[t.status].wort}>
                                   <span aria-hidden="true">{ZELLE[t.status].zeichen}</span>
                                   {zellWort(t.status, regie)}
                                 </span>
-                                <span className={'mt-0.5 block font-sans text-[9px] font-semibold sm:hidden ' + ZELLE[t.status].wort}>{t.status === 'frei' ? '✓' : t.status === 'gelb' || t.status === 'rot' ? (regie ? 'Regie?' : `>${gelbAbText()} h`) : 'offen'}</span>
+                                <span className={'mt-0.5 block font-sans text-[10px] font-semibold @[84px]:hidden ' + ZELLE[t.status].wort}>{t.status === 'frei' ? '✓ frei' : t.status === 'gelb' || t.status === 'rot' ? (regie ? 'Regie?' : `>${gelbAbText()} h`) : 'offen'}</span>
                               </>
                             )}
                           </button>
