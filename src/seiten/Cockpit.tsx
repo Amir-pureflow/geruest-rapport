@@ -8,7 +8,7 @@ import { alle } from '../lib/abfrage';
 import { useAuffrischen, useNeuesteAnfrage } from '../lib/auffrischen';
 import { addTage, iso, kurz as ch, kw, montag, stunden } from '../lib/datum';
 import { aufteilen as aufteilenTag } from '../lib/zeiten';
-import { gelbePersonen, normaltagMin, znueni } from '../lib/einstellungen';
+import { gelbePersonen, markierenAbMin, normaltagMin, znueni } from '../lib/einstellungen';
 import { ausSpalten, kannPauseAbziehen, pauseAbgezogen, pauseAbziehen, pauseZaehlen, spannenMinuten, uhrzeit, zeitenText, zuSpalten } from '../lib/zeiten';
 import { useAnsicht } from '../lib/ansicht';
 import { einstellungen } from '../lib/einstellungen';
@@ -19,7 +19,8 @@ import { positionenAusEintraegen, summe as positionenSumme } from '../lib/regie'
  * Phase 3 — Wochenübersicht des Bauführers.
  *
  * Aufbau (17.09.): ein Raster — jedes Team eine Zeile, sieben Zellen Mo–So mit Teamstunden, Farbe = Stand
- * (weiss offen, grün freigegeben, gelb Überstunden, rot über 10 h). Zelle antippen öffnet den Tag:
+ * (blau offen, grün freigegeben, gelb «über 9 h» = ab «Gelb markieren ab» der Firma). Zelle antippen öffnet den Tag:
+ * Rot «über 10 h» gibt es seit 10.11.2026 nicht mehr (Amir) — solche Tage sind gelb.
  * Personen mit Stunden und Zeiten, Korrektur, Überstunden-Karte mit Sprachnotiz, Bemerkung zum Tag, «Tag freigeben».
  * Gelb wird ein Tag erst ab «Gelb markieren ab» der Firma (09.10.2026, Tagestotal einer Person, Gerüst GmbH 9.0 h).
  * Dazu «N Tage freigeben» je Team und ein Knopf oben für alle Tage ohne Hinweis. Kein Montag-Zwang.
@@ -135,19 +136,27 @@ function kurzName(name: string): string {
 
 /** Wort zum Stand, direkt in der Zelle. Mit Regie heisst «gelb» eine offene Frage an den Bauführer, nicht nur Überstunden. */
 const zellWort = (st: ZellStatus, regie: boolean): string =>
-  ({ leer: '', gruen: 'offen', frei: 'freigegeben ✓', gelb: regie ? 'Regieverdacht' : 'Überstunden', rot: 'über 10 h' })[st];
+  ({ leer: '', gruen: 'offen', frei: 'freigegeben', gelb: regie ? 'Regieverdacht' : `über ${gelbAbText()} h`, rot: `über ${gelbAbText()} h` })[st];
+
+/** «Gelb markieren ab» der Firma als Text («9», «8.5») — ohne Einstellung der normale Arbeitstag */
+function gelbAbText(): string {
+  const h = (markierenAbMin() ?? normaltagMin()) / 60;
+  return Number.isInteger(h) ? String(h) : h.toFixed(1);
+}
 
 /**
  * Tageszelle im Raster: Farbe = Stand. 06.10.2026 wie die Team-Kacheln — Tage mit Meldung sind Kacheln
  * mit kräftiger Zahl und Status-Punkt, leere Tage treten zurück (vorher eine Reihe grauer Kästen, in der
  * der eine offene Tag unterging). «Offen» ist blau wie «gemeldet» beim Vorarbeiter.
  */
-const ZELLE: Record<ZellStatus, { kachel: string; rand: string; punkt: string; wort: string }> = {
-  leer: { kachel: 'border border-dashed border-ink/[0.10] bg-transparent', rand: '', punkt: '', wort: '' },
-  gruen: { kachel: 'bg-white text-ink shadow-[0_1px_2px_rgb(17_17_19/0.05),0_6px_14px_-10px_rgb(17_17_19/0.35)]', rand: 'ring-1 ring-line-strong hover:ring-steel/60', punkt: 'bg-steel', wort: 'text-steel' },
-  frei: { kachel: 'bg-gradient-to-br from-white to-[#dcf2e5] text-good-deep', rand: 'ring-1 ring-good/30 hover:ring-good/60', punkt: 'bg-good', wort: 'text-good-deep' },
-  gelb: { kachel: 'bg-gradient-to-br from-white to-[#fbe3a6] text-ink', rand: 'ring-1 ring-amber/50 hover:ring-amber', punkt: 'bg-amber', wort: 'text-amber-deep' },
-  rot: { kachel: 'bg-gradient-to-br from-white to-[#f9d8d1] text-ink', rand: 'ring-1 ring-accent/45 hover:ring-accent', punkt: 'bg-accent', wort: 'text-accent-deep' },
+// 10.11.2026 Konzept A (Amir: «nicht clean, Kontrast nicht gut»): gefüllte Kacheln in der Farbe des Stands, Zahl und
+// Schrift in der dunklen Stufe derselben Farbe — klarer Kontrast; leere Werktage schraffiert statt gestrichelter Kästen.
+const ZELLE: Record<ZellStatus, { kachel: string; rand: string; punkt: string; wort: string; zeichen: string }> = {
+  leer: { kachel: 'bg-[repeating-linear-gradient(-45deg,#fbfaf8,#fbfaf8_6px,#f5f3ef_6px,#f5f3ef_12px)]', rand: '', punkt: '', wort: '', zeichen: '' },
+  gruen: { kachel: 'bg-steel-soft text-steel', rand: 'ring-1 ring-steel/15 hover:ring-steel/50', punkt: 'bg-steel', wort: 'text-steel', zeichen: '●' },
+  frei: { kachel: 'bg-good-soft text-good-deep', rand: 'ring-1 ring-good/15 hover:ring-good/50', punkt: 'bg-good', wort: 'text-good-deep', zeichen: '✓' },
+  gelb: { kachel: 'bg-amber-soft text-amber-deep', rand: 'ring-1 ring-amber/25 hover:ring-amber/60', punkt: 'bg-amber', wort: 'text-amber-deep', zeichen: '▲' },
+  rot: { kachel: 'bg-accent-soft text-accent-deep', rand: 'ring-1 ring-accent/20 hover:ring-accent/60', punkt: 'bg-accent', wort: 'text-accent-deep', zeichen: '!' },
 };
 
 export function Cockpit() {
@@ -397,7 +406,8 @@ export function Cockpit() {
     // auch bei Überstunden oder über 10 h. Sonst bliebe das Team ewig unter «Zum Anschauen».
     if (liste.every((e) => e.status === 'freigegeben')) return 'frei';
     // Über 10 h ist nur dann ein offener Hinweis, wenn das Team den langen Tag nicht selbst erklärt hat (Überstunden mit Notiz)
-    if (liste.some((e) => langerTag.has(`${e.mitarbeiter.id}|${e.tagesmeldung.datum}`))) return 'rot';
+    // (seit 10.11.2026 gelb wie Überstunden — kein eigenes Rot mehr)
+    if (liste.some((e) => langerTag.has(`${e.mitarbeiter.id}|${e.tagesmeldung.datum}`))) return 'gelb';
     // Überstunden ab «Gelb markieren ab» (oder eine Abweichung) = Hinweis: der Bauführer liest die Notiz, prüft die
     // Stunden, gibt frei. Im Regie-Modus fällt der Hinweis weg, sobald ein Rapport oder ein «keine Regie» dazu steht.
     const hinweis = liste.some(
@@ -830,7 +840,7 @@ export function Cockpit() {
                   <span className="font-semibold">{zaehler.gruenTage} {zaehler.gruenTage === 1 ? 'Tag' : 'Tage'}</span>
                   <span className="text-ink3"> ohne Hinweis offen</span>
                   {zaehler.hinweisTage > 0 && (
-                    <> <span className="text-ink3">·</span> <span className="font-semibold text-amber-deep">{zaehler.hinweisTage} mit Hinweis</span> <span className="text-ink3">— gelbe oder rote Zelle antippen</span></>
+                    <> <span className="text-ink3">·</span> <span className="font-semibold text-amber-deep">{zaehler.hinweisTage} mit Hinweis</span> <span className="text-ink3">— gelbe Zelle antippen</span></>
                   )}
                 </>
               )}
@@ -914,13 +924,13 @@ export function Cockpit() {
                           {/* Wochentotal beim Namen, nicht rechts — rechtsbündig wurde es als Sonntagswert gelesen (04.10.2026) */}
                           <span className="block truncate text-xs text-ink3">
                             {z.team.chefmonteur ? kurzName(z.team.chefmonteur.name) : 'kein Chefmonteur'}
-                            {z.totalMin > 0 && <span className="font-mono tabular-nums"> · {stunden(z.totalMin)} h</span>}
+                            {z.totalMin > 0 && <> · <span className="font-mono font-semibold tabular-nums text-ink">{stunden(z.totalMin)} h</span></>}
                           </span>
                         </span>
                       </span>
                       <span className="flex shrink-0 items-center gap-3 text-xs">
                         {z.alle.length === 0 ? (
-                          <span className="text-ink3">keine Meldung</span>
+                          <span className="rounded-full bg-surface-2 px-2.5 py-1 font-semibold text-ink2">noch keine Meldung</span>
                         ) : darfFreigeben && z.gruene.length > 0 ? (
                           <button type="button" className="inline-flex items-center gap-1.5 rounded-full bg-good px-3 py-1.5 text-xs font-semibold text-white shadow-[0_4px_10px_-4px_rgb(31_157_85/0.6)] transition hover:bg-good-deep disabled:opacity-60" disabled={!userId || speichert} onClick={() => void freigeben(z.gruene, `${z.team.bezeichnung}: ${z.gruenTage} Tage`)}>
                             <Check size={13} strokeWidth={3} aria-hidden="true" />
@@ -933,10 +943,19 @@ export function Cockpit() {
                         )}
                       </span>
                     </div>
-                    {/* Sieben Zellen: Teamsumme des Tages, Farbe = Stand. Antippen öffnet den Tag. */}
+                    {/* Team ohne jede Meldung in der Woche: nur eine schmale, leise Tagesleiste statt sieben leerer Kästen
+                        (10.11.2026, Amir: «nicht clean») — das Schild rechts sagt schon «noch keine Meldung» */}
+                    {z.alle.length === 0 ? (
+                      <div className="mt-2.5 grid grid-cols-7 gap-1.5" aria-hidden="true">
+                        {z.tage.map((t, i) => <span key={t.datum} className={'h-1.5 rounded-full ' + (i >= 5 ? 'bg-surface-2/60' : 'bg-surface-2')} />)}
+                      </div>
+                    ) : (
+                    /* Sieben Zellen: Teamsumme des Tages, Farbe = Stand. Antippen öffnet den Tag. */
                     <div className="mt-2.5 grid grid-cols-7 gap-1.5">
-                      {z.tage.map((t) => {
+                      {z.tage.map((t, i) => {
                         const aktiv = auf && offen?.datum === t.datum;
+                        // Leeres Wochenende ganz leise (kein Raster), leerer Werktag schraffiert
+                        const leiseLeer = t.status === 'leer' && i >= 5;
                         const markiert = t.datum === markTag && (!markTeams || markTeams.includes(z.team.id));
                         return (
                           <button
@@ -945,23 +964,26 @@ export function Cockpit() {
                             disabled={t.status === 'leer'}
                             onClick={() => tagUmschalten(z.team.id, t.datum)}
                             aria-label={`${tagName(t.datum)}: ${t.status === 'leer' ? 'keine Meldung' : stunden(t.min) + ' h'}`}
-                            className={'flex min-h-[48px] flex-col items-center justify-center rounded-[12px] px-1 py-1.5 text-center leading-tight transition ' + ZELLE[t.status].kachel + ' ' + (aktiv ? 'ring-2 ring-accent' : markiert ? 'ring-2 ring-steel/70' : ZELLE[t.status].rand)}
+                            className={'flex min-h-[52px] flex-col justify-center rounded-[12px] px-1 py-1.5 text-center leading-tight transition sm:items-start sm:px-2.5 sm:text-left ' + (leiseLeer ? 'bg-transparent' : ZELLE[t.status].kachel) + ' ' + (aktiv ? 'ring-2 ring-accent' : markiert ? 'ring-2 ring-steel/70' : ZELLE[t.status].rand)}
                           >
-                            {t.status === 'leer' ? null : (
+                            {t.status === 'leer' ? (
+                              <span className="w-full text-center text-[13px] text-ink3/50" aria-hidden="true">–</span>
+                            ) : (
                               <>
-                                <span className="font-mono text-[13px] font-semibold tabular-nums">{stunden(t.min)}</span>
+                                <span className="font-mono text-[14px] font-bold tabular-nums sm:text-[15px]">{stunden(t.min)}</span>
                                 {/* Das Wort zum Stand steht in der Zelle; am Handy (schmale Zellen) nur die Kurzform */}
-                                <span className={'mt-0.5 hidden items-center gap-1 font-sans text-[10px] font-semibold sm:flex ' + ZELLE[t.status].wort}>
-                                  <span className={'h-1.5 w-1.5 shrink-0 rounded-full ' + ZELLE[t.status].punkt} aria-hidden="true" />
+                                <span className={'mt-0.5 hidden items-center gap-1 font-sans text-[10.5px] font-semibold sm:flex ' + ZELLE[t.status].wort}>
+                                  <span aria-hidden="true">{ZELLE[t.status].zeichen}</span>
                                   {zellWort(t.status, regie)}
                                 </span>
-                                <span className={'mt-0.5 block font-sans text-[9px] font-semibold sm:hidden ' + ZELLE[t.status].wort}>{t.status === 'frei' ? '✓' : t.status === 'gelb' ? (regie ? 'Regie?' : 'Über') : t.status === 'rot' ? '>10 h' : 'offen'}</span>
+                                <span className={'mt-0.5 block font-sans text-[9px] font-semibold sm:hidden ' + ZELLE[t.status].wort}>{t.status === 'frei' ? '✓' : t.status === 'gelb' || t.status === 'rot' ? (regie ? 'Regie?' : `>${gelbAbText()} h`) : 'offen'}</span>
                               </>
                             )}
                           </button>
                         );
                       })}
                     </div>
+                    )}
                   </div>
 
                   {auf && detail.length > 0 && (() => {
@@ -1120,7 +1142,7 @@ export function Cockpit() {
                                   : keineRegieGrund ? 'Keine Regie ✓'
                                   : info ? 'Länger gearbeitet'
                                   : geprueft ? (regie ? 'Regieverdacht geprüft ✓' : 'Überstunden geprüft ✓')
-                                  : regie ? 'Regieverdacht' : 'Überstunden — Notiz lesen'}
+                                  : regie ? 'Regieverdacht' : `über ${gelbAbText()} h — Notiz lesen`}
                                 {mehrereBaustellen && <span className="font-body text-xs font-normal text-ink3"> · {meldung.baustelle?.bezeichnung ?? '—'}</span>}
                               </span>
                             </div>
@@ -1253,8 +1275,7 @@ export function Cockpit() {
           <p className="flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-ink3">
             <span><span className="mr-1 inline-block h-2 w-2 rounded-full bg-steel" />offen</span>
             <span><span className="mr-1 inline-block h-2 w-2 rounded-full bg-good" />freigegeben</span>
-            <span><span className="mr-1 inline-block h-2 w-2 rounded-full bg-amber" />{regie ? 'Regieverdacht — entscheiden' : 'Überstunden — Notiz lesen'}</span>
-            <span><span className="mr-1 inline-block h-2 w-2 rounded-full bg-accent" />über 10 h</span>
+            <span><span className="mr-1 inline-block h-2 w-2 rounded-full bg-amber" />{regie ? 'Regieverdacht — entscheiden' : `über ${gelbAbText()} h — Notiz lesen`}</span>
             <span>Zelle antippen = Tag öffnen</span>
           </p>
         )}

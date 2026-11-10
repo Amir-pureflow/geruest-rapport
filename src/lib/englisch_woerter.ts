@@ -109,7 +109,7 @@ export const WOERTER = new Map<string, string>(Object.entries({
   'z. B. Gerüst an der Westfassade auf Wunsch der Bauleitung versetzt, 3 Mann, 1 h.': "e.g. scaffold on the west facade moved at site management's request, 3 people, 1 h.",
   '· geplant für': '· planned for', '· noch nicht gespeichert': '· not saved yet', '· zusammen': '· together',
   'Überstunden (nur die Mehrzeit wird vorgerechnet)': 'Overtime (only the extra time is calculated)', 'Überstunden — Notiz lesen': 'Overtime — read the note',
-  'über 10 h': 'over 10 h', '— gelbe oder rote Zelle antippen': '— tap a yellow or red cell',
+  'über 10 h': 'over 10 h', '— gelbe Zelle antippen': '— tap a yellow cell',
   // Texte der Demo (Sprachnotizen, übersetzt)
   'Zwei Beläge waren beschädigt, vermutlich vom Dachdecker. Ersetzt, das hat eine Stunde gebraucht.': 'Two boards were damaged, probably by the roofer. We replaced them, it took an hour.',
   // ── Export / Back-Office, Basis ──
