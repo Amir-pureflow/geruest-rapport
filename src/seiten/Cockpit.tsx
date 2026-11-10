@@ -129,6 +129,27 @@ const ZEHN_STUNDEN_MIN = 600;
 /** Rang für «schlechtester Status des Tages» und für die Sortierung der Teams. */
 const RANG: Record<ZellStatus, number> = { rot: 4, gelb: 3, gruen: 2, frei: 1, leer: 0 };
 
+const TEAM_FARBEN = [
+  'bg-[#fde3d3] text-[#8a3510]',
+  'bg-[#dde7f0] text-[#2f4a63]',
+  'bg-[#e2efd9] text-[#355a22]',
+  'bg-[#efe3f3] text-[#5d3470]',
+  'bg-[#f6ecc9] text-[#6b5313]',
+  'bg-[#d9eeec] text-[#225a55]',
+];
+/** Feste Pastellfarbe je Team (aus der ID) */
+function teamFarbe(id: string): string {
+  let h = 0;
+  for (const c of id) h = (h * 31 + c.charCodeAt(0)) >>> 0;
+  return TEAM_FARBEN[h % TEAM_FARBEN.length];
+}
+/** «Nikola Vaiti» → «NV» */
+function initialen(name: string | undefined | null): string | null {
+  const teile = (name ?? '').trim().split(/\s+/).filter(Boolean);
+  if (!teile.length) return null;
+  return ((teile[0][0] ?? '') + (teile.length > 1 ? teile[teile.length - 1][0] : '')).toUpperCase();
+}
+
 function kurzName(name: string): string {
   const teile = name.trim().split(' ');
   return teile.length > 1 ? `${teile[0][0]}. ${teile.slice(1).join(' ')}` : name;
@@ -136,7 +157,7 @@ function kurzName(name: string): string {
 
 /** Wort zum Stand, direkt in der Zelle. Mit Regie heisst «gelb» eine offene Frage an den Bauführer, nicht nur Überstunden. */
 const zellWort = (st: ZellStatus, regie: boolean): string =>
-  ({ leer: '', gruen: 'offen', frei: 'freigegeben', gelb: regie ? 'Regieverdacht' : `über ${gelbAbText()} h`, rot: `über ${gelbAbText()} h` })[st];
+  ({ leer: '', gruen: 'offen', frei: 'freigegeben', gelb: regie ? 'Regie?' : `über ${gelbAbText()} h`, rot: `über ${gelbAbText()} h` })[st];
 
 /** «Gelb markieren ab» der Firma als Text («9», «8.5») — ohne Einstellung der normale Arbeitstag */
 function gelbAbText(): string {
@@ -160,7 +181,6 @@ const ZELLE: Record<ZellStatus, { kachel: string; rand: string; punkt: string; w
 };
 
 export function Cockpit() {
-  // Montag/Dienstag prüft der Bauführer die Vorwoche (Arbnor, 27.08.) — dann dort starten, nicht in der leeren neuen Woche
   // Aufruf mit ?woche=JJJJ-MM-TT&team=<id> (z. B. aus der Tagesübersicht) springt direkt dorthin.
   const params = new URLSearchParams(window.location.search);
   // Firmen-Schalter: mit Regie wird aus dem Hinweis eine Entscheidung
@@ -170,10 +190,8 @@ export function Cockpit() {
   const [wochenStart, setWochenStart] = useState<Date>(() => {
     const w = params.get('woche');
     if (w && /^\d{4}-\d{2}-\d{2}$/.test(w)) return montag(new Date(w + 'T12:00:00'));
-    const heute = new Date();
-    // Montag/Dienstag: Vorwoche — die wird noch abgeschlossen (09.10.2026, Amir)
-    const vorwoche = heute.getDay() === 1 || heute.getDay() === 2;
-    return montag(vorwoche ? addTage(heute, -7) : heute);
+    // Immer die aktuelle Woche (10.11.2026, Amir) — vorher Mo/Di die Vorwoche; die bleibt mit ‹ einen Klick entfernt
+    return montag(new Date());
   });
   const istAktuelleWoche = iso(wochenStart) === iso(montag(new Date()));
   const istVorwoche = iso(wochenStart) < iso(montag(new Date()));
@@ -494,6 +512,7 @@ export function Cockpit() {
       hinweisTage: number;
       offenTage: number;
       totalMin: number;
+      leute: number;
       rang: number;
     };
     const zeilen: Zeile[] = zeilenTeams.map((team) => {
@@ -516,8 +535,10 @@ export function Cockpit() {
       const hinweisTage = tage.filter((t) => t.status === 'gelb' || t.status === 'rot').length;
       const offenTage = tage.filter((t) => t.offen.length > 0).length;
       const totalMin = alle.reduce((s, e) => s + e.normal_min + e.ueber_min, 0);
+      // Wie viele Leute in dieser Woche für das Team gemeldet sind
+      const leute = new Set(alle.map((e) => e.mitarbeiter.id)).size;
       const rang = hinweisTage > 0 ? 0 : alle.length === 0 ? 3 : offenTage > 0 ? 1 : 2;
-      return { team, tage, alle, gruene, gruenTage, hinweisTage, offenTage, totalMin, rang };
+      return { team, tage, alle, gruene, gruenTage, hinweisTage, offenTage, totalMin, leute, rang };
     });
     // Immer Team 1 … 20 der Reihe nach — die Farbe zeigt den Stand, der Filter «Zum Anschauen» blendet den Rest aus
     return zeilen.sort((a, b) => a.team.bezeichnung.localeCompare(b.team.bezeichnung, 'de', { numeric: true }));
@@ -893,7 +914,9 @@ export function Cockpit() {
           <section className="card overflow-hidden p-0">
             {/* Kopfzeile Mo–So wie ein Kalender: Wochentag klein, Datum darunter, heute als rote Pille (08.10.2026);
                 ein markierter Tag (Sprung aus der Freigabe-Karte) als blaue Pille */}
-            <div className="grid grid-cols-7 gap-1.5 border-b border-line px-4 pb-3 pt-4">
+            <div className="border-b border-line bg-[#fbfaf8] px-4 pb-3 pt-4 lg:grid lg:lg:grid-cols-[220px_minmax(0,1fr)_150px] lg:items-end lg:gap-4 lg:px-5">
+              <span className="hidden pb-1 text-[10px] font-semibold uppercase tracking-[0.1em] text-ink3 lg:block">Team</span>
+              <div className="grid grid-cols-7 gap-1.5">
               {wochenTage.map((datum, i) => {
                 const heute = datum === iso(new Date());
                 const wochenende = i >= 5;
@@ -905,17 +928,19 @@ export function Cockpit() {
                   </span>
                 );
               })}
+              </div>
+              <span className="hidden pb-1 text-right text-[10px] font-semibold uppercase tracking-[0.1em] text-ink3 lg:block">Woche</span>
             </div>
 
             {sichtbar.map((z) => {
               const auf = offen?.team === z.team.id;
               return (
                 <div key={z.team.id} ref={auf || (!offen && markTag && z.team.id === sichtbar.find((x) => markTeams?.includes(x.team.id))?.team.id) ? zielRef : undefined} className={'scroll-mt-20 border-b border-line transition-colors last:border-b-0 ' + (auf ? 'bg-steel-soft/20' : 'hover:bg-surface-2/40')}>
-                  <div className="px-4 py-3">
-                    <div className="flex items-center justify-between gap-3">
-                      <span className="flex min-w-0 items-center gap-2.5">
-                        {/* Weisse, leicht erhabene Kachel (09.10.2026, Amir: grau wirkte altmodisch) — farblos, weil Blau/Grün/Bernstein schon den Stand der Tage zeigen */}
-                        <span className="grid h-8 w-8 shrink-0 place-items-center rounded-[10px] bg-gradient-to-b from-white to-[#f4f2ee] font-display text-[13px] font-bold tabular-nums text-ink shadow-[0_1px_2px_rgb(17_17_19/0.08),0_6px_12px_-8px_rgb(17_17_19/0.35),inset_0_1px_0_#fff] ring-1 ring-ink/[0.07]" aria-hidden="true">{teamKuerzel(z.team.bezeichnung)}</span>
+                  <div className="px-4 py-3 lg:grid lg:lg:grid-cols-[220px_minmax(0,1fr)_150px] lg:items-center lg:gap-4 lg:px-5">
+                    <div className="flex items-center justify-between gap-3 lg:contents">
+                      <span className="flex min-w-0 items-center gap-2.5 lg:col-start-1 lg:row-start-1">
+                        {/* Runder Pastell-Kreis mit den Initialen des Chefmonteurs (10.11.2026, Konzept A) — ohne Chefmonteur die Teamnummer */}
+                        <span className={'grid h-9 w-9 shrink-0 place-items-center rounded-full font-display text-[13px] font-bold ' + teamFarbe(z.team.id)} aria-hidden="true">{initialen(z.team.chefmonteur?.name) ?? teamKuerzel(z.team.bezeichnung)}</span>
                         <span className="min-w-0">
                           <span className="block truncate font-display text-[14px] font-semibold leading-tight">
                             {z.team.bezeichnung}
@@ -924,11 +949,19 @@ export function Cockpit() {
                           {/* Wochentotal beim Namen, nicht rechts — rechtsbündig wurde es als Sonntagswert gelesen (04.10.2026) */}
                           <span className="block truncate text-xs text-ink3">
                             {z.team.chefmonteur ? kurzName(z.team.chefmonteur.name) : 'kein Chefmonteur'}
-                            {z.totalMin > 0 && <> · <span className="font-mono font-semibold tabular-nums text-ink">{stunden(z.totalMin)} h</span></>}
+                            {z.leute > 0 && <span className="hidden sm:inline"> · {z.leute} {z.leute === 1 ? 'Person' : 'Leute'}</span>}
+                            {/* Am Handy steht das Wochentotal beim Namen; am PC in der eigenen Spalte «Woche» */}
+                            {z.totalMin > 0 && <span className="lg:hidden"> · <span className="font-mono font-semibold tabular-nums text-ink">{stunden(z.totalMin)} h</span></span>}
                           </span>
                         </span>
                       </span>
-                      <span className="flex shrink-0 items-center gap-3 text-xs">
+                      <span className="flex shrink-0 items-center gap-3 text-xs lg:col-start-3 lg:row-start-1 lg:flex-col lg:items-end lg:gap-1.5">
+                        {z.totalMin > 0 && (
+                          <span className="hidden text-right lg:block">
+                            <span className="block font-mono text-[16px] font-bold tabular-nums text-ink">{stunden(z.totalMin)} h</span>
+                            <span className="block text-[11px] text-ink3">{z.tage.filter((t) => t.status !== 'leer').length} von 5 Tagen</span>
+                          </span>
+                        )}
                         {z.alle.length === 0 ? (
                           <span className="rounded-full bg-surface-2 px-2.5 py-1 font-semibold text-ink2">noch keine Meldung</span>
                         ) : darfFreigeben && z.gruene.length > 0 ? (
@@ -946,12 +979,12 @@ export function Cockpit() {
                     {/* Team ohne jede Meldung in der Woche: nur eine schmale, leise Tagesleiste statt sieben leerer Kästen
                         (10.11.2026, Amir: «nicht clean») — das Schild rechts sagt schon «noch keine Meldung» */}
                     {z.alle.length === 0 ? (
-                      <div className="mt-2.5 grid grid-cols-7 gap-1.5" aria-hidden="true">
+                      <div className="mt-2.5 grid grid-cols-7 gap-1.5 lg:col-start-2 lg:row-start-1 lg:mt-0" aria-hidden="true">
                         {z.tage.map((t, i) => <span key={t.datum} className={'h-1.5 rounded-full ' + (i >= 5 ? 'bg-surface-2/60' : 'bg-surface-2')} />)}
                       </div>
                     ) : (
                     /* Sieben Zellen: Teamsumme des Tages, Farbe = Stand. Antippen öffnet den Tag. */
-                    <div className="mt-2.5 grid grid-cols-7 gap-1.5">
+                    <div className="mt-2.5 grid grid-cols-7 gap-1.5 lg:col-start-2 lg:row-start-1 lg:mt-0">
                       {z.tage.map((t, i) => {
                         const aktiv = auf && offen?.datum === t.datum;
                         // Leeres Wochenende ganz leise (kein Raster), leerer Werktag schraffiert
