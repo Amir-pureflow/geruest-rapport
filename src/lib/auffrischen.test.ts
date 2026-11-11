@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest';
-import { auffrischer, neuesteAnfrage } from './auffrischen';
+import { describe, it, expect, vi } from 'vitest';
+import { auffrischer, liveAusloeser, neuesteAnfrage } from './auffrischen';
 
 describe('neuesteAnfrage — wer zuletzt fragt, gewinnt', () => {
   it('nur die jüngste Anfrage ist aktuell', () => {
@@ -53,5 +53,60 @@ describe('auffrischer — nie zwei Läufe gleichzeitig, nicht zu oft', () => {
     zeit = 10_000;
     expect(await los()).toBe(true);
     expect(laeufe).toBe(2);
+  });
+});
+
+describe('liveAusloeser — Änderungen aus der Datenbank (11.11.2026)', () => {
+  const warten = () => new Promise((r) => setTimeout(r, 0));
+
+  it('fünf Änderungen kurz hintereinander = ein Laden', async () => {
+    vi.useFakeTimers();
+    let n = 0;
+    const live = liveAusloeser(() => { n++; }, () => true, 1500);
+    for (let i = 0; i < 5; i++) { live.aenderung(); vi.advanceTimersByTime(300); }
+    expect(n).toBe(0);
+    vi.advanceTimersByTime(1500);
+    expect(n).toBe(1);
+    vi.useRealTimers();
+  });
+
+  it('versteckte Seite lädt nicht, holt es beim Zurückkommen einmal nach', async () => {
+    vi.useFakeTimers();
+    let n = 0;
+    let sichtbar = false;
+    const live = liveAusloeser(() => { n++; }, () => sichtbar, 1500);
+    live.aenderung(); live.aenderung();
+    vi.advanceTimersByTime(5000);
+    expect(n).toBe(0);
+    sichtbar = true;
+    expect(live.sichtbarGeworden()).toBe(true);
+    expect(n).toBe(1);
+    expect(live.sichtbarGeworden()).toBe(false);
+    vi.useRealTimers();
+  });
+
+  it('Änderung während eines Ladens: genau ein Lauf danach', async () => {
+    let n = 0;
+    let fertig: () => void = () => undefined;
+    const live = liveAusloeser(() => { n++; return new Promise<void>((r) => { fertig = r; }); }, () => true, 0);
+    live.wiederVerbunden();
+    expect(n).toBe(1);
+    live.wiederVerbunden(); live.wiederVerbunden();
+    fertig();
+    await warten(); await warten();
+    expect(n).toBe(2);
+    fertig();
+    await warten(); await warten();
+    expect(n).toBe(2);
+  });
+
+  it('ein Fehler beim Laden stoppt nichts', async () => {
+    let n = 0;
+    const live = liveAusloeser(() => { n++; throw new Error('kein Netz'); }, () => true, 0);
+    live.wiederVerbunden();
+    await warten();
+    live.wiederVerbunden();
+    await warten();
+    expect(n).toBe(2);
   });
 });

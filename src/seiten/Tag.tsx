@@ -6,7 +6,8 @@
  * Teams ohne Meldung darunter mit der Baustelle laut Plan.
  * Zeigt nur, was gemeldet wurde und was laut Jahresplan vorgesehen war — keine Urteile (CLAUDE.md #1).
  */
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
+import { useAuffrischen, useNeuesteAnfrage } from '../lib/auffrischen';
 import { Link } from 'react-router-dom';
 import { Camera, Check, ChevronLeft, ChevronRight, CircleDashed, Languages, TriangleAlert } from 'lucide-react';
 import { Shell } from '../ui/Shell';
@@ -93,23 +94,32 @@ export function Tag() {
   const tagIso = iso(datum);
   const heuteIso = iso(new Date());
 
-  useEffect(() => {
+  const anfrage = useNeuesteAnfrage();
+  /** `still` = ohne «Lädt …» (Live-Aktualisierung, Tab zurück) — der Bildschirm springt nicht. */
+  const laden = useCallback(async (still: boolean) => {
     if (!supabase) return;
     const c = supabase;
-    setLaedt(true);
-    void (async () => {
-      const [t, m, p] = await Promise.all([
-        c.from('team').select('id,bezeichnung,fahrzeug,chefmonteur:chefmonteur_id(name)').eq('aktiv', true).order('bezeichnung'),
-        c.from('tagesmeldung').select('id,team_id,normalfall,abweichung_typ,wer_hats_gewollt,transkript,transkript_sprache,audio_sekunden,erfasst_am,baustelle:baustelle_id(konto_nr,bezeichnung),zeiteintrag(normal_min,ueber_min,mitarbeiter_id,mitarbeiter:mitarbeiter_id(name)),foto(id)').eq('datum', tagIso).order('erfasst_am'),
-        c.from('jahresplan').select('team_id,baustelle:baustelle_id(konto_nr,bezeichnung)').lte('von', tagIso).gte('bis', tagIso),
-      ]);
-      setFehler(t.error?.message ?? m.error?.message ?? '');
-      setTeams(((t.data ?? []) as unknown as Team[]).sort((a, b) => a.bezeichnung.localeCompare(b.bezeichnung, 'de', { numeric: true })));
-      setMeldungen((m.data ?? []) as unknown as Meldung[]);
-      setPlan((p.data ?? []) as unknown as Plan[]);
-      setLaedt(false);
-    })();
-  }, [tagIso]);
+    const aktuell = anfrage();
+    if (!still) setLaedt(true);
+    const [t, m, p] = await Promise.all([
+      c.from('team').select('id,bezeichnung,fahrzeug,chefmonteur:chefmonteur_id(name)').eq('aktiv', true).order('bezeichnung'),
+      c.from('tagesmeldung').select('id,team_id,normalfall,abweichung_typ,wer_hats_gewollt,transkript,transkript_sprache,audio_sekunden,erfasst_am,baustelle:baustelle_id(konto_nr,bezeichnung),zeiteintrag(normal_min,ueber_min,mitarbeiter_id,mitarbeiter:mitarbeiter_id(name)),foto(id)').eq('datum', tagIso).order('erfasst_am'),
+      c.from('jahresplan').select('team_id,baustelle:baustelle_id(konto_nr,bezeichnung)').lte('von', tagIso).gte('bis', tagIso),
+    ]);
+    if (!aktuell()) return;
+    const fehlerText = t.error?.message ?? m.error?.message ?? '';
+    setFehler(fehlerText);
+    // Beim stillen Nachladen ohne Netz den bisherigen Stand stehen lassen, statt die Seite zu leeren
+    if (still && fehlerText) return;
+    setTeams(((t.data ?? []) as unknown as Team[]).sort((a, b) => a.bezeichnung.localeCompare(b.bezeichnung, 'de', { numeric: true })));
+    setMeldungen((m.data ?? []) as unknown as Meldung[]);
+    setPlan((p.data ?? []) as unknown as Plan[]);
+    setLaedt(false);
+  }, [tagIso, anfrage]);
+
+  useEffect(() => { void laden(false); }, [laden]);
+  // Live: meldet ein Chefmonteur, steht es nach wenigen Sekunden hier (11.11.2026)
+  useAuffrischen(() => laden(true));
 
   const proTeam = new Map<string, Meldung[]>();
   for (const m of meldungen) proTeam.set(m.team_id, [...(proTeam.get(m.team_id) ?? []), m]);
