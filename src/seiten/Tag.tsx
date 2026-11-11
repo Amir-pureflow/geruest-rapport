@@ -1,18 +1,19 @@
 /**
  * Tagesübersicht für den Bauführer: Wer hat heute gemeldet — und was? Wer noch nicht?
  * Ziel der Kachel «x/20 Teams haben heute gemeldet» auf der Startseite.
- * Gemeldete Teams stehen zuoberst mit allem, was der Bauführer wissen will: Baustelle, Stunden je Person,
- * Abweichung mit Grund, Sprachnotiz als Text, Fotos. Teams ohne Meldung als kompakte Liste darunter.
+ * Konzept A (Amir, 10.11.2026): eine Liste mit allen Teams, wie die Wochenübersicht — Team mit Avatar, Baustelle,
+ * Leute mit Stunden, Status, Total. Teams mit Regie/Überstunden zuoberst, die Sprachnotiz direkt unter der Zeile;
+ * Teams ohne Meldung darunter mit der Baustelle laut Plan.
  * Zeigt nur, was gemeldet wurde und was laut Jahresplan vorgesehen war — keine Urteile (CLAUDE.md #1).
  */
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { AlarmClock, Camera, Check, ChevronLeft, ChevronRight, CircleDashed, Clock, Coffee, Languages, TriangleAlert, Users } from 'lucide-react';
+import { Camera, Check, ChevronLeft, ChevronRight, CircleDashed, Languages, TriangleAlert } from 'lucide-react';
 import { Shell } from '../ui/Shell';
-import { KennzahlPille } from '../ui/Karten';
 import { supabase } from '../lib/supabase';
 import { addTage, iso, kurz, lang, stunden, WOCHENTAGE } from '../lib/datum';
 import { gelbePersonen } from '../lib/einstellungen';
+import { initialen, teamFarbe, teamKuerzel } from '../lib/teamStil';
 
 interface Team { id: string; bezeichnung: string; fahrzeug: string | null; chefmonteur: { name: string } | null }
 interface Meldung {
@@ -25,6 +26,8 @@ interface Meldung {
 interface Plan { team_id: string; baustelle: { konto_nr: string; bezeichnung: string | null } | null }
 
 const ABWEICHUNG: Record<string, string> = { zusaetzlich: 'Regie ausgeführt', warten: 'warten müssen', kaputt: 'etwas kaputt', laenger: 'länger gearbeitet', ueberstunden: 'Überstunden' };
+/** Kurzwort im Status-Schild der Zeile (Konzept A, 10.11.2026) */
+const ABWEICHUNG_KURZ: Record<string, string> = { zusaetzlich: 'Regie', warten: 'Warten', kaputt: 'Kaputt', laenger: 'Länger', ueberstunden: 'Überstunden' };
 const WER: Record<string, string> = { kunde: 'der Kunde wollte es', chef: 'der Chef wollte es', niemand: 'niemand hat es verlangt' };
 
 /**
@@ -57,9 +60,9 @@ function proBaustelle(ms: Meldung[], gelb: Set<string>) {
 
 /** Stunden je Person über alle Meldungen des Teams (normal + Abweichung derselben Leute). */
 function proPerson(ms: Meldung[]) {
-  const map = new Map<string, { name: string; min: number }>();
+  const map = new Map<string, { id: string; name: string; min: number }>();
   for (const m of ms) for (const z of m.zeiteintrag) {
-    const e = map.get(z.mitarbeiter_id) ?? { name: z.mitarbeiter?.name ?? '?', min: 0 };
+    const e = map.get(z.mitarbeiter_id) ?? { id: z.mitarbeiter_id, name: z.mitarbeiter?.name ?? '?', min: 0 };
     e.min += z.normal_min + z.ueber_min;
     map.set(z.mitarbeiter_id, e);
   }
@@ -113,7 +116,6 @@ export function Tag() {
   const planFuer = (teamId: string) => plan.find((p) => p.team_id === teamId)?.baustelle ?? null;
   const wochenende = datum.getDay() === 0 || datum.getDay() === 6;
   const totalTag = meldungen.flatMap((m) => m.zeiteintrag).reduce((s, z) => s + z.normal_min + z.ueber_min, 0);
-  const abweichungenTag = meldungen.filter((m) => !m.normalfall).length;
 
   function zurWoche(teamId: string) {
     localStorage.setItem('cockpit-team', teamId);
@@ -127,142 +129,171 @@ export function Tag() {
   const sortiert = [...gemeldet].sort((a, b) => Number(mitHinweis(b.id)) - Number(mitHinweis(a.id)));
   const anzHinweis = gemeldet.filter((t) => mitHinweis(t.id)).length;
 
+  const fotosTag = meldungen.reduce((s, m) => s + (m.foto?.length ?? 0), 0);
+  // Alle Teams in einer Liste (Konzept A, Amir 10.11.2026): gemeldet zuerst (mit Hinweis zuoberst), danach offen
+  const zeilen = [...sortiert, ...offen];
+  const zelle = '2xl:flex 2xl:min-h-[76px] 2xl:items-center 2xl:px-[22px] 2xl:py-4';
+  const rand = (an: boolean) => (an ? '2xl:border-b 2xl:border-line' : '');
+  const kopf = 'hidden border-b border-line bg-[#fbfaf8] px-[22px] py-[13px] text-[11.5px] font-bold uppercase tracking-[0.08em] text-ink3 2xl:block';
+
   return (
-    <Shell zurueck>
-      <div className="space-y-6">
+    <Shell zurueck breit>
+      <div className="space-y-5">
         <header className="flex flex-wrap items-end justify-between gap-x-6 gap-y-4">
           <div>
             <p className="lbl mb-0.5">Tagesübersicht</p>
-            <h1 className="font-display text-[26px] font-semibold tracking-tight lg:text-[28px]">{lang(datum)}</h1>
-            <div className="mt-2.5 flex flex-wrap gap-2">
-              {laedt ? <span className="text-sm text-ink3">lädt …</span> : (
-                <>
-                  <KennzahlPille wert={`${gemeldet.length}/${teams.length}`} text="Teams gemeldet" icon={Users} farbe={teams.length > 0 && gemeldet.length === teams.length ? 'gruen' : 'blau'} />
-                  {totalTag > 0 && <KennzahlPille wert={`${stunden(totalTag)} h`} text="total" icon={Clock} />}
-                  {anzHinweis > 0 && <KennzahlPille wert={String(anzHinweis)} text="mit Überstunden" icon={AlarmClock} farbe="gelb" />}
-                  {abweichungenTag > 0 && <KennzahlPille wert={String(abweichungenTag)} text={abweichungenTag === 1 ? 'Abweichung' : 'Abweichungen'} icon={TriangleAlert} farbe="gelb" />}
-                  {wochenende && <KennzahlPille text="Wochenende" icon={Coffee} />}
-                </>
-              )}
-            </div>
+            <h1 className="font-display text-[28px] font-bold tracking-tight lg:text-[30px]">{lang(datum)}</h1>
           </div>
           <div className="flex items-center gap-2">
-            <div className="flex items-center rounded-full border border-ink/10 bg-white shadow-[0_1px_2px_rgb(17_17_19/0.06)]">
-              <button type="button" className="grid h-9 w-9 place-items-center rounded-full text-ink2 hover:text-accent-deep" onClick={() => setDatum((d) => addTage(d, -1))} aria-label="Tag zurück"><ChevronLeft size={17} /></button>
-              <span className="min-w-[96px] text-center text-sm font-semibold tabular-nums">{WOCHENTAGE[(datum.getDay() + 6) % 7]} {kurz(datum)}</span>
-              <button type="button" className="grid h-9 w-9 place-items-center rounded-full text-ink2 hover:text-accent-deep disabled:opacity-30" disabled={tagIso >= heuteIso} onClick={() => setDatum((d) => addTage(d, 1))} aria-label="Tag vor"><ChevronRight size={17} /></button>
-            </div>
             {tagIso !== heuteIso && <button type="button" className="btn-ghost py-2" onClick={() => setDatum(new Date())}>Heute</button>}
+            <div className="flex h-10 items-center rounded-full border border-line-strong bg-white">
+              <button type="button" className="grid h-10 w-10 place-items-center rounded-full text-ink3 hover:text-accent-deep" onClick={() => setDatum((d) => addTage(d, -1))} aria-label="Tag zurück"><ChevronLeft size={16} /></button>
+              <span className="min-w-[78px] text-center text-sm font-bold tabular-nums">{WOCHENTAGE[(datum.getDay() + 6) % 7]} {kurz(datum)}</span>
+              <button type="button" className="grid h-10 w-10 place-items-center rounded-full text-ink3 hover:text-accent-deep disabled:opacity-30" disabled={tagIso >= heuteIso} onClick={() => setDatum((d) => addTage(d, 1))} aria-label="Tag vor"><ChevronRight size={16} /></button>
+            </div>
           </div>
         </header>
 
         {fehler && <p className="rounded-[12px] border border-accent/40 bg-accent-soft px-4 py-3 text-sm text-accent-deep">Konnte nicht laden: {fehler}</p>}
 
-        {/* Gemeldet — das ist die Arbeit von heute */}
-        {!laedt && sortiert.length > 0 && (
-          <section className="space-y-3">
-            <p className="lbl mb-0">Gemeldet · {sortiert.length}</p>
-            <div className="grid gap-3 lg:grid-cols-2">
-              {sortiert.map((t) => {
-                const ms = proTeam.get(t.id) ?? [];
-                const total = ms.flatMap((m) => m.zeiteintrag).reduce((s, z) => s + z.normal_min + z.ueber_min, 0);
-                const leute = proPerson(ms);
-                const zuletzt = ms.reduce((z, m) => (m.erfasst_am > z ? m.erfasst_am : z), ms[0]?.erfasst_am ?? '');
-                const hinweis = mitHinweis(t.id);
-                return (
-                  <article key={t.id} className={'flex flex-col overflow-hidden rounded-[18px] border bg-white shadow-[0_1px_2px_rgb(17_17_19/0.04),0_10px_28px_-18px_rgb(17_17_19/0.28)] ' + (hinweis ? 'border-amber/40 bg-gradient-to-br from-white via-white to-[#fdf0cf]' : 'border-ink/[0.06]')}>
-                    <div className="flex items-start justify-between gap-3 px-4 pt-4">
-                      <div className="min-w-0">
-                        <p className="font-display text-[15px] font-semibold">{t.bezeichnung}</p>
-                        <p className="truncate text-xs text-ink3">{t.chefmonteur?.name ?? 'kein Chefmonteur'} · {leute.length} Personen</p>
-                      </div>
-                      <div className="flex shrink-0 flex-col items-end gap-1">
-                        <span className="font-display text-[20px] font-semibold leading-none tabular-nums">{stunden(total)} h</span>
-                        <span className={'inline-flex items-center gap-1 rounded-full px-2 py-0.5 font-mono text-[11px] font-semibold ' + (hinweis ? 'bg-amber text-white' : 'bg-good-soft text-good-deep')}>
-                          <Check size={11} strokeWidth={3} aria-hidden="true" />{uhrzeit(zuletzt)}
+        {laedt ? <p className="text-sm text-ink3">lädt …</p> : teams.length === 0 ? (
+          <p className="text-sm text-ink3">Keine Teams angelegt — Verwaltung → Teams.</p>
+        ) : (
+          <>
+            {/* Fortschritt: ein Balken je Team, in derselben Reihenfolge wie die Liste */}
+            <div className="flex flex-wrap items-end gap-x-6 gap-y-4">
+              <div className="w-full max-w-[520px] flex-1 basis-[320px]">
+                <div className="mb-[7px] flex justify-between gap-4 text-[13px] text-ink2">
+                  <span><b className="font-semibold text-ink">{gemeldet.length} von {teams.length} {teams.length === 1 ? 'Team' : 'Teams'}</b> {gemeldet.length === 1 ? 'hat' : 'haben'} gemeldet</span>
+                  <span className="text-ink3">{wochenende ? 'Wochenende' : tagIso === heuteIso && offen.length > 0 ? 'Die Teams melden am Abend' : ''}</span>
+                </div>
+                <div className="flex gap-[5px]" aria-hidden="true">
+                  {zeilen.map((t) => (
+                    <i key={t.id} className={'h-2.5 flex-1 rounded-full ' + (!proTeam.has(t.id) ? 'bg-[#e4e0d9]' : mitHinweis(t.id) ? 'bg-amber' : 'bg-good')} />
+                  ))}
+                </div>
+              </div>
+              <div className="flex gap-7 lg:ml-auto">
+                <div><b className="block font-display text-[22px] font-bold leading-tight tracking-tight tabular-nums">{stunden(totalTag)} h</b><span className="text-xs text-ink3">gemeldet total</span></div>
+                <div><b className={'block font-display text-[22px] font-bold leading-tight tracking-tight tabular-nums ' + (anzHinweis > 0 ? 'text-amber-deep' : '')}>{anzHinweis}</b><span className="text-xs text-ink3">Regie / Überstunden</span></div>
+                <div><b className="block font-display text-[22px] font-bold leading-tight tracking-tight tabular-nums">{fotosTag}</b><span className="text-xs text-ink3">Fotos</span></div>
+              </div>
+            </div>
+
+            <div className="overflow-hidden rounded-[22px] bg-white shadow-[0_0_0_1px_var(--color-line),0_18px_40px_-30px_rgb(40_30_20/0.4)]">
+              <div className="2xl:grid 2xl:grid-cols-[250px_minmax(0,1.3fr)_minmax(0,1.2fr)_170px_120px]">
+                <div className={kopf}>Team</div>
+                <div className={kopf}>Baustelle</div>
+                <div className={kopf}>Leute</div>
+                <div className={kopf}>Status</div>
+                <div className={kopf + ' text-right'}>Total</div>
+
+                {zeilen.map((t, i) => {
+                  const ms = proTeam.get(t.id) ?? [];
+                  const da = ms.length > 0;
+                  const letzte = i === zeilen.length - 1;
+                  const total = ms.flatMap((m) => m.zeiteintrag).reduce((s, z) => s + z.normal_min + z.ueber_min, 0);
+                  const leute = proPerson(ms);
+                  const zuletzt = ms.reduce((z, m) => (m.erfasst_am > z ? m.erfasst_am : z), ms[0]?.erfasst_am ?? '');
+                  const hinweis = da && mitHinweis(t.id);
+                  const baustellen = da ? proBaustelle(ms, gelb) : [];
+                  const abw = baustellen.flatMap((b) => b.abweichungen);
+                  const bs = planFuer(t.id);
+                  // Linie unter der Zeile — fehlt nur ganz unten; mit Notiz zieht sie unter der Notiz durch
+                  const strich = rand(!letzte || abw.length > 0);
+                  const balken = hinweis ? ' 2xl:shadow-[inset_4px_0_0_var(--color-amber)]' : '';
+                  return (
+                    <div key={t.id} className={'grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-2.5 px-4 py-4 md:gap-x-6 md:px-6 md:py-5 2xl:contents' + (letzte ? '' : ' border-b border-line') + (hinweis ? ' shadow-[inset_4px_0_0_var(--color-amber)] 2xl:shadow-none' : '')}>
+                      {/* Team */}
+                      <Link to={wochenLink(t.id)} onClick={() => zurWoche(t.id)} className={'order-1 flex min-w-0 items-center gap-3 2xl:order-none ' + zelle + ' ' + (abw.length ? '' : strich) + balken}>
+                        <span className={'grid h-10 w-10 shrink-0 place-items-center rounded-full font-display text-sm font-bold ' + teamFarbe(t.id) + (da ? '' : ' opacity-55')} aria-hidden="true">{initialen(t.chefmonteur?.name) ?? teamKuerzel(t.bezeichnung)}</span>
+                        <span className="min-w-0">
+                          <span className={'block font-display text-[15px] font-bold ' + (da ? '' : 'text-[#b3ada3]')}>{t.bezeichnung}</span>
+                          <span className="block truncate text-[12.5px] text-ink3">{t.chefmonteur?.name ? kurzName(t.chefmonteur.name) : 'kein Chefmonteur'}{da ? ` · ${leute.length} ${leute.length === 1 ? 'Person' : 'Leute'}` : ''}</span>
                         </span>
-                      </div>
-                    </div>
+                      </Link>
 
-                    <div className="flex-1 space-y-2.5 px-4 py-3">
-                      {proBaustelle(ms, gelb).map((b) => (
-                        <div key={b.schluessel} className="space-y-2">
-                          <div className="flex flex-wrap items-center gap-2 text-sm">
-                            {b.konto_nr && <span className="knr">{b.konto_nr}</span>}
-                            <span className="min-w-0 truncate font-medium">{b.bezeichnung || 'ohne Baustelle'}</span>
-                            {b.abweichungen.map((a) => (
-                              <span key={a.id} className="rounded-full bg-amber-soft px-2 py-0.5 text-[11px] font-semibold text-amber-deep">{ABWEICHUNG[a.typ] ?? 'Abweichung'} · {stunden(a.min)} h</span>
-                            ))}
-                            {b.fotos > 0 && <span className="inline-flex items-center gap-1 text-xs text-ink3"><Camera size={12} aria-hidden="true" />{b.fotos}</span>}
-                          </div>
-                          {b.abweichungen.map((a) => {
-                            const m = ms.find((x) => x.id === a.id);
-                            const fremd = m?.transkript_sprache && m.transkript_sprache !== 'de';
-                            return (
-                              <div key={a.id} className="rounded-[12px] border border-amber/30 bg-white/80 px-3 py-2.5 text-sm">
-                                {a.wer && <p className="mb-1 text-xs text-ink2">{WER[a.wer] ?? a.wer}</p>}
-                                {a.transkript
-                                  ? <p className="italic leading-snug text-ink2">«{a.transkript}»</p>
-                                  : a.audio_sekunden ? <p className="text-xs text-ink3">Sprachnotiz {a.audio_sekunden} Sek. — Text wird erstellt</p> : null}
-                                <div className="mt-1.5 flex flex-wrap items-center justify-between gap-2">
-                                  {fremd ? <span className="inline-flex items-center gap-1 text-[11px] text-ink3"><Languages size={12} aria-hidden="true" />aus dem {SPRACHE_ADJ[m!.transkript_sprache!] ?? 'Original'} übersetzt</span> : <span />}
-                                  <Link to={wochenLink(t.id, a.id)} onClick={() => zurWoche(t.id)} className="text-xs font-semibold text-amber-deep">Prüfen ›</Link>
-                                </div>
+                      {/* Baustelle */}
+                      <div className={'order-3 col-span-2 flex-col justify-center gap-1.5 2xl:order-none 2xl:col-span-1 2xl:!items-start ' + zelle + ' ' + strich + (da || bs ? '' : ' hidden 2xl:flex')}>
+                        {da ? baustellen.map((b) => (
+                          <div key={b.schluessel} className="w-full min-w-0">
+                            <div className="flex min-w-0 items-center gap-2">
+                              {b.konto_nr && <span className="knr">{b.konto_nr}</span>}
+                              <span className="truncate text-sm font-semibold">{b.bezeichnung || 'ohne Baustelle'}</span>
+                            </div>
+                            {(b.fotos > 0 || b.abweichungen.length > 0) && (
+                              <div className="mt-1 flex flex-wrap items-center gap-x-2.5 text-xs text-ink3">
+                                {b.fotos > 0 && <span className="inline-flex items-center gap-1"><Camera size={12} aria-hidden="true" />{b.fotos} {b.fotos === 1 ? 'Foto' : 'Fotos'}</span>}
+                                {b.abweichungen.map((a) => <span key={a.id}>{ABWEICHUNG[a.typ] ?? 'Abweichung'}</span>)}
                               </div>
-                            );
-                          })}
-                        </div>
-                      ))}
+                            )}
+                          </div>
+                        )) : bs ? (
+                          // Ohne Plan-Eintrag bleibt die Zelle leer — «nichts im Jahresplan» verwirrte Firmen ohne Planung (05.10.2026)
+                          <div className="flex w-full min-w-0 items-center gap-2"><span className="knr">{bs.konto_nr}</span><span className="truncate text-sm font-medium text-ink3">{bs.bezeichnung ?? ''} · laut Plan</span></div>
+                        ) : <span className="text-[#c9c4bb]">—</span>}
+                      </div>
+
+                      {/* Leute */}
+                      <div className={'order-4 col-span-2 flex-wrap items-center gap-1.5 md:col-span-1 2xl:order-none ' + zelle + ' ' + strich + (da ? ' flex' : ' hidden')}>
+                        {da ? leute.map((p) => {
+                          const ue = gelb.has(p.id);
+                          return (
+                            <span key={p.id} className={'inline-flex items-center gap-1.5 rounded-full py-1 pl-1 pr-2.5 text-[12.5px] text-ink2 ' + (ue ? 'bg-amber-soft' : 'bg-surface-2')}>
+                              <span className="grid h-[22px] w-[22px] place-items-center rounded-full bg-white text-[10px] font-bold text-ink2">{initialen(p.name)}</span>
+                              {kurzName(p.name)} <b className={'font-semibold tabular-nums ' + (ue ? 'text-amber-deep' : 'text-ink')}>{stunden(p.min)}</b>
+                            </span>
+                          );
+                        }) : <span className="text-[#c9c4bb]">—</span>}
+                      </div>
+
+                      {/* Status */}
+                      <div className={'order-5 col-span-2 md:col-span-1 md:justify-self-end 2xl:order-none 2xl:justify-self-auto ' + zelle + ' ' + strich}>
+                        {!da ? (
+                          <span className="inline-flex items-center gap-1 whitespace-nowrap rounded-full px-2.5 py-[3px] text-xs font-bold text-ink3 ring-[1.5px] ring-inset ring-line-strong"><CircleDashed size={11} strokeWidth={2.5} aria-hidden="true" />noch offen</span>
+                        ) : hinweis ? (
+                          <span className="inline-flex items-center gap-1 whitespace-nowrap rounded-full bg-amber-soft px-2.5 py-[3px] text-xs font-bold text-amber-deep"><TriangleAlert size={11} strokeWidth={2.75} aria-hidden="true" />{ABWEICHUNG_KURZ[abw[0]?.typ ?? ''] ?? 'Hinweis'} · {uhrzeit(zuletzt)}</span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 whitespace-nowrap rounded-full bg-good-soft px-2.5 py-[3px] text-xs font-bold text-good-deep"><Check size={11} strokeWidth={3} aria-hidden="true" />gemeldet · {uhrzeit(zuletzt)}</span>
+                        )}
+                      </div>
+
+                      {/* Total — auf dem Handy rechts neben dem Team */}
+                      <div className={'order-2 text-right 2xl:order-none 2xl:justify-end ' + zelle + ' ' + strich}>
+                        <span className={'whitespace-nowrap font-display text-[20px] font-bold tracking-tight tabular-nums ' + (da ? '' : 'text-[#b3ada3]')}>{da ? `${stunden(total)} h` : '–'}</span>
+                      </div>
+
+                      {/* Sprachnotiz direkt unter der Zeile */}
+                      {abw.length > 0 && (
+                        <>
+                          <div className={'hidden 2xl:block ' + rand(!letzte)} />
+                          <div className={'order-6 col-span-2 space-y-2 2xl:order-none 2xl:col-span-4 2xl:px-[22px] 2xl:pb-4 ' + rand(!letzte)}>
+                            {abw.map((a) => {
+                              const m = ms.find((x) => x.id === a.id);
+                              const fremd = m?.transkript_sprache && m.transkript_sprache !== 'de';
+                              return (
+                                <div key={a.id} className="flex items-start gap-3.5 rounded-[14px] border border-amber/35 bg-white px-3 py-2.5 text-[13px] leading-[1.45]">
+                                  <div className="min-w-0 flex-1">
+                                    <p className="mb-0.5 text-[11.5px] text-ink3">{ABWEICHUNG[a.typ] ?? 'Abweichung'} · {stunden(a.min)} h{a.wer ? ` · ${WER[a.wer] ?? a.wer}` : ''}</p>
+                                    {a.transkript
+                                      ? <p className="italic text-ink2">«{a.transkript}»</p>
+                                      : a.audio_sekunden ? <p className="text-xs text-ink3">Sprachnotiz {a.audio_sekunden} Sek. — Text wird erstellt</p> : null}
+                                    {fremd && <p className="mt-1 inline-flex items-center gap-1 text-[11px] text-ink3"><Languages size={12} aria-hidden="true" />aus dem {SPRACHE_ADJ[m!.transkript_sprache!] ?? 'Original'} übersetzt</p>}
+                                  </div>
+                                  <Link to={wochenLink(t.id, a.id)} onClick={() => zurWoche(t.id)} className="shrink-0 self-center text-xs font-bold text-amber-deep">Prüfen ›</Link>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </>
+                      )}
                     </div>
-
-                    <div className="flex items-center justify-between gap-3 border-t border-line bg-surface-2/40 px-4 py-2.5">
-                      <p className="min-w-0 truncate text-xs text-ink3">
-                        {leute.map((p, i) => (
-                          <span key={p.name}>{i > 0 ? ' · ' : ''}{kurzName(p.name)} <span className="tabular-nums text-ink2">{stunden(p.min)}</span></span>
-                        ))}
-                      </p>
-                      <Link to={wochenLink(t.id)} onClick={() => zurWoche(t.id)} className="shrink-0 text-xs font-semibold text-steel">Woche ›</Link>
-                    </div>
-                  </article>
-                );
-              })}
+                  );
+                })}
+              </div>
             </div>
-          </section>
+          </>
         )}
-
-        {!laedt && gemeldet.length === 0 && teams.length > 0 && (
-          <p className="card text-sm text-ink3">{wochenende ? 'Wochenende — keine Meldungen.' : tagIso === heuteIso ? 'Noch keine Meldung — die Teams melden am Abend.' : 'An diesem Tag hat kein Team gemeldet.'}</p>
-        )}
-
-        {/* Noch nichts gemeldet — ruhige Kacheln mit Baustelle laut Planung */}
-        {!laedt && offen.length > 0 && (
-          <section className="space-y-3">
-            <p className="lbl mb-0">Noch nichts gemeldet · {offen.length}</p>
-            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-              {offen.map((t) => {
-                const bs = planFuer(t.id);
-                return (
-                  <Link key={t.id} to={wochenLink(t.id)} onClick={() => zurWoche(t.id)} className="group rounded-[16px] border border-line bg-white px-4 py-3 shadow-[0_1px_2px_rgb(17_17_19/0.04),0_10px_24px_-18px_rgb(17_17_19/0.28)] transition hover:-translate-y-px">
-                    <span className="flex items-center justify-between gap-2">
-                      <span className="font-display text-[15px] font-semibold">{t.bezeichnung}</span>
-                      <span className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold text-ink3 ring-1 ring-line-strong"><CircleDashed size={11} strokeWidth={2.5} aria-hidden="true" />offen</span>
-                    </span>
-                    <span className="mt-0.5 block truncate text-xs text-ink2">{t.chefmonteur?.name ?? 'kein Chefmonteur'}</span>
-                    {/* Ohne Plan-Eintrag bleibt die Zeile leer — «nichts im Jahresplan» verwirrte Firmen ohne Planung (05.10.2026) */}
-                    {bs && (
-                      <span className="mt-2 flex min-w-0 items-center gap-1.5 text-xs text-ink3">
-                        <span className="knr">{bs.konto_nr}</span><span className="truncate">{bs.bezeichnung ?? ''}</span>
-                      </span>
-                    )}
-                  </Link>
-                );
-              })}
-            </div>
-            {tagIso === heuteIso && !wochenende && <p className="text-xs text-ink3">Die Teams melden am Abend — vorher ist diese Liste normal lang.</p>}
-          </section>
-        )}
-
-        {!laedt && teams.length === 0 && <p className="text-sm text-ink3">Keine Teams angelegt — Verwaltung → Teams.</p>}
       </div>
     </Shell>
   );

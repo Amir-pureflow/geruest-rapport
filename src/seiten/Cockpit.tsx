@@ -14,6 +14,7 @@ import { useAnsicht } from '../lib/ansicht';
 import { einstellungen } from '../lib/einstellungen';
 import { formatChf } from '../lib/tarif';
 import { positionenAusEintraegen, summe as positionenSumme } from '../lib/regie';
+import { initialen, teamFarbe, teamKuerzel } from '../lib/teamStil';
 
 /**
  * Phase 3 — Wochenübersicht des Bauführers.
@@ -104,12 +105,6 @@ type Filter = 'zutun' | 'alle';
 
 const TAGE = ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'];
 
-/** Abzeichen der Teamzeile: «Team 12» → 12, «Team Vaiti» → TV. */
-function teamKuerzel(bezeichnung: string): string {
-  const zahl = bezeichnung.match(/\d+/);
-  if (zahl) return zahl[0];
-  return bezeichnung.split(/\s+/).filter(Boolean).map((w) => w[0]?.toUpperCase() ?? '').join('').slice(0, 2) || 'T';
-}
 /** Feste Gründe für Korrekturen — kein Freitext, aber immer ein «warum» (Regel #7). */
 const GRUENDE = ['Mit Chefmonteur abgeklärt', 'Pause abgezogen', 'Anreise ist keine Arbeitszeit', 'Tippfehler im Teamgerät'];
 const FELD: Record<string, string> = { normal_min: 'Normalzeit', ueber_min: 'Überzeit', zeiten: 'Zeiten' };
@@ -128,27 +123,6 @@ function doppelteNormalmeldungen(liste: Eintrag[]): number {
 const ZEHN_STUNDEN_MIN = 600;
 /** Rang für «schlechtester Status des Tages» und für die Sortierung der Teams. */
 const RANG: Record<ZellStatus, number> = { rot: 4, gelb: 3, gruen: 2, frei: 1, leer: 0 };
-
-const TEAM_FARBEN = [
-  'bg-[#fde3d3] text-[#8a3510]',
-  'bg-[#dde7f0] text-[#2f4a63]',
-  'bg-[#e2efd9] text-[#355a22]',
-  'bg-[#efe3f3] text-[#5d3470]',
-  'bg-[#f6ecc9] text-[#6b5313]',
-  'bg-[#d9eeec] text-[#225a55]',
-];
-/** Feste Pastellfarbe je Team (aus der ID) */
-function teamFarbe(id: string): string {
-  let h = 0;
-  for (const c of id) h = (h * 31 + c.charCodeAt(0)) >>> 0;
-  return TEAM_FARBEN[h % TEAM_FARBEN.length];
-}
-/** «Nikola Vaiti» → «NV» */
-function initialen(name: string | undefined | null): string | null {
-  const teile = (name ?? '').trim().split(/\s+/).filter(Boolean);
-  if (!teile.length) return null;
-  return ((teile[0][0] ?? '') + (teile.length > 1 ? teile[teile.length - 1][0] : '')).toUpperCase();
-}
 
 function kurzName(name: string): string {
   const teile = name.trim().split(' ');
