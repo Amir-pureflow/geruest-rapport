@@ -137,7 +137,7 @@ export function Tag() {
   const kopf = 'hidden border-b border-line bg-[#fbfaf8] px-[22px] py-[13px] text-[11.5px] font-bold uppercase tracking-[0.08em] text-ink3 2xl:block';
 
   return (
-    <Shell zurueck breit>
+    <Shell zurueck mittel>
       <div className="space-y-5">
         <header className="flex flex-wrap items-end justify-between gap-x-6 gap-y-4">
           <div>
@@ -181,7 +181,7 @@ export function Tag() {
             </div>
 
             <div className="overflow-hidden rounded-[22px] bg-white shadow-[0_0_0_1px_var(--color-line),0_18px_40px_-30px_rgb(40_30_20/0.4)]">
-              <div className="2xl:grid 2xl:grid-cols-[250px_minmax(0,1.3fr)_minmax(0,1.2fr)_170px_120px]">
+              <div className="2xl:grid 2xl:grid-cols-[210px_minmax(0,1.1fr)_minmax(0,1fr)_180px_90px]">
                 <div className={kopf}>Team</div>
                 <div className={kopf}>Baustelle</div>
                 <div className={kopf}>Leute</div>
@@ -209,7 +209,7 @@ export function Tag() {
                         <span className={'grid h-10 w-10 shrink-0 place-items-center rounded-full font-display text-sm font-bold ' + teamFarbe(t.id) + (da ? '' : ' opacity-55')} aria-hidden="true">{initialen(t.chefmonteur?.name) ?? teamKuerzel(t.bezeichnung)}</span>
                         <span className="min-w-0">
                           <span className={'block font-display text-[15px] font-bold ' + (da ? '' : 'text-[#b3ada3]')}>{t.bezeichnung}</span>
-                          <span className="block truncate text-[12.5px] text-ink3">{t.chefmonteur?.name ? kurzName(t.chefmonteur.name) : 'kein Chefmonteur'}{da ? ` · ${leute.length} ${leute.length === 1 ? 'Person' : 'Leute'}` : ''}</span>
+                          <span className="block truncate text-[12.5px] text-ink3">{t.chefmonteur?.name ? kurzName(t.chefmonteur.name) : 'kein Chefmonteur'}{da && <span className="2xl:hidden">{` · ${leute.length} ${leute.length === 1 ? 'Person' : 'Leute'}`}</span>}</span>
                         </span>
                       </Link>
 
@@ -217,9 +217,9 @@ export function Tag() {
                       <div className={'order-3 col-span-2 flex-col justify-center gap-1.5 2xl:order-none 2xl:col-span-1 2xl:!items-start ' + zelle + ' ' + strich + (da || bs ? '' : ' hidden 2xl:flex')}>
                         {da ? baustellen.map((b) => (
                           <div key={b.schluessel} className="w-full min-w-0">
-                            <div className="flex min-w-0 items-center gap-2">
+                            <div className="flex min-w-0 items-baseline gap-2">
                               {b.konto_nr && <span className="knr">{b.konto_nr}</span>}
-                              <span className="truncate text-sm font-semibold">{b.bezeichnung || 'ohne Baustelle'}</span>
+                              <span className="line-clamp-2 text-sm font-semibold leading-snug" title={b.bezeichnung || undefined}>{b.bezeichnung || 'ohne Baustelle'}</span>
                             </div>
                             {(b.fotos > 0 || b.abweichungen.length > 0) && (
                               <div className="mt-1 flex flex-wrap items-center gap-x-2.5 text-xs text-ink3">
@@ -239,9 +239,8 @@ export function Tag() {
                         {da ? leute.map((p) => {
                           const ue = gelb.has(p.id);
                           return (
-                            <span key={p.id} className={'inline-flex items-center gap-1.5 rounded-full py-1 pl-1 pr-2.5 text-[12.5px] text-ink2 ' + (ue ? 'bg-amber-soft' : 'bg-surface-2')}>
-                              <span className="grid h-[22px] w-[22px] place-items-center rounded-full bg-white text-[10px] font-bold text-ink2">{initialen(p.name)}</span>
-                              {kurzName(p.name)} <b className={'font-semibold tabular-nums ' + (ue ? 'text-amber-deep' : 'text-ink')}>{stunden(p.min)}</b>
+                            <span key={p.id} className={'inline-flex items-center gap-1.5 rounded-full bg-white px-2.5 py-[3px] text-[12.5px] text-ink2 ring-1 ring-inset ' + (ue ? 'ring-amber/45' : 'ring-line')}>
+                                                            {kurzName(p.name)} <b className={'font-semibold tabular-nums ' + (ue ? 'text-amber-deep' : 'text-ink')}>{stunden(p.min)}</b>
                             </span>
                           );
                         }) : <span className="text-[#c9c4bb]">—</span>}
