@@ -999,6 +999,12 @@ export function Cockpit() {
                     const baustellen = [...new Map(detail.filter((e) => e.tagesmeldung.baustelle).map((e) => [e.tagesmeldung.baustelle!.konto_nr, e.tagesmeldung.baustelle!])).values()];
                     const mehrereBaustellen = baustellen.length > 1;
                     const personenN = new Set(detail.map((e) => e.mitarbeiter.id)).size;
+                    // Fotos jeder Meldung des Tages — bisher nur bei Hinweisen sichtbar (11.11.2026, Amir: «warum steht 1 Foto»).
+                    // Meldungen mit Hinweis zeigen ihre Fotos weiter in ihrem Kasten unten.
+                    const mitHinweisIds = new Set(faelle.map((f) => f.meldung.id));
+                    const fotoPfade = [...new Map(detail.map((e) => [e.tagesmeldung.id, e.tagesmeldung])).values()]
+                      .filter((m) => !mitHinweisIds.has(m.id))
+                      .flatMap((m) => (m.foto ?? []).map((f) => f.pfad));
                     return (
                       <div className="space-y-3 border-t border-line bg-surface px-3 py-3">
                         <div className="flex flex-wrap items-baseline justify-between gap-2">
@@ -1008,6 +1014,7 @@ export function Cockpit() {
                           </p>
                           <p className="font-mono text-xs tabular-nums text-ink3">{stunden(tag.min)} h · {personenN} Pers.</p>
                         </div>
+                        {fotoPfade.length > 0 && <FotoGalerie pfade={fotoPfade} klein />}
 
                         {/* Ein Block pro Person, der Name einmal (08.10.2026 — vorher stand jede Person doppelt da, wenn sie
                             neben dem normalen Tag Zusatzarbeit hatte; Amir: «verwirrend mit den doppelten Namen»).

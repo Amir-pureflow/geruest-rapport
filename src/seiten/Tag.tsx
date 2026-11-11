@@ -223,7 +223,7 @@ export function Tag() {
                             </div>
                             {(b.fotos > 0 || b.abweichungen.length > 0) && (
                               <div className="mt-1 flex flex-wrap items-center gap-x-2.5 text-xs text-ink3">
-                                {b.fotos > 0 && <span className="inline-flex items-center gap-1"><Camera size={12} aria-hidden="true" />{b.fotos} {b.fotos === 1 ? 'Foto' : 'Fotos'}</span>}
+                                {b.fotos > 0 && <Link to={wochenLink(t.id)} onClick={() => zurWoche(t.id)} className="inline-flex items-center gap-1 hover:text-steel"><Camera size={12} aria-hidden="true" />{b.fotos} {b.fotos === 1 ? 'Foto' : 'Fotos'} ansehen</Link>}
                                 {b.abweichungen.map((a) => <span key={a.id}>{ABWEICHUNG[a.typ] ?? 'Abweichung'}</span>)}
                               </div>
                             )}
