@@ -12,7 +12,7 @@ import { Camera, Check, ChevronLeft, ChevronRight, CircleDashed, Languages, Tria
 import { Shell } from '../ui/Shell';
 import { supabase } from '../lib/supabase';
 import { addTage, iso, kurz, lang, stunden, WOCHENTAGE } from '../lib/datum';
-import { gelbePersonen } from '../lib/einstellungen';
+import { einstellungen, gelbePersonen } from '../lib/einstellungen';
 import { initialen, teamFarbe, teamKuerzel } from '../lib/teamStil';
 
 interface Team { id: string; bezeichnung: string; fahrzeug: string | null; chefmonteur: { name: string } | null }
@@ -25,9 +25,13 @@ interface Meldung {
 }
 interface Plan { team_id: string; baustelle: { konto_nr: string; bezeichnung: string | null } | null }
 
+/** Ohne Regie-Modus heisst Zusatzarbeit nicht «Regie» (11.11.2026, Amir: Gerüst GmbH hat keine Regie) */
+const regieModus = () => einstellungen().erfassung === 'regie';
 const ABWEICHUNG: Record<string, string> = { zusaetzlich: 'Regie ausgeführt', warten: 'warten müssen', kaputt: 'etwas kaputt', laenger: 'länger gearbeitet', ueberstunden: 'Überstunden' };
 /** Kurzwort im Status-Schild der Zeile (Konzept A, 10.11.2026) */
 const ABWEICHUNG_KURZ: Record<string, string> = { zusaetzlich: 'Regie', warten: 'Warten', kaputt: 'Kaputt', laenger: 'Länger', ueberstunden: 'Überstunden' };
+const abwText = (typ: string) => (typ === 'zusaetzlich' && !regieModus() ? 'Zusatzarbeit' : ABWEICHUNG[typ] ?? 'Abweichung');
+const abwKurz = (typ: string) => (typ === 'zusaetzlich' && !regieModus() ? 'Zusatzarbeit' : ABWEICHUNG_KURZ[typ] ?? 'Hinweis');
 const WER: Record<string, string> = { kunde: 'der Kunde wollte es', chef: 'der Chef wollte es', niemand: 'niemand hat es verlangt' };
 
 /**
@@ -175,7 +179,7 @@ export function Tag() {
               </div>
               <div className="flex gap-7 lg:ml-auto">
                 <div><b className="block font-display text-[22px] font-bold leading-tight tracking-tight tabular-nums">{stunden(totalTag)} h</b><span className="text-xs text-ink3">gemeldet total</span></div>
-                <div><b className={'block font-display text-[22px] font-bold leading-tight tracking-tight tabular-nums ' + (anzHinweis > 0 ? 'text-amber-deep' : '')}>{anzHinweis}</b><span className="text-xs text-ink3">Regie / Überstunden</span></div>
+                <div><b className={'block font-display text-[22px] font-bold leading-tight tracking-tight tabular-nums ' + (anzHinweis > 0 ? 'text-amber-deep' : '')}>{anzHinweis}</b><span className="text-xs text-ink3">{regieModus() ? 'Regie / Überstunden' : 'Überstunden / Hinweise'}</span></div>
                 <div><b className="block font-display text-[22px] font-bold leading-tight tracking-tight tabular-nums">{fotosTag}</b><span className="text-xs text-ink3">Fotos</span></div>
               </div>
             </div>
@@ -224,7 +228,7 @@ export function Tag() {
                             {(b.fotos > 0 || b.abweichungen.length > 0) && (
                               <div className="mt-1 flex flex-wrap items-center gap-x-2.5 text-xs text-ink3">
                                 {b.fotos > 0 && <Link to={wochenLink(t.id)} onClick={() => zurWoche(t.id)} className="inline-flex items-center gap-1 hover:text-steel"><Camera size={12} aria-hidden="true" />{b.fotos} {b.fotos === 1 ? 'Foto' : 'Fotos'} ansehen</Link>}
-                                {b.abweichungen.map((a) => <span key={a.id}>{ABWEICHUNG[a.typ] ?? 'Abweichung'}</span>)}
+                                {b.abweichungen.map((a) => <span key={a.id}>{abwText(a.typ)}</span>)}
                               </div>
                             )}
                           </div>
@@ -251,7 +255,7 @@ export function Tag() {
                         {!da ? (
                           <span className="inline-flex items-center gap-1 whitespace-nowrap rounded-full px-2.5 py-[3px] text-xs font-bold text-ink3 ring-[1.5px] ring-inset ring-line-strong"><CircleDashed size={11} strokeWidth={2.5} aria-hidden="true" />noch offen</span>
                         ) : hinweis ? (
-                          <span className="inline-flex items-center gap-1 whitespace-nowrap rounded-full bg-amber-soft px-2.5 py-[3px] text-xs font-bold text-amber-deep"><TriangleAlert size={11} strokeWidth={2.75} aria-hidden="true" />{ABWEICHUNG_KURZ[abw[0]?.typ ?? ''] ?? 'Hinweis'} · {uhrzeit(zuletzt)}</span>
+                          <span className="inline-flex items-center gap-1 whitespace-nowrap rounded-full bg-amber-soft px-2.5 py-[3px] text-xs font-bold text-amber-deep"><TriangleAlert size={11} strokeWidth={2.75} aria-hidden="true" />{abwKurz(abw[0]?.typ ?? '')} · {uhrzeit(zuletzt)}</span>
                         ) : (
                           <span className="inline-flex items-center gap-1 whitespace-nowrap rounded-full bg-good-soft px-2.5 py-[3px] text-xs font-bold text-good-deep"><Check size={11} strokeWidth={3} aria-hidden="true" />gemeldet · {uhrzeit(zuletzt)}</span>
                         )}
@@ -273,7 +277,7 @@ export function Tag() {
                               return (
                                 <div key={a.id} className="flex items-start gap-3.5 rounded-[14px] border border-amber/35 bg-white px-3 py-2.5 text-[13px] leading-[1.45]">
                                   <div className="min-w-0 flex-1">
-                                    <p className="mb-0.5 text-[11.5px] text-ink3">{ABWEICHUNG[a.typ] ?? 'Abweichung'} · {stunden(a.min)} h{a.wer ? ` · ${WER[a.wer] ?? a.wer}` : ''}</p>
+                                    <p className="mb-0.5 text-[11.5px] text-ink3">{abwText(a.typ)} · {stunden(a.min)} h{a.wer ? ` · ${WER[a.wer] ?? a.wer}` : ''}</p>
                                     {a.transkript
                                       ? <p className="italic text-ink2">«{a.transkript}»</p>
                                       : a.audio_sekunden ? <p className="text-xs text-ink3">Sprachnotiz {a.audio_sekunden} Sek. — Text wird erstellt</p> : null}
