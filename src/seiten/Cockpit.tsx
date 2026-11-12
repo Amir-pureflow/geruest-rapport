@@ -259,6 +259,10 @@ export function Cockpit() {
 
   const vonIso = iso(wochenStart);
   const bisIso = iso(addTage(wochenStart, 6));
+  // Andere Woche gewählt: ein offener Tag der alten Woche schliesst sich (12.11.2026 — sonst leere Seite)
+  useEffect(() => {
+    setOffen((o) => (o && (o.datum < vonIso || o.datum > bisIso) ? null : o));
+  }, [vonIso, bisIso]);
 
   const anfrage = useNeuesteAnfrage();
   /**
@@ -994,7 +998,9 @@ export function Cockpit() {
                   </div>
 
                   {auf && detail.length > 0 && (() => {
-                    const tag = z.tage.find((t) => t.datum === offen!.datum)!;
+                    // Beim Wochenwechsel kann der offene Tag kurz nicht in der neuen Woche liegen (12.11.2026: leere Seite)
+                    const tag = z.tage.find((t) => t.datum === offen!.datum);
+                    if (!tag) return null;
                     const faelle = verdachtsfaelle.filter((f) => (f.meldung.team?.id ?? OHNE_TEAM) === z.team.id && f.meldung.datum === offen!.datum);
                     const baustellen = [...new Map(detail.filter((e) => e.tagesmeldung.baustelle).map((e) => [e.tagesmeldung.baustelle!.konto_nr, e.tagesmeldung.baustelle!])).values()];
                     const mehrereBaustellen = baustellen.length > 1;

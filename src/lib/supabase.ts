@@ -50,6 +50,21 @@ const mitZeitlimit: typeof fetch = (input, init) => {
     });
 };
 
+/**
+ * «JWT issued at future» (11.11.2026, Arbnor/Amir in der Wochenübersicht): der frisch ausgestellte Anmelde-Schlüssel
+ * ist für die Datenbank-Uhr noch ein paar Sekunden «aus der Zukunft». Kein echter Fehler — kurz warten und dieselbe
+ * Anfrage einmal nochmals schicken. Nur für genau diese Antwort, alles andere geht unverändert zurück.
+ */
+export const JWT_ZUKUNFT_WARTEN_MS = 3000;
+export const mitJwtNochmals = (basis: typeof fetch, wartenMs = JWT_ZUKUNFT_WARTEN_MS): typeof fetch => async (input, init) => {
+  const antwort = await basis(input, init);
+  if (antwort.status !== 401) return antwort;
+  const text = await antwort.clone().text().catch(() => '');
+  if (!/issued at future/i.test(text)) return antwort;
+  await new Promise((r) => setTimeout(r, wartenMs));
+  return basis(input, init);
+};
+
 /** null, solange .env fehlt — die App läuft dann im lokalen Offline-Modus. */
 export const supabase: SupabaseClient | null =
-  supabaseUrl && key ? createClient(supabaseUrl, key, { global: { fetch: mitZeitlimit } }) : null;
+  supabaseUrl && key ? createClient(supabaseUrl, key, { global: { fetch: mitJwtNochmals(mitZeitlimit) } }) : null;
