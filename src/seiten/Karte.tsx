@@ -166,9 +166,9 @@ export function Karte() {
                     {adresseText(p.baustelle) && <span className="mt-1 flex items-center gap-1.5 text-xs text-ink3"><MapPin size={12} aria-hidden="true" />{adresseText(p.baustelle)}</span>}
                     <span className="mt-2 flex flex-wrap gap-1.5">
                       {p.teams.map((t) => (
-                        <span key={t.teamId} className={'inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[11px] font-semibold ' + (t.soll !== null && t.leute < t.soll ? 'bg-amber-soft text-amber-deep' : 'bg-surface-2 text-ink2')}>
+                        <span key={t.teamId} className={'inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[11px] font-semibold ' + 'bg-surface-2 text-ink2'}>
                           {t.team}
-                          <span className="inline-flex items-center gap-0.5 font-medium"><Users size={11} aria-hidden="true" />{t.leute}{t.soll !== null ? `/${t.soll}` : ''}</span>
+                          <span className="inline-flex items-center gap-0.5 font-medium"><Users size={11} aria-hidden="true" />{t.leute}</span>
                           {t.beginn_min !== null && <span className="inline-flex items-center gap-0.5 font-medium"><Clock size={11} aria-hidden="true" />{uhrzeit(t.beginn_min)}</span>}
                         </span>
                       ))}
@@ -228,13 +228,12 @@ function TeamBlase({ punkt, tag }: { punkt: KartenPunkt; tag: string }) {
       <div className="mt-1 divide-y divide-line">
         {punkt.teams.map((t) => {
           const da = (t.personen ?? []).filter((p) => p.art === 'da' || p.art === 'dazu').length;
-          const knapp = t.soll !== null && da < t.soll;
           return (
             <section key={t.teamId} className="space-y-2 py-2.5 first:pt-1.5 last:pb-0.5">
               <div className="flex items-baseline justify-between gap-2">
                 <p className="text-[15px] font-semibold text-ink">{t.team}{t.chef && <span className="text-[13px] font-normal text-ink3"> · {t.chef}</span>}</p>
-                <span className={'inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold ' + (knapp ? 'bg-amber-soft text-amber-deep' : 'bg-surface-2 text-ink2')}>
-                  <Users size={11} aria-hidden="true" />{da}{t.soll !== null ? ` von ${t.soll}` : ''}
+                <span className={'inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold ' + 'bg-surface-2 text-ink2'}>
+                  <Users size={11} aria-hidden="true" />{da}
                 </span>
               </div>
               {(t.beginn_min !== null || t.treffpunkt) && (

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { Archive, ArrowRightLeft, CalendarDays, CalendarPlus, Check, ChevronLeft, ChevronRight, CircleCheck, Clock, History, MapPin, MessageSquareText, Minus, MousePointerClick, Plus, Search, Trash2, TriangleAlert, Undo2, UserPlus, Users, X } from 'lucide-react';
+import { Archive, ArrowRightLeft, CalendarDays, CalendarPlus, Check, ChevronLeft, ChevronRight, CircleCheck, Clock, History, MapPin, MessageSquareText, MousePointerClick, Plus, Search, Trash2, TriangleAlert, Undo2, UserPlus, Users, X } from 'lucide-react';
 import { Shell } from '../ui/Shell';
 import { Dialog, Avatar } from '../ui/Dialog';
 import { Auswahl } from '../ui/Auswahl';
@@ -93,12 +93,11 @@ function felderVon(p: EinsatzFelder): EinsatzFelder {
   return o;
 }
 
-/** «ab 6:30 · Treffpunkt Werkhof · 4 Leute nötig» — leer, wenn nichts gesetzt ist. */
+/** «ab 6:30 · Treffpunkt Werkhof» — leer, wenn nichts gesetzt ist. «Leute nötig» ist seit 13.11.2026 weg (Amir). */
 function felderText(p: EinsatzFelder): string {
   return [
     p.beginn_min != null && `ab ${uhrzeit(p.beginn_min)}`,
     p.treffpunkt && `Treffpunkt ${TREFFPUNKT_TEXT[p.treffpunkt]}`,
-    p.soll_leute != null && `${p.soll_leute} ${p.soll_leute === 1 ? 'Person' : 'Leute'} nötig`,
   ].filter(Boolean).join(' · ');
 }
 /** «Di 13.10.» */
@@ -417,7 +416,7 @@ export function Planung() {
     teams,
     basis,
     versetzt: versetzungen,
-    plaene: plaene.map((p) => ({ team_id: p.team_id, baustelle_id: p.baustelle?.id ?? null, von: p.von, bis: p.bis, soll_leute: p.soll_leute ?? null })),
+    plaene: plaene.map((p) => ({ team_id: p.team_id, baustelle_id: p.baustelle?.id ?? null, von: p.von, bis: p.bis, soll_leute: null })),
     abwesend: abwJeTag,
     ohneEinsatzTage: naechsteTage,
     fehlt: fehltOffen,
@@ -428,7 +427,7 @@ export function Planung() {
     if (datum < heuteIso) return [];
     return ersatzVorschlaege({
       datum, fuerTeam: teamId, teams, basis, versetzt: versetzungen, personen,
-      plaene: plaene.map((p) => ({ team_id: p.team_id, baustelle_id: p.baustelle?.id ?? null, von: p.von, bis: p.bis, soll_leute: p.soll_leute ?? null })),
+      plaene: plaene.map((p) => ({ team_id: p.team_id, baustelle_id: p.baustelle?.id ?? null, von: p.von, bis: p.bis, soll_leute: null })),
       abwesend: abwJeTag.get(datum) ?? new Map(),
     }).map((k) => ({ ...k, name: namen.get(k.id) ?? 'Person', woher: k.team_id ? teams.find((t) => t.id === k.team_id)?.bezeichnung ?? 'Team' : 'ohne festes Team' }));
   }, [heuteIso, teams, basis, versetzungen, personen, plaene, abwJeTag, namen]);
@@ -442,11 +441,10 @@ export function Planung() {
     const b = besetzung(basis, versetzungen, datum).get(teamId);
     const da = (b?.ids ?? []).filter((id) => !abw.has(id)).length;
     const fest = (basis.get(teamId) ?? []).length;
-    const soll = Math.max(-1, ...plaene.filter((p) => p.team_id === teamId && p.von <= datum && p.bis >= datum).map((p) => p.soll_leute ?? -1));
-    const noetig = soll >= 0 ? Math.min(soll, fest) : fest;
+    const noetig = fest;
     const ersatz = (b?.dazu ?? []).filter((id) => !abw.has(id)).map((id) => (namen.get(id) ?? 'Person').split(' ')[0]);
     return { voll: da >= noetig, ersatz };
-  }, [abwJeTag, basis, versetzungen, plaene, namen]);
+  }, [abwJeTag, basis, versetzungen, namen]);
 
   /** Ersatz einteilen: die Person arbeitet an dem Tag im Team — beide Teams erfahren es (Posteingang, Nachricht) */
   async function ersatzEinteilen(personId: string, teamId: string, datum: string) {
@@ -808,9 +806,6 @@ export function Planung() {
                         const max = anzahlTage === 7 ? 2 : 1;
                         const einsaetzeHier = geplantAm(team.id, dIso);
                         const geplantHier = einsaetzeHier.length > 0;
-                        // «Leute nötig» (0049): bei zwei Einsätzen am Tag das grössere — wie in der Konfliktliste
-                        const soll = einsaetzeHier.reduce<number | null>((s, p) => (p.soll_leute != null && (s === null || p.soll_leute > s) ? p.soll_leute : s), null);
-                        const zuWenig = !istFrei(d) && soll !== null && n < soll;
                         const zuLoesen = konfliktJe.has(`${team.id}|${dIso}`);
                         // Frei (Wochenende, Feiertag) ohne Plan und ohne Änderung: leer statt «3» — dort wird selten gearbeitet.
                         // Ein geplanter Tag ohne Leute zeigt dagegen «0» (steht auch in «Zu lösen»).
@@ -828,9 +823,8 @@ export function Planung() {
                               <>
                                 {zuLoesen && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-amber" title="zu lösen — siehe oben" aria-hidden="true" />}
                                 <WetterWarnung liste={wetterWarn} ort={einsaetzeHier.map((p) => p.baustelle?.bezeichnung || 'Baustelle').join(', ')} />
-                                <span className={'inline-flex items-center gap-0.5 ' + (zuWenig ? 'font-semibold text-amber-deep' : 'text-ink3')}
-                                  title={soll !== null ? `${n} von ${soll} Leuten an diesem Tag` : `${n} ${n === 1 ? 'Person' : 'Leute'} an diesem Tag`}>
-                                  <Users size={11} aria-hidden="true" /><span>{n}{soll !== null && <span className="font-normal opacity-70">/{soll}</span>}</span>
+                                <span className="inline-flex items-center gap-0.5 text-ink3" title={`${n} ${n === 1 ? 'Person' : 'Leute'} an diesem Tag`}>
+                                  <Users size={11} aria-hidden="true" /><span>{n}</span>
                                 </span>
                                 {pillen.slice(0, max).map((p) => <span key={p.text} title={p.titel} className={'whitespace-nowrap rounded-full px-1.5 py-px text-[10px] font-semibold ' + p.klasse}>{p.text}</span>)}
                                 {pillen.length > max && <span className="text-[10px] font-semibold text-ink3" title={pillen.slice(max).map((p) => p.titel).join(' · ')}>+{pillen.length - max}</span>}
@@ -873,7 +867,6 @@ export function Planung() {
           teams={teams}
           baustellen={baustellen}
           plaene={plaene}
-          basis={basis}
           felderFehlen={felderFehlen}
           onSchliessen={schliessen}
           onGespeichert={(text) => { setEntwurf(null); setRueckmeldung(text); void laden(true); }}
@@ -1258,11 +1251,10 @@ function TagDialog({
                 <span className="flex items-center gap-2"><span className="knr">{p.baustelle?.konto_nr}</span><span className="truncate text-sm font-semibold text-ink">{p.baustelle?.bezeichnung || 'Baustelle'}</span></span>
                 <span className="mt-0.5 block text-[11px] text-ink3">{p.von === p.bis ? 'nur dieser Tag' : `Einsatz ${kurz(ausIso(p.von))} – ${kurz(ausIso(p.bis))}`}</span>
                 {/* Einsatzfelder (0049): was das Team zum Einsatz wissen muss */}
-                {(p.beginn_min != null || p.treffpunkt || p.soll_leute != null) && (
+                {(p.beginn_min != null || p.treffpunkt) && (
                   <span className="mt-1.5 flex flex-wrap gap-x-3 gap-y-1 text-[11.5px] text-ink2">
                     {p.beginn_min != null && <span className="inline-flex items-center gap-1"><Clock size={12} className="text-ink3" aria-hidden="true" />ab {uhrzeit(p.beginn_min)}</span>}
                     {p.treffpunkt && <span className="inline-flex items-center gap-1"><MapPin size={12} className="text-ink3" aria-hidden="true" />Treffpunkt {TREFFPUNKT_TEXT[p.treffpunkt]}</span>}
-                    {p.soll_leute != null && <span className="inline-flex items-center gap-1"><Users size={12} className="text-ink3" aria-hidden="true" />{p.soll_leute} nötig</span>}
                   </span>
                 )}
                 {p.hinweis && (
@@ -1469,14 +1461,12 @@ interface Aenderung { feld: string; alt: string | null; neu: string | null; geae
 const FELD_TEXT: Record<string, string> = { von: 'Beginn', bis: 'Ende', baustelle: 'Baustelle', team: 'Team', soll_leute: 'Leute nötig', beginn_min: 'Uhrzeit', treffpunkt: 'Treffpunkt', hinweis: 'Hinweis' };
 
 function EinsatzDialog({
-  entwurf, teams, baustellen, plaene, basis, felderFehlen, onSchliessen, onGespeichert, onNeuLaden,
+  entwurf, teams, baustellen, plaene, felderFehlen, onSchliessen, onGespeichert, onNeuLaden,
 }: {
   entwurf: Entwurf;
   teams: Team[];
   baustellen: Baustelle[];
   plaene: Plan[];
-  /** Feste Leute je Team — Vorschlag für «Leute nötig» bei einem neuen Einsatz */
-  basis: Map<string, string[]>;
   felderFehlen: boolean;
   onSchliessen: () => void;
   onGespeichert: (text: string) => void;
@@ -1488,21 +1478,13 @@ function EinsatzDialog({
   const [von, setVon] = useState(entwurf.von);
   const [bis, setBis] = useState(entwurf.bis);
   const [grund, setGrund] = useState('');
-  // Einsatzfelder (0049). Neuer Einsatz: «Leute nötig» = feste Leute des Teams, bis man es selbst ändert.
-  const festAnzahl = (id: string) => (basis.get(id) ?? []).length || null;
-  const [soll, setSoll] = useState<number | null>(bestehend ? entwurf.soll_leute ?? null : festAnzahl(entwurf.teamId));
-  const [sollAngefasst, setSollAngefasst] = useState(bestehend);
+  // Einsatzfelder (0049). «Leute nötig» gibt es seit 13.11.2026 nicht mehr (Amir: «lass das komplett weg»).
   const [beginn, setBeginn] = useState(uhrzeitFeld(entwurf.beginn_min ?? null));
   const [treffpunkt, setTreffpunkt] = useState<Treffpunkt | null>(entwurf.treffpunkt ?? null);
   const [hinweis, setHinweis] = useState(entwurf.hinweis ?? '');
   const firmenBeginn = arbeitstag().beginn;
   function teamWaehlen(id: string) {
     setTeamId(id);
-    if (!sollAngefasst) setSoll(festAnzahl(id));
-  }
-  function sollAendern(n: number | null) {
-    setSollAngefasst(true);
-    setSoll(n === null ? null : Math.max(0, Math.min(30, n)));
   }
   const [speichert, setSpeichert] = useState(false);
   const [fehler, setFehler] = useState<string | null>(null);
@@ -1551,7 +1533,7 @@ function EinsatzDialog({
     const beginnMin = beginn.trim() ? ausUhrzeit(beginn) : null;
     if (beginn.trim() && beginnMin === null) { setFehler('Beginn: eine Uhrzeit wie 06:30.'); return; }
     const hinweisText = hinweis.trim() || null;
-    const felder: EinsatzFelder = felderFehlen ? {} : { soll_leute: soll, beginn_min: beginnMin, treffpunkt, hinweis: hinweisText };
+    const felder: EinsatzFelder = felderFehlen ? {} : { beginn_min: beginnMin, treffpunkt, hinweis: hinweisText };
     setSpeichert(true);
     setFehler(null);
     if (!bestehend) {
@@ -1569,7 +1551,6 @@ function EinsatzDialog({
     if (alt.teamId !== teamId) aenderungen.push({ feld: 'team', alt: teams.find((t) => t.id === alt.teamId)?.bezeichnung ?? '', neu: team?.bezeichnung ?? '' });
     if (!felderFehlen) {
       const text = (v: number | string | null | undefined) => (v === null || v === undefined || v === '' ? '—' : String(v));
-      if ((alt.soll_leute ?? null) !== soll) aenderungen.push({ feld: 'soll_leute', alt: text(alt.soll_leute), neu: text(soll) });
       if ((alt.beginn_min ?? null) !== beginnMin) aenderungen.push({ feld: 'beginn_min', alt: alt.beginn_min != null ? uhrzeit(alt.beginn_min) : '—', neu: beginnMin != null ? uhrzeit(beginnMin) : '—' });
       if ((alt.treffpunkt ?? null) !== treffpunkt) aenderungen.push({ feld: 'treffpunkt', alt: alt.treffpunkt ? TREFFPUNKT_TEXT[alt.treffpunkt] : '—', neu: treffpunkt ? TREFFPUNKT_TEXT[treffpunkt] : '—' });
       if ((alt.hinweis ?? null) !== hinweisText) aenderungen.push({ feld: 'hinweis', alt: text(alt.hinweis), neu: text(hinweisText) });
@@ -1668,20 +1649,6 @@ function EinsatzDialog({
             <div className="space-y-4 rounded-[16px] border border-line bg-ground/50 p-4">
               <p className="lbl mb-0">Fürs Team <span className="font-normal normal-case tracking-normal text-ink3">· alles freiwillig</span></p>
               <div className="grid gap-4 sm:grid-cols-2">
-                <div>
-                  <span className="mb-1.5 block text-xs font-medium text-ink2">Leute nötig</span>
-                  <div className="flex items-center gap-2">
-                    <button type="button" aria-label="Eine Person weniger" disabled={soll === null || soll <= 0} onClick={() => sollAendern((soll ?? 0) - 1)}
-                      className="grid h-10 w-10 place-items-center rounded-full border border-ink/10 bg-white text-ink2 shadow-[0_1px_2px_rgb(17_17_19/0.06)] transition hover:text-ink disabled:opacity-40"><Minus size={16} aria-hidden="true" /></button>
-                    <span className="min-w-[2.5rem] text-center font-display text-xl font-semibold tabular-nums text-ink" aria-live="polite">{soll ?? '—'}</span>
-                    <button type="button" aria-label="Eine Person mehr" disabled={soll !== null && soll >= 30} onClick={() => sollAendern(soll === null ? (festAnzahl(teamId) ?? 1) : soll + 1)}
-                      className="grid h-10 w-10 place-items-center rounded-full border border-ink/10 bg-white text-ink2 shadow-[0_1px_2px_rgb(17_17_19/0.06)] transition hover:text-ink disabled:opacity-40"><Plus size={16} aria-hidden="true" /></button>
-                    {soll !== null && <button type="button" onClick={() => sollAendern(null)} className="ml-1 text-[11px] font-semibold text-ink3 hover:text-ink">offen lassen</button>}
-                  </div>
-                  <span className="mt-1 block text-[11px] text-ink3">
-                    {soll === null ? 'Ohne Zahl meldet die Planung keine fehlenden Leute.' : `Fest im Team: ${festAnzahl(teamId) ?? 0}. Fehlen Leute, steht es unter «Zu lösen».`}
-                  </span>
-                </div>
                 <label className="block">
                   <span className="mb-1.5 block text-xs font-medium text-ink2">Beginn</span>
                   <input type="time" step={300} className="field" value={beginn} onChange={(e) => setBeginn(e.target.value)} aria-label="Beginn" />
