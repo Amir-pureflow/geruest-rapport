@@ -851,7 +851,7 @@ export function Planung() {
           ) : (
             <>
               <span>Tag antippen = Leute und Baustelle für diesen Tag</span>
-              <span className="inline-flex items-center gap-1"><Users size={11} aria-hidden="true" /> Leute an dem Tag <span className="text-ink3/80">(2/3 = 2 von 3 nötigen)</span></span>
+              <span className="inline-flex items-center gap-1"><Users size={11} aria-hidden="true" /> Leute an dem Tag</span>
               <span className="inline-flex items-center gap-1"><span className="h-1.5 w-1.5 rounded-full bg-amber" aria-hidden="true" /> zu lösen</span>
               <span><b className="rounded-full bg-good-soft px-1.5 text-good-deep">+ Name</b> für den Tag dazu</span>
               <span><b className="rounded-full bg-amber-soft px-1.5 text-amber-deep">− Name</b> in einem anderen Team</span>
