@@ -25,10 +25,15 @@ import { StartKunde } from './StartKunde';
 interface Kennzahlen {
   teamsGemeldet: number;
   teams: number;
-  /** offene Team-Tage vor dieser Woche — der Bauführer denkt in Tagen, nicht in Zeiteinträgen (05.10.2026) */
+  /**
+   * offene Team-Tage bis heute, diese Woche eingeschlossen — der Bauführer denkt in Tagen, nicht in Zeiteinträgen
+   * (05.10.2026). Seit 15.11.2026 (Amir: «Freigabe diese Woche, nicht Vorwoche») nicht mehr nur vor dieser Woche.
+   */
   zuPruefen: number;
-  /** Meldungen der Vorwoche — ohne eine einzige ist die Vorwoche nicht «freigegeben», sondern leer (13.10.2026) */
-  vorwocheMeldungen: number;
+  /** davon aus früheren Wochen — nur dann der Hinweis «Vorwoche prüfen» */
+  aelterOffen: number;
+  /** Meldungen dieser Woche — ohne eine einzige ist die Woche nicht «freigegeben», sondern leer */
+  wocheMeldungen: number;
   /**
    * Team-Tage der Vorwoche mit offenen Überstunden, die noch einen Entscheid brauchen — gleich gezählt wie
    * «Zum Anschauen» in der Wochenübersicht (08.10.2026: vorher Zeiteinträge = Personen, darum 8 statt 2).
@@ -128,7 +133,7 @@ function StartBauf() {
   const heute = new Date();
   const vorwoche = iso(addTage(montag(heute), -7));
   // Montag der Woche, die in der Freigabe-Karte steht — automatisch die älteste mit offenen Freigaben
-  const [freigabeMo, setFreigabeMo] = useState<Date>(() => addTage(montag(new Date()), -7));
+  const [freigabeMo, setFreigabeMo] = useState<Date>(() => montag(new Date()));
   const anfrage = useNeuesteAnfrage();
 
   /**
@@ -162,7 +167,8 @@ function StartBauf() {
     const grund = await Promise.all([
       c.from('tagesmeldung').select('team_id').eq('datum', heuteIso),
       c.from('team').select('id', { count: 'exact', head: true }).eq('aktiv', true),
-      alle<{ datum: string; team_id: string }>((a, b) => c.from('tagesmeldung').select('datum,team_id,zeiteintrag!inner(id)').eq('zeiteintrag.status', 'offen').lt('datum', wochenStart).order('id').range(a, b)),
+      alle<{ datum: string; team_id: string }>((a, b) => c.from('tagesmeldung').select('datum,team_id,zeiteintrag!inner(id)').eq('zeiteintrag.status', 'offen').lte('datum', heuteIso).order('id').range(a, b)),
+      c.from('tagesmeldung').select('id', { count: 'exact', head: true }).gte('datum', wochenStart).lte('datum', heuteIso),
       alle<UeberZeile>((a, b) => c.from('tagesmeldung')
         .select('team_id,datum,baustelle_id,' + (regie ? 'regie_entscheid,regierapport(id),' : '') + 'zeiteintrag(mitarbeiter_id,normal_min,ueber_min,status)')
         .gte('datum', vorwoche).lt('datum', wochenStart).order('id').range(a, b)),
@@ -171,8 +177,8 @@ function StartBauf() {
       return null;
     });
     if (!grund || !aktuell()) return;
-    const [tm, teams, zp, uo] = grund;
-    const erster = [tm, teams].find((r) => r.error);
+    const [tm, teams, zp, wm, uo] = grund;
+    const erster = [tm, teams, wm].find((r) => r.error);
     if (erster?.error) { setFehler(erster.error.message); return; }
     setFehler('');
     // Die Teamnamen braucht die Kachel nicht mehr — die liefert das Board darunter
@@ -198,13 +204,15 @@ function StartBauf() {
       teamsGemeldet: gemeldet.size,
       teams: teams.count ?? 0,
       zuPruefen: new Set(zp.map((r) => r.team_id + r.datum)).size,
-      vorwocheMeldungen: uo.length,
+      aelterOffen: new Set(zp.filter((r) => r.datum < wochenStart).map((r) => r.team_id + r.datum)).size,
+      wocheMeldungen: wm.count ?? 0,
       ueberOffen: ueberTage(uo, regie),
     });
     // Diagramm und Board danach — die Kacheln sollen nicht darauf warten
     // Die Karte springt auf die älteste Woche mit offenen Freigaben (Amir, 04.10.2026) —
-    // bis 6 Wochen zurück, auch die laufende. Ist nichts offen, zeigt sie die Vorwoche.
-    let freigabeBezug = addTage(montag(heute), -7);
+    // bis 6 Wochen zurück, auch die laufende. Ist nichts offen, zeigt sie die laufende Woche (Amir 15.11.2026 —
+    // vorher die Vorwoche: «In dieser Woche hat noch kein Team gemeldet», obwohl diese Woche alles da war).
+    let freigabeBezug = montag(heute);
     const { data: aelteste } = await c
       .from('tagesmeldung')
       .select('datum, zeiteintrag!inner(id)')
@@ -280,10 +288,10 @@ function StartBauf() {
               {supabase ? 'verbunden' : 'offline-Modus'}
             </span>
             {/* Die eine Aktion — und nur, wenn es etwas zu tun gibt (Firmenrot, siehe index.css) */}
-            {regie || !k || k.zuPruefen === 0 ? (
+            {regie || !k || k.aelterOffen === 0 ? (
               <Link to="/zusatzauftrag" className="cta cta-accent hidden w-auto px-5 py-2.5 md:block">+ Zusatzarbeit</Link>
             ) : (
-              <Link to={`/cockpit?woche=${vorwoche}`} className="cta hidden w-auto px-5 py-2.5 md:block">
+              <Link to={`/cockpit?woche=${iso(freigabeMo)}`} className="cta hidden w-auto px-5 py-2.5 md:block">
                 Vorwoche prüfen
               </Link>
             )}
@@ -344,10 +352,14 @@ function StartBauf() {
                 )}
               </div>
               <Kachel
-                zu={`/cockpit?woche=${vorwoche}`}
+                zu={`/cockpit?woche=${k.aelterOffen > 0 ? iso(freigabeMo) : iso(montag(heute))}`}
                 titel="Freigabe"
                 wert={String(k.zuPruefen)}
-                label={k.zuPruefen === 1 ? 'Tag wartet auf Freigabe' : k.zuPruefen > 1 ? 'Tage warten auf Freigabe' : k.vorwocheMeldungen > 0 ? 'Vorwoche ist freigegeben' : 'keine Meldungen in der Vorwoche'}
+                label={
+                  k.zuPruefen > 0
+                    ? `${k.zuPruefen === 1 ? 'Tag wartet' : 'Tage warten'} auf Freigabe${k.aelterOffen > 0 ? ` · ${k.aelterOffen === k.zuPruefen ? 'aus der Vorwoche' : `${k.aelterOffen} aus der Vorwoche`}` : ''}`
+                    : k.wocheMeldungen > 0 ? 'diese Woche alles freigegeben' : 'diese Woche noch keine Meldungen'
+                }
                 icon={CalendarCheck}
                 farbe="gelb"
               />
@@ -396,8 +408,8 @@ function StartBauf() {
             )}
 
             {/* Handy: derselbe Knopf wie oben am PC — dort ist er in der Kopfzeile */}
-            {k.zuPruefen > 0 && (
-              <Link to={`/cockpit?woche=${vorwoche}`} className="cta md:hidden">
+            {k.aelterOffen > 0 && (
+              <Link to={`/cockpit?woche=${iso(freigabeMo)}`} className="cta md:hidden">
                 Vorwoche prüfen
               </Link>
             )}
