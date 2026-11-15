@@ -63,3 +63,20 @@ export function istArbeitstag(d: Date | string): boolean {
   const wt = tag.getDay();
   return wt !== 0 && wt !== 6 && !feiertag(iso(tag));
 }
+
+/**
+ * Warum heute nicht gearbeitet wird — «Wochenende» oder der Name des Feiertags, an Arbeitstagen null.
+ * Startseite (Amir 15.11.2026): am Samstag stand «0 von 1 haben gemeldet», obwohl niemand eingeplant war.
+ */
+export function freiGrund(d: Date): string | null {
+  if (istArbeitstag(d)) return null;
+  const wt = d.getDay();
+  return wt === 0 || wt === 6 ? 'Wochenende' : feiertag(iso(d));
+}
+
+/** Der nächste Arbeitstag nach `d` (Wochenende und Berner Feiertage übersprungen). */
+export function naechsterArbeitstag(d: Date): Date {
+  let t = new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1, 12);
+  for (let i = 0; i < 14 && !istArbeitstag(t); i++) t = new Date(t.getFullYear(), t.getMonth(), t.getDate() + 1, 12);
+  return t;
+}

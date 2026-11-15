@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { AlarmClock, Banknote, CalendarCheck, PhoneCall, Send, Users } from 'lucide-react';
+import { AlarmClock, Banknote, CalendarCheck, CalendarDays, PhoneCall, Send, Users } from 'lucide-react';
+import { freiGrund, naechsterArbeitstag } from '../lib/feiertage';
 import { Shell } from '../ui/Shell';
 import { supabase } from '../lib/supabase';
 import { alle, alleOderFehler } from '../lib/abfrage';
@@ -36,6 +37,17 @@ interface Kennzahlen {
    */
   ueberOffen: number;
 }
+
+/**
+ * Freier Tag (Wochenende, Feiertag) ohne eine einzige Meldung (Amir 15.11.2026): statt «0 von 1 haben gemeldet»
+ * steht «Kein Einsatz» und was am nächsten Arbeitstag geplant ist. Meldet doch ein Team, bleibt alles wie sonst.
+ */
+interface FreierTag {
+  grund: string;
+  naechster: Date;
+  einsaetze: { team: string; konto_nr: string | null; baustelle: string | null; bis: string }[];
+}
+const WOCHENTAG = ['Sonntag', 'Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag'];
 
 interface UeberZeile {
   team_id: string; datum: string; baustelle_id: string; regie_entscheid?: string | null; regierapport?: { id: string }[] | null;
@@ -112,6 +124,7 @@ function StartBauf() {
   const [fehler, setFehler] = useState('');
   const [woche, setWoche] = useState<WochenTag[] | null>(null);
   const [stand, setStand] = useState<TeamStand[] | null>(null);
+  const [frei, setFrei] = useState<FreierTag | null>(null);
   const heute = new Date();
   const vorwoche = iso(addTage(montag(heute), -7));
   // Montag der Woche, die in der Freigabe-Karte steht — automatisch die älteste mit offenen Freigaben
@@ -164,6 +177,23 @@ function StartBauf() {
     setFehler('');
     // Die Teamnamen braucht die Kachel nicht mehr — die liefert das Board darunter
     const gemeldet = new Set((tm.data ?? []).map((r) => r.team_id));
+    const grundFrei = freiGrund(heute);
+    if (grundFrei && gemeldet.size === 0) {
+      const naechster = naechsterArbeitstag(heute);
+      const nIso = iso(naechster);
+      const { data: plan } = await c.from('jahresplan')
+        .select('bis,team:team_id(bezeichnung,aktiv),baustelle:baustelle_id(konto_nr,bezeichnung)')
+        .lte('von', nIso).gte('bis', nIso);
+      if (!aktuell()) return;
+      type PlanZeile = { bis: string; team: { bezeichnung: string; aktiv: boolean } | null; baustelle: { konto_nr: string; bezeichnung: string | null } | null };
+      const einsaetze = ((plan ?? []) as unknown as PlanZeile[])
+        .filter((z) => z.team?.aktiv !== false)
+        .map((z) => ({ team: z.team?.bezeichnung ?? 'Team', konto_nr: z.baustelle?.konto_nr ?? null, baustelle: z.baustelle?.bezeichnung ?? null, bis: z.bis }))
+        .sort((a, b) => a.team.localeCompare(b.team, 'de', { numeric: true }));
+      setFrei({ grund: grundFrei, naechster, einsaetze });
+    } else {
+      setFrei(null);
+    }
     setK({
       teamsGemeldet: gemeldet.size,
       teams: teams.count ?? 0,
@@ -292,15 +322,26 @@ function StartBauf() {
             {/* Handy: der Tagesstand steht oben über die ganze Breite, die zwei Zahlen zur Vorwoche darunter */}
             <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
               <div className="col-span-2 md:col-span-1">
-                <Kachel
-                  zu="/heute"
-                  titel="Teams heute"
-                  wert={`${k.teamsGemeldet} von ${k.teams}`}
-                  label="haben schon gemeldet"
-                  icon={Users}
-                  fortschritt={{ von: k.teamsGemeldet, bis: k.teams }}
-                  farbe="blau"
-                />
+                {frei ? (
+                  <Kachel
+                    zu="/planung"
+                    titel="Teams heute"
+                    wert="Kein Einsatz"
+                    label={`${frei.grund} · ${WOCHENTAG[frei.naechster.getDay()]}: ${frei.einsaetze.length === 0 ? 'noch nichts geplant' : `${new Set(frei.einsaetze.map((e) => e.team)).size} ${new Set(frei.einsaetze.map((e) => e.team)).size === 1 ? 'Team' : 'Teams'} geplant`}`}
+                    icon={Users}
+                    farbe="blau"
+                  />
+                ) : (
+                  <Kachel
+                    zu="/heute"
+                    titel="Teams heute"
+                    wert={`${k.teamsGemeldet} von ${k.teams}`}
+                    label="haben schon gemeldet"
+                    icon={Users}
+                    fortschritt={{ von: k.teamsGemeldet, bis: k.teams }}
+                    farbe="blau"
+                  />
+                )}
               </div>
               <Kachel
                 zu={`/cockpit?woche=${vorwoche}`}
@@ -385,7 +426,9 @@ function StartBauf() {
           )}
         </div>
 
-        {stand && stand.length > 0 && heute.getDay() >= 1 && heute.getDay() <= 6 && (
+        {frei ? (
+          <FreierTagKarte frei={frei} />
+        ) : stand && stand.length > 0 && heute.getDay() >= 1 && heute.getDay() <= 6 && (
           <div className="hidden md:block">
             <TeamBoard teams={stand} />
           </div>
@@ -402,5 +445,40 @@ function StartBauf() {
         </nav>
       </div>
     </Shell>
+  );
+}
+
+/** Statt «Teams heute» an einem freien Tag: dass niemand melden muss, und wer am nächsten Arbeitstag wo ist. */
+function FreierTagKarte({ frei }: { frei: FreierTag }) {
+  const n = frei.naechster;
+  return (
+    <section className="card">
+      <div className="flex items-start justify-between gap-4">
+        <div className="min-w-0 flex-1">
+          <p className="lbl mb-1">Teams heute</p>
+          <p className="font-display text-[17px] font-semibold text-ink">Heute ist kein Team eingeplant</p>
+        </div>
+        <Link to="/planung" className="shrink-0 text-xs font-semibold text-steel">Planung ›</Link>
+      </div>
+      <div className="mt-4 flex items-center gap-3 rounded-[14px] bg-surface-2 px-4 py-3 text-sm text-ink2">
+        <CalendarDays size={18} className="shrink-0 text-ink3" aria-hidden="true" />
+        <span><b className="font-semibold text-ink">{frei.grund}.</b> Niemand muss heute melden.</span>
+      </div>
+      <p className="lbl mb-0 mt-4">Nächster Arbeitstag · {WOCHENTAG[n.getDay()].slice(0, 2)} {kurz(n)}</p>
+      {frei.einsaetze.length === 0 ? (
+        <p className="mt-2 text-sm text-ink3">Noch kein Einsatz geplant.</p>
+      ) : (
+        <ul className="mt-2 divide-y divide-line">
+          {frei.einsaetze.map((e, i) => (
+            <li key={i} className="flex flex-wrap items-baseline gap-x-2.5 gap-y-0.5 py-2 text-sm">
+              <b className="font-semibold text-ink">{e.team}</b>
+              {e.konto_nr && <span className="knr">{e.konto_nr}</span>}
+              <span className="min-w-0 text-ink2">{e.baustelle ?? 'Baustelle'}</span>
+              {e.bis > iso(n) && <span className="ml-auto text-xs text-ink3">bis {WOCHENTAG[new Date(e.bis + 'T12:00:00').getDay()].slice(0, 2)} {kurz(new Date(e.bis + 'T12:00:00'))}</span>}
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
   );
 }
