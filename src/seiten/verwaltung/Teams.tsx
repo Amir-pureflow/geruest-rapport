@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { supabase } from '../../lib/supabase';
+import { gemerkt, merken } from '../../lib/merker';
 import { iso } from '../../lib/datum';
 import { Plus, Star, Truck, Users } from 'lucide-react';
 import { Avatar, Dialog } from '../../ui/Dialog';
@@ -13,9 +14,11 @@ interface Person { id: string; name: string; typ: string; funktion: string }
 interface Mitglied { team_id: string; mitarbeiter_id: string; von: string; mitarbeiter: Person }
 
 export function Teams() {
-  const [teams, setTeams] = useState<Team[]>([]);
-  const [mitglieder, setMitglieder] = useState<Mitglied[]>([]);
-  const [personen, setPersonen] = useState<Person[]>([]);
+  // Zwischenspeicher (15.11.2026): beim Zurückkommen sofort da, geladen wird still dahinter
+  const [vorher] = useState(() => gemerkt<{ teams: Team[]; mitglieder: Mitglied[]; personen: Person[] }>('verw|teams'));
+  const [teams, setTeams] = useState<Team[]>(vorher?.teams ?? []);
+  const [mitglieder, setMitglieder] = useState<Mitglied[]>(vorher?.mitglieder ?? []);
+  const [personen, setPersonen] = useState<Person[]>(vorher?.personen ?? []);
   const [gewaehlt, setGewaehlt] = useState<string | null>(null);
   const [neu, setNeu] = useState('');
   /** «Team anlegen» läuft — Enter und Klick zusammen legten sonst zwei gleiche Teams an */
@@ -31,9 +34,11 @@ export function Teams() {
       supabase.from('mitarbeiter').select('id,name,typ,funktion').eq('aktiv', true).neq('funktion', FUNKTION_BUERO).order('name'),
     ]);
     if (t.error) { setFehler(t.error.message.includes('aktiv') ? 'Migration 0005 fehlt — bitte im SQL-Editor ausführen.' : t.error.message); return; }
-    setTeams((t.data ?? []).sort((a, b) => a.bezeichnung.localeCompare(b.bezeichnung, 'de', { numeric: true })));
-    setMitglieder((m.data ?? []) as unknown as Mitglied[]);
-    setPersonen(p.data ?? []);
+    const neu = { teams: (t.data ?? []).sort((a, b) => a.bezeichnung.localeCompare(b.bezeichnung, 'de', { numeric: true })), mitglieder: (m.data ?? []) as unknown as Mitglied[], personen: p.data ?? [] };
+    merken('verw|teams', neu);
+    setTeams(neu.teams);
+    setMitglieder(neu.mitglieder);
+    setPersonen(neu.personen);
   }, []);
   useEffect(() => { void laden(); }, [laden]);
 

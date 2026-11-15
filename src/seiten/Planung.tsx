@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { gemerkt, merken } from '../lib/merker';
 import { useSearchParams } from 'react-router-dom';
 import { Archive, ArrowRightLeft, CalendarDays, CalendarPlus, Check, CircleCheck, Clock, History, MapPin, MessageSquareText, MousePointerClick, Plus, Search, Trash2, TriangleAlert, Undo2, UserPlus, Users, X } from 'lucide-react';
 import { Shell } from '../ui/Shell';
@@ -185,10 +186,29 @@ export function Planung() {
    * wechselt, sieht nie Teams der neuen und Verlauf der alten Woche. Seitenweise, wo es über 1000 Zeilen werden können.
    * `still`: ohne «Lädt …» (nach einer Änderung, beim Auffrischen); scheitert es dann, bleibt das Raster stehen.
    */
+  // Zwischenspeicher je Zeitraum (15.11.2026): ein schon gesehener Plan steht sofort da, geladen wird still dahinter
+  type PlanDaten = {
+    teams: Team[]; baustellen: Baustelle[]; plaene: Plan[]; mitglieder: Mitglied[]; personen: Person[]; einsatzFehlt: boolean;
+    versetzungen: Versetzung[]; abwesend: Abw[]; fehltOffen: FehltGemeldet[]; ist: IstZeile[]; verlauf: VerlaufZeile[]; zusatzBaustellen: Baustelle[];
+  };
+  const anwenden = useCallback((d: PlanDaten) => {
+    setTeams(d.teams); setBaustellen(d.baustellen); setPlaene(d.plaene); setMitglieder(d.mitglieder); setPersonen(d.personen);
+    setEinsatzFehlt(d.einsatzFehlt); setVersetzungen(d.versetzungen); setAbwesend(d.abwesend); setFehltOffen(d.fehltOffen);
+    setIst(d.ist); setVerlauf(d.verlauf); setZusatzBaustellen(d.zusatzBaustellen); setLaedt(false);
+  }, []);
+  // Vor dem ersten Zeichnen — sonst blitzte für einen Moment die leere Planung auf
+  useLayoutEffect(() => {
+    const d = gemerkt<PlanDaten>(`planung|${startIso}|${endeIso}`);
+    if (d) anwenden(d);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   const laden = useCallback(async (still = false) => {
     if (!supabase) return;
     const c = supabase;
     const aktuell = anfrage();
+    const schluessel = `planung|${startIso}|${endeIso}`;
+    const vorher = gemerkt<PlanDaten>(schluessel);
+    if (vorher && !still) { anwenden(vorher); still = true; }
     if (!still) setLaedt(true);
     const istBis = endeIso < heuteIso ? endeIso : heuteIso;
     // Wetter nebenher (0054) — ohne Migration oder ohne Daten steht einfach keins; vergangene Tage haben keine Prognose
@@ -246,8 +266,6 @@ export function Planung() {
     const fehlend = [...new Set(verlaufNeu.flatMap((x) => [x.vorher?.baustelle_id, x.nachher?.baustelle_id]).filter((x): x is string => typeof x === 'string' && !bekannt.has(x)))];
     const zusatz = await Promise.all(stuecke(fehlend).map((ids) => c.from('baustelle').select('id,konto_nr,bezeichnung,status').in('id', ids)));
     if (!aktuell()) return;
-    setVerlauf(verlaufNeu);
-    setZusatzBaustellen(zusatz.flatMap((r) => (r.data ?? []) as Baustelle[]));
     // Was fehlt, sagen — sonst zeigt die Tageszeile Abwesende als da oder «Geplant am Montag» den heutigen Plan
     const neben = [
       m.error && `feste Teams (${m.error.message})`,
@@ -258,18 +276,23 @@ export function Planung() {
       ...zusatz.filter((r) => r.error).slice(0, 1).map((r) => `Baustellen aus dem Verlauf (${r.error!.message})`),
     ].filter(Boolean);
     setFehler(err ? 'Planung konnte nicht geladen werden: ' + err.message : neben.length > 0 ? `Nicht geladen: ${neben.join(' · ')} — die Ansicht ist unvollständig.` : null);
-    setTeams(((t.data ?? []) as unknown as Team[]).sort((x, y) => x.bezeichnung.localeCompare(y.bezeichnung, 'de', { numeric: true })));
-    setBaustellen(b.data ?? []);
-    setPlaene(p.data ?? []);
-    setMitglieder((m.data ?? []) as unknown as Mitglied[]);
-    setPersonen((ma.data ?? []) as Person[]);
-    setEinsatzFehlt(!!v.error);
-    setVersetzungen(v.error ? [] : (v.data ?? []));
-    setAbwesend(a.error ? [] : (a.data ?? []));
-    setFehltOffen(fm.error ? [] : (fm.data ?? []));
-    setIst(i.error ? [] : (i.data ?? []));
-    setLaedt(false);
-  }, [startIso, endeIso, heuteIso, anfrage]);
+    const neu: PlanDaten = {
+      teams: ((t.data ?? []) as unknown as Team[]).sort((x, y) => x.bezeichnung.localeCompare(y.bezeichnung, 'de', { numeric: true })),
+      baustellen: b.data ?? [],
+      plaene: p.data ?? [],
+      mitglieder: (m.data ?? []) as unknown as Mitglied[],
+      personen: (ma.data ?? []) as Person[],
+      einsatzFehlt: !!v.error,
+      versetzungen: v.error ? [] : (v.data ?? []),
+      abwesend: a.error ? [] : (a.data ?? []),
+      fehltOffen: fm.error ? [] : (fm.data ?? []),
+      ist: i.error ? [] : (i.data ?? []),
+      verlauf: verlaufNeu,
+      zusatzBaustellen: zusatz.flatMap((r) => (r.data ?? []) as Baustelle[]),
+    };
+    if (!err) merken(schluessel, neu);
+    anwenden(neu);
+  }, [startIso, endeIso, heuteIso, anfrage, anwenden]);
   useEffect(() => { void laden(); }, [laden]);
   // Mehrere Leute planen gleichzeitig — wieder sichtbar oder alle 5 Minuten still neu laden
   useAuffrischen(() => laden(true));

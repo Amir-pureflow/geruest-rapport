@@ -1,6 +1,7 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import { MapPin, Navigation, Plus } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
+import { gemerkt, merken } from '../../lib/merker';
 import { alle } from '../../lib/abfrage';
 import { ausIso, iso, kurz, lang } from '../../lib/datum';
 import { baustellenSuchen } from '../../lib/suche';
@@ -140,8 +141,9 @@ const STATUS: Record<Baustelle['status'], [string, string]> = {
 };
 
 export function Baustellen() {
-  const [liste, setListe] = useState<Baustelle[]>([]);
-  const [kunden, setKunden] = useState<Kunde[]>([]);
+  // Zwischenspeicher (15.11.2026)
+  const [liste, setListe] = useState<Baustelle[]>(() => gemerkt<Baustelle[]>('verw|baustellen') ?? []);
+  const [kunden, setKunden] = useState<Kunde[]>(() => gemerkt<Kunde[]>('verw|baustellen-kunden') ?? []);
   const [suche, setSuche] = useState('');
   const [filter, setFilter] = useState<'alle' | Baustelle['status']>('aktiv');
   const [offen, setOffen] = useState<string | null>(null);
@@ -168,6 +170,8 @@ export function Baustellen() {
         baustellen(SPALTEN).catch((e: unknown) => (/lat|lage_quelle|column/i.test(e instanceof Error ? e.message : String(e)) ? baustellen(SPALTEN_ALT) : Promise.reject(e))),
         alle<Kunde>((von, bis) => c.from('kunde').select('id,name').order('name').order('id').range(von, bis)),
       ]);
+      merken('verw|baustellen', b);
+      merken('verw|baustellen-kunden', k);
       setListe(b);
       setKunden(k);
       setLadeFehler('');

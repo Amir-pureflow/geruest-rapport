@@ -1,5 +1,6 @@
 import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
 import { supabase } from '../../lib/supabase';
+import { gemerkt, merken } from '../../lib/merker';
 import { Plus, Search, UserRound } from 'lucide-react';
 import tarife from '../../../fixtures/tarife_sguv_2026.json';
 import { Avatar, Dialog } from '../../ui/Dialog';
@@ -47,7 +48,8 @@ const BASIS_SPALTEN = 'id,name,typ,funktion,sprache,temporaerbuero,subunternehme
 const spalteFehlt = (msg: string, spalte: string) => new RegExp(`column .*${spalte}.* does not exist`).test(msg) || (msg.includes(spalte) && /does not exist|schema cache/.test(msg));
 
 export function Mitarbeiter() {
-  const [liste, setListe] = useState<(Person & { id: string })[]>([]);
+  // Zwischenspeicher (15.11.2026): beim Zurückkommen sofort die Liste, geladen wird still dahinter
+  const [liste, setListe] = useState<(Person & { id: string })[]>(() => gemerkt<(Person & { id: string })[]>('verw|mitarbeiter') ?? []);
   const [suche, setSuche] = useState('');
   const [filter, setFilter] = useState<'alle' | 'intern' | 'temporaer' | 'inaktiv'>('alle');
   const [bearbeitet, setBearbeitet] = useState<Person | null>(null);
@@ -55,7 +57,7 @@ export function Mitarbeiter() {
   /** Läuft «Speichern»? Ein zweiter Klick legte sonst dieselbe Person zweimal an. */
   const [speichert, setSpeichert] = useState(false);
   /** null = noch nicht geprüft */
-  const [hatTelefon, setHatTelefon] = useState<boolean | null>(null);
+  const [hatTelefon, setHatTelefon] = useState<boolean | null>(() => gemerkt<boolean>('verw|telefon') ?? null);
 
   const laden = useCallback(async () => {
     if (!supabase) return;
@@ -69,8 +71,9 @@ export function Mitarbeiter() {
       r = await abfrage(BASIS_SPALTEN);
     }
     setHatTelefon(mitTelefon);
+    merken('verw|telefon', mitTelefon);
     if (r.error) { setFehler(r.error.message.includes('oev_standard') ? 'Migration 0005 fehlt — bitte im SQL-Editor ausführen.' : r.error.message); return; }
-    if (r.data) setListe(r.data as unknown as (Person & { id: string })[]);
+    if (r.data) { merken('verw|mitarbeiter', r.data); setListe(r.data as unknown as (Person & { id: string })[]); }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   useEffect(() => { void laden(); }, [laden]);

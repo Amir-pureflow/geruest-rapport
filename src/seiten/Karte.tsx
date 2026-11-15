@@ -6,6 +6,7 @@
  * ohne Abwesende). Orte aus Verwaltung → Baustellen («Adresse prüfen», 0050) — ohne geprüften Ort steht die Baustelle in
  * einer eigenen Liste mit Link zum Nachtragen. Die Karte zeigt nur Baustellen, nie Personen (keine Standortverfolgung).
  */
+import { gemerkt, merken } from '../lib/merker';
 import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { CalendarX2, ChevronLeft, ChevronRight, Clock, Flag, MapPin, MapPinOff, MessageSquareText, Search, Users } from 'lucide-react';
@@ -44,9 +45,10 @@ interface Daten {
 export function Karte() {
   const [params] = useSearchParams();
   const [tag, setTag] = useState(() => { const t = params.get('tag'); return t && /^\d{4}-\d{2}-\d{2}$/.test(t) ? t : iso(new Date()); });
-  const [daten, setDaten] = useState<Daten | null>(null);
+  // Zwischenspeicher je Tag (15.11.2026): ein schon gesehener Tag steht sofort da, geladen wird still dahinter
+  const [daten, setDaten] = useState<Daten | null>(() => gemerkt<Daten>(`karte|${tag}`) ?? null);
   const [fehler, setFehler] = useState<string | null>(null);
-  const [laedt, setLaedt] = useState(true);
+  const [laedt, setLaedt] = useState(() => !gemerkt(`karte|${tag}`));
   const [suche, setSuche] = useState('');
   const [auswahl, setAuswahl] = useState<string | null>(null);
   const [luftbild, setLuftbild] = useState(false);
@@ -56,6 +58,8 @@ export function Karte() {
     if (!supabase) return;
     const c = supabase;
     const aktuell = anfrage();
+    const vorher = gemerkt<Daten>(`karte|${tag}`);
+    if (vorher && !still) { setDaten(vorher); setLaedt(false); still = true; }
     if (!still) setLaedt(true);
     const firma = eigeneFirma();
     const [t, p, m, v, a, f, fm, ma] = await Promise.all([
@@ -99,10 +103,12 @@ export function Karte() {
       personen.set(tz.id, leuteAm({ teamId: tz.id, fest: liste, versetzt, abwesend: abwArt, fehlt, namen, teamNamen, datum: tag }));
     }
     const w = f.error ? null : (f.data as { werkhof_adresse: string | null; werkhof_lat: number | null; werkhof_lon: number | null } | null);
-    setDaten({
+    const neu: Daten = {
       punkte: punkteAm({ einsaetze: p.data ?? [], teams, leute, personen }),
       werkhof: w && w.werkhof_lat != null && w.werkhof_lon != null ? { lat: w.werkhof_lat, lon: w.werkhof_lon, adresse: w.werkhof_adresse } : null,
-    });
+    };
+    if (!p.error) merken(`karte|${tag}`, neu);
+    setDaten(neu);
     setFehler(p.error ? 'Einsätze konnten nicht geladen werden.' : null);
     setLaedt(false);
   }, [tag, anfrage]);

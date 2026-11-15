@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Plus } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
+import { gemerkt, merken } from '../../lib/merker';
 import { alle } from '../../lib/abfrage';
 import { einstellungen } from '../../lib/einstellungen';
 
@@ -14,7 +15,8 @@ const LEER: Kunde = { name: '', ansprechperson: '', email: '', telefon: '', prae
 export function Kunden() {
   const e = einstellungen();
   const regie = e.erfassung === 'regie';
-  const [liste, setListe] = useState<(Kunde & { id: string; baustellen: number })[]>([]);
+  // Zwischenspeicher (15.11.2026)
+  const [liste, setListe] = useState<(Kunde & { id: string; baustellen: number })[]>(() => gemerkt<(Kunde & { id: string; baustellen: number })[]>('verw|kunden') ?? []);
   const [bearbeitet, setBearbeitet] = useState<Kunde | null>(null);
   const [suche, setSuche] = useState('');
   const [fehler, setFehler] = useState('');
@@ -39,7 +41,9 @@ export function Kunden() {
     }
     const zaehler = new Map<string, number>();
     for (const r of baustellen) zaehler.set(r.kunde_id, (zaehler.get(r.kunde_id) ?? 0) + 1);
-    setListe(kunden.map((x) => ({ ...x, baustellen: zaehler.get(x.id) ?? 0 })));
+    const neu = kunden.map((x) => ({ ...x, baustellen: zaehler.get(x.id) ?? 0 }));
+    merken('verw|kunden', neu);
+    setListe(neu);
   }, []);
   useEffect(() => { void laden(); }, [laden]);
 

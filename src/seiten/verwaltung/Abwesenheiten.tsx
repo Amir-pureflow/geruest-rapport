@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { CalendarOff, TriangleAlert, Users } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
+import { gemerkt, merken } from '../../lib/merker';
 import { alle, stuecke } from '../../lib/abfrage';
 import { seitenFuer, useAnsicht } from '../../lib/ansicht';
 import { useNeuesteAnfrage } from '../../lib/auffrischen';
@@ -119,8 +120,10 @@ export function Abwesenheiten() {
   const [meldung, setMeldung] = useState<{ text: string; art: 'ok' | 'fehler' } | null>(null);
 
   const [monat, setMonat] = useState(() => { const d = new Date(); return new Date(d.getFullYear(), d.getMonth(), 1, 12); });
-  const [liste, setListe] = useState<Abwesenheit[]>([]);
-  const [laedt, setLaedt] = useState(true);
+  // Zwischenspeicher je Monat (15.11.2026): schon gesehene Monate stehen sofort da
+  const ersterSchluessel = () => { const d = new Date(); return `verw|abw|${iso(new Date(d.getFullYear(), d.getMonth(), 1, 12))}`; };
+  const [liste, setListe] = useState<Abwesenheit[]>(() => gemerkt<Abwesenheit[]>(ersterSchluessel()) ?? []);
+  const [laedt, setLaedt] = useState(() => !gemerkt(ersterSchluessel()));
   const [fehler, setFehler] = useState('');
   const [frage, setFrage] = useState<Frage<Block> | null>(null);
   const [planFrage, setPlanFrage] = useState<PlanFrage | null>(null);
@@ -143,11 +146,14 @@ export function Abwesenheiten() {
     if (!supabase) return;
     const c = supabase;
     const aktuell = anfrage();
-    setLaedt(true);
+    const schluessel = `verw|abw|${monatVon}`;
+    const vorher = gemerkt<Abwesenheit[]>(schluessel);
+    if (vorher) { setListe(vorher); setLaedt(false); } else setLaedt(true);
     try {
       const daten = await alle<Abwesenheit>((von, bis) => c.from('abwesenheit').select('id,mitarbeiter_id,datum,art,minuten').gte('datum', monatVon).lte('datum', monatBis).order('datum').order('id').range(von, bis));
       if (!aktuell()) return;
       setFehler('');
+      merken(schluessel, daten);
       setListe(daten);
     } catch (e) {
       if (!aktuell()) return;
