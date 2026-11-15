@@ -52,8 +52,10 @@ interface FreierTag {
   grund: string;
   naechster: Date;
   einsaetze: { teamId: string; team: string; chef: string | null; konto_nr: string | null; baustelle: string | null; bis: string }[];
-  /** Aktive Teams ohne Einsatz am nächsten Arbeitstag — «am Montag frei · planen ›» */
+  /** Aktive Teams ohne Einsatz am nächsten Arbeitstag */
   freieTeams: { teamId: string; team: string; chef: string | null }[];
+  /** Die nächsten 3 Arbeitstage mit Einsätzen und freien Teams (Konzept B «Schönes Wochenende», 15.11.2026) */
+  tage: { datum: Date; einsaetze: FreierTag['einsaetze']; freieTeams: FreierTag['freieTeams'] }[];
 }
 const WOCHENTAG = ['Sonntag', 'Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag'];
 
@@ -189,27 +191,32 @@ function StartBauf() {
     const grundFrei = freiGrund(heute);
     if (grundFrei && gemeldet.size === 0) {
       const naechster = naechsterArbeitstag(heute);
+      const tageDaten = [naechster];
+      while (tageDaten.length < 3) tageDaten.push(naechsterArbeitstag(tageDaten[tageDaten.length - 1]));
       const nIso = iso(naechster);
+      const letzterIso = iso(tageDaten[tageDaten.length - 1]);
       const [{ data: plan }, { data: alleTeams }] = await Promise.all([
         c.from('jahresplan')
-          .select('team_id,bis,team:team_id(bezeichnung,aktiv,chefmonteur:chefmonteur_id(name)),baustelle:baustelle_id(konto_nr,bezeichnung)')
-          .lte('von', nIso).gte('bis', nIso),
+          .select('team_id,von,bis,team:team_id(bezeichnung,aktiv,chefmonteur:chefmonteur_id(name)),baustelle:baustelle_id(konto_nr,bezeichnung)')
+          .lte('von', letzterIso).gte('bis', nIso),
         c.from('team').select('id,bezeichnung,chefmonteur:chefmonteur_id(name)').eq('aktiv', true),
       ]);
       if (!aktuell()) return;
-      type PlanZeile = { team_id: string; bis: string; team: { bezeichnung: string; aktiv: boolean; chefmonteur: { name: string } | null } | null; baustelle: { konto_nr: string; bezeichnung: string | null } | null };
+      type PlanZeile = { team_id: string; von: string; bis: string; team: { bezeichnung: string; aktiv: boolean; chefmonteur: { name: string } | null } | null; baustelle: { konto_nr: string; bezeichnung: string | null } | null };
       type TeamZeile = { id: string; bezeichnung: string; chefmonteur: { name: string } | null };
       const nachName = <T extends { team: string }>(a: T, b: T) => a.team.localeCompare(b.team, 'de', { numeric: true });
-      const einsaetze = ((plan ?? []) as unknown as PlanZeile[])
-        .filter((z) => z.team?.aktiv !== false)
-        .map((z) => ({ teamId: z.team_id, team: z.team?.bezeichnung ?? 'Team', chef: z.team?.chefmonteur?.name ?? null, konto_nr: z.baustelle?.konto_nr ?? null, baustelle: z.baustelle?.bezeichnung ?? null, bis: z.bis }))
-        .sort(nachName);
-      const mitEinsatz = new Set(einsaetze.map((e) => e.teamId));
-      const freieTeams = ((alleTeams ?? []) as unknown as TeamZeile[])
-        .filter((t) => !mitEinsatz.has(t.id))
-        .map((t) => ({ teamId: t.id, team: t.bezeichnung, chef: t.chefmonteur?.name ?? null }))
-        .sort(nachName);
-      setFrei({ grund: grundFrei, naechster, einsaetze, freieTeams });
+      const planZeilen = ((plan ?? []) as unknown as PlanZeile[]).filter((z) => z.team?.aktiv !== false);
+      const teamListe = ((alleTeams ?? []) as unknown as TeamZeile[]).map((t) => ({ teamId: t.id, team: t.bezeichnung, chef: t.chefmonteur?.name ?? null })).sort(nachName);
+      const tage = tageDaten.map((datum) => {
+        const dIso = iso(datum);
+        const einsaetze = planZeilen
+          .filter((z) => z.von <= dIso && z.bis >= dIso)
+          .map((z) => ({ teamId: z.team_id, team: z.team?.bezeichnung ?? 'Team', chef: z.team?.chefmonteur?.name ?? null, konto_nr: z.baustelle?.konto_nr ?? null, baustelle: z.baustelle?.bezeichnung ?? null, bis: z.bis }))
+          .sort(nachName);
+        const mitEinsatz = new Set(einsaetze.map((e) => e.teamId));
+        return { datum, einsaetze, freieTeams: teamListe.filter((t) => !mitEinsatz.has(t.teamId)) };
+      });
+      setFrei({ grund: grundFrei, naechster, einsaetze: tage[0].einsaetze, freieTeams: tage[0].freieTeams, tage });
     } else {
       setFrei(null);
     }
@@ -295,20 +302,12 @@ function StartBauf() {
               Woche {kw(heute)} · {kurz(montag(heute))} bis {kurz(addTage(montag(heute), 6))}
             </p>
           </div>
-          <div className="flex shrink-0 items-center gap-3">
-            <span className="flex items-center gap-1.5 font-mono text-xs text-ink3">
-              <span className={'inline-block h-2 w-2 rounded-full ' + (supabase ? 'bg-good' : 'bg-ink3')} />
-              {supabase ? 'verbunden' : 'offline-Modus'}
-            </span>
-            {/* Die eine Aktion — und nur, wenn es etwas zu tun gibt (Firmenrot, siehe index.css) */}
-            {regie || !k || k.aelterOffen === 0 ? (
-              <Link to="/zusatzauftrag" className="cta cta-accent hidden w-auto px-5 py-2.5 md:block">+ Zusatzarbeit</Link>
-            ) : (
-              <Link to={`/cockpit?woche=${iso(freigabeMo)}`} className="cta hidden w-auto px-5 py-2.5 md:block">
-                Vorwoche prüfen
-              </Link>
-            )}
-          </div>
+          {/* «verbunden» und «+ Zusatzarbeit» sind weg (Amir 15.11.2026). Bleibt nur der Hinweis auf offene Vorwochen. */}
+          {!regie && k && k.aelterOffen > 0 && (
+            <Link to={`/cockpit?woche=${iso(freigabeMo)}`} className="cta hidden w-auto shrink-0 px-5 py-2.5 md:block">
+              Vorwoche prüfen
+            </Link>
+          )}
         </header>
 
         {/* Handy: der Anruf ist das Dringendste — der Kunde ist noch am Telefon (seit 08.10. auch ohne Regie) */}
@@ -477,85 +476,76 @@ function StartBauf() {
 const wt = (d: Date) => WOCHENTAG[d.getDay()].slice(0, 2);
 
 /**
- * Statt «Teams heute» an einem freien Tag (Konzept A «Kalenderblatt», Amir 15.11.2026 — vorher ein grauer Kasten):
- * Kalenderblatt des nächsten Arbeitstags, ein Satz, und je Team eine Karte mit Baustelle und wie lange der Einsatz
- * dauert. Teams ohne Einsatz hell umrandet mit «planen ›». Ab 7 Einsätzen die ersten 6 und «+ n weitere».
+ * Statt «Teams heute» an einem freien Tag (Konzept B «Schönes Wochenende», Amir 15.11.2026 — vorher ein grauer
+ * Kasten): links ein Gruss, rechts die nächsten 3 Arbeitstage. Ein Team: Team und Baustelle. Mehrere: Avatare,
+ * «4 Teams · 4 Baustellen» und die Baustellen kurz. Fehlt ein Team, rechts orange «Team 5 frei · planen ›».
  */
 function FreierTagKarte({ frei }: { frei: FreierTag }) {
-  const n = frei.naechster;
-  const nIso = iso(n);
-  const teams = new Set(frei.einsaetze.map((e) => e.teamId)).size;
-  const baustellen = new Set(frei.einsaetze.map((e) => e.konto_nr ?? e.baustelle)).size;
-  const MAX = 6;
-  const sichtbar = frei.einsaetze.slice(0, MAX);
-  const platz = Math.max(0, MAX - sichtbar.length);
-  const freieSichtbar = frei.freieTeams.slice(0, platz);
-  const rest = frei.einsaetze.length - sichtbar.length + frei.freieTeams.length - freieSichtbar.length;
-  const dauer = (bis: string) => {
-    if (bis === nIso) return `nur ${wt(n)}`;
-    const ende = new Date(bis + 'T12:00:00');
-    return (ende.getTime() - n.getTime()) / 86400000 <= 6 ? `${wt(n)} – ${wt(ende)}` : `bis ${kurz(ende)}`;
-  };
-  const avatar = (id: string, chef: string | null, team: string) => (
-    <span className={'grid h-9 w-9 shrink-0 place-items-center rounded-full text-[12.5px] font-bold ' + teamFarbe(id)}>{initialen(chef) ?? teamKuerzel(team)}</span>
+  const avatar = (id: string, chef: string | null, team: string, klein = false) => (
+    <span className={'grid shrink-0 place-items-center rounded-full font-bold ' + (klein ? 'h-[30px] w-[30px] text-[10px] ring-[2.5px] ring-good-soft' : 'h-[30px] w-[30px] text-[11px]') + ' ' + teamFarbe(id)}>{initialen(chef) ?? teamKuerzel(team)}</span>
   );
-  const satz = teams === 0
-    ? 'Heute muss niemand melden. Für ' + WOCHENTAG[n.getDay()] + ' ist noch nichts geplant.'
-    : `Heute muss niemand melden. Am ${WOCHENTAG[n.getDay()]}: ${teams === 1 ? '1 Team' : `${teams} Teams`}${teams > 1 ? ` auf ${baustellen} ${baustellen === 1 ? 'Baustelle' : 'Baustellen'}` : ''}${frei.freieTeams.length > 0 ? ` · ${frei.freieTeams.length} ${frei.freieTeams.length === 1 ? 'Team' : 'Teams'} frei` : ''}`;
+  const kurzOrt = (b: string | null) => (b ?? 'Baustelle').replace(/^(Wohnüberbauung|Neubau|Fassade|Dachsanierung|Sanierung|Umbau)\s+/i, '');
+  const gruss = frei.grund === 'Wochenende'
+    ? <>Schönes<br /><em className="not-italic text-amber-deep">Wochenende.</em></>
+    : <>Heute frei:<br /><em className="not-italic text-amber-deep">{frei.grund}.</em></>;
   return (
     <section className="card">
       <div className="flex items-start justify-between gap-4">
         <p className="lbl mb-0">Teams heute</p>
         <Link to="/planung" className="shrink-0 text-xs font-semibold text-steel">Planung ›</Link>
       </div>
-      <div className="mt-3 flex items-center gap-5">
-        <div className="w-[84px] shrink-0 overflow-hidden rounded-[18px] bg-white text-center shadow-[0_10px_24px_-14px_rgb(43_108_176/0.55),0_0_0_1px_#d3e3f6]" aria-hidden="true">
-          <div className="bg-gradient-to-b from-[#3b82d6] to-steel py-1.5 text-[10.5px] font-extrabold uppercase tracking-[0.08em] text-white">{WOCHENTAG[n.getDay()]}</div>
-          <div className="pt-1 font-display text-[34px] font-bold leading-[1.05] tracking-tight text-ink">{n.getDate()}</div>
-          <div className="pb-2 text-[10.5px] font-semibold text-ink3">{MONATE[n.getMonth()]}</div>
+      <div className="mt-3 grid overflow-hidden rounded-[18px] shadow-[0_0_0_1px_var(--color-line)] md:grid-cols-[0.8fr_1.5fr]">
+        <div className="bg-[radial-gradient(120%_120%_at_0%_0%,#fff4dc_0,#fff_60%)] p-5">
+          <p className="font-display text-[26px] font-bold leading-[1.1] tracking-tight text-ink md:text-[28px]">{gruss}</p>
+          <p className="mt-2 text-[13.5px] leading-relaxed text-ink2">Heute ist kein Team eingeplant — niemand muss melden. So geht es weiter:</p>
         </div>
-        <div className="min-w-0">
-          <p className="font-display text-[19px] font-semibold leading-tight text-ink">{frei.grund} — {WOCHENTAG[n.getDay()]} geht es weiter</p>
-          <p className="mt-1 text-[13.5px] text-ink3">{satz}</p>
-        </div>
-      </div>
-      {(sichtbar.length > 0 || freieSichtbar.length > 0) && (
-        <ul className="mt-4 grid grid-cols-1 gap-2.5 md:grid-cols-2">
-          {sichtbar.map((e, i) => (
-            <li key={e.teamId + i} className="flex min-w-0 items-center gap-3 rounded-[16px] bg-gradient-to-r from-[#f3f8fe] to-white px-3.5 py-3 shadow-[0_0_0_1px_#dce8f6]">
-              {avatar(e.teamId, e.chef, e.team)}
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-sm"><b className="font-semibold text-ink">{e.team}</b>{e.chef && <span className="text-ink3"> · {kurzName(e.chef)}</span>}</p>
-                <p className="mt-0.5 flex min-w-0 items-baseline gap-1.5 text-sm">
-                  {e.konto_nr && <span className="knr shrink-0">{e.konto_nr}</span>}
-                  <span className="line-clamp-2 min-w-0 font-medium leading-snug text-ink" title={e.baustelle ?? undefined}>{e.baustelle ?? 'Baustelle'}</span>
-                </p>
-              </div>
-              <span className="shrink-0 whitespace-nowrap rounded-full bg-steel-soft px-2.5 py-0.5 text-xs font-bold text-steel">{dauer(e.bis)}</span>
-            </li>
-          ))}
-          {freieSichtbar.map((t) => (
-            <li key={t.teamId} className="min-w-0">
-              <Link to="/planung" className="flex items-center gap-3 rounded-[16px] px-3.5 py-3 shadow-[inset_0_0_0_1.5px_#e3e0da] transition hover:shadow-[inset_0_0_0_1.5px_#c9d9ee]">
-                <span className="opacity-55">{avatar(t.teamId, t.chef, t.team)}</span>
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm"><b className="font-semibold text-ink2">{t.team}</b>{t.chef && <span className="text-ink3"> · {kurzName(t.chef)}</span>}</p>
-                  <p className="mt-0.5 text-[12.5px] text-ink3">am {WOCHENTAG[n.getDay()]} frei · noch nichts geplant <span className="font-bold text-steel">planen ›</span></p>
+        <ul className="divide-y divide-line/0 border-t border-line bg-white px-4 py-2 md:border-l md:border-t-0 md:px-5">
+          {frei.tage.map((tag) => {
+            const teams = [...new Map(tag.einsaetze.map((e) => [e.teamId, e])).values()];
+            const baustellen = [...new Map(tag.einsaetze.map((e) => [e.konto_nr ?? e.baustelle, e])).values()];
+            const freie = tag.freieTeams;
+            const luecke = freie.length === 0 ? null : freie.length === 1 ? `${freie[0].team} frei` : `${freie.length} frei`;
+            return (
+              <li key={iso(tag.datum)} className="grid grid-cols-[40px_minmax(0,1fr)] items-center gap-3 py-2">
+                <div className="text-center">
+                  <p className="text-[10.5px] font-bold uppercase text-ink3">{wt(tag.datum)}</p>
+                  <p className="font-display text-[20px] font-bold leading-none tracking-tight text-ink">{tag.datum.getDate()}</p>
                 </div>
-              </Link>
-            </li>
-          ))}
+                {teams.length === 0 ? (
+                  <Link to="/planung" className="rounded-[14px] px-3 py-2.5 text-[13px] text-ink3 shadow-[inset_0_0_0_1.5px_var(--color-line)]">
+                    noch nichts geplant · <span className="font-bold text-steel">planen ›</span>
+                  </Link>
+                ) : teams.length === 1 && freie.length === 0 ? (
+                  <div className="flex min-w-0 items-center gap-2.5 rounded-[14px] bg-good-soft px-3 py-2.5">
+                    {avatar(teams[0].teamId, teams[0].chef, teams[0].team)}
+                    <div className="min-w-0">
+                      <p className="text-sm font-semibold text-ink">{teams[0].team}</p>
+                      <p className="truncate text-[12.5px] text-ink2" title={teams[0].baustelle ?? undefined}>{teams[0].baustelle ?? 'Baustelle'}</p>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="min-w-0 rounded-[14px] bg-good-soft px-3 py-2.5">
+                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+                      <span className="flex">
+                        {teams.slice(0, 5).map((e, i) => <span key={e.teamId} className={i > 0 ? '-ml-1' : ''}>{avatar(e.teamId, e.chef, e.team, true)}</span>)}
+                      </span>
+                      <b className="whitespace-nowrap text-sm font-semibold text-ink">
+                        {teams.length} {teams.length === 1 ? 'Team' : 'Teams'} · {baustellen.length} {baustellen.length === 1 ? 'Baustelle' : 'Baustellen'}
+                      </b>
+                      {luecke && (
+                        <Link to="/planung" className="ml-auto whitespace-nowrap rounded-full bg-amber-soft px-2.5 py-0.5 text-[11.5px] font-bold text-amber-deep">
+                          {luecke} · planen ›
+                        </Link>
+                      )}
+                    </div>
+                    <p className="mt-1.5 line-clamp-2 text-[12px] leading-relaxed text-ink2">{baustellen.map((e) => kurzOrt(e.baustelle)).join(' · ')}</p>
+                  </div>
+                )}
+              </li>
+            );
+          })}
         </ul>
-      )}
-      {rest > 0 && (
-        <p className="mt-3 text-[13px] text-ink3">+ {rest} weitere · <Link to="/planung" className="font-semibold text-steel">Planung ›</Link></p>
-      )}
+      </div>
     </section>
   );
-}
-
-/** «Nikola Vaiti» → «N. Vaiti» */
-function kurzName(name: string): string {
-  const teile = name.trim().split(/\s+/);
-  return teile.length > 1 ? `${teile[0][0]}. ${teile.slice(1).join(' ')}` : name;
 }
