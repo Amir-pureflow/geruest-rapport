@@ -634,3 +634,41 @@
   background: #efece6;
   box-shadow: none;
 }
+
+/* Datums-Leiste (Konzept C «eine Leiste», Amir 15.11.2026): weiss, ‹ Titel › | Heute */
+.leiste {
+  border-radius: 14px;
+  background: #fff;
+  padding: 4px;
+  box-shadow: 0 0 0 1px var(--color-line), 0 6px 18px -12px rgb(40 30 20 / 0.35);
+}
+.leiste-pfeil {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  color: var(--color-ink2);
+  transition: background-color 0.15s;
+}
+.leiste-pfeil:hover:not(:disabled) {
+  background: #f4f2ee;
+  color: var(--color-ink);
+}
+.leiste-heute {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 36px;
+  padding: 0 12px;
+  border-radius: 10px;
+  font-size: 13.5px;
+  font-weight: 600;
+  transition: background-color 0.15s;
+}
+.leiste-heute:hover:not(:disabled) {
+  background: #f4f2ee;
+}
+.leiste-heute:disabled {
+  cursor: default;
+}

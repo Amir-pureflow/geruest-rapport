@@ -63,9 +63,9 @@ export function Schalter({ an, aendern, text }: { an: boolean; aendern: (an: boo
 }
 
 /**
- * Zeitraum blättern (Konzept A «passend zum Schieber», Amir 15.11.2026): helles Band wie die Umschalter, Pfeile aussen,
- * der Zeitraum als weisses Feld in der Mitte. «KW 46 · 9.11. – 15.11.» — der Teil nach « · » steht grau.
- * Mit `heute`: «Heute» im Band, rot, sobald man nicht beim heutigen Zeitraum ist.
+ * Zeitraum blättern (Konzept C «eine Leiste», Amir 15.11.2026): eine weisse Leiste ‹ Titel › | Heute.
+ * «KW 46 · 9.11. – 15.11.» — der Teil nach « · » steht grau. Mit `heute`: «Heute» am Ende der Leiste; ist man nicht
+ * beim heutigen Zeitraum, bekommt es einen roten Punkt («hier zurück»).
  */
 export function Blaettern({
   titel,
@@ -75,7 +75,7 @@ export function Blaettern({
   labelVor = 'Weiter',
   vorGesperrt = false,
   heute,
-  breite = 'min-w-[170px]',
+  breite = 'min-w-[150px]',
 }: {
   titel: string;
   zurueck: () => void;
@@ -89,18 +89,22 @@ export function Blaettern({
 }) {
   const [haupt, ...rest] = titel.split(' · ');
   return (
-    <div className="schiene inline-flex items-center">
-      <button type="button" aria-label={labelZurueck} onClick={zurueck} className="grid h-9 w-9 place-items-center"><ChevronLeft size={17} /></button>
-      <span className={'flex h-9 items-center justify-center gap-2 whitespace-nowrap rounded-[10px] bg-white px-4 text-sm font-bold tabular-nums text-ink shadow-[0_1px_2px_rgb(26_25_23/0.08),0_3px_10px_-4px_rgb(26_25_23/0.18)] ' + breite}>
+    <div className="leiste inline-flex items-center">
+      <button type="button" aria-label={labelZurueck} onClick={zurueck} className="leiste-pfeil"><ChevronLeft size={17} /></button>
+      <span className={'flex items-center justify-center gap-2 whitespace-nowrap px-2 text-sm font-bold tabular-nums text-ink ' + breite}>
         {haupt}
         {rest.length > 0 && <span className="font-medium text-ink3">{rest.join(' · ')}</span>}
       </span>
-      <button type="button" aria-label={labelVor} onClick={vor} disabled={vorGesperrt} className="grid h-9 w-9 place-items-center disabled:opacity-30"><ChevronRight size={17} /></button>
+      <button type="button" aria-label={labelVor} onClick={vor} disabled={vorGesperrt} className="leiste-pfeil disabled:opacity-30"><ChevronRight size={17} /></button>
       {heute && (
-        <button type="button" onClick={heute.los} disabled={heute.da}
-          className={'ml-1 h-9 rounded-[10px] px-3.5 text-[13.5px] font-semibold disabled:cursor-default ' + (heute.da ? '!text-ink3' : '!text-accent-deep')}>
-          Heute
-        </button>
+        <>
+          <span className="mx-1 h-[22px] w-px bg-line" aria-hidden="true" />
+          <button type="button" onClick={heute.los} disabled={heute.da}
+            className={'leiste-heute ' + (heute.da ? 'text-ink2' : 'text-accent-deep')}>
+            {!heute.da && <span className="h-1.5 w-1.5 rounded-full bg-accent shadow-[0_0_0_3px_rgb(224_48_30/0.15)]" aria-hidden="true" />}
+            Heute
+          </button>
+        </>
       )}
     </div>
   );
