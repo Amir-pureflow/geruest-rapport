@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { AlarmClock, Banknote, CalendarCheck, PhoneCall, Send, Users } from 'lucide-react';
 import { freiGrund, naechsterArbeitstag } from '../lib/feiertage';
+import { gemerkt, merken } from '../lib/merker';
 import { initialen, teamFarbe, teamKuerzel } from '../lib/teamStil';
 import { Shell } from '../ui/Shell';
 import { supabase } from '../lib/supabase';
@@ -56,6 +57,11 @@ interface FreierTag {
   freieTeams: { teamId: string; team: string; chef: string | null }[];
   /** Die nächsten 3 Arbeitstage mit Einsätzen und freien Teams (Konzept B «Schönes Wochenende», 15.11.2026) */
   tage: { datum: Date; einsaetze: FreierTag['einsaetze']; freieTeams: FreierTag['freieTeams'] }[];
+}
+/** Was die Startseite im Zwischenspeicher hält */
+interface StartDaten {
+  k: Kennzahlen; rz: RegieZahlen | null; tr: TrichterDaten | null; woche: WochenTag[] | null;
+  stand: TeamStand[] | null; frei: FreierTag | null; freigabeMo: Date;
 }
 const WOCHENTAG = ['Sonntag', 'Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag'];
 
@@ -127,18 +133,25 @@ export function Start() {
  */
 function StartBauf() {
   const regie = einstellungen().erfassung === 'regie';
-  const [k, setK] = useState<Kennzahlen | null>(null);
-  const [rz, setRz] = useState<RegieZahlen | null>(null);
-  const [tr, setTr] = useState<TrichterDaten | null>(null);
+  // Zwischenspeicher (15.11.2026): zurück auf die Startseite = sofort der letzte Stand, geladen wird still dahinter
+  const schluessel = `start|${iso(new Date())}|${regie ? 'r' : 'w'}`;
+  const [vorher] = useState(() => gemerkt<StartDaten>(schluessel));
+  const [k, setK] = useState<Kennzahlen | null>(vorher?.k ?? null);
+  const [rz, setRz] = useState<RegieZahlen | null>(vorher?.rz ?? null);
+  const [tr, setTr] = useState<TrichterDaten | null>(vorher?.tr ?? null);
   const [wartend, setWartend] = useState<{ anzahl: number; grund?: string } | null>(null);
   const [fehler, setFehler] = useState('');
-  const [woche, setWoche] = useState<WochenTag[] | null>(null);
-  const [stand, setStand] = useState<TeamStand[] | null>(null);
-  const [frei, setFrei] = useState<FreierTag | null>(null);
+  const [woche, setWoche] = useState<WochenTag[] | null>(vorher?.woche ?? null);
+  const [stand, setStand] = useState<TeamStand[] | null>(vorher?.stand ?? null);
+  const [frei, setFrei] = useState<FreierTag | null>(vorher?.frei ?? null);
   const heute = new Date();
   const vorwoche = iso(addTage(montag(heute), -7));
   // Montag der Woche, die in der Freigabe-Karte steht — automatisch die älteste mit offenen Freigaben
-  const [freigabeMo, setFreigabeMo] = useState<Date>(() => montag(new Date()));
+  const [freigabeMo, setFreigabeMo] = useState<Date>(() => vorher?.freigabeMo ?? montag(new Date()));
+  // Jeden neuen Stand merken
+  useEffect(() => {
+    if (k) merken<StartDaten>(schluessel, { k, rz, tr, woche, stand, frei, freigabeMo });
+  }, [schluessel, k, rz, tr, woche, stand, frei, freigabeMo]);
   const anfrage = useNeuesteAnfrage();
 
   /**

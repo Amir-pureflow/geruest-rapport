@@ -230,11 +230,11 @@ export function WochenTeams({
     <div className="@container">
       <div className="flex min-w-0 flex-col items-start gap-4 sm:flex-row sm:items-center sm:gap-6">
         {/* Grosser Ring */}
-        <div className="grid h-[112px] w-[112px] shrink-0 place-items-center rounded-full" style={{ background: ringVerlauf(frei, hinweis, offen - hinweis, gesamt) }}>
-          <div className="grid h-[88px] w-[88px] place-items-center rounded-full bg-white text-center">
+        <div className="grid h-[132px] w-[132px] shrink-0 place-items-center rounded-full" style={{ background: ringVerlauf(frei, hinweis, offen - hinweis, gesamt) }}>
+          <div className="grid h-[104px] w-[104px] place-items-center rounded-full bg-white text-center">
             <div>
-              <p className="font-display text-[24px] font-bold leading-none tabular-nums text-ink">{frei}/{gesamt}</p>
-              <p className="mt-1 text-[10.5px] text-ink3">freigegeben</p>
+              <p className="font-display text-[28px] font-bold leading-none tabular-nums text-ink">{frei}/{gesamt}</p>
+              <p className="mt-1 text-[11.5px] text-ink3">freigegeben</p>
             </div>
           </div>
         </div>
@@ -243,15 +243,15 @@ export function WochenTeams({
           <div className="flex flex-wrap items-start justify-between gap-x-3 gap-y-2">
           <div className="min-w-0">
           {offen > 0 ? (
-            <p className="font-display text-[20px] font-semibold leading-tight text-ink">
+            <p className="font-display text-[22px] font-semibold leading-tight text-ink">
               <span className="tabular-nums">{offen}</span> {einheit(offen)} {offen === 1 ? 'wartet' : 'warten'}
             </p>
           ) : (
-            <p className="flex items-center gap-2 font-display text-[20px] font-semibold leading-tight text-good-deep">
-              <Check size={20} strokeWidth={3} aria-hidden="true" /> Alles freigegeben
+            <p className="flex items-center gap-2 font-display text-[22px] font-semibold leading-tight text-good-deep">
+              <Check size={22} strokeWidth={3} aria-hidden="true" /> Alles freigegeben
             </p>
           )}
-          <p className="mt-1 text-[13px] text-ink3">{unter}</p>
+          <p className="mt-1 text-[14px] text-ink3">{unter}</p>
           </div>
           {offen > 0 && (
             <Link to={`/cockpit?woche=${woche}`} className="inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full bg-gradient-to-b from-[#2bb566] to-[#1a8a49] px-3.5 py-1.5 text-[13px] font-bold text-white shadow-[0_8px_18px_-8px_rgb(31_157_85/0.7)] transition hover:brightness-105">
@@ -261,7 +261,7 @@ export function WochenTeams({
           </div>
 
           {/* Tage als kleine Ringe */}
-          <ul className="mt-3 flex gap-1.5 sm:gap-2.5">
+          <ul className="mt-3.5 flex gap-1 sm:gap-2.5">
             {sichtbar.map((t) => {
               const leer = t.offen + t.freigegeben === 0;
               const fertig = !leer && t.offen === 0;
@@ -270,13 +270,13 @@ export function WochenTeams({
               const titel = `${t.label} ${t.datum} · ` + (leer ? 'keine Meldung' : fertig ? `alle ${t.freigegeben} freigegeben` : `${t.offen} offen${h > 0 ? ` (${h} mit Überstunden)` : ''}${t.freigegeben > 0 ? ` · ${t.freigegeben} freigegeben` : ''}`);
               return (
                 <li key={t.label}>
-                  <Link to={t.zu} title={titel} aria-label={titel} className="flex w-[40px] flex-col items-center gap-1 transition hover:-translate-y-px">
-                    <span className="grid h-[34px] w-[34px] place-items-center rounded-full" style={{ background: leer ? FARBE.leer : ringVerlauf(t.freigegeben, h, t.offen - h, n) }}>
-                      <span className={'grid h-[27px] w-[27px] place-items-center rounded-full text-[10.5px] font-bold tabular-nums ' + (fertig ? 'bg-good text-white' : 'bg-white ' + (leer ? 'text-ink3/60' : h > 0 ? 'text-amber-deep' : 'text-steel'))}>
-                        {leer ? '–' : fertig ? <Check size={13} strokeWidth={3} aria-hidden="true" /> : einTeam ? (h > 0 ? '!' : '·') : `${t.freigegeben}/${n}`}
+                  <Link to={t.zu} title={titel} aria-label={titel} className="flex w-[46px] flex-col items-center gap-1 transition hover:-translate-y-px">
+                    <span className="grid h-[40px] w-[40px] place-items-center rounded-full" style={{ background: leer ? FARBE.leer : ringVerlauf(t.freigegeben, h, t.offen - h, n) }}>
+                      <span className={'grid h-[32px] w-[32px] place-items-center rounded-full text-[11.5px] font-bold tabular-nums ' + (fertig ? 'bg-good text-white' : 'bg-white ' + (leer ? 'text-ink3/60' : h > 0 ? 'text-amber-deep' : 'text-steel'))}>
+                        {leer ? '–' : fertig ? <Check size={15} strokeWidth={3} aria-hidden="true" /> : einTeam ? (h > 0 ? '!' : '·') : `${t.freigegeben}/${n}`}
                       </span>
                     </span>
-                    <span className="text-[11px] font-semibold text-ink3">{t.label}</span>
+                    <span className="text-[12px] font-semibold text-ink3">{t.label}</span>
                   </Link>
                 </li>
               );

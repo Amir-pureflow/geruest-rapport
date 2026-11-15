@@ -15,6 +15,7 @@ import { einstellungen } from '../lib/einstellungen';
 import { formatChf } from '../lib/tarif';
 import { positionenAusEintraegen, summe as positionenSumme } from '../lib/regie';
 import { initialen, teamFarbe, teamKuerzel } from '../lib/teamStil';
+import { gemerkt, merken } from '../lib/merker';
 
 /**
  * Phase 3 — Wochenübersicht des Bauführers.
@@ -171,11 +172,13 @@ export function Cockpit() {
   const istVorwoche = iso(wochenStart) < iso(montag(new Date()));
   // Freigabe im Wochenrhythmus: das Wochenblatt wird am Wochenende abgegeben, der Bauführer prüft Mo/Di.
   // Solange die Woche läuft, gibt es keine Sammelfreigabe — Einzelfälle bleiben im Detail möglich.
-  const [eintraege, setEintraege] = useState<Eintrag[]>([]);
+  // Zwischenspeicher je Woche (15.11.2026): schon gesehene Wochen stehen sofort da, geladen wird still dahinter
+  const wochenSchluessel = (mo: Date) => `cockpit|${iso(mo)}|${regie ? 'r' : 'w'}`;
+  const [eintraege, setEintraege] = useState<Eintrag[]>(() => gemerkt<Eintrag[]>(wochenSchluessel(wochenStart)) ?? []);
   const [userId, setUserId] = useState<string | null>(null);
   // Freigeben und korrigieren tut der Bauführer — das Sekretariat schaut nur.
   const darfFreigeben = useAnsicht() === 'bauf';
-  const [laedt, setLaedt] = useState(true);
+  const [laedt, setLaedt] = useState(() => !gemerkt(wochenSchluessel(wochenStart)));
   const [ladeFehler, setLadeFehler] = useState('');
   // Rückmeldung nach Freigeben/Korrigieren — vorher passierte bei einem Klick manchmal wortlos nichts
   const [rueckmeldung, setRueckmeldung] = useState<{ text: string; art: 'ok' | 'fehler' } | null>(null);
@@ -215,9 +218,9 @@ export function Cockpit() {
     setTranskribiert((s) => { const n = new Set(s); n.delete(meldungId); return n; });
     void laden(true);
   }
-  const [teams, setTeams] = useState<Team[]>([]);
+  const [teams, setTeams] = useState<Team[]>(() => gemerkt<Team[]>('cockpit|teams') ?? []);
   /** Teams schon geladen? Vorher kein «Keine Teams angelegt» — das stand sonst kurz da, bis die Antwort kam */
-  const [teamsDa, setTeamsDa] = useState(false);
+  const [teamsDa, setTeamsDa] = useState(() => !!gemerkt('cockpit|teams'));
   const [teamFehler, setTeamFehler] = useState('');
   // Standard «Zu tun»: nur Teams mit Hinweis. Kommt man gezielt zu einem Team oder Tag (Tagesübersicht, Rapport,
   // Freigabe-Karte der Übersicht), alle zeigen.
@@ -252,7 +255,9 @@ export function Cockpit() {
     const { data, error } = await supabase.from('team').select('id,bezeichnung,aktiv,chefmonteur:chefmonteur_id(name)');
     if (error) { setTeamFehler(error.message); return; }
     setTeamFehler('');
-    setTeams((data as unknown as Team[]).sort((a, b) => a.bezeichnung.localeCompare(b.bezeichnung, 'de', { numeric: true })));
+    const sortiert = (data as unknown as Team[]).sort((a, b) => a.bezeichnung.localeCompare(b.bezeichnung, 'de', { numeric: true }));
+    merken('cockpit|teams', sortiert);
+    setTeams(sortiert);
     setTeamsDa(true);
   }, []);
   useEffect(() => { void teamsLaden(); }, [teamsLaden]);
@@ -273,6 +278,10 @@ export function Cockpit() {
   const laden = useCallback(async (still = false) => {
     if (!supabase) return;
     const aktuell = anfrage();
+    // Diese Woche schon einmal gesehen: sofort zeigen, still nachladen
+    const schluessel = `cockpit|${vonIso}|${regie ? 'r' : 'w'}`;
+    const vorher = gemerkt<Eintrag[]>(schluessel);
+    if (vorher && !still) { setEintraege(vorher); setLaedt(false); still = true; }
     if (!still) setLaedt(true);
     const c = supabase;
     // Transkript-Spalten kommen mit Migration 0009, Zeiten von–bis mit 0016, die dritte Spanne (Znüni-Abzug) mit 0029 —
@@ -307,6 +316,7 @@ export function Cockpit() {
       const z = await eintraegeLaden();
       if (!aktuell()) return;
       setLadeFehler('');
+      merken(schluessel, z);
       setEintraege(z);
     } catch (e) {
       if (!aktuell()) return;

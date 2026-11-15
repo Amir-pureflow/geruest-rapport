@@ -12,6 +12,7 @@ import { Link } from 'react-router-dom';
 import { Camera, Check, CircleDashed, Languages, TriangleAlert } from 'lucide-react';
 import { Shell } from '../ui/Shell';
 import { Blaettern } from '../ui/Segment';
+import { gemerkt, merken } from '../lib/merker';
 import { supabase } from '../lib/supabase';
 import { addTage, iso, kurz, lang, stunden, WOCHENTAGE } from '../lib/datum';
 import { einstellungen, gelbePersonen } from '../lib/einstellungen';
@@ -87,10 +88,13 @@ function uhrzeit(ts: string): string {
 
 export function Tag() {
   const [datum, setDatum] = useState<Date>(() => new Date());
-  const [teams, setTeams] = useState<Team[]>([]);
-  const [meldungen, setMeldungen] = useState<Meldung[]>([]);
-  const [plan, setPlan] = useState<Plan[]>([]);
-  const [laedt, setLaedt] = useState(true);
+  // Zwischenspeicher je Tag (15.11.2026): ein schon gesehener Tag steht sofort da, geladen wird still dahinter
+  type TagDaten = { teams: Team[]; meldungen: Meldung[]; plan: Plan[] };
+  const anfangs = gemerkt<TagDaten>(`tag|${iso(new Date())}`);
+  const [teams, setTeams] = useState<Team[]>(anfangs?.teams ?? []);
+  const [meldungen, setMeldungen] = useState<Meldung[]>(anfangs?.meldungen ?? []);
+  const [plan, setPlan] = useState<Plan[]>(anfangs?.plan ?? []);
+  const [laedt, setLaedt] = useState(!anfangs);
   const [fehler, setFehler] = useState('');
   const tagIso = iso(datum);
   const heuteIso = iso(new Date());
@@ -101,6 +105,12 @@ export function Tag() {
     if (!supabase) return;
     const c = supabase;
     const aktuell = anfrage();
+    const schluessel = `tag|${tagIso}`;
+    const vorher = gemerkt<TagDaten>(schluessel);
+    if (vorher && !still) {
+      setTeams(vorher.teams); setMeldungen(vorher.meldungen); setPlan(vorher.plan); setLaedt(false);
+      still = true;
+    }
     if (!still) setLaedt(true);
     const [t, m, p] = await Promise.all([
       c.from('team').select('id,bezeichnung,fahrzeug,chefmonteur:chefmonteur_id(name)').eq('aktiv', true).order('bezeichnung'),
@@ -112,9 +122,15 @@ export function Tag() {
     setFehler(fehlerText);
     // Beim stillen Nachladen ohne Netz den bisherigen Stand stehen lassen, statt die Seite zu leeren
     if (still && fehlerText) return;
-    setTeams(((t.data ?? []) as unknown as Team[]).sort((a, b) => a.bezeichnung.localeCompare(b.bezeichnung, 'de', { numeric: true })));
-    setMeldungen((m.data ?? []) as unknown as Meldung[]);
-    setPlan((p.data ?? []) as unknown as Plan[]);
+    const neu: TagDaten = {
+      teams: ((t.data ?? []) as unknown as Team[]).sort((a, b) => a.bezeichnung.localeCompare(b.bezeichnung, 'de', { numeric: true })),
+      meldungen: (m.data ?? []) as unknown as Meldung[],
+      plan: (p.data ?? []) as unknown as Plan[],
+    };
+    if (!fehlerText) merken(schluessel, neu);
+    setTeams(neu.teams);
+    setMeldungen(neu.meldungen);
+    setPlan(neu.plan);
     setLaedt(false);
   }, [tagIso, anfrage]);
 

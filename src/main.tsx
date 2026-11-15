@@ -146,6 +146,8 @@ function NeueFassungBeiSeitenwechsel() {
   useEffect(() => {
     formularVerlassen();
     neueFassungVersuchen('navigation');
+    // Neue Seite beginnt oben (15.11.2026) — vorher blieb man mitten auf der alten Scrollhöhe
+    window.scrollTo(0, 0);
   }, [pathname]);
   return null;
 }

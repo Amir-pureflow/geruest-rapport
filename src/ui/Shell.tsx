@@ -404,7 +404,7 @@ export function Shell({
         </header>
         <main
           className={
-            'mx-auto w-full max-w-md px-5 py-6 ' +
+            'seite-rein mx-auto w-full max-w-md px-5 py-6 ' +
             (buero
               ? (schmal ? 'md:max-w-2xl md:px-8 md:py-8 lg:px-12 lg:py-12'
                 : breit ? 'md:max-w-none md:px-8 md:py-8 lg:px-10 lg:py-10 2xl:max-w-[1760px]'
