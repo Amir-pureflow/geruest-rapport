@@ -34,9 +34,18 @@ export function ersteWocheImMonat(erster: Date): Date {
   return addTage(mo, 3).getMonth() === erster.getMonth() ? mo : addTage(mo, 7);
 }
 
-/** Anker beim Umschalten: zur Woche → Montag, zum Monat → der 1. */
-export function ankerFuer(anker: Date, nach: ZeitraumArt): Date {
-  if (nach === 'woche') return anker.getDate() === 1 ? ersteWocheImMonat(anker) : montag(anker);
+/**
+ * Anker beim Umschalten: zur Woche → Montag, zum Monat → der 1.
+ * Monat → Woche im laufenden Monat: die aktuelle Woche (wie beim Öffnen), nicht die erste des Monats (15.11.2026, Amir:
+ * «wenn ich auf Woche gehe, komme ich eine Woche zurück» — November → KW 45 statt KW 46).
+ */
+export function ankerFuer(anker: Date, nach: ZeitraumArt, heute: Date = new Date()): Date {
+  if (nach === 'woche') {
+    if (anker.getDate() !== 1) return montag(anker);
+    const aktuell = ankerAusUrl(null, 'woche', heute);
+    const m = monatDerWoche(aktuell);
+    return m.getFullYear() === anker.getFullYear() && m.getMonth() === anker.getMonth() ? aktuell : ersteWocheImMonat(anker);
+  }
   return anker.getDate() === 1 ? monatsErster(anker) : monatDerWoche(anker);
 }
 

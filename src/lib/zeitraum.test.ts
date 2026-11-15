@@ -41,6 +41,16 @@ describe('zeitraum — Woche oder Monat im Export', () => {
     expect(iso(ankerFuer(tag('2026-10-14'), 'woche'))).toBe('2026-10-12');
   });
 
+  it('Monat → Woche im laufenden Monat: die aktuelle Woche, sonst die erste des Monats (15.11.2026)', () => {
+    const sonntag = tag('2026-11-15');
+    expect(iso(ankerFuer(tag('2026-11-01'), 'woche', sonntag))).toBe('2026-11-09');
+    // Montag und Dienstag: die Vorwoche, wie beim Öffnen der Seite
+    expect(iso(ankerFuer(tag('2026-11-01'), 'woche', tag('2026-11-17')))).toBe('2026-11-09');
+    // anderer Monat: erste Woche dieses Monats
+    expect(iso(ankerFuer(tag('2026-10-01'), 'woche', sonntag))).toBe('2026-09-28');
+    expect(iso(ankerFuer(tag('2026-12-01'), 'woche', sonntag))).toBe('2026-11-30');
+  });
+
   it('liest den Monat aus der Adresse: der 1., und alte Links mit einem Montag', () => {
     const heute = tag('2026-10-14');
     expect(iso(ankerAusUrl('2026-11-01', 'monat', heute))).toBe('2026-11-01');
