@@ -25,6 +25,8 @@ export interface WochenTag {
   hinweis: number;
   /** Stunden aller Meldungen des Tages, in Minuten */
   minuten: number;
+  /** davon Überstunden, in Minuten */
+  ueberMinuten: number;
   /** Stand je Team an diesem Tag — für die Zeilen je Team unter dem Ring */
   teams: { id: string; stand: 'frei' | 'offen' | 'hinweis' }[];
 }
@@ -46,6 +48,7 @@ export async function wochenTeams(c: SupabaseClient, bezug: Date): Promise<Woche
     offeneTeams: [],
     hinweis: 0,
     minuten: 0,
+    ueberMinuten: 0,
     teams: [],
   }));
   // Eine Woche in der Hochsaison: 75 Leute × 6 Tage, mit zwei Baustellen am Tag mehr als 1000 Einträge
@@ -79,6 +82,7 @@ export async function wochenTeams(c: SupabaseClient, bezug: Date): Promise<Woche
     const ueber = z.ueber_min ?? 0;
     tt.eintraege.push({ person: z.mitarbeiter_id ?? 'ohne', normal_min: normal, ueber_min: ueber });
     tage[index].minuten += normal + ueber;
+    tage[index].ueberMinuten += ueber;
     proTag[index].set(team, tt);
   }
   proTag.forEach((teams, i) => {

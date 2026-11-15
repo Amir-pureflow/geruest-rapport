@@ -373,7 +373,7 @@ function StartBauf() {
                     : k.wocheMeldungen > 0 ? 'diese Woche alles freigegeben' : 'diese Woche noch keine Meldungen'
                 }
                 icon={CalendarCheck}
-                farbe="gelb"
+                farbe="gruen"
               />
               <Kachel
                 zu={`/cockpit?woche=${vorwoche}`}
@@ -381,7 +381,7 @@ function StartBauf() {
                 wert={String(k.ueberOffen)}
                 label={k.ueberOffen > 0 ? `${k.ueberOffen === 1 ? 'Tag' : 'Tage'} aus der Vorwoche — Notiz lesen` : 'aus der Vorwoche offen'}
                 icon={AlarmClock}
-                farbe="rot"
+                farbe="gelb"
               />
             </div>
 

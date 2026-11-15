@@ -186,7 +186,7 @@ export function WochenTeams({
   woche,
   teamNamen,
 }: {
-  tage: { label: string; offen: number; freigegeben: number; datum: string; offeneTeams?: string[]; hinweis?: number; minuten?: number; teams?: { id: string; stand: TagStand }[] }[];
+  tage: { label: string; offen: number; freigegeben: number; datum: string; offeneTeams?: string[]; hinweis?: number; minuten?: number; ueberMinuten?: number; teams?: { id: string; stand: TagStand }[] }[];
   /**
    * Montag der Woche (ISO). Jeder Tag öffnet die Wochenübersicht mit diesem Tag markiert (`?woche&tag`, 08.10.2026).
    * Ist an dem Tag etwas offen, nur dorthin (25.10.2026): ein offenes Team → dessen Tag aufgeklappt (`&team`),
@@ -211,21 +211,23 @@ export function WochenTeams({
   const frei = tage.reduce((s, t) => s + t.freigegeben, 0);
   const gesamt = offen + frei;
   const minuten = tage.reduce((s, t) => s + (t.minuten ?? 0), 0);
+  const ueberMinuten = tage.reduce((s, t) => s + (t.ueberMinuten ?? 0), 0);
   if (gesamt === 0) return <LeerHinweis text="In dieser Woche hat noch kein Team gemeldet." />;
 
   const teamIds = [...new Set(tage.flatMap((t) => (t.teams ?? []).map((x) => x.id)))].filter((id) => id !== 'ohne-team');
   const einTeam = teamIds.length <= 1;
   const einheit = (n: number) => (einTeam ? (n === 1 ? 'Tag' : 'Tage') : n === 1 ? 'Meldung' : 'Meldungen');
   const ohneHinweis = offen - hinweis;
+  // Stunden stehen rechts in der Wochenbilanz — hier nur, was zu tun ist (Amir 15.11.2026: «rechts ist es leer»)
   const unter = offen === 0
-    ? `${stunden(minuten)} h · nichts mehr zu tun`
-    : [hinweis > 0 && `${hinweis} mit Überstunden — Notiz lesen`, `${stunden(minuten)} h`].filter(Boolean).join(' · ');
+    ? 'nichts mehr zu tun'
+    : hinweis > 0 ? `${hinweis} mit Überstunden — Notiz lesen` : `${ohneHinweis} ohne Hinweis — direkt freigeben`;
   const namen = (id: string) => teamNamen?.get(id) ?? 'Team';
   const teamsSortiert = [...teamIds].sort((a, b) => namen(a).localeCompare(namen(b), 'de', { numeric: true }));
   const spalten = `minmax(0,140px) repeat(${sichtbar.length}, 24px) minmax(0,1fr)`;
 
   return (
-    <div>
+    <div className="@container">
       <div className="flex min-w-0 flex-col items-start gap-4 sm:flex-row sm:items-center sm:gap-6">
         {/* Grosser Ring */}
         <div className="grid h-[112px] w-[112px] shrink-0 place-items-center rounded-full" style={{ background: ringVerlauf(frei, hinweis, offen - hinweis, gesamt) }}>
@@ -282,6 +284,21 @@ export function WochenTeams({
           </ul>
         </div>
 
+        {/* Wochenbilanz rechts (ab Tablet) — füllt die Karte und zeigt die Woche in Zahlen */}
+        <dl className="hidden min-w-[170px] shrink-0 grid-cols-1 gap-3 self-stretch border-l border-line pl-6 @2xl:grid">
+          <div>
+            <dt className="text-[11px] font-semibold uppercase tracking-wide text-ink3">Stunden</dt>
+            <dd className="font-display text-[22px] font-bold leading-tight tabular-nums text-ink">{stunden(minuten)} h</dd>
+          </div>
+          <div>
+            <dt className="text-[11px] font-semibold uppercase tracking-wide text-ink3">Überstunden</dt>
+            <dd className={'font-display text-[22px] font-bold leading-tight tabular-nums ' + (ueberMinuten > 0 ? 'text-amber-deep' : 'text-ink3')}>{stunden(ueberMinuten)} h</dd>
+          </div>
+          <div>
+            <dt className="text-[11px] font-semibold uppercase tracking-wide text-ink3">{einTeam ? 'Tage' : 'Meldungen'}</dt>
+            <dd className="font-display text-[22px] font-bold leading-tight tabular-nums text-ink">{gesamt}</dd>
+          </div>
+        </dl>
       </div>
 
       {/* Mehrere Teams und noch etwas offen: je Team eine Reihe Punkte */}
