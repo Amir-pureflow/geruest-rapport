@@ -46,9 +46,9 @@ export function Verwaltung() {
           <p className="mt-1 text-sm text-ink3">Mitarbeitende, Teams, Abwesenheiten, Kunden und Baustellen — das, was die App braucht, bevor sie mit echten Leuten läuft.</p>
         </header>
         <div className="-mx-1 overflow-x-auto px-1 pb-1">
-          <div className="inline-flex rounded-full border border-ink/10 bg-white p-1 shadow-[0_1px_2px_rgb(17_17_19/0.06)]" role="tablist">
+          <div className="inline-flex schiene" role="tablist">
           {tabs.map(([t, label]) => (
-            <button key={t} type="button" role="tab" aria-selected={tab === t} onClick={() => wechseln(t)} className={'whitespace-nowrap rounded-full px-4 py-1.5 text-sm font-semibold transition ' + (tab === t ? 'bg-ink text-white shadow-sm' : 'text-ink2 hover:text-ink')}>
+            <button key={t} type="button" role="tab" aria-selected={tab === t} onClick={() => wechseln(t)} className={'whitespace-nowrap rounded-full px-4 py-1.5 text-sm font-semibold transition ' + (tab === t ? 'schiene-an' : '')}>
               {label}
             </button>
           ))}

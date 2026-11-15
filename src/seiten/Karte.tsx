@@ -195,10 +195,10 @@ export function Karte() {
               <Landkarte punkte={sichtbar} werkhof={daten?.werkhof ?? null} wartet={!daten && laedt} auswahl={auswahl} onAuswahl={(id) => setAuswahl(id)} luftbild={luftbild}
                 blase={gewaehlt && <TeamBlase punkt={gewaehlt} tag={tag} />} onSchliessen={() => setAuswahl(null)} />
             </Suspense>
-            <div className="absolute right-3 top-3 z-[500] flex rounded-full border border-ink/10 bg-white p-1 shadow-[0_2px_8px_-2px_rgb(17_17_19/0.25)]" role="group" aria-label="Kartenart">
+            <div className="absolute right-3 top-3 z-[500] flex schiene schiene-weiss shadow-[0_2px_8px_-2px_rgb(17_17_19/0.25)]" role="group" aria-label="Kartenart">
               {([false, true] as const).map((lb) => (
                 <button key={String(lb)} type="button" aria-pressed={luftbild === lb} onClick={() => setLuftbild(lb)}
-                  className={'rounded-full px-3 py-1 text-xs font-semibold transition ' + (luftbild === lb ? 'bg-ink text-white' : 'text-ink2 hover:text-ink')}>
+                  className={'rounded-full px-3 py-1 text-xs font-semibold transition ' + (luftbild === lb ? 'schiene-an' : '')}>
                   {lb ? 'Luftbild' : 'Karte'}
                 </button>
               ))}

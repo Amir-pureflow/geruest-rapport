@@ -134,10 +134,10 @@ export function OrtWahl({ lat, lon, naehe, vonHand, onSpeichern }: {
         {!gespeichert && !neu && bereit && (
           <p className="pointer-events-none absolute left-3 top-3 rounded-full bg-white/95 px-3 py-1 text-xs font-medium text-ink2 shadow-[0_2px_8px_-2px_rgb(17_17_19/0.25)]">Auf die Karte tippen, um den Punkt zu setzen</p>
         )}
-        <div className="absolute right-2.5 top-2.5 flex rounded-full border border-ink/10 bg-white p-0.5 shadow-[0_2px_8px_-2px_rgb(17_17_19/0.25)]" role="group" aria-label="Kartenart">
+        <div className="absolute right-2.5 top-2.5 flex schiene schiene-weiss shadow-[0_2px_8px_-2px_rgb(17_17_19/0.25)]" role="group" aria-label="Kartenart">
           {([false, true] as const).map((lb) => (
             <button key={String(lb)} type="button" aria-pressed={luftbild === lb} onClick={() => setLuftbild(lb)}
-              className={'rounded-full px-2.5 py-1 text-[11px] font-semibold transition ' + (luftbild === lb ? 'bg-ink text-white' : 'text-ink2 hover:text-ink')}>
+              className={'rounded-full px-2.5 py-1 text-[11px] font-semibold transition ' + (luftbild === lb ? 'schiene-an' : '')}>
               {lb ? 'Luftbild' : 'Karte'}
             </button>
           ))}

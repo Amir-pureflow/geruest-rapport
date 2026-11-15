@@ -762,11 +762,11 @@ export function Cockpit() {
           </div>
           {/* Wochenwahl als ein Element: Pfeil · KW und Zeitraum · Pfeil */}
           <div ref={wochenwahlRef} className="relative shrink-0">
-            <div className="inline-flex items-stretch overflow-hidden rounded-xl border border-line-strong bg-surface">
-              <button type="button" className="px-3 text-ink2 transition-colors hover:bg-surface-2" onClick={() => setWochenStart(addTage(wochenStart, -7))} aria-label="Vorherige Woche">‹</button>
+            <div className="schiene inline-flex items-center">
+              <button type="button" className="grid h-9 w-9 place-items-center text-lg" onClick={() => setWochenStart(addTage(wochenStart, -7))} aria-label="Vorherige Woche">‹</button>
               <button
                 type="button"
-                className="border-x border-line px-3.5 py-2 text-sm whitespace-nowrap transition-colors hover:bg-surface-2"
+                className="!rounded-[10px] h-9 whitespace-nowrap !bg-white px-4 text-sm !text-ink shadow-[0_1px_2px_rgb(26_25_23/0.08),0_3px_10px_-4px_rgb(26_25_23/0.18)]"
                 onClick={() => setWochenwahlOffen((o) => !o)}
                 aria-haspopup="listbox"
                 aria-expanded={wochenwahlOffen}
@@ -776,7 +776,7 @@ export function Cockpit() {
                 <span className="text-ink3"> · {ch(wochenStart)} – {ch(addTage(wochenStart, 6))}</span>
                 <span className="ml-1.5 text-ink3" aria-hidden="true">▾</span>
               </button>
-              <button type="button" className="px-3 text-ink2 transition-colors hover:bg-surface-2" onClick={() => setWochenStart(addTage(wochenStart, 7))} aria-label="Nächste Woche">›</button>
+              <button type="button" className="grid h-9 w-9 place-items-center text-lg" onClick={() => setWochenStart(addTage(wochenStart, 7))} aria-label="Nächste Woche">›</button>
             </div>
             {wochenwahlOffen && (
               <div role="listbox" className="absolute right-0 z-30 mt-2 max-h-80 w-64 overflow-y-auto rounded-xl border border-line bg-surface p-1.5 shadow-[0_8px_30px_rgb(26_25_23/0.12)]">

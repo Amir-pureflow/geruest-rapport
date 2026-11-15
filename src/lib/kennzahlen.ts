@@ -21,6 +21,12 @@ export interface WochenTag {
   freigegeben: number;
   /** Welche Teams offen sind — die Kachel springt genau dorthin, nicht auf den ganzen Tag (25.10.2026) */
   offeneTeams: string[];
+  /** davon offen mit Überstunden ab «Gelb markieren ab» — erst Notiz lesen (Freigabe-Ring, 15.11.2026) */
+  hinweis: number;
+  /** Stunden aller Meldungen des Tages, in Minuten */
+  minuten: number;
+  /** Stand je Team an diesem Tag — für die Zeilen je Team unter dem Ring */
+  teams: { id: string; stand: 'frei' | 'offen' | 'hinweis' }[];
 }
 
 /**
@@ -38,21 +44,28 @@ export async function wochenTeams(c: SupabaseClient, bezug: Date): Promise<Woche
     offen: 0,
     freigegeben: 0,
     offeneTeams: [],
+    hinweis: 0,
+    minuten: 0,
+    teams: [],
   }));
   // Eine Woche in der Hochsaison: 75 Leute × 6 Tage, mit zwei Baustellen am Tag mehr als 1000 Einträge
   const data = await alle<{
     status: string;
+    mitarbeiter_id: string | null;
+    normal_min: number | null;
+    ueber_min: number | null;
     tagesmeldung: { datum: string; team_id: string | null } | { datum: string; team_id: string | null }[];
   }>((von, bis) => c
     .from('zeiteintrag')
-    .select('status,tagesmeldung!inner(datum,team_id)')
+    .select('status,mitarbeiter_id,normal_min,ueber_min,tagesmeldung!inner(datum,team_id)')
     .gte('tagesmeldung.datum', iso(mo))
     .lte('tagesmeldung.datum', iso(addTage(mo, 6)))
     .order('id')
     .range(von, bis));
 
-  // Tag → Team → hat noch offene Einträge?
-  const proTag: Map<string, boolean>[] = tage.map(() => new Map());
+  // Tag → Team → noch offen? und die Einträge (für «Gelb markieren ab» je Person)
+  type TeamTag = { offen: boolean; eintraege: { person: string; normal_min: number; ueber_min: number }[] };
+  const proTag: Map<string, TeamTag>[] = tage.map(() => new Map());
   for (const z of data) {
     // Supabase liefert die verknüpfte Zeile je nach Version als Objekt oder als Liste
     const tm = Array.isArray(z.tagesmeldung) ? z.tagesmeldung[0] : z.tagesmeldung;
@@ -60,15 +73,23 @@ export async function wochenTeams(c: SupabaseClient, bezug: Date): Promise<Woche
     const index = Math.round((new Date(tm.datum + 'T12:00:00').getTime() - mo.getTime()) / 86400000);
     if (index < 0 || index > 6) continue;
     const team = tm.team_id ?? 'ohne-team';
-    const bisher = proTag[index].get(team) ?? false;
-    proTag[index].set(team, bisher || z.status !== 'freigegeben');
+    const tt = proTag[index].get(team) ?? { offen: false, eintraege: [] };
+    tt.offen = tt.offen || z.status !== 'freigegeben';
+    const normal = z.normal_min ?? 0;
+    const ueber = z.ueber_min ?? 0;
+    tt.eintraege.push({ person: z.mitarbeiter_id ?? 'ohne', normal_min: normal, ueber_min: ueber });
+    tage[index].minuten += normal + ueber;
+    proTag[index].set(team, tt);
   }
   proTag.forEach((teams, i) => {
-    for (const [team, offen] of teams) {
-      if (offen) {
+    for (const [team, tt] of teams) {
+      const mitHinweis = tt.offen && gelbePersonen(tt.eintraege).size > 0;
+      if (tt.offen) {
         tage[i].offen += 1;
+        if (mitHinweis) tage[i].hinweis += 1;
         if (team !== 'ohne-team') tage[i].offeneTeams.push(team);
       } else tage[i].freigegeben += 1;
+      tage[i].teams.push({ id: team, stand: tt.offen ? (mitHinweis ? 'hinweis' : 'offen') : 'frei' });
     }
   });
   return tage;

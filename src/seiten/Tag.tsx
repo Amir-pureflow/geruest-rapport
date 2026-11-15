@@ -9,8 +9,9 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useAuffrischen, useNeuesteAnfrage } from '../lib/auffrischen';
 import { Link } from 'react-router-dom';
-import { Camera, Check, ChevronLeft, ChevronRight, CircleDashed, Languages, TriangleAlert } from 'lucide-react';
+import { Camera, Check, CircleDashed, Languages, TriangleAlert } from 'lucide-react';
 import { Shell } from '../ui/Shell';
+import { Blaettern } from '../ui/Segment';
 import { supabase } from '../lib/supabase';
 import { addTage, iso, kurz, lang, stunden, WOCHENTAGE } from '../lib/datum';
 import { einstellungen, gelbePersonen } from '../lib/einstellungen';
@@ -158,14 +159,9 @@ export function Tag() {
             <p className="lbl mb-0.5">Tagesübersicht</p>
             <h1 className="font-display text-[28px] font-bold tracking-tight lg:text-[30px]">{lang(datum)}</h1>
           </div>
-          <div className="flex items-center gap-2">
-            {tagIso !== heuteIso && <button type="button" className="btn-ghost py-2" onClick={() => setDatum(new Date())}>Heute</button>}
-            <div className="flex h-10 items-center rounded-full border border-line-strong bg-white">
-              <button type="button" className="grid h-10 w-10 place-items-center rounded-full text-ink3 hover:text-accent-deep" onClick={() => setDatum((d) => addTage(d, -1))} aria-label="Tag zurück"><ChevronLeft size={16} /></button>
-              <span className="min-w-[78px] text-center text-sm font-bold tabular-nums">{WOCHENTAGE[(datum.getDay() + 6) % 7]} {kurz(datum)}</span>
-              <button type="button" className="grid h-10 w-10 place-items-center rounded-full text-ink3 hover:text-accent-deep disabled:opacity-30" disabled={tagIso >= heuteIso} onClick={() => setDatum((d) => addTage(d, 1))} aria-label="Tag vor"><ChevronRight size={16} /></button>
-            </div>
-          </div>
+          <Blaettern titel={`${WOCHENTAGE[(datum.getDay() + 6) % 7]} ${kurz(datum)}`} zurueck={() => setDatum((d) => addTage(d, -1))} vor={() => setDatum((d) => addTage(d, 1))}
+            labelZurueck="Tag zurück" labelVor="Tag vor" vorGesperrt={tagIso >= heuteIso} breite="min-w-[110px]"
+            heute={tagIso !== heuteIso ? { da: false, los: () => setDatum(new Date()) } : undefined} />
         </header>
 
         {fehler && <p className="rounded-[12px] border border-accent/40 bg-accent-soft px-4 py-3 text-sm text-accent-deep">Konnte nicht laden: {fehler}</p>}

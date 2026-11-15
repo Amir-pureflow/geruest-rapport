@@ -341,7 +341,8 @@ export function Abwesenheiten() {
           <Blaettern titel={`${MONATE[monat.getMonth()]} ${monat.getFullYear()}`}
             zurueck={() => setMonat(new Date(monat.getFullYear(), monat.getMonth() - 1, 1, 12))}
             vor={() => setMonat(new Date(monat.getFullYear(), monat.getMonth() + 1, 1, 12))}
-            labelZurueck="Monat zurück" labelVor="Monat vor" />
+            labelZurueck="Monat zurück" labelVor="Monat vor"
+            heute={{ da: monat.getFullYear() === new Date().getFullYear() && monat.getMonth() === new Date().getMonth(), los: () => setMonat(new Date(new Date().getFullYear(), new Date().getMonth(), 1, 12)) }} />
         </div>
         {fehler ? (
           <p className="m-4 rounded-[12px] border border-amber/40 bg-amber-soft px-3.5 py-2 text-xs text-amber-deep">{fehler}</p>

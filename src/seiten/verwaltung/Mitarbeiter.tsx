@@ -177,11 +177,11 @@ export function Mitarbeiter() {
           <Search size={16} className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-ink3" aria-hidden="true" />
           <input value={suche} onChange={(e) => setSuche(e.target.value)} placeholder="Name, Temporärbüro oder Telefon …" className="field pl-10" />
         </div>
-        <div className="flex rounded-full border border-ink/10 bg-white p-1 shadow-[0_1px_2px_rgb(17_17_19/0.06)]" role="group" aria-label="Filter">
+        <div className="flex schiene" role="group" aria-label="Filter">
           {(['alle', 'intern', 'temporaer', 'inaktiv'] as const).map((k) => (
             <button key={k} type="button" onClick={() => setFilter(k)} aria-pressed={filter === k}
-              className={'rounded-full px-3 py-1.5 text-xs font-semibold transition ' + (filter === k ? 'bg-ink text-white shadow-sm' : 'text-ink2 hover:text-ink')}>
-              {k === 'alle' ? 'Alle' : k === 'intern' ? 'Fest' : k === 'temporaer' ? 'Temporär' : 'Inaktiv'} <span className="opacity-60">{anzahl[k]}</span>
+              className={'rounded-full px-3 py-1.5 text-xs font-semibold transition ' + (filter === k ? 'schiene-an' : '')}>
+              {k === 'alle' ? 'Alle' : k === 'intern' ? 'Fest' : k === 'temporaer' ? 'Temporär' : 'Inaktiv'} <span className="zahl opacity-60">{anzahl[k]}</span>
             </button>
           ))}
         </div>

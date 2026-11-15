@@ -27,7 +27,7 @@
 import type { ReactNode } from 'react';
 import { Check } from 'lucide-react';
 import { Link } from 'react-router-dom';
-import { addTage, ausIso, iso } from '../lib/datum';
+import { addTage, ausIso, iso, stunden } from '../lib/datum';
 import { formatChf } from '../lib/tarif';
 
 export const DATENFARBE = {
@@ -58,7 +58,7 @@ export function DiagrammKarte({
   children: ReactNode;
 }) {
   return (
-    <section className="card">
+    <section className="card min-w-0">
       <div className="flex items-baseline justify-between gap-3">
         <p className="lbl mb-0">{titel}</p>
         {aktion}
@@ -163,26 +163,38 @@ function Balken({
   );
 }
 
+type TagStand = 'frei' | 'offen' | 'hinweis';
+const FARBE = { frei: 'var(--color-good)', hinweis: 'var(--color-amber)', offen: '#9cc0e8', leer: 'rgb(17 17 19 / 0.08)' };
+
+/** Ring aus Anteilen (grün frei · orange Hinweis · blau offen), der Rest grau. */
+function ringVerlauf(frei: number, hinweis: number, offen: number, gesamt: number): string {
+  if (gesamt <= 0) return `conic-gradient(${FARBE.leer} 0 360deg)`;
+  const a = (frei / gesamt) * 360;
+  const b = a + (hinweis / gesamt) * 360;
+  const c = b + (offen / gesamt) * 360;
+  return `conic-gradient(${FARBE.frei} 0 ${a}deg, ${FARBE.hinweis} ${a}deg ${b}deg, ${FARBE.offen} ${b}deg ${c}deg, ${FARBE.leer} ${c}deg 360deg)`;
+}
+
 /**
- * Woche: Was wartet noch auf die Freigabe? Oben die Summe in einem Satz, darunter je Tag eine Kachel.
- *
- * Vorher (bis 08.10.2026) Balken mit «5 von 5» rechts: die Zahl hiess «gemeldet», der grüne Teil
- * «freigegeben» — zwei Fragen in einer Zeile, dazu eine Legende «volle Spur = alle Teams». Amir: «nicht
- * übersichtlich, man sieht nicht, was hier ist». Jetzt nur noch die Frage des Bauführers, in Team-Tagen
- * wie die Wochenübersicht und in ihren Farben: blau = offen, grün = freigegeben, gestrichelt = keine Meldung.
- * Samstag/Sonntag nur, wenn an dem Tag jemand gemeldet hat.
+ * Freigabe der Woche als Ring (Konzept A, Amir 15.11.2026 — vorher fünf grosse grüne Kästen):
+ * grosser Ring «11/20 freigegeben», daneben der Satz, die Tage als kleine Ringe. Mit nur einem Team zählt er Tage,
+ * sonst Meldungen (eine Meldung = ein Team an einem Tag). Ist bei mehreren Teams etwas offen, steht darunter je Team
+ * eine Reihe Punkte — man sieht, wo es fehlt. Der Knopf öffnet die Wochenübersicht (dort «ohne Hinweis freigeben»).
  */
 export function WochenTeams({
   tage,
   woche,
+  teamNamen,
 }: {
-  tage: { label: string; offen: number; freigegeben: number; datum: string; offeneTeams?: string[] }[];
+  tage: { label: string; offen: number; freigegeben: number; datum: string; offeneTeams?: string[]; hinweis?: number; minuten?: number; teams?: { id: string; stand: TagStand }[] }[];
   /**
-   * Montag der Woche (ISO). Jede Kachel öffnet die Wochenübersicht mit diesem Tag markiert (`?woche&tag`, 08.10.2026).
-   * Ist an dem Tag etwas offen, nur dorthin (25.10.2026, Amir: «alle Tage gekennzeichnet, obwohl nur einer offen ist»):
-   * ein offenes Team → dessen Tag gleich aufgeklappt (`&team`), mehrere → nur diese Zellen markiert (`&teams`).
+   * Montag der Woche (ISO). Jeder Tag öffnet die Wochenübersicht mit diesem Tag markiert (`?woche&tag`, 08.10.2026).
+   * Ist an dem Tag etwas offen, nur dorthin (25.10.2026): ein offenes Team → dessen Tag aufgeklappt (`&team`),
+   * mehrere → nur diese Zellen markiert (`&teams`).
    */
   woche: string;
+  /** Team-ID → Name (für die Zeilen je Team) */
+  teamNamen?: Map<string, string>;
 }) {
   const mo = ausIso(woche);
   const ziel = (t: { offeneTeams?: string[] }, tag: string) => {
@@ -195,71 +207,113 @@ export function WochenTeams({
     .map((t, i) => ({ ...t, zu: ziel(t, iso(addTage(mo, i))) }))
     .filter((t, i) => i < 5 || t.offen + t.freigegeben > 0);
   const offen = tage.reduce((s, t) => s + t.offen, 0);
+  const hinweis = tage.reduce((s, t) => s + (t.hinweis ?? 0), 0);
   const frei = tage.reduce((s, t) => s + t.freigegeben, 0);
   const gesamt = offen + frei;
+  const minuten = tage.reduce((s, t) => s + (t.minuten ?? 0), 0);
   if (gesamt === 0) return <LeerHinweis text="In dieser Woche hat noch kein Team gemeldet." />;
+
+  const teamIds = [...new Set(tage.flatMap((t) => (t.teams ?? []).map((x) => x.id)))].filter((id) => id !== 'ohne-team');
+  const einTeam = teamIds.length <= 1;
+  const einheit = (n: number) => (einTeam ? (n === 1 ? 'Tag' : 'Tage') : n === 1 ? 'Meldung' : 'Meldungen');
+  const ohneHinweis = offen - hinweis;
+  const unter = offen === 0
+    ? `${stunden(minuten)} h · nichts mehr zu tun`
+    : [hinweis > 0 && `${hinweis} mit Überstunden — Notiz lesen`, `${stunden(minuten)} h`].filter(Boolean).join(' · ');
+  const namen = (id: string) => teamNamen?.get(id) ?? 'Team';
+  const teamsSortiert = [...teamIds].sort((a, b) => namen(a).localeCompare(namen(b), 'de', { numeric: true }));
+  const spalten = `minmax(0,140px) repeat(${sichtbar.length}, 24px) minmax(0,1fr)`;
 
   return (
     <div>
-      {offen > 0 ? (
-        <p className="font-display text-[20px] font-semibold leading-tight text-ink">
-          <span className="tabular-nums text-steel">{offen}</span> Team-{offen === 1 ? 'Tag wartet' : 'Tage warten'} auf Freigabe
-        </p>
-      ) : (
-        <p className="flex items-center gap-2 font-display text-[20px] font-semibold leading-tight text-good-deep">
-          <Check size={20} strokeWidth={3} aria-hidden="true" /> Alles freigegeben
-        </p>
-      )}
-      <div className="mt-2.5 flex items-center gap-3">
-        <span className="h-2 flex-1 overflow-hidden rounded-full bg-steel-soft" aria-hidden="true">
-          <span className="block h-full rounded-full bg-good" style={{ width: `${(frei / gesamt) * 100}%` }} />
-        </span>
-        <span className="shrink-0 text-xs text-ink3">
-          <span className="font-mono tabular-nums text-ink2">{frei}</span> von <span className="font-mono tabular-nums">{gesamt}</span> freigegeben
-        </span>
+      <div className="flex min-w-0 flex-col items-start gap-4 sm:flex-row sm:items-center sm:gap-6">
+        {/* Grosser Ring */}
+        <div className="grid h-[112px] w-[112px] shrink-0 place-items-center rounded-full" style={{ background: ringVerlauf(frei, hinweis, offen - hinweis, gesamt) }}>
+          <div className="grid h-[88px] w-[88px] place-items-center rounded-full bg-white text-center">
+            <div>
+              <p className="font-display text-[24px] font-bold leading-none tabular-nums text-ink">{frei}/{gesamt}</p>
+              <p className="mt-1 text-[10.5px] text-ink3">freigegeben</p>
+            </div>
+          </div>
+        </div>
+
+        <div className="w-full min-w-0 flex-1">
+          <div className="flex flex-wrap items-start justify-between gap-x-3 gap-y-2">
+          <div className="min-w-0">
+          {offen > 0 ? (
+            <p className="font-display text-[20px] font-semibold leading-tight text-ink">
+              <span className="tabular-nums">{offen}</span> {einheit(offen)} {offen === 1 ? 'wartet' : 'warten'}
+            </p>
+          ) : (
+            <p className="flex items-center gap-2 font-display text-[20px] font-semibold leading-tight text-good-deep">
+              <Check size={20} strokeWidth={3} aria-hidden="true" /> Alles freigegeben
+            </p>
+          )}
+          <p className="mt-1 text-[13px] text-ink3">{unter}</p>
+          </div>
+          {offen > 0 && (
+            <Link to={`/cockpit?woche=${woche}`} className="inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full bg-gradient-to-b from-[#2bb566] to-[#1a8a49] px-3.5 py-1.5 text-[13px] font-bold text-white shadow-[0_8px_18px_-8px_rgb(31_157_85/0.7)] transition hover:brightness-105">
+              <Check size={14} strokeWidth={3} aria-hidden="true" /> {ohneHinweis > 0 ? `${ohneHinweis} freigeben` : 'Prüfen'} ›
+            </Link>
+          )}
+          </div>
+
+          {/* Tage als kleine Ringe */}
+          <ul className="mt-3 flex gap-1.5 sm:gap-2.5">
+            {sichtbar.map((t) => {
+              const leer = t.offen + t.freigegeben === 0;
+              const fertig = !leer && t.offen === 0;
+              const h = t.hinweis ?? 0;
+              const n = t.offen + t.freigegeben;
+              const titel = `${t.label} ${t.datum} · ` + (leer ? 'keine Meldung' : fertig ? `alle ${t.freigegeben} freigegeben` : `${t.offen} offen${h > 0 ? ` (${h} mit Überstunden)` : ''}${t.freigegeben > 0 ? ` · ${t.freigegeben} freigegeben` : ''}`);
+              return (
+                <li key={t.label}>
+                  <Link to={t.zu} title={titel} aria-label={titel} className="flex w-[40px] flex-col items-center gap-1 transition hover:-translate-y-px">
+                    <span className="grid h-[34px] w-[34px] place-items-center rounded-full" style={{ background: leer ? FARBE.leer : ringVerlauf(t.freigegeben, h, t.offen - h, n) }}>
+                      <span className={'grid h-[27px] w-[27px] place-items-center rounded-full text-[10.5px] font-bold tabular-nums ' + (fertig ? 'bg-good text-white' : 'bg-white ' + (leer ? 'text-ink3/60' : h > 0 ? 'text-amber-deep' : 'text-steel'))}>
+                        {leer ? '–' : fertig ? <Check size={13} strokeWidth={3} aria-hidden="true" /> : einTeam ? (h > 0 ? '!' : '·') : `${t.freigegeben}/${n}`}
+                      </span>
+                    </span>
+                    <span className="text-[11px] font-semibold text-ink3">{t.label}</span>
+                  </Link>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+
       </div>
 
-      <ul className="mt-4 grid gap-1.5 sm:gap-2" style={{ gridTemplateColumns: `repeat(${sichtbar.length}, minmax(0, 1fr))` }}>
-        {sichtbar.map((t) => {
-          const leer = t.offen + t.freigegeben === 0;
-          const fertig = !leer && t.offen === 0;
-          const titel =
-            `${t.label} ${t.datum} · ` +
-            (leer ? 'keine Meldung' : fertig ? `alle ${t.freigegeben} freigegeben` : `${t.offen} offen${t.freigegeben > 0 ? ` · ${t.freigegeben} freigegeben` : ''}`);
-          return (
-            <li key={t.label}>
-              <Link
-                to={t.zu}
-                title={titel}
-                aria-label={titel}
-                className={
-                  'flex h-full flex-col items-center rounded-[12px] px-1 py-2 text-center transition hover:-translate-y-px ' +
-                  (leer
-                    ? 'border border-dashed border-ink/[0.10]'
-                    : fertig
-                      ? 'border border-good/25 bg-good-soft/70'
-                      : 'border border-steel/25 bg-steel-soft/70')
-                }
-              >
-                <span className="text-[11px] font-semibold uppercase tracking-wide text-ink3">{t.label}</span>
-                <span className="hidden text-[10px] text-ink3/80 sm:block">{t.datum}</span>
-                {leer ? (
-                  <span className="mt-1.5 flex h-6 items-center text-[15px] text-ink3/50">–</span>
-                ) : fertig ? (
-                  <span className="mt-1.5 grid h-6 w-6 place-items-center rounded-full bg-good text-white">
-                    <Check size={13} strokeWidth={3} aria-hidden="true" />
+      {/* Mehrere Teams und noch etwas offen: je Team eine Reihe Punkte */}
+      {!einTeam && offen > 0 && (
+        <div className="mt-5 min-w-0 border-t border-line pt-3">
+          <div className="grid items-center gap-x-2.5 text-center text-[10.5px] font-bold uppercase tracking-wide text-ink3" style={{ gridTemplateColumns: spalten }}>
+            <span />
+            {sichtbar.map((t) => <span key={t.label}>{t.label}</span>)}
+            <span />
+          </div>
+          <ul className="mt-1 divide-y divide-line">
+            {teamsSortiert.map((id) => {
+              const staende = sichtbar.map((t) => (t.teams ?? []).find((x) => x.id === id)?.stand ?? null);
+              const nOffen = staende.filter((x) => x === 'offen').length;
+              const nHinweis = staende.filter((x) => x === 'hinweis').length;
+              return (
+                <li key={id} className="grid items-center gap-x-2.5 py-1.5 text-[13px]" style={{ gridTemplateColumns: spalten }}>
+                  <span className="truncate font-semibold text-ink">{namen(id)}</span>
+                  {staende.map((x, i) => (
+                    <span key={i} className={'mx-auto grid h-[22px] w-[22px] place-items-center rounded-full text-[10px] font-bold ' + (x === 'frei' ? 'bg-good text-white' : x === 'hinweis' ? 'bg-amber-soft text-amber-deep ring-1 ring-inset ring-amber/40' : x === 'offen' ? 'bg-steel-soft text-steel ring-1 ring-inset ring-steel/30' : 'bg-surface-2 text-ink3/60')}>
+                      {x === 'frei' ? <Check size={11} strokeWidth={3} aria-hidden="true" /> : x === 'hinweis' ? '!' : x === 'offen' ? '·' : '–'}
+                    </span>
+                  ))}
+                  <span className="hidden truncate text-right text-[12px] text-ink3 sm:block">
+                    {nHinweis > 0 ? `${nHinweis} Hinweis${nHinweis === 1 ? '' : 'e'}` : nOffen > 0 ? `${nOffen} offen` : 'alles frei'}
                   </span>
-                ) : (
-                  <span className="mt-1 font-display text-[20px] font-semibold leading-7 tabular-nums text-steel">{t.offen}</span>
-                )}
-                <span className={'mt-0.5 text-[10px] font-medium ' + (leer ? 'text-transparent' : fertig ? 'text-good-deep' : 'text-steel')}>
-                  {leer ? '·' : fertig ? 'frei' : 'offen'}
-                </span>
-              </Link>
-            </li>
-          );
-        })}
-      </ul>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      )}
     </div>
   );
 }

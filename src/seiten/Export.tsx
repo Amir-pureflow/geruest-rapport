@@ -430,7 +430,8 @@ export function Export() {
                 : 'Die freigegebenen Stunden je Baustelle und Person — zum Abtippen ins Lohnsystem.'}
             </p>
           </div>
-          <Blaettern titel={titel} zurueck={() => blaettern(-1)} vor={() => blaettern(1)} labelZurueck={zeitraum === 'monat' ? 'Monat zurück' : 'Woche zurück'} labelVor={zeitraum === 'monat' ? 'Monat vor' : 'Woche vor'} />
+          <Blaettern titel={titel} zurueck={() => blaettern(-1)} vor={() => blaettern(1)} labelZurueck={zeitraum === 'monat' ? 'Monat zurück' : 'Woche zurück'} labelVor={zeitraum === 'monat' ? 'Monat vor' : 'Woche vor'}
+            heute={{ da: iso(anker) === iso(ankerAusUrl(null, zeitraum, new Date())), los: () => setAnker(ankerAusUrl(null, zeitraum, new Date())) }} />
         </header>
 
         {/* Werkzeugleiste: Zeitraum, Team, Filter — und rechts die eine Hauptaktion */}

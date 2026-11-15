@@ -509,10 +509,10 @@ export function Zusatzauftrag() {
           {/* ── Aufträge ──────────────────────────────────────────────────── */}
           <section className="space-y-3">
             <div className="flex flex-wrap items-center justify-between gap-3">
-              <div className="flex rounded-full border border-ink/10 bg-white p-1 shadow-[0_1px_2px_rgb(17_17_19/0.06)]" role="group" aria-label="Auswahl">
+              <div className="flex schiene" role="group" aria-label="Auswahl">
                 {([[false, `Offen · ${offene.length + lokal.length}`], [true, `Erledigt · ${erledigte.length}`]] as const).map(([erl, label]) => (
                   <button key={label} type="button" onClick={() => setZeigeErledigte(erl)} aria-pressed={zeigeErledigte === erl}
-                    className={'rounded-full px-3.5 py-1.5 text-xs font-semibold transition ' + (zeigeErledigte === erl ? 'bg-ink text-white shadow-sm' : 'text-ink2 hover:text-ink')}>
+                    className={'rounded-full px-3.5 py-1.5 text-xs font-semibold transition ' + (zeigeErledigte === erl ? 'schiene-an' : '')}>
                     {label}
                   </button>
                 ))}

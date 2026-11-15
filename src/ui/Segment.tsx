@@ -2,7 +2,8 @@ import type { ReactNode } from 'react';
 import { ChevronLeft, ChevronRight, Plus } from 'lucide-react';
 
 /**
- * Segment-Umschalter (06.10.2026): weisse Pillen-Schiene, gewählt = dunkle Pille — dieselbe Form wie in
+ * Segment-Umschalter (06.10.2026; seit 15.11.2026 «weisser Schieber», Klasse `schiene` in index.css): helles Band,
+ * gewählt = weisses Feld mit Schatten — dieselbe Form wie in
  * Planung und Verwaltung. Ersetzt lose Chips überall dort, wo genau eine von wenigen Optionen gilt.
  */
 export function Segment<T extends string | number>({
@@ -19,7 +20,7 @@ export function Segment<T extends string | number>({
   gross?: boolean;
 }) {
   return (
-    <div className="inline-flex max-w-full overflow-x-auto rounded-full border border-ink/10 bg-white p-1 shadow-[0_1px_2px_rgb(17_17_19/0.06)]" role="group" aria-label={label}>
+    <div className="inline-flex max-w-full overflow-x-auto schiene" role="group" aria-label={label}>
       {optionen.map((o) => {
         const an = wert === o.wert;
         return (
@@ -31,7 +32,7 @@ export function Segment<T extends string | number>({
             className={
               'inline-flex items-center gap-1.5 whitespace-nowrap rounded-full font-semibold transition ' +
               (gross ? 'px-4 py-1.5 text-sm ' : 'px-3.5 py-1.5 text-xs ') +
-              (an ? 'bg-ink text-white shadow-sm' : 'text-ink2 hover:text-ink')
+              (an ? 'schiene-an' : '')
             }
           >
             {o.text}
@@ -42,10 +43,10 @@ export function Segment<T extends string | number>({
   );
 }
 
-/** Zahl in einer Segment-Option («Lohnstunden 70») — hell auf dunkel, wenn gewählt. */
+/** Zahl in einer Segment-Option («Lohnstunden 70») — rot, wenn gewählt. */
 export function SegmentZahl({ n, an }: { n: number; an: boolean }) {
   return (
-    <span className={'rounded-full px-1.5 text-[11px] font-semibold tabular-nums ' + (an ? 'bg-white/20 text-white' : 'bg-ink/[0.07] text-ink3')}>{n}</span>
+    <span className={'rounded-full px-1.5 text-[11px] font-semibold tabular-nums ' + (an ? 'bg-accent-soft text-accent-deep' : 'bg-ink/[0.07] text-ink3')}>{n}</span>
   );
 }
 
@@ -61,7 +62,11 @@ export function Schalter({ an, aendern, text }: { an: boolean; aendern: (an: boo
   );
 }
 
-/** Zeitraum blättern: zwei Pfeile in einer weissen Pille, der Titel in der Mitte (wie Tagesübersicht und Planung). */
+/**
+ * Zeitraum blättern (Konzept A «passend zum Schieber», Amir 15.11.2026): helles Band wie die Umschalter, Pfeile aussen,
+ * der Zeitraum als weisses Feld in der Mitte. «KW 46 · 9.11. – 15.11.» — der Teil nach « · » steht grau.
+ * Mit `heute`: «Heute» im Band, rot, sobald man nicht beim heutigen Zeitraum ist.
+ */
 export function Blaettern({
   titel,
   zurueck,
@@ -69,6 +74,8 @@ export function Blaettern({
   labelZurueck = 'Zurück',
   labelVor = 'Weiter',
   vorGesperrt = false,
+  heute,
+  breite = 'min-w-[170px]',
 }: {
   titel: string;
   zurueck: () => void;
@@ -76,12 +83,25 @@ export function Blaettern({
   labelZurueck?: string;
   labelVor?: string;
   vorGesperrt?: boolean;
+  /** «Heute»-Knopf: `da` = man ist schon beim heutigen Zeitraum */
+  heute?: { da: boolean; los: () => void };
+  breite?: string;
 }) {
+  const [haupt, ...rest] = titel.split(' · ');
   return (
-    <div className="flex items-center rounded-full border border-ink/10 bg-white shadow-[0_1px_2px_rgb(17_17_19/0.06)]">
-      <button type="button" aria-label={labelZurueck} onClick={zurueck} className="grid h-9 w-9 place-items-center rounded-full text-ink2 hover:text-accent-deep"><ChevronLeft size={17} /></button>
-      <span className="min-w-[170px] px-1 text-center text-sm font-semibold tabular-nums text-ink">{titel}</span>
-      <button type="button" aria-label={labelVor} onClick={vor} disabled={vorGesperrt} className="grid h-9 w-9 place-items-center rounded-full text-ink2 hover:text-accent-deep disabled:opacity-30"><ChevronRight size={17} /></button>
+    <div className="schiene inline-flex items-center">
+      <button type="button" aria-label={labelZurueck} onClick={zurueck} className="grid h-9 w-9 place-items-center"><ChevronLeft size={17} /></button>
+      <span className={'flex h-9 items-center justify-center gap-2 whitespace-nowrap rounded-[10px] bg-white px-4 text-sm font-bold tabular-nums text-ink shadow-[0_1px_2px_rgb(26_25_23/0.08),0_3px_10px_-4px_rgb(26_25_23/0.18)] ' + breite}>
+        {haupt}
+        {rest.length > 0 && <span className="font-medium text-ink3">{rest.join(' · ')}</span>}
+      </span>
+      <button type="button" aria-label={labelVor} onClick={vor} disabled={vorGesperrt} className="grid h-9 w-9 place-items-center disabled:opacity-30"><ChevronRight size={17} /></button>
+      {heute && (
+        <button type="button" onClick={heute.los} disabled={heute.da}
+          className={'ml-1 h-9 rounded-[10px] px-3.5 text-[13.5px] font-semibold disabled:cursor-default ' + (heute.da ? '!text-ink3' : '!text-accent-deep')}>
+          Heute
+        </button>
+      )}
     </div>
   );
 }

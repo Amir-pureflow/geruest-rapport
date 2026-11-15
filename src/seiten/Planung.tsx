@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { Archive, ArrowRightLeft, CalendarDays, CalendarPlus, Check, ChevronLeft, ChevronRight, CircleCheck, Clock, History, MapPin, MessageSquareText, MousePointerClick, Plus, Search, Trash2, TriangleAlert, Undo2, UserPlus, Users, X } from 'lucide-react';
+import { Archive, ArrowRightLeft, CalendarDays, CalendarPlus, Check, CircleCheck, Clock, History, MapPin, MessageSquareText, MousePointerClick, Plus, Search, Trash2, TriangleAlert, Undo2, UserPlus, Users, X } from 'lucide-react';
 import { Shell } from '../ui/Shell';
 import { Dialog, Avatar } from '../ui/Dialog';
 import { Auswahl } from '../ui/Auswahl';
@@ -19,7 +19,7 @@ import { arbeitstag, einstellungen } from '../lib/einstellungen';
 import { ausUhrzeit, uhrzeit, uhrzeitFeld } from '../lib/zeiten';
 import { FUNKTION_BUERO } from '../lib/benutzername';
 import { DatumWahl } from '../ui/DatumWahl';
-import { Pille, Segment } from '../ui/Segment';
+import { Blaettern, Pille, Segment } from '../ui/Segment';
 import { baustellenSuchen } from '../lib/suche';
 import { warnungenZusammen, type WetterTag } from '../lib/wetter';
 import { WetterKopf, WetterWarnung, WetterZeile } from '../ui/WetterZeichen';
@@ -560,19 +560,15 @@ export function Planung() {
 
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-2">
-            <div className="flex items-center rounded-full border border-ink/10 bg-white shadow-[0_1px_2px_rgb(17_17_19/0.06)]">
-              <button type="button" aria-label="Zurück" onClick={() => setStart(addTage(start, -7))} className="grid h-9 w-9 place-items-center rounded-full text-ink2 hover:text-accent-deep"><ChevronLeft size={17} /></button>
-              <span className="min-w-[200px] px-1 text-center text-sm font-semibold tabular-nums text-ink">{titel}</span>
-              <button type="button" aria-label="Weiter" onClick={() => setStart(addTage(start, 7))} className="grid h-9 w-9 place-items-center rounded-full text-ink2 hover:text-accent-deep"><ChevronRight size={17} /></button>
-            </div>
-            <button type="button" className="btn-ghost py-2" onClick={() => setStart(montag(new Date()))}>Heute</button>
+            <Blaettern titel={titel} zurueck={() => setStart(addTage(start, -7))} vor={() => setStart(addTage(start, 7))} labelZurueck="Woche zurück" labelVor="Woche vor"
+              breite="min-w-[200px]" heute={{ da: iso(start) === iso(montag(new Date())), los: () => setStart(montag(new Date())) }} />
             {/* Kein Wochen-Schild mehr («Entwurf · Woche läuft» / «Archiv» / «Plan», weg seit 13.10.2026, Amir) —
                 was man sieht, sagt die Ansicht-Wahl darunter */}
           </div>
-          <div className="flex rounded-full border border-ink/10 bg-white p-1 shadow-[0_1px_2px_rgb(17_17_19/0.06)]" role="group" aria-label="Zeitraum">
+          <div className="flex schiene" role="group" aria-label="Zeitraum">
             {([7, 14] as const).map((n) => (
               <button key={n} type="button" onClick={() => setAnzahlTage(n)} aria-pressed={anzahlTage === n}
-                className={'rounded-full px-3.5 py-1.5 text-xs font-semibold transition ' + (anzahlTage === n ? 'bg-ink text-white shadow-sm' : 'text-ink2 hover:text-ink')}>
+                className={'rounded-full px-3.5 py-1.5 text-xs font-semibold transition ' + (anzahlTage === n ? 'schiene-an' : '')}>
                 {n === 7 ? '1 Woche' : '2 Wochen'}
               </button>
             ))}
@@ -1306,9 +1302,9 @@ function TagDialog({
           <div className="flex flex-wrap items-center justify-between gap-2">
             <p className="lbl mb-0">Leute an diesem Tag · {bz.ids.length}</p>
             {mehrTage && (
-              <span className="flex rounded-full border border-ink/10 bg-white p-0.5 text-[11px] font-semibold" role="group" aria-label="Gilt für">
-                <button type="button" aria-pressed={bereich === 'tag'} onClick={() => setBereich('tag')} className={'rounded-full px-2.5 py-1 ' + (bereich === 'tag' ? 'bg-ink text-white' : 'text-ink2')}>nur {tagKurz(d)}</button>
-                <button type="button" aria-pressed={bereich === 'woche'} onClick={() => setBereich('woche')} className={'rounded-full px-2.5 py-1 ' + (bereich === 'woche' ? 'bg-ink text-white' : 'text-ink2')}>bis Freitag</button>
+              <span className="flex schiene text-[11px] font-semibold" role="group" aria-label="Gilt für">
+                <button type="button" aria-pressed={bereich === 'tag'} onClick={() => setBereich('tag')} className={'rounded-full px-2.5 py-1 ' + (bereich === 'tag' ? 'schiene-an' : '')}>nur {tagKurz(d)}</button>
+                <button type="button" aria-pressed={bereich === 'woche'} onClick={() => setBereich('woche')} className={'rounded-full px-2.5 py-1 ' + (bereich === 'woche' ? 'schiene-an' : '')}>bis Freitag</button>
               </span>
             )}
           </div>
