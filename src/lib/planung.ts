@@ -6,6 +6,7 @@
  * Hier nur die Rechnerei, damit sie getestet ist: Ausschnitt im sichtbaren Fenster, Spuren für Einsätze,
  * die sich überschneiden (halber Tag hier, halber Tag dort), und die Schnellwahl der Zeiträume.
  */
+import { ohneReihenfolge } from './doppelt';
 import { addTage, ausIso, iso } from './datum';
 import { istArbeitstag } from './feiertage';
 
@@ -327,9 +328,11 @@ export interface EinsatzSoll extends Zeitraum {
   team_id: string | null;
   baustelle_id: string | null;
   soll_leute: number | null;
+  /** Beginnzeit — zwei Einsätze am selben Tag mit verschiedenen Zeiten sind gewollt (16.11.2026) */
+  beginn_min?: number | null;
 }
 
-export type KonfliktArt = 'fehlt-gemeldet' | 'ohne-leute' | 'chef-fehlt' | 'unter-soll' | 'abwesend-eingeteilt' | 'eingeteilt-ohne-einsatz' | 'ohne-einsatz';
+export type KonfliktArt = 'doppelt' | 'fehlt-gemeldet' | 'ohne-leute' | 'chef-fehlt' | 'unter-soll' | 'abwesend-eingeteilt' | 'eingeteilt-ohne-einsatz' | 'ohne-einsatz';
 
 export interface Konflikt {
   art: KonfliktArt;
@@ -351,7 +354,7 @@ export interface Konflikt {
 /** Vom Team gemeldet: «fehlt» (Migration 0053), noch nicht vom Büro erledigt */
 export interface FehltGemeldet { id: string; datum: string; mitarbeiter_id: string; team_id: string }
 
-const RANG: Record<KonfliktArt, number> = { 'fehlt-gemeldet': -1, 'ohne-leute': 0, 'chef-fehlt': 1, 'unter-soll': 2, 'abwesend-eingeteilt': 3, 'eingeteilt-ohne-einsatz': 4, 'ohne-einsatz': 5 };
+const RANG: Record<KonfliktArt, number> = { doppelt: -2, 'fehlt-gemeldet': -1, 'ohne-leute': 0, 'chef-fehlt': 1, 'unter-soll': 2, 'abwesend-eingeteilt': 3, 'eingeteilt-ohne-einsatz': 4, 'ohne-einsatz': 5 };
 
 /**
  * Was in der Planung zu lösen ist — wenige Regeln, damit die Liste ernst genommen wird (lieber eine Meldung zu wenig
@@ -371,8 +374,10 @@ const RANG: Record<KonfliktArt, number> = { 'fehlt-gemeldet': -1, 'ohne-leute': 
  *    eingeteilt» entfällt für sie; «unter Soll» nur, wenn die Lücke allein von der Fehlmeldung kommt — fehlten schon
  *    vorher Leute, bleibt diese Zeile stehen.
  *
- * Mehrere Teams auf derselben Baustelle sind normal (Glossar) und kein Konflikt; ein Team auf zwei Baustellen am selben
- * Tag auch nicht (halber Tag hier, halber Tag dort — der Einsatz-Dialog weist darauf hin).
+ *  - doppelt (16.11.2026): ein Team hat am Tag zwei Baustellen ohne klare Reihenfolge (nicht jede mit eigener
+ *    Beginnzeit) — der Chefmonteur wüsste nicht, wohin. Mit verschiedenen Zeiten ist es gewollt und kein Konflikt.
+ *
+ * Mehrere Teams auf derselben Baustelle sind normal (Glossar) und kein Konflikt.
  */
 export function konflikte(o: {
   tage: string[];
@@ -400,6 +405,7 @@ export function konflikte(o: {
       const n = da.length;
       const einsaetze = o.plaene.filter((p) => p.team_id === team.id && p.von <= datum && p.bis >= datum);
       for (const id of b.dazu) if (abw.has(id) && abw.get(id) !== 'fehlt') out.push({ art: 'abwesend-eingeteilt', datum, team_id: team.id, mitarbeiter_id: id });
+      if (ohneReihenfolge(einsaetze)) out.push({ art: 'doppelt', datum, team_id: team.id, baustelle_id: einsaetze[0].baustelle_id });
       if (einsaetze.length > 0) {
         const mitSoll = einsaetze.filter((p) => p.soll_leute !== null).sort((x, y) => (y.soll_leute ?? 0) - (x.soll_leute ?? 0));
         const haupt = mitSoll[0] ?? einsaetze[0];

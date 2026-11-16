@@ -304,15 +304,25 @@ describe('konflikte — was in der Planung zu lösen ist', () => {
     expect(konflikteBuendeln([k('2026-10-26'), k('2026-10-27'), k('2026-10-29')]).map((b) => `${b.datum}–${b.bis}`)).toEqual(['2026-10-26–2026-10-27', '2026-10-29–2026-10-29']);
   });
 
-  it('zwei Einsätze am Tag: das grössere Soll gilt; sortiert nach Tag, dann Schwere', () => {
+  it('zwei Einsätze am Tag (mit Zeiten): das grössere Soll gilt; sortiert nach Tag, dann Schwere', () => {
     const p: EinsatzSoll[] = [
-      { team_id: 't1', baustelle_id: 'B1', von: '2026-10-26', bis: '2026-10-26', soll_leute: 2 },
-      { team_id: 't1', baustelle_id: 'B9', von: '2026-10-26', bis: '2026-10-26', soll_leute: 4 },
+      { team_id: 't1', baustelle_id: 'B1', von: '2026-10-26', bis: '2026-10-26', soll_leute: 2, beginn_min: 420 },
+      { team_id: 't1', baustelle_id: 'B9', von: '2026-10-26', bis: '2026-10-26', soll_leute: 4, beginn_min: 780 },
       { team_id: 't2', baustelle_id: 'B2', von: '2026-10-26', bis: '2026-10-27', soll_leute: null },
     ];
     const r = lauf({ tage: ['2026-10-27', '2026-10-26'], plaene: p, abwesend: abw([['2026-10-27', 'c2', 'krank'], ['2026-10-27', 'b1', 'krank']]) });
     expect(r.map((k) => `${k.datum} ${k.art} ${k.team_id}`)).toEqual(['2026-10-26 unter-soll t1', '2026-10-27 ohne-leute t2']);
     expect(r[0]).toMatchObject({ ist: 3, soll: 4, baustelle_id: 'B9' });
+  });
+
+  it('zwei Baustellen am selben Tag ohne Zeiten: «doppelt», zuoberst (16.11.2026)', () => {
+    const p: EinsatzSoll[] = [
+      { team_id: 't1', baustelle_id: 'B1', von: '2026-10-26', bis: '2026-10-27', soll_leute: null },
+      { team_id: 't1', baustelle_id: 'B9', von: '2026-10-26', bis: '2026-10-26', soll_leute: null },
+    ];
+    const r = lauf({ tage: ['2026-10-26', '2026-10-27'], plaene: p, abwesend: abw([]) });
+    expect(r.filter((k) => k.art === 'doppelt').map((k) => `${k.datum} ${k.team_id}`)).toEqual(['2026-10-26 t1']);
+    expect(r[0].art).toBe('doppelt');
   });
 });
 

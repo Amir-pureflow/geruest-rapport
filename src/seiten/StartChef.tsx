@@ -124,12 +124,14 @@ function EinsatzZeilen({ einsaetze, beginnFirma }: { einsaetze: KartenEinsatz[];
   const apple = istApple(navigator.userAgent, navigator.maxTouchPoints);
   return (
     <div className="space-y-4">
-      {einsaetze.map((e) => {
+      {einsaetze.map((e, i) => {
         const adr = adresseText(e.baustelle);
         return (
           <div key={e.baustelle.id} className="space-y-2">
             {/* Name darf umbrechen (am Handy sonst «Wohnüberbauung Brünnenpar…») — er ist das Wichtigste der Karte */}
             <p className="flex items-start gap-2 text-[15px] leading-snug">
+              {/* Zwei Baustellen am Tag: nummeriert, in der Reihenfolge der Beginnzeit (16.11.2026) */}
+              {einsaetze.length > 1 && <span className="mt-px grid h-[22px] w-[22px] shrink-0 place-items-center rounded-full bg-steel text-[11px] font-bold text-white">{i + 1}</span>}
               <span className="knr mt-px">{e.baustelle.konto_nr}</span>
               <span className="min-w-0 font-medium [overflow-wrap:anywhere]">{e.baustelle.bezeichnung || 'Baustelle'}</span>
             </p>
@@ -507,7 +509,8 @@ export function StartChef() {
         datum,
         einsaetze: plaene.filter((p) => p.von <= datum && p.bis >= datum && p.baustelle).map((p) => ({
           baustelle: p.baustelle!, beginn_min: p.beginn_min ?? null, treffpunkt: p.treffpunkt ?? null, hinweis: p.hinweis ?? null, soll_leute: p.soll_leute ?? null,
-        })),
+        // Zwei Baustellen am Tag (16.11.2026): in der Reihenfolge der Beginnzeit, ohne Zeit zuletzt
+        })).sort((a, b) => (a.beginn_min ?? 9999) - (b.beginn_min ?? 9999)),
         leute: leuteAm({
           teamId, fest, versetzt, namen, teamNamen, datum,
           abwesend: new Map(abw.filter((a) => a.datum === datum).map((a) => [a.mitarbeiter_id, a.art])),

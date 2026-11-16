@@ -253,11 +253,7 @@ export function WochenTeams({
           )}
           <p className="mt-1 text-[14px] text-ink3">{unter}</p>
           </div>
-          {offen > 0 && (
-            <Link to={`/cockpit?woche=${woche}`} className="inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full bg-gradient-to-b from-[#2bb566] to-[#1a8a49] px-3.5 py-1.5 text-[13px] font-bold text-white shadow-[0_8px_18px_-8px_rgb(31_157_85/0.7)] transition hover:brightness-105">
-              <Check size={14} strokeWidth={3} aria-hidden="true" /> {ohneHinweis > 0 ? `${ohneHinweis} freigeben` : 'Prüfen'} ›
-            </Link>
-          )}
+          {/* Kein «x freigeben»-Knopf mehr (Amir 16.11.2026) — freigegeben wird in der Wochenübersicht */}
           </div>
 
           {/* Tage als kleine Ringe */}

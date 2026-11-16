@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { gemerkt, merken } from '../lib/merker';
+import * as Doppelt from '../lib/doppelt';
 import { useSearchParams } from 'react-router-dom';
 import { Archive, ArrowRightLeft, CalendarDays, CalendarPlus, Check, CircleCheck, Clock, History, MapPin, MessageSquareText, MousePointerClick, Plus, Search, Trash2, TriangleAlert, Undo2, UserPlus, Users, X } from 'lucide-react';
 import { Shell } from '../ui/Shell';
@@ -439,7 +440,7 @@ export function Planung() {
     teams,
     basis,
     versetzt: versetzungen,
-    plaene: plaene.map((p) => ({ team_id: p.team_id, baustelle_id: p.baustelle?.id ?? null, von: p.von, bis: p.bis, soll_leute: null })),
+    plaene: plaene.map((p) => ({ team_id: p.team_id, baustelle_id: p.baustelle?.id ?? null, von: p.von, bis: p.bis, soll_leute: null, beginn_min: p.beginn_min ?? null })),
     abwesend: abwJeTag,
     ohneEinsatzTage: naechsteTage,
     fehlt: fehltOffen,
@@ -450,7 +451,7 @@ export function Planung() {
     if (datum < heuteIso) return [];
     return ersatzVorschlaege({
       datum, fuerTeam: teamId, teams, basis, versetzt: versetzungen, personen,
-      plaene: plaene.map((p) => ({ team_id: p.team_id, baustelle_id: p.baustelle?.id ?? null, von: p.von, bis: p.bis, soll_leute: null })),
+      plaene: plaene.map((p) => ({ team_id: p.team_id, baustelle_id: p.baustelle?.id ?? null, von: p.von, bis: p.bis, soll_leute: null, beginn_min: p.beginn_min ?? null })),
       abwesend: abwJeTag.get(datum) ?? new Map(),
     }).map((k) => ({ ...k, name: namen.get(k.id) ?? 'Person', woher: k.team_id ? teams.find((t) => t.id === k.team_id)?.bezeichnung ?? 'Team' : 'ohne festes Team' }));
   }, [heuteIso, teams, basis, versetzungen, personen, plaene, abwJeTag, namen]);
@@ -659,6 +660,13 @@ export function Planung() {
             chefVon={(teamId) => teams.find((t) => t.id === teamId)?.chefmonteur_id ?? null}
             onTag={(teamId, datum, dazu) => setTagWahl({ teamId, datum, dazu })}
             onEinsatz={(teamId, datum) => neu(teamId, ausIso(datum))}
+            onKlaeren={(teamId, datum) => {
+              // Der kürzere (meist später dazugekommene) Einsatz wird geöffnet — der Dialog zeigt dann die Abfrage
+              const amTag = plaene.filter((p) => p.team_id === teamId && p.von <= datum && p.bis >= datum)
+                .sort((a, b) => (Doppelt.arbeitstage(a.von, a.bis) - Doppelt.arbeitstage(b.von, b.bis)) || b.von.localeCompare(a.von));
+              const p = amTag[0];
+              if (p) setEntwurf({ id: p.id, teamId, baustelle: p.baustelle, von: p.von, bis: p.bis, tag: datum, ...felderVon(p) });
+            }}
             onEinteilungLoeschen={(id, von, bis) => void einteilungLoeschen(id, von, bis)}
             ersatzFuer={ersatzFuer}
             vollstaendig={vollstaendig}
@@ -942,7 +950,7 @@ export function Planung() {
  */
 interface Ersatz { id: string; name: string; grund: 'frei' | 'ueberzaehlig'; woher: string }
 
-function ZuLoesen({ liste, heuteIso, naechster, teamName, name, baustelle, artAm, chefVon, onTag, onEinsatz, onEinteilungLoeschen, ersatzFuer, vollstaendig, onErsatz, onKrank, onDochDa }: {
+function ZuLoesen({ liste, heuteIso, naechster, teamName, name, baustelle, artAm, chefVon, onTag, onEinsatz, onKlaeren, onEinteilungLoeschen, ersatzFuer, vollstaendig, onErsatz, onKrank, onDochDa }: {
   liste: KonfliktBlock[];
   heuteIso: string;
   naechster: string;
@@ -953,6 +961,8 @@ function ZuLoesen({ liste, heuteIso, naechster, teamName, name, baustelle, artAm
   chefVon: (teamId: string) => string | null;
   onTag: (teamId: string, datum: string, dazu?: boolean) => void;
   onEinsatz: (teamId: string, datum: string) => void;
+  /** Zwei Baustellen am selben Tag: den später dazugekommenen Einsatz öffnen, der Dialog fragt dann nach */
+  onKlaeren: (teamId: string, datum: string) => void;
   onEinteilungLoeschen: (mitarbeiterId: string, von: string, bis: string) => void;
   ersatzFuer: (teamId: string, datum: string) => Ersatz[];
   vollstaendig: (teamId: string, datum: string) => { voll: boolean; ersatz: string[] };
@@ -976,6 +986,11 @@ function ZuLoesen({ liste, heuteIso, naechster, teamName, name, baustelle, artAm
     const dazu = { text: 'Leute dazunehmen', aktion: () => onTag(k.team_id, k.datum, true), haupt: true };
     const einsatz = { text: 'Einsatz planen', aktion: () => onEinsatz(k.team_id, k.datum), haupt: true };
     switch (k.art) {
+      case 'doppelt':
+        return {
+          text: `${team}: zwei Baustellen am selben Tag, ohne Reihenfolge — der Chefmonteur weiss nicht, wohin.`,
+          knoepfe: [{ text: 'Klären', aktion: () => onKlaeren(k.team_id, k.datum), haupt: true }, tag],
+        };
       case 'fehlt-gemeldet': {
         // Vom Team gemeldet (0053): zuerst Ersatz (ab heute), dann die Meldung erledigen — als Abwesenheit oder «doch da»
         const wer = k.mitarbeiter_id ?? '';
@@ -1508,6 +1523,9 @@ function EinsatzDialog({
   const [speichert, setSpeichert] = useState(false);
   const [fehler, setFehler] = useState<string | null>(null);
   const [loeschenFragen, setLoeschenFragen] = useState(false);
+  // Zwei Baustellen am selben Tag (16.11.2026): was mit der bisherigen passieren soll
+  const [doppeltWahl, setDoppeltWahl] = useState<'schieben' | 'streichen' | 'zeiten'>('schieben');
+  const [beginnAlt, setBeginnAlt] = useState('');
   const [verlauf, setVerlauf] = useState<Aenderung[]>([]);
   const tag = ausIso(entwurf.tag);
 
@@ -1530,6 +1548,14 @@ function EinsatzDialog({
   const andere = gueltig
     ? plaene.filter((p) => p.team_id === teamId && p.id !== entwurf.id && ueberschneiden(p, zeitraum))
     : [];
+  // Vorschau, was sich an den bisherigen Einsätzen ändert (aus der geladenen Planung — gespeichert wird mit frischen Daten)
+  const nameVon = (id: string) => plaene.find((p) => p.id === id)?.baustelle?.bezeichnung ?? 'Einsatz';
+  const spanne = (a: string, b: string) => (a === b ? tagKurz(ausIso(a)) : `${tagKurz(ausIso(a))} – ${tagKurz(ausIso(b))}`);
+  const teamPlaene = plaene.filter((p) => p.team_id === teamId && p.id !== entwurf.id).map((p) => ({ id: p.id, von: p.von, bis: p.bis, beginn_min: p.beginn_min ?? null }));
+  const vorschau: string[] = andere.length === 0 ? [] : (doppeltWahl === 'schieben' ? Doppelt.verschieben(zeitraum, teamPlaene) : Doppelt.streichen(zeitraum, teamPlaene)).map((sch) =>
+    sch.art === 'aendern' ? `${nameVon(sch.id)}: neu ${spanne(sch.von, sch.bis)}`
+      : sch.art === 'neu' ? `${nameVon(sch.vorlage)}: zusätzlich ${spanne(sch.von, sch.bis)}`
+        : `${nameVon(sch.id)}: entfällt`);
 
   const SCHNELL: { art: Schnellwahl; label: string }[] = [
     { art: 'tag', label: `Nur ${WOCHENTAGE[(tag.getDay() + 6) % 7]} ${kurz(tag)}` },
@@ -1547,6 +1573,69 @@ function EinsatzDialog({
   });
   const INZWISCHEN = 'Diesen Einsatz hat inzwischen jemand anderes geändert — die Planung ist neu geladen. Bitte schliessen und nochmals öffnen.';
 
+  /**
+   * Doppelung auflösen, bevor der Einsatz gespeichert wird. Liest die Einsätze des Teams frisch (nicht nur die angezeigte
+   * Woche — auch was danach kommt, kann mitrutschen). Gibt einen Satz für die Rückmeldung zurück, '' wenn nichts
+   * kollidierte, null bei Fehler (steht dann im Dialog).
+   */
+  async function doppeltAufloesen(beginnNeu: number | null): Promise<string | null> {
+    if (!supabase || !baustelle) return null;
+    const c = supabase;
+    type Zeile = { id: string; team_id: string; von: string; bis: string; beginn_min: number | null; treffpunkt: Treffpunkt | null; hinweis: string | null; baustelle_id: string; baustelle: { bezeichnung: string | null } | null };
+    const r = await c.from('jahresplan').select(felderFehlen ? 'id,team_id,von,bis,baustelle_id,baustelle:baustelle_id(bezeichnung)' : 'id,team_id,von,bis,beginn_min,treffpunkt,hinweis,baustelle_id,baustelle:baustelle_id(bezeichnung)')
+      .eq('team_id', teamId).gte('bis', von);
+    if (r.error) { setFehler('Nicht gespeichert: ' + r.error.message); return null; }
+    const zeilen = ((r.data ?? []) as unknown as Zeile[]).filter((z) => z.id !== entwurf.id).map((z) => ({ ...z, beginn_min: z.beginn_min ?? null }));
+    if (!zeilen.some((z) => Doppelt.ueberschneiden(z, zeitraum))) return '';
+    let schritte: Doppelt.Schritt[];
+    if (doppeltWahl === 'zeiten') {
+      const alt = beginnAlt.trim() ? ausUhrzeit(beginnAlt) : null;
+      if (beginnNeu === null || alt === null) { setFehler('Beide Beginnzeiten angeben, z. B. 07:00 und 13:00 — sonst weiss der Chefmonteur nicht, wohin zuerst.'); return null; }
+      if (alt === beginnNeu) { setFehler('Die zwei Baustellen brauchen verschiedene Beginnzeiten.'); return null; }
+      schritte = Doppelt.mitZeiten(zeitraum, zeilen, alt);
+    } else {
+      schritte = doppeltWahl === 'schieben' ? Doppelt.verschieben(zeitraum, zeilen) : Doppelt.streichen(zeitraum, zeilen);
+    }
+    const { data: u } = await c.auth.getUser();
+    const grundText = `wegen ${baustelle.bezeichnung ?? baustelle.konto_nr}`;
+    const nach = new Map(zeilen.map((z) => [z.id, z]));
+    const saetze: string[] = [];
+    try {
+      for (const sch of schritte) {
+        if (sch.art === 'aendern') {
+          const z = nach.get(sch.id)!;
+          const neu: Record<string, unknown> = { von: sch.von, bis: sch.bis };
+          if (sch.beginn_min !== undefined) neu.beginn_min = sch.beginn_min;
+          const u1 = await c.from('jahresplan').update(neu).match({ id: z.id, von: z.von, bis: z.bis }).select('id');
+          if (u1.error) throw u1.error;
+          if ((u1.data ?? []).length === 0) throw new Error('Der Plan wurde inzwischen geändert — bitte neu laden und nochmals versuchen.');
+          const log: { feld: string; alt: string; neu: string }[] = [];
+          if (z.von !== sch.von) log.push({ feld: 'von', alt: z.von, neu: sch.von });
+          if (z.bis !== sch.bis) log.push({ feld: 'bis', alt: z.bis, neu: sch.bis });
+          if (sch.beginn_min !== undefined && sch.beginn_min !== z.beginn_min) log.push({ feld: 'beginn_min', alt: z.beginn_min != null ? uhrzeit(z.beginn_min) : '—', neu: sch.beginn_min != null ? uhrzeit(sch.beginn_min) : '—' });
+          if (log.length) await c.from('planaenderung').insert(log.map((l) => ({ jahresplan_id: z.id, ...l, geaendert_von: u.user?.id ?? null, grund: grundText })));
+          saetze.push(`${z.baustelle?.bezeichnung ?? 'Einsatz'} neu ${spanne(sch.von, sch.bis)}`);
+        } else if (sch.art === 'neu') {
+          const z = nach.get(sch.vorlage)!;
+          const felderZ: EinsatzFelder = felderFehlen ? {} : { beginn_min: sch.beginn_min !== undefined ? sch.beginn_min : z.beginn_min, treffpunkt: z.treffpunkt, hinweis: z.hinweis };
+          const i1 = await c.from('jahresplan').insert({ team_id: z.team_id, baustelle_id: z.baustelle_id, von: sch.von, bis: sch.bis, ...felderZ });
+          if (i1.error) throw i1.error;
+        } else {
+          const z = nach.get(sch.id)!;
+          await c.from('planaenderung').delete().eq('jahresplan_id', z.id);
+          const d1 = await c.from('jahresplan').delete().match({ id: z.id, von: z.von, bis: z.bis }).select('id');
+          if (d1.error) throw d1.error;
+          saetze.push(`${z.baustelle?.bezeichnung ?? 'Einsatz'} entfällt`);
+        }
+      }
+    } catch (e) {
+      setFehler('Nicht gespeichert: ' + (e instanceof Error ? e.message : String(e)));
+      onNeuLaden();
+      return null;
+    }
+    return doppeltWahl === 'zeiten' ? 'Beide Baustellen mit Zeiten.' : saetze.length ? saetze.join(' · ') + '.' : '';
+  }
+
   async function speichern() {
     if (!supabase || !gueltig || !baustelle) return;
     const beginnMin = beginn.trim() ? ausUhrzeit(beginn) : null;
@@ -1555,11 +1644,14 @@ function EinsatzDialog({
     const felder: EinsatzFelder = felderFehlen ? {} : { beginn_min: beginnMin, treffpunkt, hinweis: hinweisText };
     setSpeichert(true);
     setFehler(null);
+    // Zwei Baustellen am selben Tag (16.11.2026): mit frischen Daten aus der Datenbank prüfen und auflösen
+    const aufgeloest = await doppeltAufloesen(beginnMin);
+    if (aufgeloest === null) { setSpeichert(false); return; }
     if (!bestehend) {
       const { error } = await supabase.from('jahresplan').insert({ team_id: teamId, baustelle_id: baustelle.id, von, bis, ...felder });
       setSpeichert(false);
       if (error) { setFehler('Nicht gespeichert: ' + error.message); return; }
-      onGespeichert(`${team?.bezeichnung ?? 'Team'} ist auf ${baustelle.bezeichnung ?? baustelle.konto_nr} eingeplant.`);
+      onGespeichert(`${team?.bezeichnung ?? 'Team'} ist auf ${baustelle.bezeichnung ?? baustelle.konto_nr} eingeplant.${aufgeloest ? ' ' + aufgeloest : ''}`);
       return;
     }
     const alt = entwurf;
@@ -1574,7 +1666,7 @@ function EinsatzDialog({
       if ((alt.treffpunkt ?? null) !== treffpunkt) aenderungen.push({ feld: 'treffpunkt', alt: alt.treffpunkt ? TREFFPUNKT_TEXT[alt.treffpunkt] : '—', neu: treffpunkt ? TREFFPUNKT_TEXT[treffpunkt] : '—' });
       if ((alt.hinweis ?? null) !== hinweisText) aenderungen.push({ feld: 'hinweis', alt: text(alt.hinweis), neu: text(hinweisText) });
     }
-    if (aenderungen.length === 0) { setSpeichert(false); onSchliessen(); return; }
+    if (aenderungen.length === 0) { setSpeichert(false); if (aufgeloest) onGespeichert(aufgeloest); else onSchliessen(); return; }
     const { data: r1, error: e1 } = await supabase.from('jahresplan').update({ team_id: teamId, baustelle_id: baustelle.id, von, bis, ...felder }).match(wieAngezeigt()).select('id');
     if (e1) { setSpeichert(false); setFehler('Nicht gespeichert: ' + e1.message); return; }
     if ((r1 ?? []).length === 0) { setSpeichert(false); setFehler(INZWISCHEN); onNeuLaden(); return; }
@@ -1582,7 +1674,7 @@ function EinsatzDialog({
     const { error: e2 } = await supabase.from('planaenderung').insert(aenderungen.map((a) => ({ jahresplan_id: alt.id, ...a, geaendert_von: u.user?.id ?? null, grund: grund.trim() || null })));
     setSpeichert(false);
     if (e2) { setFehler('Gespeichert, aber die Änderung ist nicht protokolliert: ' + e2.message); return; }
-    onGespeichert('Einsatz geändert.');
+    onGespeichert('Einsatz geändert.' + (aufgeloest ? ' ' + aufgeloest : ''));
   }
 
   async function entfernen() {
@@ -1690,9 +1782,55 @@ function EinsatzDialog({
           )}
 
           {andere.length > 0 && (
-            <p className="rounded-[12px] border border-amber/40 bg-amber-soft px-3.5 py-2.5 text-xs leading-relaxed text-amber-deep">
-              {team?.bezeichnung} ist in dieser Zeit auch auf {andere.map((p) => p.baustelle?.bezeichnung ?? 'einer Baustelle').join(', ')} eingeplant. Beides bleibt stehen — zum Beispiel halber Tag hier, halber Tag dort.
-            </p>
+            <div className="rounded-[16px] border border-amber/40 bg-amber-soft/60 p-4">
+              <p className="font-display text-[15px] font-semibold text-ink">
+                {team?.bezeichnung} ist {von === bis ? `am ${tagKurz(ausIso(von))}` : 'in dieser Zeit'} schon eingeplant
+              </p>
+              <ul className="mt-2 space-y-1">
+                {andere.map((p) => (
+                  <li key={p.id} className="flex flex-wrap items-baseline gap-x-2 text-sm">
+                    <span className="knr">{p.baustelle?.konto_nr}</span>
+                    <b className="font-semibold text-ink">{p.baustelle?.bezeichnung ?? 'Baustelle'}</b>
+                    <span className="text-xs font-semibold text-amber-deep">{p.von === p.bis ? tagKurz(ausIso(p.von)) : `${tagKurz(ausIso(p.von))} – ${tagKurz(ausIso(p.bis))}`}</span>
+                  </li>
+                ))}
+              </ul>
+              <p className="mt-2 text-xs text-ink2">Was soll mit der bisherigen Baustelle passieren?</p>
+              <div className="mt-2 space-y-2" role="radiogroup" aria-label="Bisherige Baustelle">
+                {([
+                  ['schieben', 'Verschieben', 'Rutscht hinter den neuen Einsatz — was direkt danach kommt, rutscht mit.'],
+                  ['streichen', 'Diese Tage dort streichen', 'Die Tage fallen bei der bisherigen Baustelle weg, sonst bleibt alles.'],
+                  ['zeiten', 'Beides am selben Tag — mit Zeiten', 'Zwei Baustellen an einem Tag. Beginnzeiten sind Pflicht, die frühere zuerst.'],
+                ] as const).map(([w, titel, text]) => (
+                  <button key={w} type="button" role="radio" aria-checked={doppeltWahl === w} disabled={w === 'zeiten' && felderFehlen}
+                    onClick={() => setDoppeltWahl(w)}
+                    className={'flex w-full items-start gap-3 rounded-[12px] bg-white px-3.5 py-2.5 text-left transition disabled:opacity-40 ' + (doppeltWahl === w ? 'shadow-[0_0_0_2px_var(--color-steel)]' : 'shadow-[0_0_0_1px_var(--color-line)] hover:shadow-[0_0_0_1px_var(--color-line-strong)]')}>
+                    <span className={'mt-0.5 h-4 w-4 shrink-0 rounded-full ' + (doppeltWahl === w ? 'shadow-[inset_0_0_0_5px_var(--color-steel)]' : 'shadow-[inset_0_0_0_2px_#cfcac2]')} aria-hidden="true" />
+                    <span>
+                      <span className="block text-sm font-semibold text-ink">{titel}</span>
+                      <span className="block text-xs text-ink3">{text}</span>
+                    </span>
+                  </button>
+                ))}
+              </div>
+              {doppeltWahl === 'zeiten' && (
+                <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                  <label className="block text-xs text-ink2">
+                    <span className="mb-1 block font-semibold">{baustelle?.bezeichnung ?? 'Neue Baustelle'} ab</span>
+                    <input className="field" inputMode="numeric" value={beginn} onChange={(e) => setBeginn(e.target.value)} placeholder="07:00" />
+                  </label>
+                  <label className="block text-xs text-ink2">
+                    <span className="mb-1 block font-semibold">{andere[0]?.baustelle?.bezeichnung ?? 'Bisherige'} ab</span>
+                    <input className="field" inputMode="numeric" value={beginnAlt} onChange={(e) => setBeginnAlt(e.target.value)} placeholder="13:00" />
+                  </label>
+                </div>
+              )}
+              {doppeltWahl !== 'zeiten' && vorschau.length > 0 && (
+                <ul className="mt-3 space-y-0.5 text-xs text-amber-deep">
+                  {vorschau.map((z, i) => <li key={i}>↳ {z}</li>)}
+                </ul>
+              )}
+            </div>
           )}
 
           {bestehend && (
