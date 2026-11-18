@@ -29,7 +29,6 @@ import { vorratLesen, vorratSchreiben } from '../lib/vorrat';
 import { heuteUndNaechster, planHinweise, type VerlaufZeile } from '../lib/planung';
 import { useAnsicht } from '../lib/ansicht';
 import { eintragText, usePosteingang } from '../lib/posteingang';
-import { PushKarte } from '../ui/PushKarte';
 import { istDemoFirma } from '../lib/demo';
 import { nachtragMoeglich } from '../lib/nachtrag';
 
@@ -752,7 +751,7 @@ export function StartChef() {
         )}
 
         {/* Benachrichtigungen «Plan für morgen» (Schritt 5) — nur solange sie auf diesem Gerät nicht an sind */}
-        {teamId && <PushKarte teamId={teamId} />}
+        {/* Karte «Plan für morgen aufs Handy» weg (Amir 18.11.2026) */}
 
         {/* Was noch wartet, der letzte Fehler beim Senden und was der Chefmonteur entscheiden muss */}
         <Warteschlange />

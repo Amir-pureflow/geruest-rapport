@@ -502,6 +502,14 @@ export function Erfassung() {
    * zählt die Zeit auf die zweite. Gespeichert in einem Durchgang als zwei Meldungen, Überstunden über den ganzen Tag.
    */
   const [zweite, setZweite] = useState<Baustelle | null>(null);
+  /**
+   * Einsätze des Teams mit Beginnzeit (16./18.11.2026): sind am gewählten Tag zwei Baustellen geplant, stellt die
+   * Erfassung beide selbst ein — früher zuerst, Wechsel zur Beginnzeit der zweiten. Vorher war nur die erste vorgewählt,
+   * und wer einfach «Tag melden» drückte, buchte den ganzen Tag dorthin.
+   */
+  const [planTage, setPlanTage] = useState<{ von: string; bis: string; beginn_min: number | null; baustelle: Baustelle }[]>([]);
+  const [zweiteAusPlan, setZweiteAusPlan] = useState(false);
+  const planGesetzt = useRef('');
   const [wechsel, setWechsel] = useState<number>(() => arbeitstag().mittagBis);
   const [wahlZweite, setWahlZweite] = useState(false);
   const [anw, setAnw] = useState<Record<string, Anwesenheit>>({});
@@ -837,7 +845,7 @@ export function Erfassung() {
     setLaedtTeam(true);
     setLeute([]); setKacheln([]); setAlleGeplanten([]); setBaustelle(null); setZiffern(''); setSuchTreffer([]);
     setGaeste([]); setZeigeGast(false); setGastFilter('');
-    setZweite(null); setWahlZweite(false); setWechsel(arbeitstag().mittagBis);
+    setZweite(null); setWahlZweite(false); setWechsel(arbeitstag().mittagBis); setPlanTage([]); planGesetzt.current = '';
     // Ohne Netz: Leute und Kacheln, wie sie beim letzten Laden mit Netz waren (lib/vorrat.ts)
     type TeamVorrat = { personen: Person[]; gaeste: Person[]; kacheln: Baustelle[]; geplant: Baustelle[] };
     const ausVorrat = (): boolean => {
@@ -893,7 +901,7 @@ export function Erfassung() {
       const [plan, zuletzt, vlGefiltert] = await Promise.all([
         // Nur Einsätze, die frühestens am ersten nachtragbaren Tag enden — sonst schneidet die Obergrenze der API
         // (1000 Zeilen) bei einem Team mit langer Geschichte ausgerechnet den aktuellen Plan ab (13.10.2026)
-        client.from('jahresplan').select('id,von,bis,baustelle:baustelle_id(id,konto_nr,bezeichnung)').eq('team_id', teamId).gte('bis', fruehesterNachtrag(new Date())).order('von'),
+        client.from('jahresplan').select('id,von,bis,beginn_min,baustelle:baustelle_id(id,konto_nr,bezeichnung)').eq('team_id', teamId).gte('bis', fruehesterNachtrag(new Date())).order('von'),
         client.from('tagesmeldung').select('datum,baustelle:baustelle_id(id,konto_nr,bezeichnung)').eq('team_id', teamId).gte('datum', iso(addTage(heute, -14))).order('datum', { ascending: false }).limit(40),
         // Verlauf nur für dieses Team und seine Leute, neueste zuerst (vorher die ganze Firma, ohne Reihenfolge)
         verlauf(true),
@@ -903,7 +911,8 @@ export function Erfassung() {
       const gesehen = new Set<string>();
       const tiles: Baustelle[] = [];
       const push = (b: Baustelle | null) => { if (b && !gesehen.has(b.id) && tiles.length < 4) { gesehen.add(b.id); tiles.push(b); } };
-      const planRows = (plan.data ?? []) as unknown as { id: string; von: string; bis: string; baustelle: Baustelle | null }[];
+      const planRows = (plan.data ?? []) as unknown as { id: string; von: string; bis: string; beginn_min?: number | null; baustelle: Baustelle | null }[];
+      setPlanTage(planRows.filter((p) => p.baustelle).map((p) => ({ von: p.von, bis: p.bis, beginn_min: p.beginn_min ?? null, baustelle: p.baustelle! })));
       // Heute Geplantes zuerst (11.10.2026): nach einer Umplanung am Morgen ist sonst die Baustelle von gestern vorgewählt
       const heuteGeplant = planRows.filter((p) => p.von <= heuteIso && p.bis >= heuteIso).map((p) => p.baustelle).filter((b): b is Baustelle => !!b);
       for (const b of heuteGeplant) push(b);
@@ -1052,6 +1061,20 @@ export function Erfassung() {
   useEffect(() => () => erfassungOffen(false), []);
   // Gleiche Baustelle zweimal gibt es nicht
   useEffect(() => { if (zweite && zweite.id === baustelle?.id) setZweite(null); }, [baustelle?.id, zweite]);
+
+  // Zwei Baustellen laut Planung am gewählten Tag: einmal je Tag vorbelegen — danach entscheidet der Chefmonteur
+  useEffect(() => {
+    const schluessel = `${teamId}|${tagIso}`;
+    if (planGesetzt.current === schluessel || planTage.length === 0) return;
+    const amTag = [...new Map(planTage.filter((p) => p.von <= tagIso && p.bis >= tagIso).map((p) => [p.baustelle.id, p])).values()]
+      .sort((a, b) => (a.beginn_min ?? 9999) - (b.beginn_min ?? 9999));
+    planGesetzt.current = schluessel;
+    if (amTag.length < 2) { setZweiteAusPlan(false); return; }
+    setBaustelle(amTag[0].baustelle);
+    setZweite(amTag[1].baustelle);
+    setWechsel(amTag[1].beginn_min ?? arbeitstag().mittagBis);
+    setZweiteAusPlan(true);
+  }, [teamId, tagIso, planTage]);
 
   // Ausnahme für den Chefmonteur: Konto-Nr. oder Name, falls die Kacheln nicht reichen (ab 2 Zeichen, max. 5 Treffer).
   // Volle Nummer mit genau einem Treffer → direkt übernehmen, ohne zweiten Tipp.
@@ -1981,7 +2004,8 @@ export function Erfassung() {
           )}
           {baustelle && zweite && (
             <div className="card mt-2 space-y-3 p-3">
-              <p className="text-sm font-semibold text-ink">Zwei Baustellen heute</p>
+              <p className="text-sm font-semibold text-ink">{zweiteAusPlan ? 'Zwei Baustellen laut Planung' : 'Zwei Baustellen heute'}</p>
+              {zweiteAusPlan && <p className="-mt-2 text-[11px] text-ink3">Das Büro hat beide eingeplant. Stimmt die Wechselzeit nicht, unten ändern.</p>}
               {[baustelle, zweite].map((b, i) => {
                 const min = spannenMinuten(spannenTeilen(teamSpannen, [wechsel])[i] ?? []);
                 return (
