@@ -306,6 +306,21 @@ Das Ohr ist austauschbar: nur `stt()` in `supabase/functions/_shared/ohr.ts`. He
 (kann kein Albanisch, Arabisch/Polnisch schwach); geplant Azure AI Speech, Region Schweiz Nord — siehe
 «Offene Entscheidungen». Die Übersetzung aus bestätigtem Text ist geprüft für sq/pl/pt/ar (04.10.).
 
+## Oberfläche auf Albanisch für die Baustelle (19.11.2026, Erin)
+
+Chefmonteur (auch Teamgerät) und Monteur schalten oben rechts mit **«Shqip»** die Oberfläche auf Albanisch, mit
+**«Deutsch»** zurück (`ui/SpracheKnopf.tsx`, Wahl im Gerät `localStorage oberflaeche-sq`). Kein Neuladen — eine halb
+ausgefüllte Tagesmeldung bleibt. Büro-Ansichten bleiben immer deutsch, auch auf demselben Gerät.
+- Übersetzt wird im DOM wie bei der englischen Demo, aber umkehrbar (`lib/uebersetzer.ts`, `lib/albanisch.ts`).
+  Wörterbuch + Muster in `lib/albanisch_woerter.ts` (+ Tests). Fehlt ein Text, bleibt er deutsch — nie raten.
+- **Bleibt deutsch:** Baustelle, Adresse, Treffpunkt («Werkhof»), Hinweise des Büros, Namen. Markieren mit
+  `data-bleibt-deutsch` (Tageskarte in StartChef.tsx). «Werkhof» steht absichtlich nicht im Wörterbuch.
+- Gespeichert wird weiter alles deutsch; der Bauführer merkt nichts. Der «Teilen»-Text für den Team-Chat bleibt deutsch.
+- **Wer neue Texte in Chefmonteur-/Monteur-Seiten einbaut, ergänzt sie in `albanisch_woerter.ts`** (Textknoten einzeln:
+  `Noch {n} Meldung{en}` = drei Schlüssel). Begriffe: Bauführer = shefi i kantierit, Chefmonteur = shefi i ekipit,
+  Überstunden = orë shtesë, Sprachnotiz = mesazh zanor, Gast = ndihmës, Regie bleibt Regie — mit Leuten von der
+  Baustelle prüfen.
+
 ## Regie-Mails: Postfach statt Spam (20.10.2026)
 
 Amir: «Sie dürfen nicht im Spam landen.» Regeln in `supabase/functions/regierapport-senden`:
@@ -643,6 +658,8 @@ src/ui/Landkarte.tsx              (siehe oben) — blendet erst ein, wenn alles 
 src/ui/kartenstil.ts              MapLibre, Worker und swisstopo-Stile für alle Karten (nur aus nachgeladenen Teilen)
 src/ui/OrtWahl.tsx                Ort der Baustelle: Karte mit verschiebbarer Nadel (Verwaltung → Baustellen)
 src/lib/push.ts                   Benachrichtigungen ein-/ausschalten, Abo dem Team des Geräts zuordnen (+ Tests)
+src/lib/albanisch.ts              Oberfläche auf Albanisch (Baustelle): ein/aus, nur Chefmonteur/Monteur; Wörterbuch albanisch_woerter.ts (+ Tests)
+src/lib/uebersetzer.ts            DOM-Übersetzer mit Wörterbuch und Mustern, umkehrbar (ohne Neuladen)
 src/ui/PushKarte.tsx              Hinweis «Plan für morgen aufs Handy» auf der Team-Startseite
 public/push-sw.js                 Empfang im Service Worker (Anzeigen, Tippen öffnet die App)
 supabase/functions/push-senden/   Versand (Web Push, Schlüssel aus konfiguration)

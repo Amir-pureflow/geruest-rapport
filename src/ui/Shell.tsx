@@ -6,6 +6,7 @@ import { einstellungen } from '../lib/einstellungen';
 import { abmelden, ungesendet } from '../lib/konto';
 import { eigeneFirma } from '../lib/einstellungen';
 import { empfaengerFuer, usePosteingang } from '../lib/posteingang';
+import { SpracheKnopf } from './SpracheKnopf';
 
 /**
  * Bildmarke: Gerüst als Netz — zwei Stiele, zwei Lagen, eine Strebe, und an den Knoten leuchtende Punkte
@@ -381,6 +382,8 @@ export function Shell({
               <Wortmarke />
             </Link>
             <span className="flex items-center gap-1.5">
+              {/* Baustelle: Oberfläche auf Albanisch (Testfassung 19.11.2026, lib/albanisch.ts) */}
+              {(ansicht === 'chef' || ansicht === 'monteur') && <SpracheKnopf />}
               {ansicht && <Glocke ansicht={ansicht} />}
               {wechsel}
             </span>

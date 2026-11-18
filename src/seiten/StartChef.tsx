@@ -132,16 +132,16 @@ function EinsatzZeilen({ einsaetze, beginnFirma }: { einsaetze: KartenEinsatz[];
               {/* Zwei Baustellen am Tag: nummeriert, in der Reihenfolge der Beginnzeit (16.11.2026) */}
               {einsaetze.length > 1 && <span className="mt-px grid h-[22px] w-[22px] shrink-0 place-items-center rounded-full bg-steel text-[11px] font-bold text-white">{i + 1}</span>}
               <span className="knr mt-px">{e.baustelle.konto_nr}</span>
-              <span className="min-w-0 font-medium [overflow-wrap:anywhere]">{e.baustelle.bezeichnung || 'Baustelle'}</span>
+              <span data-bleibt-deutsch className="min-w-0 font-medium [overflow-wrap:anywhere]">{e.baustelle.bezeichnung || 'Baustelle'}</span>
             </p>
             <div className="space-y-1.5 text-sm text-ink2">
-              {adr && <p className="flex items-start gap-2"><MapPin size={15} className="mt-0.5 shrink-0 text-ink3" aria-hidden="true" />{adr}</p>}
+              {adr && <p data-bleibt-deutsch className="flex items-start gap-2"><MapPin size={15} className="mt-0.5 shrink-0 text-ink3" aria-hidden="true" />{adr}</p>}
               <p className="flex flex-wrap items-center gap-x-4 gap-y-1">
                 <span className="inline-flex items-center gap-2"><Clock size={15} className="text-ink3" aria-hidden="true" />ab <b className={e.beginn_min != null ? 'font-semibold text-ink' : 'font-normal'}>{uhrzeit(e.beginn_min ?? beginnFirma)}</b></span>
-                {e.treffpunkt && <span className="inline-flex items-center gap-2"><Flag size={15} className="text-ink3" aria-hidden="true" />Treffpunkt <b className="font-semibold text-ink">{e.treffpunkt === 'werkhof' ? 'Werkhof' : 'auf der Baustelle'}</b></span>}
+                {e.treffpunkt && <span className="inline-flex items-center gap-2"><Flag size={15} className="text-ink3" aria-hidden="true" />Treffpunkt <b data-bleibt-deutsch className="font-semibold text-ink">{e.treffpunkt === 'werkhof' ? 'Werkhof' : 'auf der Baustelle'}</b></span>}
               </p>
               {e.hinweis && (
-                <p className="flex items-start gap-2 rounded-[10px] bg-steel-soft/60 px-2.5 py-1.5 text-ink">
+                <p data-bleibt-deutsch className="flex items-start gap-2 rounded-[10px] bg-steel-soft/60 px-2.5 py-1.5 text-ink">
                   <MessageSquareText size={15} className="mt-0.5 shrink-0 text-steel" aria-hidden="true" />{e.hinweis}
                 </p>
               )}
