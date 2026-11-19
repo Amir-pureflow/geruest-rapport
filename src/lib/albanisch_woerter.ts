@@ -173,7 +173,7 @@ export const WOERTER = new Map<string, string>(Object.entries({
 
   // ── Erfassung: Zeiten ──
   'Arbeitszeit — alle gleich': 'Orari i punës — të gjithë njësoj', '«bis» eintragen': 'shëno «deri»', '· Nachmittag: «bis» fehlt noch': '· Pasdite: mungon ende «deri»',
-  '· davon': '· prej tyre', 'davon': 'prej tyre', 'Vormittag': 'Paradite', 'Nachmittag': 'Pasdite', '+ Nachmittag': '+ Pasdite', 'nach Pause': 'pas pushimit',
+  '· davon': '· prej tyre', 'davon': 'prej tyre', 'Vormittag': 'Paradite', 'Nachmittag': 'Pasdite', '+ Nachmittag': '+ Pasdite', 'nach Pause': 'pas pausave',
   'Pause': 'Pushimi', '— er ist unbezahlt. Durchgearbeitet? Dann stimmt es so. Sonst Vormittag bis': '— ajo nuk paguhet. Keni punuar pa pushim? Atëherë është në rregull. Përndryshe paradite deri',
   'und Nachmittag ab': 'dhe pasdite nga',
   'An diesem Tag ist schon etwas gemeldet — was über den normalen Tag (': 'Për këtë ditë është raportuar tashmë diçka — ajo që kalon ditën normale (',
