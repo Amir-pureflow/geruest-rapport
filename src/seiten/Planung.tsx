@@ -407,7 +407,12 @@ export function Planung() {
         const geplant = montagPlaene.filter((p) => p.team_id === team.id && p.von <= dIso && p.bis >= dIso).map((p) => p.baustelle?.id ?? '');
         const gemeldet = [...(istJe.get(`${team.id}|${dIso}`)?.baustellen.keys() ?? [])];
         if (gemeldet.length === 0) return geplant.length > 0 && dIso < heuteIso && !istFrei(d) ? `geplant: ${namenVon(geplant)}` : null;
-        if (geplant.length === 0) return 'nicht geplant';
+        // Am Montag früh noch nicht geplant (21.11.2026, Amir: «warum steht hier nicht geplant?») — wurde der Einsatz
+        // später in der Woche eingeplant, steht das so da, statt nach einem vergessenen Plan auszusehen
+        if (geplant.length === 0) {
+          const spaeter = plaene.some((p) => p.team_id === team.id && p.von <= dIso && p.bis >= dIso && gemeldet.includes(p.baustelle?.id ?? ''));
+          return spaeter ? 'erst nach Mo früh eingeplant' : 'ohne Plan';
+        }
         return gemeldet.every((b) => geplant.includes(b)) ? null : `geplant: ${namenVon(geplant)}`;
       });
       const streifen: { ab: number; bis: number; text: string }[] = [];
@@ -419,7 +424,7 @@ export function Planung() {
       if (streifen.length) m.set(team.id, streifen);
     }
     return m;
-  }, [lesend, ansicht, teams, tage, heuteIso, montagPlaene, istJe, baustelleVon]);
+  }, [lesend, ansicht, teams, tage, heuteIso, montagPlaene, istJe, baustelleVon, plaene]);
 
   // Erste Schritte (wegklickbar, einmal je Gerät)
   const [hilfeOffen, setHilfeOffen] = useState(() => { try { return localStorage.getItem('planung-hilfe-v1') !== 'weg'; } catch { return true; } });
