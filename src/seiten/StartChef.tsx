@@ -9,7 +9,7 @@
  */
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { BellRing, CheckCircle2, Clock, Flag, MapPin, MessageSquareText, Navigation, Share2, Users } from 'lucide-react';
+import { BellRing, CheckCircle2, ChevronLeft, ChevronRight, Clock, Flag, MessageSquareText, Navigation, Share2, Users } from 'lucide-react';
 import { Shell } from '../ui/Shell';
 import { supabase } from '../lib/supabase';
 import { addTage, iso, kurz, kw, montag, stunden, WOCHENTAGE } from '../lib/datum';
@@ -118,38 +118,53 @@ const KARTE_PLAN = 'von,bis,soll_leute,beginn_min,treffpunkt,hinweis,baustelle:b
 const KARTE_PLAN_ALT = 'von,bis,baustelle:baustelle_id(id,konto_nr,bezeichnung,strasse,plz,ort)';
 interface KartenPlan { von: string; bis: string; soll_leute?: number | null; beginn_min?: number | null; treffpunkt?: 'baustelle' | 'werkhof' | null; hinweis?: string | null; baustelle: KartenEinsatz['baustelle'] | null }
 
-/** Baustelle, Adresse, Beginn, Treffpunkt, Hinweis — und «Navigieren» (nur ein Link, kein Kartendienst, kein Standort). */
-function EinsatzZeilen({ einsaetze, beginnFirma }: { einsaetze: KartenEinsatz[]; beginnFirma: number }) {
+/** Was an einer Baustelle neu ist — aus den Zeilen von «Plan geändert» (z. B. «Neu: Stauffacherstrasse 62 (ab 13:00)»). */
+function aenderungAn(zeilen: string[], name: string | null): string | null {
+  if (!name) return null;
+  const z = zeilen.find((x) => x.includes(name));
+  if (!z) return null;
+  return /^Neu\b/i.test(z) ? 'neu' : /Beginn/.test(z) ? 'Beginn neu' : /Treffpunkt/.test(z) ? 'Treffpunkt neu' : 'geändert';
+}
+
+/**
+ * Baustelle, Adresse, Beginn, Treffpunkt, Hinweis — und «Navigieren» (nur ein Link, kein Kartendienst, kein Standort).
+ * Seit 21.11.2026 (Konzept Startseite) als Tagesablauf: Uhrzeit links, Navigieren als kleiner Knopf rechts, was laut
+ * «Plan geändert» neu ist, steht direkt an der Baustelle.
+ */
+function EinsatzZeilen({ einsaetze, beginnFirma, aenderungen = [] }: { einsaetze: KartenEinsatz[]; beginnFirma: number; aenderungen?: string[] }) {
   const apple = istApple(navigator.userAgent, navigator.maxTouchPoints);
   return (
-    <div className="space-y-4">
+    <div>
       {einsaetze.map((e, i) => {
         const adr = adresseText(e.baustelle);
+        const neu = aenderungAn(aenderungen, e.baustelle.bezeichnung);
+        const linie = einsaetze.length > 1;
         return (
-          <div key={e.baustelle.id} className="space-y-2">
-            {/* Name darf umbrechen (am Handy sonst «Wohnüberbauung Brünnenpar…») — er ist das Wichtigste der Karte */}
-            <p className="flex items-start gap-2 text-[15px] leading-snug">
-              {/* Zwei Baustellen am Tag: nummeriert, in der Reihenfolge der Beginnzeit (16.11.2026) */}
-              {einsaetze.length > 1 && <span className="mt-px grid h-[22px] w-[22px] shrink-0 place-items-center rounded-full bg-steel text-[11px] font-bold text-white">{i + 1}</span>}
-              <span className="knr mt-px">{e.baustelle.konto_nr}</span>
-              <span data-bleibt-deutsch className="min-w-0 font-medium [overflow-wrap:anywhere]">{e.baustelle.bezeichnung || 'Baustelle'}</span>
-            </p>
-            <div className="space-y-1.5 text-sm text-ink2">
-              {adr && <p data-bleibt-deutsch className="flex items-start gap-2"><MapPin size={15} className="mt-0.5 shrink-0 text-ink3" aria-hidden="true" />{adr}</p>}
-              <p className="flex flex-wrap items-center gap-x-4 gap-y-1">
-                <span className="inline-flex items-center gap-2"><Clock size={15} className="text-ink3" aria-hidden="true" />ab <b className={e.beginn_min != null ? 'font-semibold text-ink' : 'font-normal'}>{uhrzeit(e.beginn_min ?? beginnFirma)}</b></span>
-                {e.treffpunkt && <span className="inline-flex items-center gap-2"><Flag size={15} className="text-ink3" aria-hidden="true" />Treffpunkt <b data-bleibt-deutsch className="font-semibold text-ink">{e.treffpunkt === 'werkhof' ? 'Werkhof' : 'auf der Baustelle'}</b></span>}
+          <div key={e.baustelle.id} className="grid grid-cols-[3rem_0.875rem_1fr_auto] gap-x-2.5">
+            <span className={'pt-[3px] text-[16px] font-extrabold tabular-nums ' + (e.beginn_min != null ? 'text-ink' : 'text-ink3')}>{uhrzeit(e.beginn_min ?? beginnFirma)}</span>
+            <span className="relative" aria-hidden="true">
+              {linie && <span className={'absolute left-[6px] w-0.5 bg-line ' + (i === 0 ? 'top-3 bottom-0' : i === einsaetze.length - 1 ? 'top-0 h-3' : 'inset-y-0')} />}
+              <span className="absolute left-[1px] top-[7px] h-3 w-3 rounded-full border-[3px] border-accent bg-white" />
+            </span>
+            <div className={'min-w-0 ' + (i < einsaetze.length - 1 ? 'pb-4' : '')}>
+              {/* Name darf umbrechen (am Handy sonst «Wohnüberbauung Brünnenpar…») — er ist das Wichtigste der Karte */}
+              <p className="text-[15px] font-semibold leading-snug [overflow-wrap:anywhere]"><span data-bleibt-deutsch>{e.baustelle.bezeichnung || 'Baustelle'}</span></p>
+              <p className="mt-0.5 flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[12.5px] text-ink3">
+                <span className="knr">{e.baustelle.konto_nr}</span>
+                {adr && <span data-bleibt-deutsch>{adr}</span>}
+                {e.treffpunkt && <span className="inline-flex items-center gap-1"><Flag size={12} aria-hidden="true" />ab <span data-bleibt-deutsch>{e.treffpunkt === 'werkhof' ? 'Werkhof' : 'Baustelle'}</span></span>}
+                {neu && <span className="rounded-md bg-amber-soft px-1.5 py-px text-[11px] font-bold text-amber-deep">{neu}</span>}
               </p>
               {e.hinweis && (
-                <p data-bleibt-deutsch className="flex items-start gap-2 rounded-[10px] bg-steel-soft/60 px-2.5 py-1.5 text-ink">
+                <p data-bleibt-deutsch className="mt-1.5 flex items-start gap-2 rounded-[10px] bg-steel-soft/60 px-2.5 py-1.5 text-sm text-ink">
                   <MessageSquareText size={15} className="mt-0.5 shrink-0 text-steel" aria-hidden="true" />{e.hinweis}
                 </p>
               )}
             </div>
-            <a href={navigationsLink(e.baustelle, apple)} target="_blank" rel="noopener noreferrer"
-              className="flex items-center justify-center gap-2 rounded-[14px] border border-steel/25 bg-steel-soft/50 px-4 py-2.5 text-sm font-semibold text-steel transition hover:bg-steel-soft">
-              <Navigation size={16} aria-hidden="true" /> Navigieren
-              {!hatKoordinaten(e.baustelle) && <span className="text-xs font-normal text-ink3">· Ort nicht geprüft</span>}
+            <a href={navigationsLink(e.baustelle, apple)} target="_blank" rel="noopener noreferrer" aria-label={`Navigieren zu ${e.baustelle.bezeichnung ?? 'Baustelle'}`}
+              title={hatKoordinaten(e.baustelle) ? 'Navigieren' : 'Navigieren · Ort nicht geprüft'}
+              className="mt-0.5 grid h-10 w-10 place-items-center rounded-[12px] bg-steel-soft text-steel transition hover:bg-steel-soft/70">
+              <Navigation size={17} aria-hidden="true" />
             </a>
           </div>
         );
@@ -719,6 +734,21 @@ export function StartChef() {
   const vergangeneWerktage = tage.filter((d, i) => i < 5 && iso(d) <= heuteIso);
   const gemeldeteWerktage = vergangeneWerktage.filter((d) => meldungen.some((m) => m.datum === iso(d))).length;
 
+  // «Plan geändert» steht an der Karte des Tages (Konzept Startseite 21.11.2026) — nur Tage ohne Karte behalten den Kasten
+  const aenderungenAm = (datum: string | undefined) => (datum ? planGeaendert.filter((h) => h.tag === tagTitel(datum, heuteIso)) : []);
+  const mitKarte = new Set<string>([
+    ...(istDieseWoche && heutige.length === 0 && karteHeute && karteHeute.einsaetze.length > 0 ? [tagTitel(karteHeute.datum, heuteIso)] : []),
+    ...(istDieseWoche && karteNaechster && karteNaechster.einsaetze.length > 0 ? [tagTitel(karteNaechster.datum, heuteIso)] : []),
+  ]);
+  const kastenAenderungen = planGeaendert.filter((h) => !mitKarte.has(h.tag));
+  const geaendertSchild = (datum: string) => {
+    const a = aenderungenAm(datum);
+    return a.length > 0 ? <span className="rounded-full bg-amber-soft px-2 py-0.5 text-[11px] font-bold text-amber-deep" title={a.map((h) => h.wann).join(', ')}>geändert</span> : null;
+  };
+  /** Änderungen, die keiner Baustelle zugeordnet werden können (wer fehlt, Hinweis …), klein unter der Karte */
+  const restAenderungen = (datum: string, einsaetze: KartenEinsatz[]) =>
+    aenderungenAm(datum).flatMap((h) => h.zeilen).filter((z) => !einsaetze.some((e) => e.baustelle.bezeichnung && z.includes(e.baustelle.bezeichnung)));
+
   return (
     <Shell>
       <div className="space-y-5">
@@ -733,11 +763,11 @@ export function StartChef() {
           <button type="button" className="btn-ghost shrink-0 text-xs" onClick={() => { localStorage.removeItem(TEAM_KEY); setTeamId(null); }}>Team wechseln</button>
         </header>
 
-        {planGeaendert.length > 0 && (
+        {kastenAenderungen.length > 0 && (
           <section className="rounded-[16px] border border-amber/40 bg-amber-soft px-4 py-3" role="status">
             <p className="flex items-center gap-2 text-sm font-semibold text-amber-deep"><BellRing size={16} aria-hidden="true" /> Plan geändert</p>
             <ul className="mt-1.5 space-y-1.5 text-sm text-ink">
-              {planGeaendert.map((h) => (
+              {kastenAenderungen.map((h) => (
                 // Zeitpunkt auf eigener Zeile (21.10.2026): angehängt brach er am Handy um und die Zeile begann mit «·»
                 <li key={h.key}>
                   {h.zeilen.length === 1
@@ -767,7 +797,7 @@ export function StartChef() {
         {istDieseWoche ? (
           <section className="card space-y-3">
             <div className="flex items-center justify-between gap-2">
-              <p className="text-sm font-semibold text-ink">Heute <span className="font-normal text-ink3">· {WOCHENTAGE[(heute.getDay() + 6) % 7]} {kurz(heute)}</span></p>
+              <p className="flex items-center gap-2 text-[17px] font-semibold text-ink">Heute <span className="text-sm font-normal text-ink3">{WOCHENTAGE[(heute.getDay() + 6) % 7]} {kurz(heute)}</span>{heutige.length === 0 && karteHeute && geaendertSchild(karteHeute.datum)}</p>
               {heutige.length > 0 && (
                 heutige.some((m) => m.lokal)
                   ? <span className="inline-flex items-center gap-1 text-xs font-semibold text-amber-deep"><Clock size={14} aria-hidden="true" /> wartet</span>
@@ -784,7 +814,10 @@ export function StartChef() {
                 </p>
               ))
             ) : karteHeute && karteHeute.einsaetze.length > 0 ? (
-              <EinsatzZeilen einsaetze={karteHeute.einsaetze} beginnFirma={beginnFirma} />
+              <>
+                <EinsatzZeilen einsaetze={karteHeute.einsaetze} beginnFirma={beginnFirma} aenderungen={aenderungenAm(karteHeute.datum).flatMap((h) => h.zeilen)} />
+                {restAenderungen(karteHeute.datum, karteHeute.einsaetze).map((z, j) => <p key={j} className="text-xs text-amber-deep">{z}</p>)}
+              </>
             ) : planHeute ? (
               <p className="flex items-center gap-2 text-[15px]">
                 <span className="knr">{planHeute.konto_nr}</span>
@@ -797,8 +830,9 @@ export function StartChef() {
               <LeuteZeile leute={karteHeute.leute} tagWort={tagWortFuer(karteHeute.datum)} onFehlt={(p) => fehltMelden(p, karteHeute.datum)} onZurueck={fehltZurueck} />
             )}
             {standText && heutige.length === 0 && karteHeute && <p className="text-[11px] text-amber-deep">{standText}</p>}
-            <Link to="/erfassung" className={heutige.length > 0 ? 'btn-ghost block w-full text-center' : 'cta'}>
-              {heutige.length > 0 ? 'Ändern oder nochmals melden' : 'Tag melden'}
+            {/* Grün wie «Tag melden» in der Erfassung — dieselbe Farbe für dieselbe Aktion (21.11.2026) */}
+            <Link to="/erfassung" className={heutige.length > 0 ? 'btn-ghost block w-full text-center' : 'cta cta-good flex items-center justify-center gap-2 py-4 text-[17px]'}>
+              {heutige.length > 0 ? 'Ändern oder nochmals melden' : <><CheckCircle2 size={20} strokeWidth={2.2} aria-hidden="true" /> Tag melden</>}
             </Link>
             {heutige.length === 0 && planHeute && (
               <Link to="/erfassung?baustelle=wahl" className="block text-center text-xs font-semibold text-steel">Woanders gewesen? Andere Baustelle ›</Link>
@@ -812,16 +846,21 @@ export function StartChef() {
         {istDieseWoche && karteNaechster && (
           <section className="card space-y-3" aria-label={`${tagTitel(karteNaechster.datum, heuteIso)}: Plan`}>
             <div className="flex items-center justify-between gap-2">
-              <p className="text-sm font-semibold text-ink">
-                {tagTitel(karteNaechster.datum, heuteIso)} <span className="font-normal text-ink3">· {tagKurz(karteNaechster.datum)}</span>
+              <p className="text-[17px] font-semibold text-ink">
+                {tagTitel(karteNaechster.datum, heuteIso)} <span className="text-sm font-normal text-ink3">{tagKurz(karteNaechster.datum)}</span>
               </p>
-              <button type="button" onClick={() => void teilen(karteNaechster)} className="inline-flex items-center gap-1.5 rounded-full border border-ink/10 bg-white px-3 py-1.5 text-xs font-semibold text-ink2 shadow-[0_1px_2px_rgb(17_17_19/0.06)] hover:text-ink">
-                <Share2 size={14} aria-hidden="true" /> {geteilt === karteNaechster.datum ? 'Kopiert ✓' : 'Teilen'}
-              </button>
+              <span className="flex items-center gap-2">
+                {geaendertSchild(karteNaechster.datum)}
+                <button type="button" onClick={() => void teilen(karteNaechster)} aria-label="Teilen" title="Teilen — für den Team-Chat"
+                  className={'inline-flex h-9 items-center justify-center gap-1.5 rounded-[11px] bg-surface-2 text-xs font-semibold text-ink2 hover:text-ink ' + (geteilt === karteNaechster.datum ? 'px-3' : 'w-9')}>
+                  {geteilt === karteNaechster.datum ? 'Kopiert ✓' : <Share2 size={16} aria-hidden="true" />}
+                </button>
+              </span>
             </div>
             {karteNaechster.einsaetze.length > 0
-              ? <EinsatzZeilen einsaetze={karteNaechster.einsaetze} beginnFirma={beginnFirma} />
+              ? <EinsatzZeilen einsaetze={karteNaechster.einsaetze} beginnFirma={beginnFirma} aenderungen={aenderungenAm(karteNaechster.datum).flatMap((h) => h.zeilen)} />
               : <p className="text-sm text-ink3">Noch keine Baustelle geplant — das Büro plant noch.</p>}
+            {restAenderungen(karteNaechster.datum, karteNaechster.einsaetze).map((z, j) => <p key={j} className="text-xs text-amber-deep">{z}</p>)}
             <LeuteZeile leute={karteNaechster.leute} tagWort={tagWortFuer(karteNaechster.datum)} onFehlt={(p) => fehltMelden(p, karteNaechster.datum)} onZurueck={fehltZurueck} />
             {standText && <p className="text-[11px] text-amber-deep">{standText}</p>}
             {geteilt === 'fehler' && <p className="text-[11px] text-accent-deep">Teilen ging nicht — der Browser erlaubt es hier nicht.</p>}
@@ -830,16 +869,18 @@ export function StartChef() {
 
         {/* Woche: ein Tag = eine Zeile, Stunden je Person, Stand als Zeichen statt Wort */}
         <section className="space-y-2">
-          <div className="flex items-center justify-between">
-            <button type="button" className="btn-ghost" onClick={() => setWochenStart(addTage(wochenStart, -7))} aria-label="Vorwoche">‹</button>
-            <span className="text-center">
-              <span className="block text-sm font-semibold">{istDieseWoche ? 'Diese Woche' : `KW ${kw(wochenStart)}`}</span>
+          <div className="flex items-center justify-between gap-2 px-1">
+            <span>
+              <span className="block text-[15px] font-semibold">{istDieseWoche ? 'Diese Woche' : `KW ${kw(wochenStart)}`}</span>
               <span className="block text-xs text-ink3">
                 {kurz(wochenStart)} – {kurz(addTage(wochenStart, 6))}
-                {vergangeneWerktage.length > 0 && <> · {gemeldeteWerktage} von {vergangeneWerktage.length} Tagen gemeldet</>}
+                {vergangeneWerktage.length > 0 && <> · {gemeldeteWerktage} von {vergangeneWerktage.length} gemeldet</>}
               </span>
             </span>
-            <button type="button" className="btn-ghost" disabled={istDieseWoche} onClick={() => setWochenStart(addTage(wochenStart, 7))} aria-label="nächste Woche">›</button>
+            <span className="flex gap-1">
+              <button type="button" className="grid h-9 w-9 place-items-center rounded-[11px] bg-surface-2 text-ink2" onClick={() => setWochenStart(addTage(wochenStart, -7))} aria-label="Vorwoche"><ChevronLeft size={17} aria-hidden="true" /></button>
+              <button type="button" className="grid h-9 w-9 place-items-center rounded-[11px] bg-surface-2 text-ink2 disabled:opacity-40" disabled={istDieseWoche} onClick={() => setWochenStart(addTage(wochenStart, 7))} aria-label="nächste Woche"><ChevronRight size={17} aria-hidden="true" /></button>
+            </span>
           </div>
           <div className="card divide-y divide-line p-0">
             {laedt && meldungen.length === 0 && <p className="px-4 py-3 text-sm text-ink3">Lädt …</p>}
@@ -872,7 +913,7 @@ export function StartChef() {
                           : <CheckCircle2 size={18} className="text-steel/70" aria-label="gemeldet" />
                         : zukunft ? null
                         // Nur Tage, die die Erfassung auch nimmt (lib/nachtrag.ts) — ältere trägt der Bauführer ein
-                        : nachtragMoeglich(dIso, heute) ? <Link to={`/erfassung?tag=${dIso}`} className="text-[11px] font-semibold text-steel">nachtragen ›</Link>
+                        : nachtragMoeglich(dIso, heute) ? <Link to={`/erfassung?tag=${dIso}`} className="whitespace-nowrap rounded-full bg-accent-soft px-2.5 py-1 text-[11px] font-bold text-accent-deep">nachtragen</Link>
                         : null}
                     </span>
                   </div>
@@ -890,10 +931,8 @@ export function StartChef() {
               );
             })}
           </div>
-          <p className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-ink3">
-            <span className="inline-flex items-center gap-1"><CheckCircle2 size={13} className="text-steel/70" aria-hidden="true" /> gemeldet</span>
-            <span className="inline-flex items-center gap-1"><CheckCircle2 size={13} className="text-good" aria-hidden="true" /> vom Bauführer freigegeben</span>
-            <span>Stunden je Person</span>
+          <p className="flex flex-wrap items-center gap-x-3 gap-y-1 px-1 text-[11px] text-ink3">
+            <span className="inline-flex items-center gap-1"><CheckCircle2 size={13} className="text-good" aria-hidden="true" /> freigegeben</span>
             {tage.some((d, i) => i < 5 && iso(d) <= heuteIso && !nachtragMoeglich(iso(d), heute) && !meldungen.some((m) => m.datum === iso(d))) && (
               <span>Älter als 7 Tage: nachtragen macht der Bauführer</span>
             )}
