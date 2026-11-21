@@ -740,7 +740,9 @@ export function StartChef() {
     ...(istDieseWoche && heutige.length === 0 && karteHeute && karteHeute.einsaetze.length > 0 ? [tagTitel(karteHeute.datum, heuteIso)] : []),
     ...(istDieseWoche && karteNaechster && karteNaechster.einsaetze.length > 0 ? [tagTitel(karteNaechster.datum, heuteIso)] : []),
   ]);
-  const kastenAenderungen = planGeaendert.filter((h) => !mitKarte.has(h.tag));
+  // Erst, wenn die Karten geladen sind — sonst blitzte der gelbe Kasten beim Zurückkommen kurz auf, bis die Karte des
+  // Tages da war und die Änderung übernahm (21.11.2026, Amir)
+  const kastenAenderungen = karten ? planGeaendert.filter((h) => !mitKarte.has(h.tag)) : [];
   const geaendertSchild = (datum: string) => {
     const a = aenderungenAm(datum);
     return a.length > 0 ? <span className="rounded-full bg-amber-soft px-2 py-0.5 text-[11px] font-bold text-amber-deep" title={a.map((h) => h.wann).join(', ')}>geändert</span> : null;
