@@ -1,4 +1,4 @@
-import { Check, CheckCircle2, ChevronLeft, ChevronRight, Flag, Minus, Plus, Car, Truck, UserPlus, X } from 'lucide-react';
+import { Check, CheckCircle2, ChevronLeft, ChevronRight, Flag, Mic, Minus, Pencil, Plus, Car, RotateCcw, Search, Truck, UserPlus, X } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Shell } from '../ui/Shell';
@@ -253,7 +253,7 @@ function spannenName(s: Spanne, i: number): string {
  * Zahlt der Bauherr den Znüni nicht, schneidet «− Pause» 9:00–9:30 heraus (09.10.2026, Amir); das × der Zeile «nach Pause» nimmt es zurück.
  * Zieht die Firma den Znüni immer ab (0036, Gerüst GmbH 9:00–9:15), steht der Vormittag schon geteilt da — ohne Knopf und ohne ×.
  */
-function SpannenEditor({ spannen, setSpannen, klein = false }: { spannen: Spanne[]; setSpannen: (s: Spanne[]) => void; klein?: boolean }) {
+function SpannenEditor({ spannen, setSpannen, klein = false, plus = '+ Nachmittag' }: { spannen: Spanne[]; setSpannen: (s: Spanne[]) => void; klein?: boolean; /** Text für «weitere Zeit», null = kein Knopf (erste von zwei Baustellen) */ plus?: string | null }) {
   const z = znueni();
   const znueniText = `${uhrzeit(z.von)}–${uhrzeit(z.bis)}`;
   // Auf dem Handy etwas schmaler: mit «Nachmittag» und dem Knopf «− Pause» muss die Zeile in die Karte passen (360–390 px)
@@ -303,9 +303,9 @@ function SpannenEditor({ spannen, setSpannen, klein = false }: { spannen: Spanne
           );
         })}
       </div>
-      {nachmittagMoeglich && (
+      {nachmittagMoeglich && plus !== null && (
         <button type="button" onClick={() => setSpannen([...spannen, { von: Math.max(arbeitstag().mittagBis, spannen[spannen.length - 1]?.bis ?? 0), bis: null }])} className="text-xs font-semibold text-steel">
-          + Nachmittag
+          {plus}
         </button>
       )}
     </div>
@@ -519,6 +519,10 @@ export function Erfassung() {
   // Personen, die heute mithelfen, aber nicht fest zum Team gehören (Bauführer 20.09.: «Mitarbeiter hinzufüge»)
   const [gaeste, setGaeste] = useState<Person[]>([]);
   const [zeigeGast, setZeigeGast] = useState(false);
+  // Konzept C (21.11.2026): Baustellenwahl nur offen, solange keine gewählt ist (oder «ändern»); Zeiten je Person zugeklappt
+  const [waehlenOffen, setWaehlenOffen] = useState(false);
+  const [personOffen, setPersonOffen] = useState<Set<string>>(new Set());
+  const [notizOffen, setNotizOffen] = useState(false);
   const [gastFilter, setGastFilter] = useState('');
   const [alleLeute, setAlleLeute] = useState<Person[] | null>(null);
   const [zuletztGaeste, setZuletztGaeste] = useState<Person[]>([]);
@@ -1028,6 +1032,7 @@ export function Erfassung() {
       return;
     }
     if (b.id === zweite?.id) setZweite(null);
+    setWaehlenOffen(false);
     setGesuchtId(b.id);
     setBaustelle(b);
     setKacheln((k) => [b, ...k.filter((x) => x.id !== b.id)].slice(0, 5));
@@ -1168,6 +1173,19 @@ export function Erfassung() {
   useEffect(() => { if (ueberTotal === 0) { setRegieFrage(false); setRegieAntwort(null); setNotizFehlt(false); } }, [ueberTotal]);
   useEffect(() => { setRegieAntwort(null); setNotizFehlt(false); }, [teamId, tagIso]);
   useEffect(() => { if (regieFrage) regieFrageRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' }); }, [regieFrage]);
+
+  /**
+   * Konzept C (21.11.2026, Amir): jede Baustelle hat ihre eigenen Zeiten. Gespeichert bleibt eine Liste für den Tag —
+   * eine Zeile gehört zur zweiten Baustelle, wenn sie ab dem Wechsel beginnt. Ändert man die erste Zeit der zweiten
+   * Baustelle, rückt der Wechsel mit.
+   */
+  const teilVon = (i: 0 | 1): Spanne[] => (zweite ? teamSpannen.filter((x) => (i === 0 ? x.von < wechsel : x.von >= wechsel)) : teamSpannen);
+  function teilSetzen(i: 0 | 1, neu: Spanne[]) {
+    const rest = zweite ? teamSpannen.filter((x) => (i === 0 ? x.von >= wechsel : x.von < wechsel)) : [];
+    setzeTeamSpannen([...neu, ...rest].sort((a, b) => a.von - b.von));
+    if (zweite && i === 1 && neu.length > 0) setWechsel(Math.min(...neu.map((x) => x.von)));
+  }
+  const gleichWieTeam = (z: Spanne[]) => z.length === teamSpannen.length && z.every((x, j) => x.von === teamSpannen[j].von && x.bis === teamSpannen[j].bis);
 
   /** Team-Zeiten setzen alle, die gerade auf Zeiten stehen. */
   function setzeTeamSpannen(s: Spanne[]) {
@@ -1894,25 +1912,39 @@ export function Erfassung() {
         )}
 
         <section>
-          <p className="lbl">Wo wart ihr?</p>
-          {laedtTeam && kacheln.length === 0 && (
-            <div className="grid grid-cols-2 gap-2">
-              <div className="chip flex min-h-[4.5rem] items-center justify-center text-ink3">Lädt …</div>
-              <div className="chip min-h-[4.5rem] opacity-40" aria-hidden="true" />
-            </div>
-          )}
-          {!(laedtTeam && kacheln.length === 0) && (
-          <div className="grid grid-cols-2 gap-2">
-            {kacheln.map((b, i) => (
-              <button key={b.id} type="button" onClick={() => setBaustelle(b)} className={'chip flex min-h-[4.5rem] flex-col items-start justify-center py-2.5 text-left ' + (baustelle?.id === b.id ? 'chip-on' : zweite?.id === b.id ? 'border-ink/30 bg-surface-2' : '')}>
-                <span className="break-words text-sm font-semibold leading-tight">{anzeigeName(b.bezeichnung)}</span>
-                <span className="mt-1 flex items-center gap-1.5"><span className="knr">{b.konto_nr}</span>{zweite?.id === b.id ? <span className="text-[10px] font-semibold text-ink2">2. Baustelle</span>
-                  : geplantHeute.ids.includes(b.id) ? <span className={'text-[10px] ' + (geplantHeute.neu ? 'rounded-md bg-amber-soft px-1.5 py-px font-semibold text-amber-deep' : 'text-ink3')}>{geplantHeute.neu ? 'neu geplant' : 'geplant'}</span>
-                  : i === 0 && <span className="text-[10px] text-ink3">{b.id === gesuchtId ? 'eingegeben' : 'zuletzt'}</span>}</span>
+          <p className="lbl">{!baustelle || waehlenOffen ? 'Wo wart ihr?' : zweite ? (zweiteAusPlan ? 'Zwei Baustellen laut Plan' : 'Zwei Baustellen') : 'Baustelle'}</p>
+          {/* Kompakte Wahl (Konzept C, 21.11.2026): Suchzeile, drei Vorschläge, alle Baustellen — statt grosser Kacheln.
+              Die Suchzeile öffnet das Feld mit Ziffernblock darunter (Regel 2: Handschuhe). */}
+          {(!baustelle || waehlenOffen) && !wahlZweite && (
+            <div className="card p-3">
+              <button type="button" onClick={() => { setZeigeAndere(true); setZiffern(''); }}
+                className="flex h-12 w-full items-center gap-2.5 rounded-[12px] border border-line-strong bg-surface px-3.5 text-left text-[15px] text-ink3">
+                <Search size={17} aria-hidden="true" /> Nummer oder Name …
               </button>
-            ))}
-            <button type="button" onClick={() => setZeigeAndere((v) => !v)} className="chip flex min-h-[4.5rem] items-center justify-center text-ink3">andere Baustelle …</button>
-          </div>
+              {laedtTeam && kacheln.length === 0 && <p className="px-1 pt-3 text-sm text-ink3">Lädt …</p>}
+              <div className="mt-1.5 divide-y divide-line">
+                {kacheln.filter((b) => b.id !== zweite?.id).slice(0, 3).map((b, i) => {
+                  const an = baustelle?.id === b.id;
+                  return (
+                    <button key={b.id} type="button" onClick={() => { setBaustelle(b); setWaehlenOffen(false); setZeigeAndere(false); }} aria-pressed={an}
+                      className="flex w-full items-center gap-3 px-1 py-3 text-left">
+                      <span className={'h-5 w-5 shrink-0 rounded-full border-2 ' + (an ? 'border-[6px] border-accent' : 'border-line-strong')} aria-hidden="true" />
+                      <span className="min-w-0 flex-1 truncate text-[14.5px] font-semibold" data-bleibt-deutsch>{anzeigeName(b.bezeichnung)}</span>
+                      <span className={'shrink-0 text-[11px] font-semibold ' + (geplantHeute.ids.includes(b.id) && geplantHeute.neu ? 'rounded-md bg-amber-soft px-1.5 py-px text-amber-deep' : 'text-ink3')}>
+                        {geplantHeute.ids.includes(b.id) ? (geplantHeute.neu ? 'neu geplant' : 'geplant') : i === 0 ? (b.id === gesuchtId ? 'eingegeben' : 'zuletzt') : ''}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+              <button type="button" onClick={() => { setZeigeAndere(true); setZiffern(''); if (!zeigeListe) void listeUmschalten(); }}
+                className="flex w-full items-center justify-between border-t border-line px-1 pt-3 text-sm font-semibold text-steel">
+                Alle Baustellen <ChevronRight size={16} aria-hidden="true" />
+              </button>
+              {baustelle && waehlenOffen && (
+                <button type="button" onClick={() => { setWaehlenOffen(false); setZeigeAndere(false); }} className="mt-2 w-full text-center text-xs font-semibold text-ink3">Abbrechen</button>
+              )}
+            </div>
           )}
           {zeigeAndere && (
             <div className="card mt-2 space-y-2 p-3">
@@ -1995,76 +2027,85 @@ export function Erfassung() {
               </div>
             </div>
           )}
-          {/* Zweite Baustelle am selben Tag — in einem Durchgang statt zweimal melden */}
-          {baustelle && !zweite && !wahlZweite && !abweichung && (
-            <button type="button" onClick={() => { setWahlZweite(true); setZeigeAndere(true); setZiffern(''); }}
-              className="mt-2 flex w-full items-center justify-center gap-2 rounded-[14px] border border-dashed border-line-strong px-3 py-3 text-sm font-semibold text-steel active:bg-surface-2">
-              <Plus size={16} strokeWidth={2.4} aria-hidden="true" /> Zweite Baustelle heute
-            </button>
-          )}
-          {baustelle && zweite && (
-            <div className="card mt-2 space-y-3 p-3">
-              <p className="text-sm font-semibold text-ink">{zweiteAusPlan ? 'Zwei Baustellen laut Planung' : 'Zwei Baustellen heute'}</p>
-              {zweiteAusPlan && <p className="-mt-2 text-[11px] text-ink3">Das Büro hat beide eingeplant. Stimmt die Wechselzeit nicht, unten ändern.</p>}
-              {[baustelle, zweite].map((b, i) => {
-                const min = spannenMinuten(spannenTeilen(teamSpannen, [wechsel])[i] ?? []);
+          {/* Konzept C (21.11.2026): eine Karte je Baustelle mit ihren eigenen Zeiten, der Wechsel als Linie dazwischen */}
+          {!(baustelle && waehlenOffen) && (
+            <div className="mt-2 space-y-2">
+              {(baustelle ? (zweite ? [baustelle, zweite] : [baustelle]) : [null]).map((b, i) => {
+                const teil = teilVon(i as 0 | 1);
+                const min = zweite ? spannenMinuten(spannenTeilen(teamSpannen, [wechsel])[i] ?? []) : spannenMinuten(teamSpannen);
                 return (
-                  <div key={b.id} className="flex items-center gap-2.5">
-                    <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-ink text-xs font-semibold text-white">{i + 1}</span>
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate text-sm font-semibold leading-tight">{anzeigeName(b.bezeichnung) || 'Baustelle'}</span>
-                      <span className="mt-0.5 flex items-center gap-1.5 text-[11px] text-ink3"><span className="knr">{b.konto_nr}</span>{i === 0 ? `bis ${uhrzeit(wechsel)}` : `ab ${uhrzeit(wechsel)}`}</span>
-                    </span>
-                    <span className={'font-mono text-sm tabular-nums ' + (min > 0 ? 'text-ink2' : 'font-semibold text-amber-deep')}>{min > 0 ? `${stunden(min)} h` : '0 h'}</span>
-                    {i === 1
-                      ? <button type="button" onClick={() => setZweite(null)} aria-label="Zweite Baustelle entfernen" className="grid h-9 w-9 shrink-0 place-items-center rounded-[10px] text-ink3 active:bg-surface-2"><X size={16} /></button>
-                      : <span className="w-9 shrink-0" aria-hidden="true" />}
+                  <div key={b?.id ?? 'ohne'}>
+                    {i === 1 && (
+                      <p className="mb-2 flex items-center gap-3 px-2 text-xs font-semibold text-ink3">
+                        <span className="h-px flex-1 bg-line-strong" aria-hidden="true" />Wechsel {uhrzeit(wechsel)}{zweiteAusPlan && ' · laut Plan'}<span className="h-px flex-1 bg-line-strong" aria-hidden="true" />
+                      </p>
+                    )}
+                    <div className="card relative overflow-hidden p-3.5 pl-4">
+                      {b && <span className={'absolute inset-y-0 left-0 w-1 ' + (i === 0 ? 'bg-accent' : 'bg-steel')} aria-hidden="true" />}
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          {b ? (
+                            <>
+                              <p className="text-[15px] font-semibold leading-snug" data-bleibt-deutsch>{anzeigeName(b.bezeichnung) || 'Baustelle'}</p>
+                              <p className="mt-1 flex items-center gap-2.5">
+                                <span className="knr">{b.konto_nr}</span>
+                                {i === 0
+                                  ? !abweichung && <button type="button" onClick={() => { setWaehlenOffen(true); setZeigeAndere(false); }} className="text-xs font-semibold text-steel">ändern</button>
+                                  : <button type="button" onClick={() => setZweite(null)} className="text-xs font-semibold text-ink3">entfernen</button>}
+                              </p>
+                            </>
+                          ) : <p className="text-[15px] font-semibold text-ink3">Arbeitszeit</p>}
+                        </div>
+                        <span className={'shrink-0 font-mono text-[15px] font-bold tabular-nums ' + (min > 0 ? 'text-ink' : 'text-ink3')}>{stunden(min)} h</span>
+                      </div>
+                      <div className="mt-3">
+                        {teil.length === 0
+                          ? <button type="button" onClick={() => teilSetzen(1, [{ von: wechsel, bis: null }])} className="text-xs font-semibold text-steel">+ Zeit ab {uhrzeit(wechsel)}</button>
+                          : <SpannenEditor spannen={teil} setSpannen={(z) => teilSetzen(i as 0 | 1, z)} plus={zweite ? (i === 0 ? null : '+ Zeit') : undefined} />}
+                      </div>
+                    </div>
                   </div>
                 );
               })}
-              <div className="flex flex-wrap items-center gap-2 border-t border-line pt-3">
-                <span className="text-sm text-ink2">Wechsel um</span>
-                <ZeitFeld wert={uhrzeitFeld(wechsel)} aendern={(t) => { const v = ausUhrzeit(t); if (v !== null) setWechsel(v); }} label="Wechselzeit" klasse="h-10 w-[5.4rem] rounded-[10px] border border-line bg-surface text-center font-mono text-[15px] font-semibold tabular-nums focus:border-accent focus:outline-none" />
-                {/* Schnellwahl: Wechsel vor oder nach dem Mittag der Firma — beide stehen da, die gewählte ist markiert
-                    (Amir 15.10.2026: ein einzelnes «12:00» neben «13:00» sah wie ein Fehler aus) */}
-                {[arbeitstag().mittagVon, arbeitstag().mittagBis].map((v) => (
-                  <button key={v} type="button" onClick={() => setWechsel(v)} aria-pressed={wechsel === v} className={'chip px-2.5 py-1.5 text-xs ' + (wechsel === v ? 'chip-on font-semibold' : '')}>{uhrzeit(v)}</button>
-                ))}
-              </div>
-              <p className="text-[11px] text-ink3">Die Zeiten unten gelten für den ganzen Tag — die App teilt sie beim Wechsel auf die zwei Baustellen auf. Überstunden zählen über den ganzen Tag.</p>
+              {/* Zweite Baustelle am selben Tag — in einem Durchgang statt zweimal melden */}
+              {baustelle && !zweite && !wahlZweite && !abweichung && (
+                <button type="button" onClick={() => { setWahlZweite(true); setZeigeAndere(true); setZiffern(''); }}
+                  className="flex w-full items-center justify-center gap-2 rounded-[14px] border border-dashed border-line-strong px-3 py-2.5 text-sm font-semibold text-ink2 active:bg-surface-2">
+                  <Plus size={15} strokeWidth={2.4} aria-hidden="true" /> Zweite Baustelle
+                </button>
+              )}
+              {/* Total pro Person — hellgrün statt der langen Erklärung */}
+              {(() => {
+                const t = aufteilen(spannenMinuten(teamSpannen), normaltagMin());
+                const fehlt = spannenOffen(teamSpannen) === 'fehlt' || !teamSpannen.some(spanneVollstaendig);
+                return (
+                  <div className={'flex items-center justify-between gap-3 rounded-[16px] border px-4 py-3 ' + (fehlt ? 'border-amber/40 bg-amber-soft' : 'border-good/25 bg-good-soft')}>
+                    <span className={'text-sm font-semibold ' + (fehlt ? 'text-amber-deep' : 'text-good-deep')}>
+                      {fehlt ? '«bis» fehlt noch' : 'Total pro Person'}
+                      {!fehlt && t.ueber_min > 0 && <span className="block text-xs font-semibold text-amber-deep">davon {stunden(t.ueber_min)} h Überstunden</span>}
+                    </span>
+                    <span className={'font-mono text-lg font-bold tabular-nums ' + (fehlt ? 'text-amber-deep' : 'text-good-deep')}>{stunden(t.normal_min + t.ueber_min)} h</span>
+                  </div>
+                );
+              })()}
+              <p className="px-1 text-[11px] text-ink3">
+                {znueni().immer
+                  ? `Pause ${uhrzeit(znueni().von)}–${uhrzeit(znueni().bis)} ist abgezogen, Mittag ${mittagText(arbeitstag())} frei.`
+                  : `Mittag ${mittagText(arbeitstag())} ist frei. Pause ${uhrzeit(znueni().von)}–${uhrzeit(znueni().bis)} nicht bezahlt? «− Pause» tippen.`}
+              </p>
+              <MittagHinweis spannen={teamSpannen} />
+              {/* Zweite Meldung am Tag (oder ein Gast, den schon ein anderes Team gemeldet hat): der normale Tag ist schon belegt */}
+              {dabei.some((p) => bisherVon(p.id) > 0) && (
+                <p className="rounded-[8px] bg-amber-soft px-2.5 py-1.5 text-[11px] text-amber-deep">
+                  An diesem Tag ist schon etwas gemeldet — was über den normalen Tag ({stunden(normaltagMin())} h) hinausgeht, zählt als Überstunden. Je Person steht es unten.
+                </p>
+              )}
             </div>
           )}
         </section>
 
         <section>
-          <p className="lbl">Arbeitszeit — alle gleich</p>
-          <div className="rounded-[14px] border border-line bg-surface p-3 shadow-[0_1px_2px_rgb(17_17_19/0.04)]">
-            <SpannenEditor spannen={teamSpannen} setSpannen={setzeTeamSpannen} />
-            {(() => {
-              const t = aufteilen(spannenMinuten(teamSpannen), normaltagMin());
-              return (
-                <p className="mt-2 font-mono text-sm tabular-nums">
-                  {teamSpannen.some(spanneVollstaendig) ? <>{stunden(t.normal_min + t.ueber_min)} h{spannenOffen(teamSpannen) === 'fehlt' ? <span className="font-semibold text-amber-deep"> · Nachmittag: «bis» fehlt noch</span> : t.ueber_min > 0 && <span className="font-semibold text-amber-deep"> · davon {stunden(t.ueber_min)} h Überstunden</span>}</> : <span className="text-ink3">«bis» eintragen</span>}
-                </p>
-              );
-            })()}
-            <p className="mt-1 text-[11px] text-ink3">
-              {znueni().immer
-                ? `Was hier steht, zählt. Die Pause ${uhrzeit(znueni().von)}–${uhrzeit(znueni().bis)} ist schon abgezogen, Mittag ${mittagText(arbeitstag())} ist als Lücke vorgegeben. Unten kann jede Person anders sein.`
-                : `Die App zieht von sich aus keine Pause ab — was hier steht, zählt. Mittag ${mittagText(arbeitstag())} ist als Lücke vorgegeben. Zahlt der Bauherr die Pause ${uhrzeit(znueni().von)}–${uhrzeit(znueni().bis)} nicht: «− Pause» tippen. Unten kann jede Person anders sein.`}
-            </p>
-            <MittagHinweis spannen={teamSpannen} />
-            {/* Zweite Meldung am Tag (oder ein Gast, den schon ein anderes Team gemeldet hat): der normale Tag ist schon belegt */}
-            {dabei.some((p) => bisherVon(p.id) > 0) && (
-              <p className="mt-1.5 rounded-[8px] bg-amber-soft px-2.5 py-1.5 text-[11px] text-amber-deep">
-                An diesem Tag ist schon etwas gemeldet — was über den normalen Tag ({stunden(normaltagMin())} h) hinausgeht, zählt als Überstunden. Je Person steht es unten.
-              </p>
-            )}
-          </div>
-        </section>
-
-        <section>
-          <p className="lbl">Wer war dabei</p>
+          <p className="lbl flex items-baseline justify-between gap-2">Wer war dabei <span className="text-[11px] font-medium normal-case tracking-normal text-ink3">Stunden antippen = nur für diese Person</span></p>
           <div className="card divide-y divide-line p-0">
             {alleImTeam.map((p) => {
               const a = anw[p.id];
@@ -2085,7 +2126,18 @@ export function Erfassung() {
                     {versetzt[p.id] && <span className="whitespace-nowrap rounded-md bg-amber-soft px-1.5 py-0.5 text-[10px] font-semibold text-amber-deep">in {versetzt[p.id]}</span>}
                     {a.dabei && (
                       <>
-                        <span className={'font-mono text-sm tabular-nums ' + (a.modus === 'zeit' && !a.zeiten.some(spanneVollstaendig) ? 'text-amber-deep' : 'text-ink2')}>{a.modus === 'zeit' && !a.zeiten.some(spanneVollstaendig) ? '– h' : `${stunden(w.min + w.ueber)} h`}</span>
+                        {(() => {
+                          const eigen = a.modus === 'zeit' && !gleichWieTeam(a.zeiten);
+                          const offen = personOffen.has(p.id);
+                          return (
+                            <button type="button" aria-expanded={offen}
+                              onClick={() => setPersonOffen((alt) => { const n = new Set(alt); if (n.has(p.id)) n.delete(p.id); else n.add(p.id); return n; })}
+                              className={'inline-flex h-10 items-center gap-1.5 rounded-[10px] px-2.5 font-mono text-sm font-semibold tabular-nums ' + (eigen ? 'bg-amber-soft text-amber-deep' : 'bg-surface-2 text-ink')}>
+                              {a.modus === 'zeit' && !a.zeiten.some(spanneVollstaendig) ? '– h' : `${stunden(w.min + w.ueber)} h`}
+                              <Pencil size={13} aria-hidden="true" />
+                            </button>
+                          );
+                        })()}
                         {/* Anreise: nur Auto (km). öV ist ausgeblendet (OEV_AKTIV), bis geklärt ist, ob es ganz weg soll. */}
                         <button type="button" onClick={() => setAnreiseOffen(anreiseOffen === p.id ? null : p.id)} aria-label="Anreise" className={'grid h-10 min-w-10 place-items-center rounded-[10px] border px-1.5 text-[11px] ' + (a.oev || a.km > 0 ? 'border-steel/40 bg-steel-soft text-steel' : 'border-line bg-surface text-ink3')}>{a.oev ? 'öV' : a.km > 0 ? `${a.km} km` : <Car size={16} />}</button>
                       </>
@@ -2094,9 +2146,16 @@ export function Erfassung() {
                       <button type="button" onClick={() => gastEntfernen(p.id)} aria-label={`${p.name} entfernen`} className="grid h-10 w-8 place-items-center rounded-[10px] text-ink3 active:bg-surface-2"><X size={16} /></button>
                     )}
                   </div>
-                  {a.dabei && (
-                    <div className="mt-2">
+                  {a.dabei && a.modus === 'zeit' && !gleichWieTeam(a.zeiten) && !personOffen.has(p.id) && (
+                    <p className="mt-1 pl-[3.25rem] text-[11px] font-semibold text-amber-deep">eigene Zeit{ueberFertig(a, bisherVon(p.id)) > 0 ? ` · davon ${stunden(w.ueber)} h Überstunden` : ''}</p>
+                  )}
+                  {a.dabei && personOffen.has(p.id) && (
+                    <div className="-mx-3 mt-2 border-t border-line bg-amber-soft/30 px-3 pb-1 pt-2.5">
                       <SpannenEditor klein spannen={a.zeiten} setSpannen={(z) => setAnw((s) => ({ ...s, [p.id]: { ...a, zeiten: z } }))} />
+                      {!gleichWieTeam(a.zeiten) && (
+                        <button type="button" onClick={() => setAnw((s) => ({ ...s, [p.id]: { ...a, zeiten: teamSpannen.map((x) => ({ ...x })) } }))}
+                          className="mt-2 inline-flex items-center gap-1.5 text-xs font-semibold text-steel"><RotateCcw size={13} aria-hidden="true" /> wieder wie oben</button>
+                      )}
                       {/* Eigene Zeile unter den Zeiten (14.10.2026): rechts neben dem Raster ragte «0.85 h über» auf 360–390 px aus der Karte */}
                       {ueberFertig(a, bisherVon(p.id)) > 0 && <p className="mt-1.5 text-[11px] font-semibold text-amber-deep">davon {stunden(w.ueber)} h Überstunden</p>}
                       <MittagHinweis spannen={a.zeiten} />
@@ -2186,6 +2245,12 @@ export function Erfassung() {
         )}
 
         {/* Bemerkung zum Tag: die Sprachnotiz ist immer da (Bauführer 20.09.), bei Überstunden Pflicht — kein eigener Bildschirm. */}
+        {/* Notiz klein, solange sie freiwillig ist (Konzept C, 21.11.2026) — antippen klappt sie auf */}
+        {!notizOffen && ueberTotal === 0 && !ueberAufnahme && !nimmtAuf && !fehltAnzeige ? (
+          <button type="button" onClick={() => setNotizOffen(true)} className="card flex w-full items-center justify-center gap-2 py-3.5 text-sm font-semibold text-steel">
+            <Mic size={18} aria-hidden="true" /> Notiz zum Tag — freiwillig
+          </button>
+        ) : (
         <section ref={notizRef} className={'card space-y-2.5 ' + (ueberTotal > 0 ? 'border-amber/30' : '')}>
             <p className="flex items-start justify-between gap-3 text-sm font-semibold">
               <span>{ueberTotal > 0 ? <>{ueberText()} — kurz sagen, warum</> : 'Bemerkung zum Tag — freiwillig'}</span>
@@ -2229,6 +2294,7 @@ export function Erfassung() {
                 : 'Der Bauführer sieht die Überstunden mit deiner Notiz und gibt sie frei.'
               : 'Der Bauführer liest die Notiz in der Wochenübersicht — z. B. Material fehlt, Kunde war da, früher Schluss.'}</p>
         </section>
+        )}
 
         {fotoLeiste('Foto vom Stand heute — freiwillig, hilft dem Bauführer.')}
 
