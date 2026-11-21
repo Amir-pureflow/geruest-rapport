@@ -77,6 +77,13 @@ function ausschnittVon(punkte: KartenPunkt[], werkhof: { lat: number; lon: numbe
 const schluesselVon = (punkte: KartenPunkt[], werkhof: { lat: number; lon: number } | null) =>
   punkte.map((p) => p.baustelle.id).join(',') + '|' + (werkhof ? `${werkhof.lat},${werkhof.lon}` : '');
 
+/**
+ * Die Karte bleibt nach dem ersten Öffnen im Speicher (21.11.2026, Amir: «schneller laden»): Beim Verlassen der Seite wird
+ * nur ihre Hülle aus der Seite genommen, nicht die Karte abgebaut. Wer zurückkommt, sieht sie sofort — Kacheln, Stil und
+ * Schriften sind schon gezeichnet. Punkte, Blase und Ereignisse gehören je Besuch der Seite und werden neu gesetzt.
+ */
+let gemerkt: { m: maplibregl.Map; huelle: HTMLDivElement; luftbild: boolean } | null = null;
+
 export function Landkarte({ punkte, werkhof, wartet = false, auswahl, onAuswahl, luftbild, blase, onSchliessen }: {
   punkte: KartenPunkt[];
   werkhof: { lat: number; lon: number; adresse: string | null } | null;
@@ -112,53 +119,82 @@ export function Landkarte({ punkte, werkhof, wartet = false, auswahl, onAuswahl,
   const schliessen = useRef(onSchliessen);
   useEffect(() => { schliessen.current = onSchliessen; });
 
-  // Einmal anlegen, beim Verlassen der Seite wieder abbauen
+  // Einmal anlegen; beim Verlassen der Seite nur die Hülle aus der Seite nehmen (siehe «gemerkt»)
   useEffect(() => {
-    if (!box.current) return;
+    const kasten = box.current;
+    if (!kasten) return;
     let m: maplibregl.Map;
-    // Gleich mit dem richtigen Ausschnitt starten — vorher erst Bern, dann der Sprung zu den Baustellen: die Kacheln
-    // wurden zweimal geladen (30.10.2026, Amir: «warum braucht die Karte so lang»)
     const a = ausschnittVon(punkte, werkhof);
     ausschnitt.current = a;
     letzterSchluessel.current = schluesselVon(punkte, werkhof);
-    const kamera = a.anzahl >= 2
-      ? { bounds: a.grenzen, fitBoundsOptions: { padding: 70, maxZoom: 15 } }
-      : { center: a.anzahl ? a.grenzen.getCenter() : START, zoom: a.anzahl ? 15 : 12 };
-    try {
-      m = new maplibregl.Map({
-        container: box.current, style: KARTE, ...kamera,
-        attributionControl: { compact: true }, dragRotate: false, pitchWithRotate: false, touchPitch: false,
-      });
-    } catch {
-      setOhneWebgl(true); // alter Rechner oder Grafik aus: lieber ein Satz als eine weisse Fläche
-      return;
-    }
-    m.touchZoomRotate.disableRotation();
-    m.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'bottom-right');
-    karte.current = m;
-    // Wege nach jedem Stil (erstes Laden, Karte ↔ Luftbild) neu — setStyle wirft eigene Ebenen weg
-    m.on('style.load', () => wegeZeichnen(m, punkteJetzt.current));
-    // Einblenden beim ersten vollständigen Bild mit den Baustellen (Stil, Kacheln, Schrift da — wie «load») — nicht erst bei
-    // «idle», das wartete zusätzlich auf das Einblenden der letzten Beschriftung. Spätestens nach 4 s (langsames Netz)
-    // Seit 21.11.2026 (Amir: «schneller laden?»): einblenden, sobald die Grundkarte (Strassen, Namen) steht — nicht mehr
-    // auf das Relief warten. Gemessen: das Relief kam teils 1.5 s nach der Grundkarte; es wird jetzt nachgezeichnet.
-    const grundDa = () => {
+    let frist: ReturnType<typeof setTimeout> | undefined;
+    if (gemerkt) {
+      // Zweiter Besuch: dieselbe Karte wieder einhängen und sofort zeigen
+      m = gemerkt.m;
+      kasten.appendChild(gemerkt.huelle);
+      m.resize();
+      passen(m);
+      if (gemerkt.luftbild !== luftbild) { m.setStyle(luftbild ? LUFTBILD : KARTE); gemerkt.luftbild = luftbild; }
+      setBereit(true);
+    } else {
+      // Gleich mit dem richtigen Ausschnitt starten — vorher erst Bern, dann der Sprung zu den Baustellen: die Kacheln
+      // wurden zweimal geladen (30.10.2026, Amir: «warum braucht die Karte so lang»)
+      const kamera = a.anzahl >= 2
+        ? { bounds: a.grenzen, fitBoundsOptions: { padding: 70, maxZoom: 15 } }
+        : { center: a.anzahl ? a.grenzen.getCenter() : START, zoom: a.anzahl ? 15 : 12 };
+      const huelle = document.createElement('div');
+      huelle.style.cssText = 'width:100%;height:100%';
+      kasten.appendChild(huelle);
       try {
-        const id = Object.keys(m.getStyle()?.sources ?? {}).find((x) => x.startsWith('base'));
-        return !!id && m.isSourceLoaded(id);
+        m = new maplibregl.Map({
+          container: huelle, style: luftbild ? LUFTBILD : KARTE, ...kamera,
+          attributionControl: { compact: true }, dragRotate: false, pitchWithRotate: false, touchPitch: false,
+        });
       } catch {
-        return false;
+        kasten.removeChild(huelle);
+        setOhneWebgl(true); // alter Rechner oder Grafik aus: lieber ein Satz als eine weisse Fläche
+        return;
       }
-    };
-    const zeigen = () => { if (!wartetJetzt.current && (m.loaded() || grundDa())) { setBereit(true); m.off('render', zeigen); } };
-    m.on('render', zeigen);
-    const frist = setTimeout(() => setBereit(true), 4000);
-    m.on('movestart', (e) => { if ((e as { originalEvent?: unknown }).originalEvent) beruehrt.current = true; });
+      m.touchZoomRotate.disableRotation();
+      m.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'bottom-right');
+      gemerkt = { m, huelle, luftbild };
+      // Einblenden beim ersten vollständigen Bild mit den Baustellen (Stil, Kacheln, Schrift da — wie «load») — nicht erst
+      // bei «idle». Seit 21.11.2026: schon, sobald die Grundkarte (Strassen, Namen) steht — das Relief kam teils 1.5 s
+      // später und wird nachgezeichnet. Spätestens nach 4 s (langsames Netz)
+      const grundDa = () => {
+        try {
+          const id = Object.keys(m.getStyle()?.sources ?? {}).find((x) => x.startsWith('base'));
+          return !!id && m.isSourceLoaded(id);
+        } catch {
+          return false;
+        }
+      };
+      const zeigen = () => { if (!wartetJetzt.current && (m.loaded() || grundDa())) { setBereit(true); m.off('render', zeigen); } };
+      m.on('render', zeigen);
+      frist = setTimeout(() => setBereit(true), 4000);
+    }
+    karte.current = m;
+    // Je Besuch: Wege nach jedem Stil neu (setStyle wirft eigene Ebenen weg), eigenes Verschieben merken, Grösse nachmessen
+    const stilGeladen = () => wegeZeichnen(m, punkteJetzt.current);
+    const bewegt = (e: { originalEvent?: unknown }) => { if (e.originalEvent) beruehrt.current = true; };
+    m.on('style.load', stilGeladen);
+    m.on('movestart', bewegt);
     // Die Karte sitzt in einem Raster, das sich nach dem ersten Zeichnen noch setzt — Grösse nachmessen und, solange
     // niemand selbst verschoben hat, alle Punkte wieder ins Bild holen (sonst lag ein Teil ausserhalb)
     const r = new ResizeObserver(() => { m.resize(); if (!beruehrt.current) passen(m); });
-    r.observe(box.current);
-    return () => { clearTimeout(frist); r.disconnect(); m.remove(); karte.current = null; };
+    r.observe(kasten);
+    return () => {
+      if (frist) clearTimeout(frist);
+      r.disconnect();
+      m.off('style.load', stilGeladen);
+      m.off('movestart', bewegt);
+      for (const x of marken.current) x.remove();
+      marken.current = [];
+      popup.current?.remove();
+      popup.current = null;
+      if (gemerkt?.huelle.parentElement === kasten) kasten.removeChild(gemerkt.huelle);
+      karte.current = null;
+    };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps -- nur der Ausschnitt beim Anlegen, danach der Punkte-Effekt
 
   // Karte ↔ Luftbild: nur der Stil wechselt, die Punkte (eigene Elemente) bleiben
@@ -166,6 +202,7 @@ export function Landkarte({ punkte, werkhof, wartet = false, auswahl, onAuswahl,
   useEffect(() => {
     if (ersterStil.current) { ersterStil.current = false; return; }
     karte.current?.setStyle(luftbild ? LUFTBILD : KARTE);
+    if (gemerkt) gemerkt.luftbild = luftbild;
   }, [luftbild]);
 
   // Punkte zeichnen; bei neuen Punkten (anderer Tag, andere Suche) den Ausschnitt anpassen
