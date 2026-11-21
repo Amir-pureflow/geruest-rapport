@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { arbeitstage, ausschnitt, besetzung, einteilungenBuendeln, ersatzVorschlaege, heuteUndNaechster, istBalken, konflikte, konflikteBuendeln, naechsterTeamName, ohneTag, planAm, planHinweise, planIst, spuren, tageZwischen, ueberschneiden, zeitraumVorschlag, type EinsatzSoll, type VerlaufZeile } from './planung';
+import { arbeitstage, ausschnitt, besetzung, einteilungenBuendeln, ersatzVorschlaege, halbtagSpuren, heuteUndNaechster, istBalken, konflikte, konflikteBuendeln, naechsterTeamName, ohneTag, planAm, planHinweise, planIst, spuren, tageZwischen, ueberschneiden, zeitraumVorschlag, type EinsatzSoll, type VerlaufZeile } from './planung';
 import { ausIso } from './datum';
 
 describe('planung', () => {
@@ -28,6 +28,30 @@ describe('planung', () => {
     );
     const spurVon = Object.fromEntries(r.map((x) => [x.plan.id, x.spur]));
     expect(spurVon).toEqual({ a: 0, c: 1, b: 0 });
+  });
+
+  it('legt bei gleichem Start den früheren Beginn nach oben (21.11.2026)', () => {
+    const r = spuren([
+      { id: 'spaet', von: '2026-11-23', bis: '2026-11-23', beginn_min: 780 },
+      { id: 'frueh', von: '2026-11-23', bis: '2026-11-23', beginn_min: 420 },
+    ], '2026-11-23', 7);
+    expect(Object.fromEntries(r.map((x) => [x.plan.id, x.spur]))).toEqual({ frueh: 0, spaet: 1 });
+  });
+
+  it('Halbtage: Vormittag/Nachmittag nach Beginn, ganze Tage ohne Zeit (Team 1, KW 48)', () => {
+    const r = halbtagSpuren([
+      { id: 's', von: '2026-11-23', bis: '2026-11-23', beginn_min: 420 },
+      { id: 't1', von: '2026-11-23', bis: '2026-11-23', beginn_min: 780 },
+      { id: 't2', von: '2026-11-24', bis: '2026-11-25', beginn_min: 780 },
+      { id: 'w', von: '2026-11-26', bis: '2026-11-27', beginn_min: null },
+    ], '2026-11-23', 7);
+    const lage = Object.fromEntries(r.map((x) => [x.plan.id + '@' + x.ab, [x.ab, x.bis, x.spur]]));
+    expect(lage).toEqual({ 's@0': [0, 0, 0], 't1@1': [1, 1, 0], 't2@3': [3, 3, 0], 't2@5': [5, 5, 0], 'w@6': [6, 9, 0] });
+  });
+
+  it('Halbtage: Vormittag allein füllt den Tag, mehrtägig wird ein Block', () => {
+    const r = halbtagSpuren([{ id: 'a', von: '2026-11-23', bis: '2026-11-24', beginn_min: 420 }], '2026-11-23', 7);
+    expect(r.map((x) => [x.ab, x.bis])).toEqual([[0, 3]]);
   });
 
   it('schlägt Zeiträume bis Freitag vor', () => {

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { gemerkt, merken } from '../lib/merker';
 import * as Doppelt from '../lib/doppelt';
 import { useSearchParams } from 'react-router-dom';
-import { Archive, ArrowRightLeft, CalendarDays, CalendarPlus, Check, CircleCheck, Clock, History, MapPin, MessageSquareText, MousePointerClick, Plus, Search, Trash2, TriangleAlert, Undo2, UserPlus, Users, X } from 'lucide-react';
+import { Archive, ArrowRightLeft, CalendarDays, CalendarPlus, ChevronLeft, ChevronRight, CircleCheck, History, Info, MapPin, MessageSquareText, MousePointerClick, Pencil, Plus, Search, Trash2, TriangleAlert, Undo2, Users, X } from 'lucide-react';
 import { Shell } from '../ui/Shell';
 import { Dialog, Avatar } from '../ui/Dialog';
 import { Auswahl } from '../ui/Auswahl';
@@ -12,8 +12,8 @@ import { alleOderFehler, stuecke } from '../lib/abfrage';
 import { useAuffrischen, useNeuesteAnfrage } from '../lib/auffrischen';
 import { addTage, ausIso, iso, kurz, kw, lang, montag, WOCHENTAGE } from '../lib/datum';
 import {
-  arbeitstage, besetzung, ersatzVorschlaege, heuteUndNaechster, istBalken, konflikte, konflikteBuendeln, naechsterTeamName, ohneTag, planAm, planIst, spuren, ueberschneiden, zeitraumVorschlag,
-  type FehltGemeldet, type KonfliktBlock, type PlanIst, type Schnellwahl, type TagesBesetzung, type VerlaufZeile, type Versetzung, type Zeitraum,
+  arbeitstage, besetzung, ersatzVorschlaege, halbtagSpuren, heuteUndNaechster, istBalken, konflikte, konflikteBuendeln, naechsterTeamName, ohneTag, planAm, planIst, spuren, ueberschneiden, zeitraumVorschlag,
+  type FehltGemeldet, type KonfliktBlock, type Schnellwahl, type TagesBesetzung, type VerlaufZeile, type Versetzung, type Zeitraum,
 } from '../lib/planung';
 import { artText, werktage } from '../lib/abwesenheit';
 import { feiertag } from '../lib/feiertage';
@@ -21,7 +21,7 @@ import { arbeitstag, einstellungen } from '../lib/einstellungen';
 import { ausUhrzeit, uhrzeit, uhrzeitFeld } from '../lib/zeiten';
 import { FUNKTION_BUERO } from '../lib/benutzername';
 import { DatumWahl } from '../ui/DatumWahl';
-import { Blaettern, Pille, Segment } from '../ui/Segment';
+import { Pille } from '../ui/Segment';
 import { baustellenSuchen } from '../lib/suche';
 import { warnungenZusammen, type WetterTag } from '../lib/wetter';
 import { WetterKopf, WetterWarnung, WetterZeile } from '../ui/WetterZeichen';
@@ -112,7 +112,6 @@ function freitagVon(tag: string): string {
 }
 
 const SPUR_HOEHE = 40;
-const TAGZEILE_HOEHE = 30;
 /** Teamspalte: am Handy schmal, am PC mit Platz für die Namen — als CSS-Variable, damit Raster und Mindestbreite mitgehen */
 const TEAM_SPALTE_KLASSE = '[--team:152px] md:[--team:250px]';
 
@@ -161,6 +160,9 @@ export function Planung() {
     setParams((p) => { const n = new URLSearchParams(p); n.delete('tag'); n.delete('team'); n.delete('baustelle'); return n; }, { replace: true });
   }, [setParams]);
   const [anzahlTage, setAnzahlTage] = useState<7 | 14>(7);
+  // Halbtage (21.11.2026, Konzept B): Vormittag/Nachmittag je Tag — Wahl bleibt auf dem Gerät
+  const [halbtage, setHalbtageRoh] = useState(() => { try { return localStorage.getItem('planung-halbtage') === 'ja'; } catch { return false; } });
+  const setHalbtage = (v: boolean) => { setHalbtageRoh(v); try { localStorage.setItem('planung-halbtage', v ? 'ja' : 'nein'); } catch { /* egal */ } };
   const [entwurf, setEntwurf] = useState<Entwurf | null>(null);
   /** `dazu`: gleich «Person dazunehmen» öffnen (aus der Konfliktliste) */
   const [tagWahl, setTagWahl] = useState<{ teamId: string; datum: string; dazu?: boolean } | null>(null);
@@ -423,11 +425,16 @@ export function Planung() {
   const [hilfeOffen, setHilfeOffen] = useState(() => { try { return localStorage.getItem('planung-hilfe-v1') !== 'weg'; } catch { return true; } });
   function hilfeWeg() { setHilfeOffen(false); try { localStorage.setItem('planung-hilfe-v1', 'weg'); } catch { /* egal */ } }
 
+  // Halbtage nur im Plan — «Wirklich gewesen» kennt keine Uhrzeiten
+  const halb = halbtage && ansicht !== 'ist';
   const proTeam = useMemo(() => {
     const m = new Map<string, ReturnType<typeof spuren<Plan>>>();
-    for (const team of teams) m.set(team.id, spuren(anzeigePlaene.filter((p) => p.team_id === team.id), startIso, anzahlTage));
+    for (const team of teams) {
+      const eigene = anzeigePlaene.filter((p) => p.team_id === team.id);
+      m.set(team.id, halb ? halbtagSpuren(eigene, startIso, anzahlTage) : spuren(eigene, startIso, anzahlTage));
+    }
     return m;
-  }, [teams, anzeigePlaene, startIso, anzahlTage]);
+  }, [teams, anzeigePlaene, startIso, anzahlTage, halb]);
 
 
   const ohneEinsatz = teams.filter((t) => (proTeam.get(t.id) ?? []).length === 0);
@@ -515,6 +522,9 @@ export function Planung() {
   const minBreite = `calc(var(--team) + ${anzahlTage * spaltenBreite}px)`;
   const zeilenRaster = 'var(--team) minmax(0,1fr)';
   const tagSpalten = `repeat(${anzahlTage}, minmax(0, 1fr))`;
+  // Zeilen der Teams: in der Halbtage-Ansicht zwei Spalten je Tag; `tagSpalte` setzt einen Tag (oder mehrere) in beide Raster
+  const zeilenSpalten = halb ? `repeat(${anzahlTage * 2}, minmax(0, 1fr))` : tagSpalten;
+  const tagSpalte = (i: number, j = i) => (halb ? `${2 * i + 1} / ${2 * j + 3}` : `${i + 1} / ${j + 2}`);
   const titel = anzahlTage === 7
     ? `KW ${kw(start)} · ${kurz(start)} – ${kurz(addTage(start, 6))}`
     : `KW ${kw(start)}–${kw(addTage(start, 7))} · ${kurz(start)} – ${kurz(addTage(start, 13))}`;
@@ -582,26 +592,6 @@ export function Planung() {
           </span>
         </header>
 
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-center gap-2">
-            <Blaettern titel={titel} zurueck={() => setStart(addTage(start, -7))} vor={() => setStart(addTage(start, 7))} labelZurueck="Woche zurück" labelVor="Woche vor"
-              breite="min-w-[200px]" heute={{ da: iso(start) === iso(montag(new Date())), los: () => setStart(montag(new Date())) }} />
-            {/* Kein Wochen-Schild mehr («Entwurf · Woche läuft» / «Archiv» / «Plan», weg seit 13.10.2026, Amir) —
-                was man sieht, sagt die Ansicht-Wahl darunter */}
-          </div>
-          <div className="flex schiene" role="group" aria-label="Zeitraum">
-            {([7, 14] as const).map((n) => (
-              <button key={n} type="button" onClick={() => setAnzahlTage(n)} aria-pressed={anzahlTage === n}
-                className={'rounded-full px-3.5 py-1.5 text-xs font-semibold transition ' + (anzahlTage === n ? 'schiene-an' : '')}>
-                {n === 7 ? '1 Woche' : '2 Wochen'}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {fehler && <p className="rounded-[12px] border border-accent/40 bg-accent-soft px-4 py-3 text-sm text-accent-deep">{fehler}</p>}
-        {rueckmeldung && <p className="rounded-[12px] border border-good/30 bg-good-soft px-4 py-2.5 text-sm font-medium text-good-deep" role="status">{rueckmeldung}</p>}
-
         {hilfeOffen && (
           <section className="card flex flex-wrap items-start gap-x-6 gap-y-3 border-steel/15 bg-gradient-to-br from-white to-[#eef4fc] py-4">
             {[
@@ -618,34 +608,82 @@ export function Planung() {
           </section>
         )}
 
-        {mitVergangenheit && (
-          <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-            <Segment label="Ansicht" wert={ansicht} aendern={setAnsicht} optionen={[
-              { wert: 'plan', text: 'Aktueller Plan' },
-              { wert: 'montag', text: `Geplant am Mo ${kurz(start)}` },
-              { wert: 'ist', text: 'Wirklich gewesen' },
-            ]} />
-            <span className="text-xs text-ink3">
-              {ansicht === 'plan' && (status === 'entwurf' ? 'Jederzeit änderbar, bis die Woche vorbei ist.' : 'Der Plan, wie er jetzt steht — mit allen Änderungen.')}
-              {ansicht === 'montag' && `So war ${anzahlTage === 7 ? 'die Woche' : 'es'} am Montag ${kurz(start)} früh geplant — vor allen Änderungen.`}
-              {ansicht === 'ist' && 'Wo die Teams laut Meldungen waren. Gestrichelt darunter: was am Montag anders geplant war.'}
-            </span>
-          </div>
-        )}
-
-        {!laedt && teams.length > 0 && !lesend && (
-          <p className="flex flex-wrap items-center gap-2 text-sm text-ink2">
-            <span><b className="text-ink">{teams.length - ohneEinsatz.length} von {teams.length}</b> Teams eingeplant</span>
-            {ohneEinsatz.length > 0 && (
-              <>
-                <span className="text-ink3">· noch frei:</span>
-                {ohneEinsatz.map((t) => (
-                  <Pille key={t.id} plus onClick={() => neu(t.id, new Date(Math.max(Date.now(), start.getTime())))}>{t.bezeichnung}</Pille>
+        {/* Eine Leiste statt drei Bausteine (Konzept «Kopfzeile», 21.11.2026, Amir: «nicht einheitlich»): oben Woche und
+            Zeitraum, unten Ansicht und Stand — alle Knöpfe als gleiche Schiene, «Heute» als rotes Wort ohne Rahmen */}
+        <section className="card divide-y divide-line p-0">
+          <div className="flex flex-wrap items-center justify-between gap-2.5 px-3 py-2.5">
+            <div className="flex schiene items-center" role="group" aria-label="Woche">
+              <button type="button" aria-label="Woche zurück" onClick={() => setStart(addTage(start, -7))} className="grid h-8 w-8 place-items-center"><ChevronLeft size={16} aria-hidden="true" /></button>
+              <span className="whitespace-nowrap px-2 text-[13.5px] font-bold tabular-nums text-ink">
+                {titel.split(' · ')[0]}<span className="ml-1.5 font-semibold text-ink3">{titel.split(' · ')[1]}</span>
+              </span>
+              <button type="button" aria-label="Woche vor" onClick={() => setStart(addTage(start, 7))} className="grid h-8 w-8 place-items-center"><ChevronRight size={16} aria-hidden="true" /></button>
+              <span className="mx-1 h-4 w-px bg-ink/15" aria-hidden="true" />
+              <button type="button" onClick={() => setStart(montag(new Date()))} disabled={iso(start) === iso(montag(new Date()))}
+                className="h-8 px-3 text-xs font-semibold text-accent-deep! transition disabled:text-ink3! disabled:opacity-60">Heute</button>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="flex schiene" role="group" aria-label="Zeitraum">
+                {([7, 14] as const).map((n) => (
+                  <button key={n} type="button" onClick={() => setAnzahlTage(n)} aria-pressed={anzahlTage === n}
+                    className={'h-8 px-3.5 text-xs font-semibold transition ' + (anzahlTage === n ? 'schiene-an' : '')}>
+                    {n === 7 ? '1 Woche' : '2 Wochen'}
+                  </button>
                 ))}
-              </>
-            )}
-          </p>
-        )}
+              </div>
+              {/* Halbtage (Konzept B, 21.11.2026) — am Handy steht die Agenda, dort braucht es den Schalter nicht */}
+              <div className="flex schiene max-[699px]:hidden" role="group" aria-label="Tage">
+                {([false, true] as const).map((h) => (
+                  <button key={String(h)} type="button" onClick={() => setHalbtage(h)} aria-pressed={halbtage === h} disabled={ansicht === 'ist'}
+                    title={ansicht === 'ist' ? 'Bei «Wirklich gewesen» gibt es keine Uhrzeiten' : undefined}
+                    className={'h-8 px-3.5 text-xs font-semibold transition disabled:opacity-50 ' + (halbtage === h ? 'schiene-an' : '')}>
+                    {h ? 'Halbtage' : 'Ganze Tage'}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+          {(mitVergangenheit || (!laedt && teams.length > 0 && !lesend)) && (
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-2 px-3 py-2.5">
+              {mitVergangenheit && (
+                <>
+                  <span className="pl-1 text-[10.5px] font-semibold uppercase tracking-[0.08em] text-ink3">Ansicht</span>
+                  <div className="flex max-w-full overflow-x-auto schiene" role="group" aria-label="Ansicht">
+                    {([
+                      { wert: 'plan', text: 'Aktueller Plan' },
+                      { wert: 'montag', text: `Geplant am Mo ${kurz(start)}` },
+                      { wert: 'ist', text: 'Wirklich gewesen' },
+                    ] as const).map((o) => (
+                      <button key={o.wert} type="button" aria-pressed={ansicht === o.wert} onClick={() => setAnsicht(o.wert)}
+                        className={'h-8 whitespace-nowrap px-3.5 text-xs font-semibold transition ' + (ansicht === o.wert ? 'schiene-an' : '')}>
+                        {o.text}
+                      </button>
+                    ))}
+                  </div>
+                  <span className="text-xs text-ink3">
+                    {ansicht === 'plan' && (status === 'entwurf' ? 'Jederzeit änderbar, bis die Woche vorbei ist.' : 'Der Plan, wie er jetzt steht — mit allen Änderungen.')}
+                    {ansicht === 'montag' && `So war ${anzahlTage === 7 ? 'die Woche' : 'es'} am Montag ${kurz(start)} früh geplant — vor allen Änderungen.`}
+                    {ansicht === 'ist' && 'Wo die Teams laut Meldungen waren. Gestrichelt darunter: was am Montag anders geplant war.'}
+                  </span>
+                </>
+              )}
+              {!laedt && teams.length > 0 && !lesend && (
+                <span className="ml-auto flex flex-wrap items-center gap-2 text-[13px] text-ink2">
+                  <span><b className="text-ink">{teams.length - ohneEinsatz.length} von {teams.length}</b> Teams eingeplant</span>
+                  {ohneEinsatz.map((t) => (
+                    <button key={t.id} type="button" onClick={() => neu(t.id, new Date(Math.max(Date.now(), start.getTime())))}
+                      className="inline-flex h-7 items-center gap-1 rounded-full bg-accent-soft px-2.5 text-xs font-semibold text-accent-deep transition hover:bg-accent-soft/70">
+                      <Plus size={12} strokeWidth={2.6} aria-hidden="true" />{t.bezeichnung}
+                    </button>
+                  ))}
+                </span>
+              )}
+            </div>
+          )}
+        </section>
+
+        {fehler && <p className="rounded-[12px] border border-accent/40 bg-accent-soft px-4 py-3 text-sm text-accent-deep">{fehler}</p>}
+        {rueckmeldung && <p className="rounded-[12px] border border-good/30 bg-good-soft px-4 py-2.5 text-sm font-medium text-good-deep" role="status">{rueckmeldung}</p>}
 
         {/* «alles besetzt» nur, wenn ab heute überhaupt etwas geplant ist — eine leere Woche ist nicht «besetzt» */}
         {!laedt && !lesend && teams.length > 0 && endeIso >= heuteIso && (konfliktBloecke.length > 0 || plaene.some((p) => p.bis >= heuteIso)) && (
@@ -687,7 +725,17 @@ export function Planung() {
           </p>
         )}
 
-        <section className="card overflow-hidden p-0">
+        {/* Am Handy (unter 700 px) die Agenda statt des Rasters (Konzept C, 21.11.2026) */}
+        {!laedt && (
+          <WochenAgenda
+            tage={tage} teams={teams} plaene={anzeigePlaene} heuteIso={heuteIso} istFrei={istFrei}
+            wetter={(dIso) => wetter.gebiet.get(dIso)}
+            onTag={(teamId, datum) => setTagWahl({ teamId, datum })}
+            onNeu={lesend ? undefined : (teamId, d) => neu(teamId, d)}
+          />
+        )}
+
+        <section className="card overflow-hidden p-0 max-[699px]:hidden">
           <div className="overflow-x-auto">
             <div className={TEAM_SPALTE_KLASSE} style={{ minWidth: minBreite }}>
               {/* Kopf: Wochentag klein in Versalien, Datum darunter, heute als rote Pille, Wochenende grau */}
@@ -708,6 +756,7 @@ export function Planung() {
                         <span className={'whitespace-nowrap rounded-full px-2.5 py-0.5 font-display text-[13px] font-semibold tabular-nums leading-tight ' + (markiert ? (istHeute ? 'bg-accent text-white ring-2 ring-steel ring-offset-2' : 'bg-steel text-white shadow-[0_4px_10px_-4px_rgb(43_108_176/0.6)]') : istHeute ? 'bg-accent text-white shadow-[0_4px_10px_-4px_rgb(224_48_30/0.6)]' : we ? 'text-ink3/70' : 'text-ink')}>{kurz(d)}</span>
                         {fei && <span className="max-w-full truncate px-1 text-[10px] font-medium text-ink3" title={`Feiertag: ${fei}`}>{fei}</span>}
                         {wetter.gebiet.get(iso(d)) && <WetterKopf w={wetter.gebiet.get(iso(d))!} />}
+                        {halb && <span className="mt-auto grid w-full grid-cols-2 text-center text-[9.5px] font-semibold uppercase tracking-[0.06em] text-ink3/70"><span>VM</span><span>NM</span></span>}
                       </span>
                     );
                   })}
@@ -720,7 +769,7 @@ export function Planung() {
                 const balken = proTeam.get(team.id) ?? [];
                 const anzSpuren = Math.max(1, ...balken.map((b) => b.spur + 1));
                 // Freie Felder je Spur und Tag — das «+» erscheint nur dort, nie unter einem Balken
-                const belegt = (spur: number, tag: number) => balken.some((b) => b.spur === spur && b.ab <= tag && b.bis >= tag);
+                const belegt = (spur: number, tag: number) => balken.some((b) => b.spur === spur && (halb ? b.ab <= 2 * tag + 1 && b.bis >= 2 * tag : b.ab <= tag && b.bis >= tag));
                 const freieFelder = lesend ? [] : Array.from({ length: anzSpuren }, (_, spur) => tage.map((d, i) => ({ d, i, spur }))).flat().filter((x) => !belegt(x.spur, x.i));
                 const fest = basis.get(team.id) ?? [];
                 const geister = geisterJeTeam.get(team.id) ?? [];
@@ -744,12 +793,14 @@ export function Planung() {
                         <span className="text-[11px] text-ink3">noch niemand fest — Tag antippen und Leute einteilen</span>
                       )}
                     </div>
-                    <div className="grid" style={{ gridTemplateColumns: tagSpalten, gridTemplateRows: `repeat(${anzSpuren}, ${SPUR_HOEHE}px)${geister.length ? ' 22px' : ''} minmax(${TAGZEILE_HOEHE}px, auto)`, rowGap: 6, paddingTop: 8, paddingBottom: 6 }}>
+                    <div className="grid" style={{ gridTemplateColumns: zeilenSpalten, gridTemplateRows: `repeat(${anzSpuren}, ${SPUR_HOEHE}px)${geister.length ? ' 22px' : ''} auto`, rowGap: 6, paddingTop: 8, paddingBottom: 6 }}>
                       {/* Hintergrund je Tag (Wochenende, heute, Wochenlinie) über alle Spuren */}
-                      {tage.map((d, i) => <span key={'h' + iso(d)} aria-hidden="true" className={'-my-2 ' + tagHintergrund(d, i)} style={{ gridColumn: i + 1, gridRow: `1 / ${zeileTag + 1}` }} />)}
+                      {tage.map((d, i) => <span key={'h' + iso(d)} aria-hidden="true" className={'-my-2 ' + tagHintergrund(d, i)} style={{ gridColumn: tagSpalte(i), gridRow: `1 / ${zeileTag + 1}` }} />)}
+                      {/* Halbtage: gestrichelte Linie zwischen Vormittag und Nachmittag */}
+                      {halb && tage.map((d, i) => <span key={'m' + iso(d)} aria-hidden="true" className="-my-2 border-l border-dashed border-line" style={{ gridColumn: 2 * i + 2, gridRow: `1 / ${zeileTag + 1}` }} />)}
                       {/* Archiv: was am Montag anders geplant war, gestrichelt unter dem Balken */}
                       {geister.map((g) => (
-                        <span key={'g' + g.ab} title={g.text} style={{ gridColumn: `${g.ab + 1} / ${g.bis + 2}`, gridRow: anzSpuren + 1 }}
+                        <span key={'g' + g.ab} title={g.text} style={{ gridColumn: tagSpalte(g.ab, g.bis), gridRow: anzSpuren + 1 }}
                           className="z-[1] mx-1 flex min-w-0 items-center rounded-[8px] border border-dashed border-amber/70 bg-amber-soft/50 px-2 text-[10.5px] font-medium text-amber-deep">
                           <span className="truncate">{g.text}</span>
                         </span>
@@ -761,7 +812,7 @@ export function Planung() {
                           type="button"
                           onClick={() => neu(team.id, d)}
                           aria-label={`${team.bezeichnung} am ${lang(d)} planen`}
-                          style={{ gridColumn: i + 1, gridRow: spur + 1 }}
+                          style={{ gridColumn: tagSpalte(i), gridRow: spur + 1 }}
                           className="group/tag z-[1] mx-1 grid place-items-center rounded-[10px] transition hover:bg-accent-soft/60"
                         >
                           <Plus size={15} className="text-accent opacity-0 transition group-hover/tag:opacity-100" aria-hidden="true" />
@@ -770,37 +821,52 @@ export function Planung() {
                       {balken.map(({ plan, spur, ab, bis, links, rechts }) => {
                         const f = farbeVon(plan.baustelle?.id ?? plan.id);
                         const name = plan.baustelle?.bezeichnung || 'Baustelle';
-                        // Der Einsatz, von dem man kommt: blauer Rahmen (Umriss, damit die Farbe des Balkens bleibt)
+                        // Der Einsatz, von dem man kommt: blauer Rahmen
                         const balkenMarkiert = teamMarkiert && !!mark?.baustelle && plan.baustelle?.id === mark.baustelle && plan.von <= mark.tag && plan.bis >= mark.tag;
+                        // Konzept A (21.11.2026): weisser Balken, Baustellenfarbe nur als Streifen links, Uhrzeit vorne.
+                        // Schmal (ein Tag, in Halbtagen bis ein Tag) = Uhrzeit über dem Namen
+                        const eng = halb ? bis - ab <= 1 : bis === ab;
+                        const zeit = plan.beginn_min != null ? uhrzeit(plan.beginn_min) : null;
+                        const tagIndex = (k: number) => (halb ? Math.floor((ab + k) / 2) : ab + k);
                         return (
                           <button
-                            key={plan.id}
+                            key={plan.id + '-' + ab}
                             type="button"
                             onClick={(e) => {
                               // Ein Klick pro Tag (11.10.2026): der angetippte Tag öffnet sich — dort auch «Ganzen Einsatz ändern»
                               const r = e.currentTarget.getBoundingClientRect();
                               const n = bis - ab + 1;
                               const k = Math.min(n - 1, Math.max(0, Math.floor((e.clientX - r.left) / (r.width / n))));
-                              setTagWahl({ teamId: team.id, datum: iso(addTage(start, ab + k)) });
+                              setTagWahl({ teamId: team.id, datum: iso(addTage(start, tagIndex(k))) });
                             }}
                             title={[`${name} · ${plan.baustelle?.konto_nr ?? ''}${ansicht === 'ist' && lesend ? ' · gemeldet' : ''}`, felderText(plan), plan.hinweis && `«${plan.hinweis}»`].filter(Boolean).join('\n')}
-                            aria-label={`${team.bezeichnung}: ${name}, ${lang(ausIso(plan.von))} bis ${lang(ausIso(plan.bis))} — Tag öffnen`}
+                            aria-label={`${team.bezeichnung}: ${zeit ? `ab ${zeit}, ` : ''}${name}, ${lang(ausIso(plan.von))} bis ${lang(ausIso(plan.bis))} — Tag öffnen`}
                             style={{ gridColumn: `${ab + 1} / ${bis + 2}`, gridRow: spur + 1 }}
                             className={
-                              'relative z-10 mx-1 flex min-w-0 items-center gap-2 bg-gradient-to-br px-2.5 text-left ring-1 shadow-[0_1px_2px_rgb(17_17_19/0.05),0_6px_14px_-10px_rgb(17_17_19/0.35)] transition hover:-translate-y-px hover:shadow-[0_1px_2px_rgb(17_17_19/0.05),0_12px_22px_-12px_rgb(17_17_19/0.45)] ' +
-                              f.balken + ' ' + (links ? 'rounded-l-[4px]' : 'rounded-l-[10px]') + ' ' + (rechts ? 'rounded-r-[4px]' : 'rounded-r-[10px]') +
+                              'relative z-10 mx-1 flex min-w-0 overflow-hidden border border-line bg-white pr-2 text-left text-ink shadow-[0_1px_2px_rgb(40_30_20/0.05)] transition hover:-translate-y-px hover:shadow-[0_1px_2px_rgb(40_30_20/0.05),0_10px_20px_-12px_rgb(40_30_20/0.35)] ' +
+                              (eng ? 'flex-col justify-center gap-px pl-2.5 ' : 'items-center gap-2 pl-3 ') +
+                              (links ? 'rounded-l-[4px]' : 'rounded-l-[10px]') + ' ' + (rechts ? 'rounded-r-[4px]' : 'rounded-r-[10px]') +
                               (balkenMarkiert ? ' outline-2 outline-offset-2 outline-steel' : '')
                             }
                           >
-                            {links && <span className="-ml-1 text-xs opacity-60" aria-hidden="true">‹</span>}
-                            {bis > ab && <span className={'h-2 w-2 shrink-0 rounded-full ' + f.punkt} aria-hidden="true" />}
-                            {/* Eintägige Einsätze: Name auf zwei Zeilen statt «Wohnüber…» */}
-                            <span className={'min-w-0 font-semibold ' + (bis > ab ? 'truncate text-[12.5px]' : 'line-clamp-2 text-[11px] leading-[1.15] [overflow-wrap:anywhere]')}>{name}</span>
-                            {/* Hinweis fürs Team (0049): kleines Zeichen, der Text steht im Tooltip und im Tag */}
-                            {plan.hinweis && <MessageSquareText size={12} className="shrink-0 opacity-70" aria-label="mit Hinweis" />}
-                            {/* Kontonummer erst ab drei Tagen — bei kürzeren Balken ginge sonst der Name unter */}
-                            {bis - ab >= 2 && <span className="ml-auto hidden shrink-0 font-mono text-[11px] opacity-70 lg:inline">{plan.baustelle?.konto_nr}</span>}
-                            {rechts && <span className="-mr-1 text-xs opacity-60" aria-hidden="true">›</span>}
+                            <span className={'absolute inset-y-0 left-0 w-[3px] ' + f.punkt} aria-hidden="true" />
+                            {links && <span className="-ml-1 text-xs text-ink3" aria-hidden="true">‹</span>}
+                            {eng ? (
+                              <>
+                                {zeit && <span className="text-[11px] font-bold leading-none tabular-nums text-ink">{zeit}</span>}
+                                <span className={'min-w-0 font-semibold text-ink2 [overflow-wrap:anywhere] ' + (zeit ? 'truncate text-[11px] leading-tight' : 'line-clamp-2 text-[11px] leading-[1.15]')}>{name}</span>
+                              </>
+                            ) : (
+                              <>
+                                {zeit && <span className="shrink-0 rounded-[6px] bg-surface-2 px-1.5 py-px text-[11px] font-bold tabular-nums text-ink">{zeit}</span>}
+                                <span className="min-w-0 truncate text-[12.5px] font-semibold text-ink2">{name}</span>
+                                {/* Hinweis fürs Team (0049): kleines Zeichen, der Text steht im Tooltip und im Tag */}
+                                {plan.hinweis && <MessageSquareText size={12} className="shrink-0 text-ink3" aria-label="mit Hinweis" />}
+                                {/* Kontonummer erst ab drei Tagen — bei kürzeren Balken ginge sonst der Name unter */}
+                                {(halb ? bis - ab >= 5 : bis - ab >= 2) && <span className="ml-auto hidden shrink-0 font-mono text-[11px] text-ink3 lg:inline">{plan.baustelle?.konto_nr}</span>}
+                              </>
+                            )}
+                            {rechts && <span className="-mr-1 ml-auto text-xs text-ink3" aria-hidden="true">›</span>}
                           </button>
                         );
                       })}
@@ -813,7 +879,7 @@ export function Planung() {
                           const nichts = !gemeldet && geplantAm(team.id, dIso).length > 0 && dIso < heuteIso && !istFrei(d);
                           return (
                             <button key={'t' + dIso} type="button" onClick={() => setTagWahl({ teamId: team.id, datum: dIso })}
-                              aria-label={`${team.bezeichnung} am ${lang(d)}: gemeldet`} style={{ gridColumn: i + 1, gridRow: zeileTag }} className={zelle}>
+                              aria-label={`${team.bezeichnung} am ${lang(d)}: gemeldet`} style={{ gridColumn: tagSpalte(i), gridRow: zeileTag }} className={zelle}>
                               {gemeldet
                                 ? <span className="inline-flex items-center gap-0.5 text-ink3" title={`${gemeldet.personen.size} gemeldet`}><Users size={11} aria-hidden="true" />{gemeldet.personen.size}</span>
                                 : nichts ? <span className="text-[10.5px] text-ink3">nichts gemeldet</span> : <span className="text-ink3/40" aria-hidden="true">·</span>}
@@ -837,6 +903,8 @@ export function Planung() {
                         // Frei (Wochenende, Feiertag) ohne Plan und ohne Änderung: leer statt «3» — dort wird selten gearbeitet.
                         // Ein geplanter Tag ohne Leute zeigt dagegen «0» (steht auch in «Zu lösen»).
                         const leer = ((n === 0 && !geplantHier) || (istFrei(d) && !geplantHier)) && pillen.length === 0;
+                        // Personenzahl nur, wenn sie vom Team abweicht (Konzept A, 21.11.2026) — sonst stand fünfmal «3» da
+                        const zahlZeigen = n !== fest.length || n === 0;
                         const zelleMarkiert = teamMarkiert && dIso === mark?.tag;
                         // Wetter an den Baustellen des Teams (nur mit Ort — ohne Ort steht das Gebiet oben im Kopf)
                         const wetterHier = einsaetzeHier.map((p) => (p.baustelle ? wetter.ort.get(`${p.baustelle.id}|${dIso}`) : undefined)).filter((w): w is WetterTag => !!w);
@@ -844,15 +912,17 @@ export function Planung() {
                         return (
                           <button key={'t' + dIso} type="button" onClick={() => setTagWahl({ teamId: team.id, datum: dIso })}
                             ref={zelleMarkiert && team.id === markTeams[0]?.id ? markZelle : undefined}
-                            aria-label={`${team.bezeichnung} am ${lang(d)}: Leute und Baustelle${zuLoesen ? ' — zu lösen' : ''}${zelleMarkiert ? ' — markiert' : ''}`} style={{ gridColumn: i + 1, gridRow: zeileTag }}
+                            aria-label={`${team.bezeichnung} am ${lang(d)}: ${n} ${n === 1 ? 'Person' : 'Leute'}, Leute und Baustelle${zuLoesen ? ' — zu lösen' : ''}${zelleMarkiert ? ' — markiert' : ''}`} style={{ gridColumn: tagSpalte(i), gridRow: zeileTag }}
                             className={zelle + (zelleMarkiert ? ' border-steel/60! bg-white ring-2 ring-steel/25' : '')}>
-                            {leer ? <span className="text-ink3/40" aria-hidden="true">·</span> : (
+                            {leer ? null : (
                               <>
                                 {zuLoesen && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-amber" title="zu lösen — siehe oben" aria-hidden="true" />}
                                 <WetterWarnung liste={wetterWarn} ort={einsaetzeHier.map((p) => p.baustelle?.bezeichnung || 'Baustelle').join(', ')} />
-                                <span className="inline-flex items-center gap-0.5 text-ink3" title={`${n} ${n === 1 ? 'Person' : 'Leute'} an diesem Tag`}>
-                                  <Users size={11} aria-hidden="true" /><span>{n}</span>
-                                </span>
+                                {zahlZeigen && (
+                                  <span className={'inline-flex items-center gap-0.5 ' + (n < fest.length ? 'font-semibold text-amber-deep' : 'text-ink3')} title={`${n} ${n === 1 ? 'Person' : 'Leute'} an diesem Tag (Team: ${fest.length})`}>
+                                    <Users size={11} aria-hidden="true" /><span>{n}</span>
+                                  </span>
+                                )}
                                 {pillen.slice(0, max).map((p) => <span key={p.text} title={p.titel} className={'whitespace-nowrap rounded-full px-1.5 py-px text-[10px] font-semibold ' + p.klasse}>{p.text}</span>)}
                                 {pillen.length > max && <span className="text-[10px] font-semibold text-ink3" title={pillen.slice(max).map((p) => p.titel).join(' · ')}>+{pillen.length - max}</span>}
                               </>
@@ -878,7 +948,8 @@ export function Planung() {
           ) : (
             <>
               <span>Tag antippen = Leute und Baustelle für diesen Tag</span>
-              <span className="inline-flex items-center gap-1"><Users size={11} aria-hidden="true" /> Leute an dem Tag</span>
+              <span><b className="font-bold tabular-nums text-ink">7:00</b> Beginn</span>
+              <span className="inline-flex items-center gap-1"><Users size={11} aria-hidden="true" /> Leute — nur wenn es nicht das ganze Team ist</span>
               <span className="inline-flex items-center gap-1"><span className="h-1.5 w-1.5 rounded-full bg-amber" aria-hidden="true" /> zu lösen</span>
               <span><b className="rounded-full bg-good-soft px-1.5 text-good-deep">+ Name</b> für den Tag dazu</span>
               <span><b className="rounded-full bg-amber-soft px-1.5 text-amber-deep">− Name</b> in einem anderen Team</span>
@@ -1085,15 +1156,6 @@ function ZuLoesen({ liste, heuteIso, naechster, teamName, name, baustelle, artAm
   );
 }
 
-/** Plan gegen Ist als kleines Zeichen — mit Erklärung beim Darüberfahren. */
-function IstZeichen({ ist }: { ist: PlanIst }) {
-  if (ist === 'wie-geplant') return <span title="wie geplant gemeldet" className="grid h-4 w-4 place-items-center rounded-full bg-good text-white"><Check size={10} strokeWidth={3} aria-hidden="true" /></span>;
-  if (ist === 'anders') return <span title="andere Baustelle gemeldet als geplant" className="grid h-4 min-w-4 place-items-center rounded-full bg-amber px-1 text-[10px] font-bold leading-none text-white">≠</span>;
-  if (ist === 'nichts') return <span title="geplant, aber nichts gemeldet" className="grid h-4 w-4 place-items-center rounded-full border border-dashed border-ink3/60 text-[10px] leading-none text-ink3">–</span>;
-  if (ist === 'ohne-plan') return <span title="gemeldet, ohne Plan" className="grid h-4 w-4 place-items-center rounded-full bg-steel text-white"><Check size={10} strokeWidth={3} aria-hidden="true" /></span>;
-  return null;
-}
-
 // ── Baustelle suchen (Einsatz-Dialog und «nur an diesem Tag») ───────────────────────────────
 
 function BaustellenWahl({ baustellen, waehlen, autoFokus = false }: { baustellen: Baustelle[]; waehlen: (b: Baustelle) => void; autoFokus?: boolean }) {
@@ -1124,7 +1186,7 @@ function BaustellenWahl({ baustellen, waehlen, autoFokus = false }: { baustellen
 // ── Dialog: ein Team an einem Tag (Leute versetzen, Baustelle nur heute ändern, Plan gegen Ist) ──
 
 function TagDialog({
-  team, datum, teams, personen, namen, basis, besetzungen, abwesend, geplant, gemeldet, vergangen, baustellen, einsatzFehlt, dazuAuf = false, wetterVon,
+  team, datum, teams, personen, namen, basis, besetzungen, abwesend, geplant: geplantRoh, gemeldet, vergangen, baustellen, einsatzFehlt, dazuAuf = false, wetterVon,
   onSchliessen, onEinsatz, onNeuerEinsatz, onGeaendert, onNeuLaden,
 }: {
   team: Team;
@@ -1152,6 +1214,9 @@ function TagDialog({
   onNeuLaden: () => void;
 }) {
   const d = ausIso(datum);
+  // Nach Beginn sortiert (21.11.2026, Amir): was früher anfängt, steht oben — Einsätze ohne Zeit zuletzt
+  const geplant = useMemo(() => [...geplantRoh].sort((a, b) => (a.beginn_min ?? 24 * 60) - (b.beginn_min ?? 24 * 60)), [geplantRoh]);
+  const mitZeit = geplant.some((p) => p.beginn_min != null);
   const fr = freitagVon(datum);
   const mehrTage = fr > datum;
   const [bereich, setBereich] = useState<'tag' | 'woche'>('tag');
@@ -1273,40 +1338,71 @@ function TagDialog({
   }, [dazuWahl, dazuSuche, teams, team.id, woHeute]);
 
   return (
-    <Dialog titel={`${team.bezeichnung} · ${tagKurz(d)}`} untertitel={vergangen ? 'Plan und was gemeldet wurde' : 'Baustelle und Leute für diesen Tag'} icon={CalendarDays} onSchliessen={onSchliessen} breit>
+    <Dialog titel={`${team.bezeichnung} · ${tagKurz(d)}`} untertitel={vergangen ? 'Plan und Meldung' : 'Baustelle und Leute für diesen Tag'} icon={CalendarDays} onSchliessen={onSchliessen} breit>
       <div className="space-y-6">
+        {/* Meldung als Schild oben statt eigener Block (Konzept 21.11.2026) */}
+        {vergangen && (() => {
+          const s = pi === 'wie-geplant' ? { t: 'Gemeldet · wie geplant', c: 'bg-good-soft text-good-deep', p: 'bg-good' }
+            : pi === 'anders' ? { t: 'Andere Baustelle gemeldet', c: 'bg-amber-soft text-amber-deep', p: 'bg-amber' }
+            : pi === 'ohne-plan' ? { t: 'Gemeldet · ohne Plan', c: 'bg-steel-soft text-steel', p: 'bg-steel' }
+            : { t: 'Noch nichts gemeldet', c: 'bg-amber-soft text-amber-deep', p: 'bg-amber' };
+          return <p className={'-mt-2 inline-flex items-center gap-2 rounded-full py-1 pl-2.5 pr-3 text-xs font-semibold ' + s.c}><span className={'h-1.5 w-1.5 rounded-full ' + s.p} aria-hidden="true" />{s.t}</p>;
+        })()}
         {/* Baustelle */}
         <section className="space-y-2">
-          <p className="lbl mb-0">Baustelle {vergangen ? 'geplant' : ''}</p>
+          <p className="lbl mb-0 flex items-center justify-between gap-2">
+            <span>Baustellen</span>
+            {geplant.length > 1 && <span className="font-medium normal-case tracking-normal">{geplant.length} Einsätze</span>}
+          </p>
           {geplant.length === 0 && <p className="text-sm text-ink3">Für diesen Tag ist nichts geplant.</p>}
-          {geplant.map((p) => (
-            <div key={p.id} className="flex items-center justify-between gap-3 rounded-[14px] border border-ink/10 bg-gradient-to-br from-white to-[#f6f3ee] px-3.5 py-2.5">
-              <span className="min-w-0">
-                <span className="flex items-center gap-2"><span className="knr">{p.baustelle?.konto_nr}</span><span className="truncate text-sm font-semibold text-ink">{p.baustelle?.bezeichnung || 'Baustelle'}</span></span>
-                <span className="mt-0.5 block text-[11px] text-ink3">{p.von === p.bis ? 'nur dieser Tag' : `Einsatz ${kurz(ausIso(p.von))} – ${kurz(ausIso(p.bis))}`}</span>
-                {/* Einsatzfelder (0049): was das Team zum Einsatz wissen muss */}
-                {(p.beginn_min != null || p.treffpunkt) && (
-                  <span className="mt-1.5 flex flex-wrap gap-x-3 gap-y-1 text-[11.5px] text-ink2">
-                    {p.beginn_min != null && <span className="inline-flex items-center gap-1"><Clock size={12} className="text-ink3" aria-hidden="true" />ab {uhrzeit(p.beginn_min)}</span>}
-                    {p.treffpunkt && <span className="inline-flex items-center gap-1"><MapPin size={12} className="text-ink3" aria-hidden="true" />Treffpunkt {TREFFPUNKT_TEXT[p.treffpunkt]}</span>}
-                  </span>
+          {/* Als Tagesablauf (Konzept 21.11.2026): Uhrzeit links, Linie verbindet die Einsätze */}
+          <div>
+            {geplant.map((p, i) => (
+              <div key={p.id} className={mitZeit ? 'grid grid-cols-[3.25rem_1rem_1fr]' : ''}>
+                {mitZeit && (
+                  <>
+                    <span className="pt-3 text-[15px] font-bold tabular-nums tracking-[-0.01em] text-ink">{p.beginn_min != null ? uhrzeit(p.beginn_min) : '–'}</span>
+                    <span className="relative" aria-hidden="true">
+                      {geplant.length > 1 && <span className={'absolute left-[6px] w-0.5 bg-line ' + (i === 0 ? 'top-5 bottom-0' : i === geplant.length - 1 ? 'top-0 h-5' : 'inset-y-0')} />}
+                      <span className="absolute left-[2px] top-[15px] h-2.5 w-2.5 rounded-full border-[2.5px] border-accent bg-white" />
+                    </span>
+                  </>
                 )}
-                {p.hinweis && (
-                  <span className="mt-1.5 flex items-start gap-1.5 rounded-[10px] bg-steel-soft/60 px-2.5 py-1.5 text-[12px] text-ink">
-                    <MessageSquareText size={13} className="mt-px shrink-0 text-steel" aria-hidden="true" />{p.hinweis}
+                <div className={'mb-2 flex items-center justify-between gap-3 rounded-[16px] border border-line bg-white py-2.5 pl-3.5 pr-2.5' + (mitZeit ? ' ml-1' : '')}>
+                  <span className="min-w-0">
+                    <span className="flex items-center gap-2"><span className="knr">{p.baustelle?.konto_nr}</span><span className="truncate text-sm font-semibold text-ink">{p.baustelle?.bezeichnung || 'Baustelle'}</span></span>
+                    {/* «nur dieser Tag» weg (Konzept 21.11.2026) — nur noch mehrtägige Einsätze nennen ihren Zeitraum */}
+                    {p.von !== p.bis && <span className="mt-0.5 block text-[11.5px] text-ink3">Einsatz {kurz(ausIso(p.von))} – {kurz(ausIso(p.bis))}</span>}
+                    {p.treffpunkt && (
+                      <span className="mt-1 flex items-center gap-1 text-[11.5px] text-ink2"><MapPin size={12} className="text-ink3" aria-hidden="true" />Treffpunkt {TREFFPUNKT_TEXT[p.treffpunkt]}</span>
+                    )}
+                    {p.hinweis && (
+                      <span className="mt-1.5 flex items-start gap-1.5 rounded-[10px] bg-steel-soft/60 px-2.5 py-1.5 text-[12px] text-ink">
+                        <MessageSquareText size={13} className="mt-px shrink-0 text-steel" aria-hidden="true" />{p.hinweis}
+                      </span>
+                    )}
+                    {/* Wetter an der Baustelle (MeteoSchweiz) — ohne Ort das Gebiet der Firma */}
+                    {p.baustelle && (() => { const x = wetterVon?.(p.baustelle.id); return x ? <WetterZeile w={x.w} gebiet={x.gebiet} /> : null; })()}
                   </span>
-                )}
-                {/* Wetter an der Baustelle (MeteoSchweiz) — ohne Ort das Gebiet der Firma */}
-                {p.baustelle && (() => { const x = wetterVon?.(p.baustelle.id); return x ? <WetterZeile w={x.w} gebiet={x.gebiet} /> : null; })()}
-              </span>
-              <button type="button" onClick={() => onEinsatz(p)} className="shrink-0 text-xs font-semibold text-steel">{p.von === p.bis ? 'Einsatz ändern' : 'Ganzen Einsatz ändern'}</button>
-            </div>
-          ))}
-          <div className="flex flex-wrap gap-2">
-            {geplant.length === 0
-              ? <Pille plus onClick={onNeuerEinsatz}>Einsatz planen</Pille>
-              : <Pille an={andereBaustelle} onClick={() => setAndereBaustelle((v) => !v)}>Nur {tagKurz(d)} andere Baustelle …</Pille>}
+                  {(() => { const t = p.von === p.bis ? 'Einsatz ändern' : 'Ganzen Einsatz ändern'; return (
+                    <button type="button" onClick={() => onEinsatz(p)} title={t} aria-label={t}
+                      className="grid h-9 w-9 shrink-0 place-items-center rounded-[11px] bg-surface-2 text-ink2 transition hover:text-ink">
+                      <Pencil size={15} aria-hidden="true" />
+                    </button>
+                  ); })()}
+                </div>
+              </div>
+            ))}
           </div>
+          {geplant.length === 0
+            ? <div className="flex flex-wrap gap-2"><Pille plus onClick={onNeuerEinsatz}>Einsatz planen</Pille></div>
+            : (
+              <button type="button" aria-pressed={andereBaustelle} onClick={() => setAndereBaustelle((v) => !v)}
+                className={'inline-flex items-center gap-1.5 rounded-full px-1 py-1 text-[13px] font-semibold text-ink2 transition hover:text-ink' + (mitZeit ? ' ml-[4.5rem]' : '')}>
+                {andereBaustelle ? <X size={15} className="text-ink3" aria-hidden="true" /> : <Plus size={15} className="text-accent" aria-hidden="true" />}
+                Andere Baustelle nur für {tagKurz(d)}
+              </button>
+            )}
           {andereBaustelle && (
             <div className="space-y-1.5">
               <p className="text-[11px] text-ink3">Der Einsatz bleibt an den anderen Tagen, wie er ist — nur {tagKurz(d)} geht das Team auf die gewählte Baustelle (Notfall, kurzfristig).</p>
@@ -1316,12 +1412,10 @@ function TagDialog({
         </section>
 
         {/* Plan gegen Ist */}
-        {vergangen && (
+        {vergangen && gemeldeteBaustellen.length > 0 && (
           <section className="space-y-2">
-            <p className="lbl mb-0 flex items-center gap-2">Gemeldet {pi && pi !== 'nichts' && <IstZeichen ist={pi} />}</p>
-            {gemeldeteBaustellen.length === 0 ? (
-              <p className="text-sm text-ink3">Noch nichts gemeldet.</p>
-            ) : (
+            <p className="lbl mb-0">Gemeldet</p>
+            {(
               <>
                 {gemeldeteBaustellen.map(([id, b]) => (
                   <p key={id} className="flex items-center gap-2 text-sm"><span className="knr">{b.konto_nr}</span><span className="text-ink2">{b.bezeichnung || 'Baustelle'}</span></p>
@@ -1338,7 +1432,7 @@ function TagDialog({
         {/* Leute an diesem Tag */}
         <section className="space-y-2.5">
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <p className="lbl mb-0">Leute an diesem Tag · {bz.ids.length}</p>
+            <p className="lbl mb-0">Leute · {bz.ids.length}</p>
             {mehrTage && (
               <span className="flex schiene text-[11px] font-semibold" role="group" aria-label="Gilt für">
                 <button type="button" aria-pressed={bereich === 'tag'} onClick={() => setBereich('tag')} className={'rounded-full px-2.5 py-1 ' + (bereich === 'tag' ? 'schiene-an' : '')}>nur {tagKurz(d)}</button>
@@ -1372,7 +1466,7 @@ function TagDialog({
                       </button>
                     )}
                     <button type="button" disabled={laeuft || einsatzFehlt} aria-expanded={offenFuer === id} onClick={() => { setOffenFuer(offenFuer === id ? null : id); setDazuOffen(false); }}
-                      className={'inline-flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-semibold transition disabled:opacity-50 ' + (offenFuer === id ? 'border-ink bg-ink text-white' : 'border-ink/10 bg-white text-ink2 shadow-[0_1px_2px_rgb(17_17_19/0.06)] hover:text-ink')}>
+                      className={'inline-flex shrink-0 items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold transition disabled:opacity-50 ' + (offenFuer === id ? 'bg-ink text-white' : 'bg-surface-2 text-ink2 hover:text-ink')}>
                       <ArrowRightLeft size={13} aria-hidden="true" /> Versetzen
                     </button>
                   </div>
@@ -1404,14 +1498,19 @@ function TagDialog({
                 <button type="button" disabled={laeuft || einsatzFehlt} onClick={() => void versetzen(w.id, team.id)} className="shrink-0 text-xs font-semibold text-steel disabled:opacity-50">zurückholen</button>
               </li>
             ))}
-            {bz.ids.length === 0 && bz.weg.length === 0 && <li className="px-3 py-3 text-sm text-ink3">Niemand — unten Leute dazunehmen.</li>}
+            {bz.ids.length === 0 && bz.weg.length === 0 && <li className="px-3 py-3 text-sm text-ink3">Niemand eingeteilt.</li>}
+            {/* «Person dazunehmen» als letzte Zeile der Liste statt eigener Kasten (Konzept 21.11.2026) */}
+            {!dazuOffen && (
+              <li>
+                <button type="button" disabled={laeuft || einsatzFehlt || dazuWahl.length === 0} onClick={() => { setDazuOffen(true); setOffenFuer(null); }}
+                  className="flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm font-semibold text-accent-deep transition hover:bg-ground disabled:opacity-50">
+                  <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-accent-soft text-accent"><Plus size={16} aria-hidden="true" /></span>
+                  Person dazunehmen
+                </button>
+              </li>
+            )}
           </ul>
-          {!dazuOffen ? (
-            <button type="button" disabled={laeuft || einsatzFehlt || dazuWahl.length === 0} onClick={() => { setDazuOffen(true); setOffenFuer(null); }}
-              className="flex w-full items-center justify-center gap-2 rounded-[14px] border border-dashed border-line-strong px-3 py-2.5 text-sm font-semibold text-steel transition hover:bg-ground disabled:opacity-50">
-              <UserPlus size={16} aria-hidden="true" /> Person dazunehmen
-            </button>
-          ) : (
+          {dazuOffen && (
             <div className="overflow-hidden rounded-[14px] border border-line-strong bg-white">
               <div className="flex items-center gap-2 border-b border-line px-3 py-2.5">
                 <Search size={15} className="shrink-0 text-ink3" aria-hidden="true" />
@@ -1438,9 +1537,9 @@ function TagDialog({
               </div>
             </div>
           )}
-          <p className="text-[11px] text-ink3">
-            Gilt {bereich === 'woche' && mehrTage ? `${tagKurz(d)} bis Freitag (nur Werktage)` : `nur am ${tagKurz(d)}`} — das feste Team bleibt, wie es ist (Verwaltung → Teams).
-            Das Teamgerät übernimmt die Leute des Tages: Versetzte sind dort abgehakt, Eingeteilte stehen in der Liste.
+          <p className="flex items-start gap-1.5 text-[11.5px] text-ink3">
+            <Info size={13} className="mt-px shrink-0" aria-hidden="true" />
+            Gilt {bereich === 'woche' && mehrTage ? `${tagKurz(d)} bis Freitag (Werktage)` : `nur für ${tagKurz(d)}`} — das feste Team bleibt.
           </p>
           {fehler && <p className="rounded-[12px] border border-accent/40 bg-accent-soft px-3.5 py-2.5 text-sm text-accent-deep">{fehler}</p>}
         </section>
@@ -1884,5 +1983,70 @@ function EinsatzDialog({
         </div>
       </div>
     </div>
+  );
+}
+
+// ── Agenda fürs Handy (Konzept C, 21.11.2026): je Tag eine Karte, Einsätze nach Uhrzeit ────────────────────
+
+function WochenAgenda({ tage, teams, plaene, heuteIso, istFrei, wetter, onTag, onNeu }: {
+  tage: Date[];
+  teams: Team[];
+  plaene: Plan[];
+  heuteIso: string;
+  istFrei: (d: Date) => boolean;
+  wetter: (dIso: string) => WetterTag | undefined;
+  onTag: (teamId: string, datum: string) => void;
+  onNeu?: (teamId: string, d: Date) => void;
+}) {
+  const teamName = (id: string | null) => teams.find((t) => t.id === id)?.bezeichnung ?? 'Team';
+  return (
+    <section className="space-y-2.5 min-[700px]:hidden" aria-label="Einsätze je Tag">
+      {tage.map((d) => {
+        const dIso = iso(d);
+        const hier = plaene
+          .filter((p) => p.team_id && p.von <= dIso && p.bis >= dIso && teams.some((t) => t.id === p.team_id))
+          .sort((a, b) => ((a.beginn_min ?? 24 * 60) - (b.beginn_min ?? 24 * 60)) || teamName(a.team_id).localeCompare(teamName(b.team_id), 'de', { numeric: true }));
+        const frei = istFrei(d);
+        if (frei && hier.length === 0) return null;
+        const ohne = frei ? [] : teams.filter((t) => !hier.some((p) => p.team_id === t.id));
+        const w = wetter(dIso);
+        return (
+          <div key={dIso} className={'card px-4 py-3 ' + (dIso === heuteIso ? 'ring-2 ring-accent/30' : '')}>
+            <div className="mb-1 flex items-center justify-between gap-2">
+              <p className="text-[15px] font-semibold text-ink">
+                {WOCHENTAGE[(d.getDay() + 6) % 7]} {kurz(d)}
+                {dIso === heuteIso && <span className="ml-2 rounded-full bg-accent px-2 py-px text-[11px] font-semibold text-white">heute</span>}
+              </p>
+              {w && <WetterKopf w={w} />}
+            </div>
+            {hier.length === 0 && <p className="py-1.5 text-sm text-ink3">Nichts geplant.</p>}
+            <ul className="divide-y divide-line">
+              {hier.map((p) => {
+                const f = farbeVon(p.baustelle?.id ?? p.id);
+                const unten = [teamName(p.team_id), p.von !== p.bis ? `Einsatz ${kurz(ausIso(p.von))} – ${kurz(ausIso(p.bis))}` : null, p.treffpunkt ? `Treffpunkt ${TREFFPUNKT_TEXT[p.treffpunkt]}` : null].filter(Boolean).join(' · ');
+                return (
+                  <li key={p.id}>
+                    <button type="button" onClick={() => onTag(p.team_id!, dIso)} className="grid w-full grid-cols-[3.25rem_0.75rem_1fr] items-start gap-x-2 py-2 text-left">
+                      <span className={p.beginn_min != null ? 'text-sm font-bold tabular-nums text-ink' : 'pt-0.5 text-[11.5px] font-semibold leading-tight text-ink3'}>{p.beginn_min != null ? uhrzeit(p.beginn_min) : 'ganzer Tag'}</span>
+                      <span className={'mt-1.5 h-2.5 w-2.5 rounded-full ' + f.punkt} aria-hidden="true" />
+                      <span className="min-w-0">
+                        <span className="block truncate text-[14.5px] font-semibold text-ink">{p.baustelle?.bezeichnung || 'Baustelle'}</span>
+                        <span className="block truncate text-[12.5px] text-ink3">{unten}</span>
+                      </span>
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+            {onNeu && ohne.length > 0 && (
+              <p className="flex flex-wrap items-center gap-1.5 border-t border-line pt-2 text-xs text-ink3">
+                noch frei:
+                {ohne.map((t) => <Pille key={t.id} plus onClick={() => onNeu(t.id, d)}>{t.bezeichnung}</Pille>)}
+              </p>
+            )}
+          </div>
+        );
+      })}
+    </section>
   );
 }

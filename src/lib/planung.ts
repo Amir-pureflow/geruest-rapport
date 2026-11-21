@@ -32,11 +32,13 @@ export function ausschnitt(p: Zeitraum, start: string, tage: number): { ab: numb
  * Einsätze eines Teams auf Spuren verteilen: was sich zeitlich überschneidet, kommt in die nächste Spur.
  * Früher beginnende zuerst, damit die Hauptbaustelle oben bleibt.
  */
-export function spuren<T extends Zeitraum>(plaene: T[], start: string, tage: number): { plan: T; spur: number; ab: number; bis: number; links: boolean; rechts: boolean }[] {
+export function spuren<T extends Zeitraum & { beginn_min?: number | null }>(plaene: T[], start: string, tage: number): { plan: T; spur: number; ab: number; bis: number; links: boolean; rechts: boolean }[] {
+  // Gleicher Start: was früher am Tag beginnt, kommt nach oben (21.11.2026, Amir) — ohne Zeit zuletzt
+  const beginn = (p: T) => p.beginn_min ?? 24 * 60;
   const sichtbar = plaene
     .map((plan) => ({ plan, a: ausschnitt(plan, start, tage) }))
     .filter((x): x is { plan: T; a: NonNullable<ReturnType<typeof ausschnitt>> } => x.a !== null)
-    .sort((x, y) => x.plan.von.localeCompare(y.plan.von) || y.plan.bis.localeCompare(x.plan.bis));
+    .sort((x, y) => x.plan.von.localeCompare(y.plan.von) || beginn(x.plan) - beginn(y.plan) || y.plan.bis.localeCompare(x.plan.bis));
   const spurEnde: number[] = [];
   return sichtbar.map(({ plan, a }) => {
     let spur = spurEnde.findIndex((ende) => ende < a.ab);
@@ -44,6 +46,48 @@ export function spuren<T extends Zeitraum>(plaene: T[], start: string, tage: num
     spurEnde[spur] = a.bis;
     return { plan, spur, ...a };
   });
+}
+
+/** Ab dieser Uhrzeit zählt ein Einsatz zum Nachmittag (Halbtage-Ansicht der Planung). */
+export const MITTAG_MIN = 12 * 60;
+
+/**
+ * Halbtage-Ansicht (21.11.2026, Konzept B): jeder Tag hat Vormittag (Index 2·Tag) und Nachmittag (2·Tag + 1).
+ * Je Tag: Beginn ab 12:00 → Nachmittag, sonst Vormittag; ohne Uhrzeit → wo frei ist. Ein Vormittags-Einsatz ohne
+ * Nachmittags-Einsatz am selben Tag füllt den ganzen Tag. Gleicher Einsatz an Folgetagen ohne Lücke = ein Block.
+ */
+export function halbtagSpuren<T extends Zeitraum & { id: string; beginn_min?: number | null }>(plaene: T[], start: string, tage: number):
+  { plan: T; spur: number; ab: number; bis: number; links: boolean; rechts: boolean }[] {
+  const beginn = (p: T) => p.beginn_min ?? 24 * 60;
+  const stuecke: { plan: T; ab: number; bis: number }[] = [];
+  for (let d = 0; d < tage; d++) {
+    const tag = iso(addTage(ausIso(start), d));
+    const aktiv = plaene.filter((p) => p.von <= tag && p.bis >= tag).sort((a, b) => beginn(a) - beginn(b));
+    if (aktiv.length === 0) continue;
+    const vm = aktiv.filter((p) => p.beginn_min != null && p.beginn_min < MITTAG_MIN);
+    const nm = aktiv.filter((p) => p.beginn_min != null && p.beginn_min >= MITTAG_MIN);
+    for (const p of aktiv.filter((x) => x.beginn_min == null)) (vm.length <= nm.length ? vm : nm).push(p);
+    const nmFrei = nm.length === 0;
+    for (const p of vm) stuecke.push({ plan: p, ab: 2 * d, bis: nmFrei ? 2 * d + 1 : 2 * d });
+    for (const p of nm) stuecke.push({ plan: p, ab: 2 * d + 1, bis: 2 * d + 1 });
+  }
+  // Zusammenhängende Stücke desselben Einsatzes zu einem Block
+  const bloecke: { plan: T; ab: number; bis: number }[] = [];
+  for (const s of stuecke.sort((a, b) => a.plan.id.localeCompare(b.plan.id) || a.ab - b.ab)) {
+    const v = bloecke[bloecke.length - 1];
+    if (v && v.plan.id === s.plan.id && v.bis + 1 === s.ab) v.bis = s.bis;
+    else bloecke.push({ ...s });
+  }
+  const ende = 2 * tage - 1;
+  const spurEnde: number[] = [];
+  return bloecke
+    .sort((a, b) => a.ab - b.ab || beginn(a.plan) - beginn(b.plan) || b.bis - a.bis)
+    .map((b) => {
+      let spur = spurEnde.findIndex((e) => e < b.ab);
+      if (spur === -1) spur = spurEnde.length;
+      spurEnde[spur] = b.bis;
+      return { ...b, spur, links: b.ab === 0 && b.plan.von < start, rechts: b.bis === ende && b.plan.bis > iso(addTage(ausIso(start), tage - 1)) };
+    });
 }
 
 export type Schnellwahl = 'tag' | 'woche' | 'zwei' | 'vier';
