@@ -140,7 +140,17 @@ export function Landkarte({ punkte, werkhof, wartet = false, auswahl, onAuswahl,
     m.on('style.load', () => wegeZeichnen(m, punkteJetzt.current));
     // Einblenden beim ersten vollständigen Bild mit den Baustellen (Stil, Kacheln, Schrift da — wie «load») — nicht erst bei
     // «idle», das wartete zusätzlich auf das Einblenden der letzten Beschriftung. Spätestens nach 4 s (langsames Netz)
-    const zeigen = () => { if (!wartetJetzt.current && m.loaded()) { setBereit(true); m.off('render', zeigen); } };
+    // Seit 21.11.2026 (Amir: «schneller laden?»): einblenden, sobald die Grundkarte (Strassen, Namen) steht — nicht mehr
+    // auf das Relief warten. Gemessen: das Relief kam teils 1.5 s nach der Grundkarte; es wird jetzt nachgezeichnet.
+    const grundDa = () => {
+      try {
+        const id = Object.keys(m.getStyle()?.sources ?? {}).find((x) => x.startsWith('base'));
+        return !!id && m.isSourceLoaded(id);
+      } catch {
+        return false;
+      }
+    };
+    const zeigen = () => { if (!wartetJetzt.current && (m.loaded() || grundDa())) { setBereit(true); m.off('render', zeigen); } };
     m.on('render', zeigen);
     const frist = setTimeout(() => setBereit(true), 4000);
     m.on('movestart', (e) => { if ((e as { originalEvent?: unknown }).originalEvent) beruehrt.current = true; });
