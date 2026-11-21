@@ -152,7 +152,7 @@ function EinsatzZeilen({ einsaetze, beginnFirma, aenderungen = [] }: { einsaetze
               <p className="mt-0.5 flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[12.5px] text-ink3">
                 <span className="knr">{e.baustelle.konto_nr}</span>
                 {adr && <span data-bleibt-deutsch>{adr}</span>}
-                {e.treffpunkt && <span className="inline-flex items-center gap-1"><Flag size={12} aria-hidden="true" />ab <span data-bleibt-deutsch>{e.treffpunkt === 'werkhof' ? 'Werkhof' : 'Baustelle'}</span></span>}
+                {e.treffpunkt && <span className="inline-flex items-center gap-1"><Flag size={12} aria-hidden="true" />Treffpunkt <span data-bleibt-deutsch>{e.treffpunkt === 'werkhof' ? 'Werkhof' : 'Baustelle'}</span></span>}
                 {neu && <span className="rounded-md bg-amber-soft px-1.5 py-px text-[11px] font-bold text-amber-deep">{neu}</span>}
               </p>
               {e.hinweis && (

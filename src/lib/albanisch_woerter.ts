@@ -171,6 +171,16 @@ export const WOERTER = new Map<string, string>(Object.entries({
   'Die Zeiten unten gelten für den ganzen Tag — die App teilt sie beim Wechsel auf die zwei Baustellen auf. Überstunden zählen über den ganzen Tag.':
     'Oraret më poshtë vlejnë për gjithë ditën — aplikacioni i ndan në orën e ndërrimit në dy kantieret. Orët shtesë llogariten për gjithë ditën.',
 
+  // ── Erfassung Konzept C, Startseite (21.11.2026) ──
+  'Zwei Baustellen': 'Dy kantiere', 'Zwei Baustellen laut Plan': 'Dy kantiere sipas planit', 'Nummer oder Name …': 'Numri ose emri …',
+  'Alle Baustellen': 'Të gjithë kantieret', 'ändern': 'ndrysho', 'entfernen': 'hiq', 'Wechsel': 'Ndërrimi', '· laut Plan': '· sipas planit',
+  'Arbeitszeit': 'Orari i punës', '+ Zeit ab': '+ Orar nga ora', '+ Zeit': '+ Orar', 'Zweite Baustelle': 'Kantieri i dytë',
+  'Total pro Person': 'Gjithsej për person', '«bis» fehlt noch': 'mungon ende «deri»',
+  'Stunden antippen = nur für diese Person': 'Prek orët = vetëm për këtë person', 'eigene Zeit': 'orar i veçantë',
+  'wieder wie oben': 'përsëri si lart', 'Notiz zum Tag — freiwillig': 'Shënim për ditën — vullnetar',
+  'geändert': 'ndryshuar', 'neu': 'e re', 'Beginn neu': 'fillim i ri', 'Treffpunkt neu': 'vendtakim i ri',
+  'freigegeben': 'aprovuar', 'nachtragen': 'plotëso', 'Teilen — für den Team-Chat': 'Ndaj — për grupin e ekipit',
+  'Navigieren · Ort nicht geprüft': 'Navigo · vendi nuk është kontrolluar',
   // ── Erfassung: Zeiten ──
   'Arbeitszeit — alle gleich': 'Orari i punës — të gjithë njësoj', '«bis» eintragen': 'shëno «deri»', '· Nachmittag: «bis» fehlt noch': '· Pasdite: mungon ende «deri»',
   '· davon': '· prej tyre', 'davon': 'prej tyre', 'Vormittag': 'Paradite', 'Nachmittag': 'Pasdite', '+ Nachmittag': '+ Pasdite', 'nach Pause': 'pas pausave',
@@ -288,6 +298,10 @@ export const WOERTER = new Map<string, string>(Object.entries({
 }));
 
 export const MUSTER: Muster[] = [
+  // Erfassung Konzept C (21.11.2026): kurzer Hinweis zu Pause und Mittag, eigene Zeit einer Person
+  [/^Pause (\S+) ist abgezogen, Mittag (\S+) frei\.$/, 'Pushimi $1 është zbritur, dreka $2 e lirë.'],
+  [/^Mittag (\S+) ist frei\. Pause (\S+) nicht bezahlt\? «− Pause» tippen\.$/, 'Dreka $1 është e lirë. Pushimi $2 nuk paguhet? Shtyp «− Pushimi».'],
+  [/^eigene Zeit · davon (.+) h Überstunden$/, 'orar i veçantë · prej tyre $1 orë shtesë'],
   // Datum mit Wochentag: «Mo 16.11.», «Do 19.11.2026», «Heute · Mo 16.11.»
   [/^(Mo|Di|Mi|Do|Fr|Sa|So) (\d{1,2}\.\d{1,2}\.(?:\d{4})?)$/, (_m, t, d) => `${TAG_KURZ[t]} ${d}`],
   [/^(Montag|Dienstag|Mittwoch|Donnerstag|Freitag|Samstag|Sonntag)( \d{1,2}\.\d{1,2}\.)?$/, (_m, t, d) => `${TAG_LANG[t]}${d ?? ''}`],

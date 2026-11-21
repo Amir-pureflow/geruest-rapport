@@ -22,6 +22,15 @@ describe('Albanische Oberfläche (Baustelle)', () => {
     expect(sq('Gespeichert: normaler Tag 8.4 h + 1.6 h Überstunden')).toBe('U ruajt: ditë normale 8.4 h + 1.6 orë shtesë');
   });
 
+  it('übersetzt die neue Erfassung und Startseite (21.11.2026)', () => {
+    expect(sq('Total pro Person')).toBe('Gjithsej për person');
+    expect(sq('Zwei Baustellen laut Plan')).toBe('Dy kantiere sipas planit');
+    expect(sq('Pause 9:00–9:15 ist abgezogen, Mittag 12–13 frei.')).toBe('Pushimi 9:00–9:15 është zbritur, dreka 12–13 e lirë.');
+    expect(sq('Mittag 12–13 ist frei. Pause 9:00–9:30 nicht bezahlt? «− Pause» tippen.')).toBe('Dreka 12–13 është e lirë. Pushimi 9:00–9:30 nuk paguhet? Shtyp «− Pushimi».');
+    expect(sq('eigene Zeit · davon 1.5 h Überstunden')).toBe('orar i veçantë · prej tyre 1.5 orë shtesë');
+    expect(sq('nachtragen')).toBe('plotëso');
+  });
+
   it('nennt die Sprache der Sprachnotiz auf Albanisch', () => {
     expect(sq('Auf Albanisch sprechen, 10 Sekunden reichen — der Bauführer liest es auf Deutsch.'))
       .toBe('Fol shqip, mjaftojnë 10 sekonda — shefi i kantierit e lexon në gjermanisht.');
