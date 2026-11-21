@@ -9,7 +9,7 @@
 import { gemerkt, merken } from '../lib/merker';
 import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { CalendarX2, ChevronLeft, ChevronRight, Clock, Flag, MapPin, MapPinOff, MessageSquareText, Search, Users } from 'lucide-react';
+import { CalendarX2, ChevronLeft, ChevronRight, Clock, Flag, MapPinOff, MessageSquareText, Search, Users } from 'lucide-react';
 import { Shell } from '../ui/Shell';
 import { Avatar } from '../ui/Dialog';
 import { supabase } from '../lib/supabase';
@@ -164,21 +164,25 @@ export function Karte() {
               {sichtbar.map((p) => {
                 const an = auswahl === p.baustelle.id;
                 return (
+                  // Ruhiger (21.11.2026, Amir: «das Graue gefällt mir nicht»): Uhrzeit links, Teams als Text statt grauer Pillen
                   <button key={p.baustelle.id} type="button" onClick={() => setAuswahl(an ? null : p.baustelle.id)} aria-pressed={an}
-                    className={'block w-full rounded-[14px] border px-3 py-2.5 text-left transition ' + (an ? 'border-ink bg-ink/[0.03] shadow-[0_0_0_1px_var(--color-ink)]' : 'border-line bg-white hover:border-line-strong')}>
-                    <span className="flex items-start gap-2">
-                      <span className="knr mt-px">{p.baustelle.konto_nr}</span>
-                      <span className="min-w-0 text-sm font-semibold leading-snug text-ink">{p.baustelle.bezeichnung || 'Baustelle'}</span>
+                    className={'grid w-full grid-cols-[3rem_1fr] gap-x-2 rounded-[14px] border px-3 py-2.5 text-left transition ' + (an ? 'border-ink bg-ink/[0.03] shadow-[0_0_0_1px_var(--color-ink)]' : 'border-line bg-white hover:border-line-strong')}>
+                    <span className={'pt-px text-[15px] font-bold tabular-nums ' + (p.teams.some((t) => t.beginn_min !== null) ? 'text-ink' : 'text-ink3')}>
+                      {(() => { const b = p.teams.map((t) => t.beginn_min).filter((x): x is number => x !== null); return b.length ? uhrzeit(Math.min(...b)) : '–'; })()}
                     </span>
-                    {adresseText(p.baustelle) && <span className="mt-1 flex items-center gap-1.5 text-xs text-ink3"><MapPin size={12} aria-hidden="true" />{adresseText(p.baustelle)}</span>}
-                    <span className="mt-2 flex flex-wrap gap-1.5">
-                      {p.teams.map((t) => (
-                        <span key={t.teamId} className={'inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[11px] font-semibold ' + 'bg-surface-2 text-ink2'}>
-                          {t.team}
-                          <span className="inline-flex items-center gap-0.5 font-medium"><Users size={11} aria-hidden="true" />{t.leute}</span>
-                          {t.beginn_min !== null && <span className="inline-flex items-center gap-0.5 font-medium"><Clock size={11} aria-hidden="true" />{uhrzeit(t.beginn_min)}</span>}
-                        </span>
-                      ))}
+                    <span className="min-w-0">
+                      <span className="block text-sm font-semibold leading-snug text-ink">{p.baustelle.bezeichnung || 'Baustelle'}</span>
+                      <span className="mt-0.5 block truncate text-xs text-ink3">{p.baustelle.konto_nr}{adresseText(p.baustelle) ? ` · ${adresseText(p.baustelle)}` : ''}</span>
+                      <span className="mt-1.5 flex flex-wrap gap-x-3 gap-y-1 text-xs text-ink2">
+                        {p.teams.map((t) => (
+                          <span key={t.teamId} className="inline-flex items-center gap-1.5">
+                            {t.stopps && t.stopps > 1 && t.reihe && <span className="grid h-4 min-w-4 place-items-center rounded-[5px] bg-accent px-1 text-[10px] font-bold text-white">{t.reihe}</span>}
+                            <span className="font-semibold text-ink">{t.team}</span>
+                            <span className="inline-flex items-center gap-0.5 text-ink3"><Users size={11} aria-hidden="true" />{t.leute}</span>
+                            {p.teams.length > 1 && t.beginn_min !== null && <span className="tabular-nums text-ink3">{uhrzeit(t.beginn_min)}</span>}
+                          </span>
+                        ))}
+                      </span>
                     </span>
                   </button>
                 );
