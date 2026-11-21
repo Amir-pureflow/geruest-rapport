@@ -1,4 +1,4 @@
-import { Check, CheckCircle2, ChevronLeft, ChevronRight, Flag, Mic, Minus, Pencil, Plus, Car, RotateCcw, Search, Truck, UserPlus, X } from 'lucide-react';
+import { Camera, Check, CheckCircle2, ChevronLeft, ChevronRight, Flag, Mic, Minus, Pencil, Plus, Car, RotateCcw, Search, Truck, X } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Shell } from '../ui/Shell';
@@ -19,6 +19,7 @@ import { MAX_SPANNEN, ausUhrzeit, aufteilen, kannPauseAbziehen, mittagMinuten, m
 import { baustellenSuchen } from '../lib/suche';
 import { FUNKTION_BUERO } from '../lib/benutzername';
 import { vorratLesen, vorratSchreiben } from '../lib/vorrat';
+import { Avatar } from '../ui/Dialog';
 import { ArtPille } from '../ui/ArtPille';
 import { planHinweise, type VerlaufZeile } from '../lib/planung';
 
@@ -253,18 +254,20 @@ function spannenName(s: Spanne, i: number): string {
  * Zahlt der Bauherr den Znüni nicht, schneidet «− Pause» 9:00–9:30 heraus (09.10.2026, Amir); das × der Zeile «nach Pause» nimmt es zurück.
  * Zieht die Firma den Znüni immer ab (0036, Gerüst GmbH 9:00–9:15), steht der Vormittag schon geteilt da — ohne Knopf und ohne ×.
  */
-function SpannenEditor({ spannen, setSpannen, klein = false, plus = '+ Nachmittag' }: { spannen: Spanne[]; setSpannen: (s: Spanne[]) => void; klein?: boolean; /** Text für «weitere Zeit», null = kein Knopf (erste von zwei Baustellen) */ plus?: string | null }) {
+function SpannenEditor({ spannen, setSpannen, klein = false, plus = '+ Nachmittag', karte = false }: { spannen: Spanne[]; setSpannen: (s: Spanne[]) => void; klein?: boolean; /** Text für «weitere Zeit», null = kein Knopf (erste von zwei Baustellen) */ plus?: string | null; /** Konzept C (21.11.2026): Beschriftung immer, «+ Zeit» und «− Pause» als Pillen darunter */ karte?: boolean }) {
   const z = znueni();
   const znueniText = `${uhrzeit(z.von)}–${uhrzeit(z.bis)}`;
   // Auf dem Handy etwas schmaler: mit «Nachmittag» und dem Knopf «− Pause» muss die Zeile in die Karte passen (360–390 px)
-  const feld = 'rounded-[10px] border bg-surface text-center font-mono font-semibold tabular-nums focus:border-accent focus:outline-none ' + (klein ? 'h-10 w-[5rem] text-[14px] min-[380px]:w-[5.4rem]' : 'h-12 w-[5rem] text-lg min-[380px]:w-[5.6rem] sm:w-28');
+  const feld = karte
+    ? 'h-11 w-[4.9rem] rounded-[12px] border-[1.5px] bg-surface text-center text-[15px] font-bold tabular-nums focus:border-accent focus:outline-none min-[380px]:w-[5.3rem]'
+    : 'rounded-[10px] border bg-surface text-center font-mono font-semibold tabular-nums focus:border-accent focus:outline-none ' + (klein ? 'h-10 w-[5rem] text-[14px] min-[380px]:w-[5.4rem]' : 'h-12 w-[5rem] text-lg min-[380px]:w-[5.6rem] sm:w-28');
   const aendern = (i: number, teil: 'von' | 'bis', text: string) => {
     const v = ausUhrzeit(text);
     setSpannen(spannen.map((s, j): Spanne => (j !== i ? s : teil === 'von' ? { ...s, von: v ?? s.von } : { ...s, bis: v })));
   };
   // Raster statt fester Breite: Die Beschriftung bekommt genau so viel Platz, wie «Nachmittag» braucht — vorher (w-9)
   // lag das Zeitfeld über dem Wort (Amir, 09.10.2026: «sieht nicht clean aus»). Die Felder stehen trotzdem bündig untereinander.
-  const mitLabel = spannen.length > 1;
+  const mitLabel = karte || spannen.length > 1;
   // Der Pausen-Knopf steht in der Zelle, in der spätere Zeilen ihr × haben — gleich breit, damit das Raster nicht wächst
   const pauseMoeglich = !z.immer && kannPauseAbziehen(spannen, z);
   // «+ Nachmittag» wie bisher bis zwei Zeilen — eine Zeile «nach Pause» zählt nicht mit, für sie gibt es die dritte
@@ -277,7 +280,7 @@ function SpannenEditor({ spannen, setSpannen, klein = false, plus = '+ Nachmitta
           const nachPause = i > 0 && spannen[i - 1].bis === z.von && s.von === z.bis;
           return (
             <div key={i} className="contents">
-              {mitLabel && <span className="whitespace-nowrap pr-1 text-[11px] font-medium leading-none text-ink3">{spannenName(s, i)}</span>}
+              {mitLabel && <span className={'whitespace-nowrap pr-1 leading-none text-ink3 ' + (karte ? 'w-[4.6rem] text-[12.5px] font-semibold' : 'text-[11px] font-medium')}>{spannenName(s, i)}</span>}
               <ZeitFeld wert={uhrzeitFeld(s.von)} aendern={(t) => aendern(i, 'von', t)} label="von" klasse={feld + ' border-line'} />
               <span className="text-ink3">–</span>
               <ZeitFeld wert={uhrzeitFeld(s.bis)} aendern={(t) => aendern(i, 'bis', t)} label="bis" klasse={feld + (s.bis === null ? ' border-amber/70' : ' border-line')} />
@@ -287,7 +290,7 @@ function SpannenEditor({ spannen, setSpannen, klein = false, plus = '+ Nachmitta
                     ? <span aria-hidden="true" />
                     : <button type="button" onClick={() => setSpannen(pauseZaehlen(spannen, z))} aria-label={`Pause ${znueniText} wieder zählen`} title={`Pause ${znueniText} wieder zählen`} className="grid h-9 w-9 shrink-0 place-items-center rounded-[10px] text-ink3 active:bg-surface-2"><X size={16} /></button>)
                   : <button type="button" onClick={() => setSpannen(spannen.filter((_, j) => j !== i))} aria-label="Zeit entfernen" className="grid h-9 w-9 shrink-0 place-items-center rounded-[10px] text-ink3 active:bg-surface-2"><X size={16} /></button>
-              ) : pauseMoeglich && umfasstPause(s, z) ? (
+              ) : !karte && pauseMoeglich && umfasstPause(s, z) ? (
                 <button
                   type="button"
                   onClick={() => setSpannen(pauseAbziehen(spannen, z))}
@@ -303,7 +306,20 @@ function SpannenEditor({ spannen, setSpannen, klein = false, plus = '+ Nachmitta
           );
         })}
       </div>
-      {nachmittagMoeglich && plus !== null && (
+      {karte ? (
+        (nachmittagMoeglich && plus !== null) || (pauseMoeglich && spannen.some((s) => umfasstPause(s, z))) ? (
+          <div className="flex flex-wrap gap-2 pt-1.5">
+            {nachmittagMoeglich && plus !== null && (
+              <button type="button" onClick={() => setSpannen([...spannen, { von: Math.max(arbeitstag().mittagBis, spannen[spannen.length - 1]?.bis ?? 0), bis: null }])}
+                className="rounded-full bg-steel-soft px-2.5 py-1 text-[12.5px] font-semibold text-steel">{plus}</button>
+            )}
+            {pauseMoeglich && spannen.some((s) => umfasstPause(s, z)) && (
+              <button type="button" onClick={() => setSpannen(pauseAbziehen(spannen, z))} title={`Pause ${znueniText} abziehen`}
+                className="rounded-full bg-steel-soft px-2.5 py-1 text-[12.5px] font-semibold text-steel">− Pause</button>
+            )}
+          </div>
+        ) : null
+      ) : nachmittagMoeglich && plus !== null && (
         <button type="button" onClick={() => setSpannen([...spannen, { von: Math.max(arbeitstag().mittagBis, spannen[spannen.length - 1]?.bis ?? 0), bis: null }])} className="text-xs font-semibold text-steel">
           {plus}
         </button>
@@ -513,7 +529,6 @@ export function Erfassung() {
   const [wechsel, setWechsel] = useState<number>(() => arbeitstag().mittagBis);
   const [wahlZweite, setWahlZweite] = useState(false);
   const [anw, setAnw] = useState<Record<string, Anwesenheit>>({});
-  const [anreiseOffen, setAnreiseOffen] = useState<string | null>(null);
   // Zeiten von–bis, fürs Team gemeinsam — je Person unten anpassbar (Stundenzahl-Modus entfernt 04.10.2026)
   const [teamSpannen, setTeamSpannen] = useState<Spanne[]>(() => standardSpannen(znueni(), arbeitstag()));
   // Personen, die heute mithelfen, aber nicht fest zum Team gehören (Bauführer 20.09.: «Mitarbeiter hinzufüge»)
@@ -1912,7 +1927,10 @@ export function Erfassung() {
         )}
 
         <section>
-          <p className="lbl">{!baustelle || waehlenOffen ? 'Wo wart ihr?' : zweite ? (zweiteAusPlan ? 'Zwei Baustellen laut Plan' : 'Zwei Baustellen') : 'Baustelle'}</p>
+          <p className="mb-2 flex items-baseline justify-between gap-2 px-1 text-[11.5px] font-bold uppercase tracking-[0.07em] text-ink3">
+            <span>{!baustelle || waehlenOffen ? 'Wo wart ihr?' : zweite ? 'Baustellen' : 'Baustelle'}</span>
+            {baustelle && !waehlenOffen && zweite && zweiteAusPlan && <span className="text-[12px] font-semibold normal-case tracking-normal">2 laut Plan</span>}
+          </p>
           {/* Kompakte Wahl (Konzept C, 21.11.2026): Suchzeile, drei Vorschläge, alle Baustellen — statt grosser Kacheln.
               Die Suchzeile öffnet das Feld mit Ziffernblock darunter (Regel 2: Handschuhe). */}
           {(!baustelle || waehlenOffen) && !wahlZweite && (
@@ -2037,16 +2055,16 @@ export function Erfassung() {
                   <div key={b?.id ?? 'ohne'}>
                     {i === 1 && (
                       <p className="mb-2 flex items-center gap-3 px-2 text-xs font-semibold text-ink3">
-                        <span className="h-px flex-1 bg-line-strong" aria-hidden="true" />Wechsel {uhrzeit(wechsel)}{zweiteAusPlan && ' · laut Plan'}<span className="h-px flex-1 bg-line-strong" aria-hidden="true" />
+                        <span className="h-px flex-1 bg-line-strong" aria-hidden="true" />{wechsel === arbeitstag().mittagBis ? 'Wechsel nach dem Mittag' : `Wechsel ${uhrzeit(wechsel)}`}<span className="h-px flex-1 bg-line-strong" aria-hidden="true" />
                       </p>
                     )}
-                    <div className="card relative overflow-hidden p-3.5 pl-4">
-                      {b && <span className={'absolute inset-y-0 left-0 w-1 ' + (i === 0 ? 'bg-accent' : 'bg-steel')} aria-hidden="true" />}
+                    <div className="card relative overflow-hidden rounded-[22px] py-3.5 pl-[1.15rem] pr-4">
+                      {b && <span className={'absolute inset-y-0 left-0 w-1 ' + (i === 0 ? 'bg-amber' : 'bg-good')} aria-hidden="true" />}
                       <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0">
                           {b ? (
                             <>
-                              <p className="text-[15px] font-semibold leading-snug" data-bleibt-deutsch>{anzeigeName(b.bezeichnung) || 'Baustelle'}</p>
+                              <p className="text-[15.5px] font-bold leading-snug" data-bleibt-deutsch>{anzeigeName(b.bezeichnung) || 'Baustelle'}</p>
                               <p className="mt-1 flex items-center gap-2.5">
                                 <span className="knr">{b.konto_nr}</span>
                                 {i === 0
@@ -2061,7 +2079,7 @@ export function Erfassung() {
                       <div className="mt-3">
                         {teil.length === 0
                           ? <button type="button" onClick={() => teilSetzen(1, [{ von: wechsel, bis: null }])} className="text-xs font-semibold text-steel">+ Zeit ab {uhrzeit(wechsel)}</button>
-                          : <SpannenEditor spannen={teil} setSpannen={(z) => teilSetzen(i as 0 | 1, z)} plus={zweite ? (i === 0 ? null : '+ Zeit') : undefined} />}
+                          : <SpannenEditor karte spannen={teil} setSpannen={(z) => teilSetzen(i as 0 | 1, z)} plus={zweite && i === 0 ? null : '+ Zeit'} />}
                       </div>
                     </div>
                   </div>
@@ -2079,20 +2097,15 @@ export function Erfassung() {
                 const t = aufteilen(spannenMinuten(teamSpannen), normaltagMin());
                 const fehlt = spannenOffen(teamSpannen) === 'fehlt' || !teamSpannen.some(spanneVollstaendig);
                 return (
-                  <div className={'flex items-center justify-between gap-3 rounded-[16px] border px-4 py-3 ' + (fehlt ? 'border-amber/40 bg-amber-soft' : 'border-good/25 bg-good-soft')}>
+                  <div className={'flex items-center justify-between gap-3 rounded-[18px] border px-4 py-3 ' + (fehlt ? 'border-amber/40 bg-amber-soft' : 'border-good/25 bg-good-soft')}>
                     <span className={'text-sm font-semibold ' + (fehlt ? 'text-amber-deep' : 'text-good-deep')}>
                       {fehlt ? '«bis» fehlt noch' : 'Total pro Person'}
                       {!fehlt && t.ueber_min > 0 && <span className="block text-xs font-semibold text-amber-deep">davon {stunden(t.ueber_min)} h Überstunden</span>}
                     </span>
-                    <span className={'font-mono text-lg font-bold tabular-nums ' + (fehlt ? 'text-amber-deep' : 'text-good-deep')}>{stunden(t.normal_min + t.ueber_min)} h</span>
+                    <span className={'text-[19px] font-bold tabular-nums ' + (fehlt ? 'text-amber-deep' : 'text-good-deep')}>{stunden(t.normal_min + t.ueber_min)} h</span>
                   </div>
                 );
               })()}
-              <p className="px-1 text-[11px] text-ink3">
-                {znueni().immer
-                  ? `Pause ${uhrzeit(znueni().von)}–${uhrzeit(znueni().bis)} ist abgezogen, Mittag ${mittagText(arbeitstag())} frei.`
-                  : `Mittag ${mittagText(arbeitstag())} ist frei. Pause ${uhrzeit(znueni().von)}–${uhrzeit(znueni().bis)} nicht bezahlt? «− Pause» tippen.`}
-              </p>
               <MittagHinweis spannen={teamSpannen} />
               {/* Zweite Meldung am Tag (oder ein Gast, den schon ein anderes Team gemeldet hat): der normale Tag ist schon belegt */}
               {dabei.some((p) => bisherVon(p.id) > 0) && (
@@ -2105,81 +2118,90 @@ export function Erfassung() {
         </section>
 
         <section>
-          <p className="lbl flex items-baseline justify-between gap-2">Wer war dabei <span className="text-[11px] font-medium normal-case tracking-normal text-ink3">Stunden antippen = nur für diese Person</span></p>
-          <div className="card divide-y divide-line p-0">
+          <p className="mb-2 flex items-baseline justify-between gap-2 px-1 text-[11.5px] font-bold uppercase tracking-[0.07em] text-ink3">Wer war dabei <span className="text-[12px] font-semibold normal-case tracking-normal">Zeit antippen = nur für diese Person</span></p>
+          {/* Konzept C (21.11.2026): je Person Haken, Kürzel, Name, darunter Rolle und «wie oben» / «eigene Zeit»; Stunden antippen
+              klappt die eigenen Zeiten und die Anreise auf. «Person hinzufügen» ist die letzte Zeile. */}
+          <div className="card overflow-hidden p-0">
             {alleImTeam.map((p) => {
               const a = anw[p.id];
               if (!a) return null;
               const w = wirksam(a, bisherVon(p.id));
+              const eigen = a.modus === 'zeit' && !gleichWieTeam(a.zeiten);
+              const offen = personOffen.has(p.id);
+              const unten = [
+                team?.chefmonteur?.id === p.id ? 'Chefmonteur' : null,
+                p.typ === 'temporaer' ? 'temporär' : null,
+                p.gast ? (p.eingeteilt ? 'eingeteilt' : 'Gast') : null,
+                a.dabei && a.km > 0 ? `${a.km} km` : null,
+                a.dabei && !eigen ? 'wie oben' : null,
+              ].filter(Boolean).join(' · ');
               return (
-                <div key={p.id} className="px-3 py-2.5">
-                  <div className="flex items-center gap-2.5">
-                    <button type="button" onClick={() => setAnw((s) => ({ ...s, [p.id]: { ...a, dabei: !a.dabei } }))} aria-pressed={a.dabei} className={'grid h-10 w-10 flex-none place-items-center rounded-[10px] border transition active:scale-95 ' + (a.dabei ? 'border-good bg-good text-white shadow-[0_6px_14px_-8px_rgb(31_157_85/0.7)]' : 'border-line-strong bg-surface text-transparent')}>
-                      <Check size={20} strokeWidth={2.6} />
+                <div key={p.id} className={'border-b border-line last:border-b-0 ' + (offen || eigen ? 'bg-amber-soft/30' : '')}>
+                  <div className="flex items-center gap-3 px-3.5 py-2.5">
+                    <button type="button" onClick={() => setAnw((s) => ({ ...s, [p.id]: { ...a, dabei: !a.dabei } }))} aria-pressed={a.dabei} aria-label={`${p.name} dabei`}
+                      className={'grid h-[26px] w-[26px] flex-none place-items-center rounded-[8px] border transition active:scale-95 ' + (a.dabei ? 'border-good bg-good text-white' : 'border-line-strong bg-surface text-transparent')}>
+                      <Check size={16} strokeWidth={3} />
                     </button>
-                    <span className={'min-w-0 flex-1 truncate text-sm ' + (a.dabei ? 'font-medium' : 'text-ink3 line-through')}>
-                      {p.name}
-                      {p.typ === 'temporaer' && <span className="ml-1 text-[10px] text-ink3">temp</span>}
-                      {p.gast && <span className={'ml-1.5 rounded-md px-1.5 py-0.5 text-[10px] font-semibold ' + (p.eingeteilt ? 'bg-good-soft text-good-deep' : 'bg-steel-soft text-steel')}>{p.eingeteilt ? 'eingeteilt' : 'Gast'}</span>}
+                    <Avatar name={p.name} gross />
+                    <span className="min-w-0 flex-1">
+                      <span className={'block truncate text-[15px] font-semibold ' + (a.dabei ? 'text-ink' : 'text-ink3 line-through')}>{p.name}</span>
+                      {(unten || (a.dabei && eigen)) && (
+                        <span className="block truncate text-[12.5px] text-ink3">
+                          {unten}{a.dabei && eigen && <span className="font-semibold text-amber-deep">{unten ? ' · ' : ''}eigene Zeit</span>}
+                        </span>
+                      )}
                     </span>
                     {abwesend[p.id] && <ArtPille art={abwesend[p.id]} />}
                     {versetzt[p.id] && <span className="whitespace-nowrap rounded-md bg-amber-soft px-1.5 py-0.5 text-[10px] font-semibold text-amber-deep">in {versetzt[p.id]}</span>}
                     {a.dabei && (
-                      <>
-                        {(() => {
-                          const eigen = a.modus === 'zeit' && !gleichWieTeam(a.zeiten);
-                          const offen = personOffen.has(p.id);
-                          return (
-                            <button type="button" aria-expanded={offen}
-                              onClick={() => setPersonOffen((alt) => { const n = new Set(alt); if (n.has(p.id)) n.delete(p.id); else n.add(p.id); return n; })}
-                              className={'inline-flex h-10 items-center gap-1.5 rounded-[10px] px-2.5 font-mono text-sm font-semibold tabular-nums ' + (eigen ? 'bg-amber-soft text-amber-deep' : 'bg-surface-2 text-ink')}>
-                              {a.modus === 'zeit' && !a.zeiten.some(spanneVollstaendig) ? '– h' : `${stunden(w.min + w.ueber)} h`}
-                              <Pencil size={13} aria-hidden="true" />
-                            </button>
-                          );
-                        })()}
-                        {/* Anreise: nur Auto (km). öV ist ausgeblendet (OEV_AKTIV), bis geklärt ist, ob es ganz weg soll. */}
-                        <button type="button" onClick={() => setAnreiseOffen(anreiseOffen === p.id ? null : p.id)} aria-label="Anreise" className={'grid h-10 min-w-10 place-items-center rounded-[10px] border px-1.5 text-[11px] ' + (a.oev || a.km > 0 ? 'border-steel/40 bg-steel-soft text-steel' : 'border-line bg-surface text-ink3')}>{a.oev ? 'öV' : a.km > 0 ? `${a.km} km` : <Car size={16} />}</button>
-                      </>
+                      <button type="button" aria-expanded={offen}
+                        onClick={() => setPersonOffen((alt) => { const n = new Set(alt); if (n.has(p.id)) n.delete(p.id); else n.add(p.id); return n; })}
+                        className={'inline-flex h-9 shrink-0 items-center gap-1.5 rounded-[10px] px-2.5 text-[14px] font-bold tabular-nums ' + (eigen ? 'bg-amber-soft text-amber-deep' : 'bg-surface-2 text-ink')}>
+                        {a.modus === 'zeit' && !a.zeiten.some(spanneVollstaendig) ? '– h' : `${stunden(w.min + w.ueber)} h`}
+                        <Pencil size={13} aria-hidden="true" />
+                      </button>
                     )}
                     {p.gast && (
-                      <button type="button" onClick={() => gastEntfernen(p.id)} aria-label={`${p.name} entfernen`} className="grid h-10 w-8 place-items-center rounded-[10px] text-ink3 active:bg-surface-2"><X size={16} /></button>
+                      <button type="button" onClick={() => gastEntfernen(p.id)} aria-label={`${p.name} entfernen`} className="grid h-9 w-7 shrink-0 place-items-center rounded-[10px] text-ink3 active:bg-surface-2"><X size={16} /></button>
                     )}
                   </div>
-                  {a.dabei && a.modus === 'zeit' && !gleichWieTeam(a.zeiten) && !personOffen.has(p.id) && (
-                    <p className="mt-1 pl-[3.25rem] text-[11px] font-semibold text-amber-deep">eigene Zeit{ueberFertig(a, bisherVon(p.id)) > 0 ? ` · davon ${stunden(w.ueber)} h Überstunden` : ''}</p>
+                  {a.dabei && !offen && ueberFertig(a, bisherVon(p.id)) > 0 && (
+                    <p className="-mt-1 pb-2 pl-[5.6rem] text-[11px] font-semibold text-amber-deep">davon {stunden(w.ueber)} h Überstunden</p>
                   )}
-                  {a.dabei && personOffen.has(p.id) && (
-                    <div className="-mx-3 mt-2 border-t border-line bg-amber-soft/30 px-3 pb-1 pt-2.5">
-                      <SpannenEditor klein spannen={a.zeiten} setSpannen={(z) => setAnw((s) => ({ ...s, [p.id]: { ...a, zeiten: z } }))} />
-                      {!gleichWieTeam(a.zeiten) && (
-                        <button type="button" onClick={() => setAnw((s) => ({ ...s, [p.id]: { ...a, zeiten: teamSpannen.map((x) => ({ ...x })) } }))}
-                          className="mt-2 inline-flex items-center gap-1.5 text-xs font-semibold text-steel"><RotateCcw size={13} aria-hidden="true" /> wieder wie oben</button>
-                      )}
-                      {/* Eigene Zeile unter den Zeiten (14.10.2026): rechts neben dem Raster ragte «0.85 h über» auf 360–390 px aus der Karte */}
+                  {a.dabei && offen && (
+                    <div className="px-3.5 pb-3">
+                      <SpannenEditor karte plus="+ Zeit" spannen={a.zeiten} setSpannen={(z) => setAnw((s) => ({ ...s, [p.id]: { ...a, zeiten: z } }))} />
                       {ueberFertig(a, bisherVon(p.id)) > 0 && <p className="mt-1.5 text-[11px] font-semibold text-amber-deep">davon {stunden(w.ueber)} h Überstunden</p>}
                       <MittagHinweis spannen={a.zeiten} />
-                    </div>
-                  )}
-                  {anreiseOffen === p.id && a.dabei && (
-                    <div className="mt-2 flex items-center gap-2 pl-10">
-                      {OEV_AKTIV && <button type="button" onClick={() => setAnw((s) => ({ ...s, [p.id]: { ...a, oev: !a.oev, km: a.oev ? a.km : 0 } }))} className={'chip px-3 py-1.5 text-xs ' + (a.oev ? 'chip-on' : '')}>öV</button>}
-                      <span className="text-[11px] text-ink3">Auto</span>
-                      <button type="button" onClick={() => setAnw((s) => ({ ...s, [p.id]: { ...a, km: Math.max(0, a.km - 5), oev: false } }))} className="btn-ghost px-2" aria-label="weniger km">−</button>
-                      <span className="font-mono text-xs tabular-nums">{a.km} km</span>
-                      <button type="button" onClick={() => setAnw((s) => ({ ...s, [p.id]: { ...a, km: a.km + 5, oev: false } }))} className="btn-ghost px-2" aria-label="mehr km">+</button>
+                      <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-2">
+                        {eigen && (
+                          <button type="button" onClick={() => setAnw((s) => ({ ...s, [p.id]: { ...a, zeiten: teamSpannen.map((x) => ({ ...x })) } }))}
+                            className="inline-flex items-center gap-1.5 text-[12.5px] font-semibold text-steel"><RotateCcw size={13} aria-hidden="true" /> wieder wie oben</button>
+                        )}
+                        {/* Anreise: nur Auto (km). öV ist ausgeblendet (OEV_AKTIV), bis geklärt ist, ob es ganz weg soll. */}
+                        <span className="inline-flex items-center gap-1.5">
+                          {OEV_AKTIV && <button type="button" onClick={() => setAnw((s) => ({ ...s, [p.id]: { ...a, oev: !a.oev, km: a.oev ? a.km : 0 } }))} className={'chip px-3 py-1.5 text-xs ' + (a.oev ? 'chip-on' : '')}>öV</button>}
+                          <Car size={15} className="text-ink3" aria-hidden="true" />
+                          <span className="text-[12px] text-ink3">Auto</span>
+                          <button type="button" onClick={() => setAnw((s) => ({ ...s, [p.id]: { ...a, km: Math.max(0, a.km - 5), oev: false } }))} className="btn-ghost px-2 py-1" aria-label="weniger km">−</button>
+                          <span className="font-mono text-xs tabular-nums">{a.km} km</span>
+                          <button type="button" onClick={() => setAnw((s) => ({ ...s, [p.id]: { ...a, km: a.km + 5, oev: false } }))} className="btn-ghost px-2 py-1" aria-label="mehr km">+</button>
+                        </span>
+                      </div>
                     </div>
                   )}
                 </div>
               );
             })}
             {alleImTeam.length === 0 && <p className="p-3 text-sm text-ink3">{laedtTeam ? 'Lädt …' : 'Keine Mitglieder in diesem Team.'}</p>}
+            {/* Jemand hilft heute mit, der nicht zum Team gehört (Bauführer 20.09.). Aus der Mitarbeiterliste, nie frei eingetippt. */}
+            <button type="button" onClick={() => { setZeigeGast((v) => !v); void alleLeuteLaden(); }} aria-expanded={zeigeGast}
+              className="flex w-full items-center gap-3 border-t border-line px-3.5 py-3 text-left">
+              <span className="grid h-[26px] w-[26px] place-items-center rounded-[8px] bg-steel-soft text-steel"><Plus size={15} strokeWidth={2.4} aria-hidden="true" /></span>
+              <span className="text-[14.5px] font-semibold text-steel">Person hinzufügen</span>
+            </button>
           </div>
 
-          {/* Jemand hilft heute mit, der nicht zum Team gehört (Bauführer 20.09.). Aus der Mitarbeiterliste, nie frei eingetippt. */}
-          <button type="button" onClick={() => { setZeigeGast((v) => !v); void alleLeuteLaden(); }} className="btn-ghost mt-2 flex w-full items-center justify-center gap-2 py-2.5 text-sm" aria-expanded={zeigeGast}>
-            <UserPlus size={16} /> Person hinzufügen
-          </button>
           {zeigeGast && (
             <div className="card mt-2 space-y-2 p-3">
               {zuletztGaesteFrei.length > 0 && (
@@ -2247,9 +2269,17 @@ export function Erfassung() {
         {/* Bemerkung zum Tag: die Sprachnotiz ist immer da (Bauführer 20.09.), bei Überstunden Pflicht — kein eigener Bildschirm. */}
         {/* Notiz klein, solange sie freiwillig ist (Konzept C, 21.11.2026) — antippen klappt sie auf */}
         {!notizOffen && ueberTotal === 0 && !ueberAufnahme && !nimmtAuf && !fehltAnzeige ? (
-          <button type="button" onClick={() => setNotizOffen(true)} className="card flex w-full items-center justify-center gap-2 py-3.5 text-sm font-semibold text-steel">
-            <Mic size={18} aria-hidden="true" /> Notiz zum Tag — freiwillig
-          </button>
+          <div className="grid grid-cols-2 gap-2.5">
+            <button type="button" onClick={() => setNotizOffen(true)} className="card flex items-center justify-center gap-2 py-4 text-[15px] font-semibold text-steel">
+              <Mic size={19} aria-hidden="true" /> Notiz
+            </button>
+            {fotos.length === 0 ? (
+              <label className="card flex cursor-pointer items-center justify-center gap-2 py-4 text-[15px] font-semibold text-steel">
+                <Camera size={19} aria-hidden="true" /> {fotoLaedt ? '…' : 'Foto'}
+                <input type="file" accept="image/*" multiple className="hidden" onChange={(e) => { void fotosHinzufuegen(e.target.files); e.target.value = ''; }} />
+              </label>
+            ) : <span aria-hidden="true" />}
+          </div>
         ) : (
         <section ref={notizRef} className={'card space-y-2.5 ' + (ueberTotal > 0 ? 'border-amber/30' : '')}>
             <p className="flex items-start justify-between gap-3 text-sm font-semibold">
@@ -2296,7 +2326,8 @@ export function Erfassung() {
         </section>
         )}
 
-        {fotoLeiste('Foto vom Stand heute — freiwillig, hilft dem Bauführer.')}
+        {/* Foto: klein neben der Notiz, solange keins da ist und die Notiz zu ist — sonst die Leiste mit den Bildern */}
+        {!(!notizOffen && ueberTotal === 0 && !ueberAufnahme && !nimmtAuf && !fehltAnzeige && fotos.length === 0) && fotoLeiste('Foto vom Stand heute — freiwillig, hilft dem Bauführer.')}
 
         {doppelt && (
           <section className="card space-y-3 border-amber/40 bg-amber-soft">
