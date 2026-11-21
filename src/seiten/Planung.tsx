@@ -12,7 +12,7 @@ import { alleOderFehler, stuecke } from '../lib/abfrage';
 import { useAuffrischen, useNeuesteAnfrage } from '../lib/auffrischen';
 import { addTage, ausIso, iso, kurz, kw, lang, montag, WOCHENTAGE } from '../lib/datum';
 import {
-  arbeitstage, besetzung, ersatzVorschlaege, halbtagSpuren, heuteUndNaechster, istBalken, konflikte, konflikteBuendeln, naechsterTeamName, ohneTag, planAm, planIst, spuren, ueberschneiden, zeitraumVorschlag,
+  arbeitstage, besetzung, beginnFuerRest, ersatzVorschlaege, halbtagSpuren, heuteUndNaechster, spaeterBeginnAllein, istBalken, konflikte, konflikteBuendeln, naechsterTeamName, ohneTag, planAm, planIst, spuren, ueberschneiden, zeitraumVorschlag,
   type FehltGemeldet, type KonfliktBlock, type Schnellwahl, type TagesBesetzung, type VerlaufZeile, type Versetzung, type Zeitraum,
 } from '../lib/planung';
 import { artText, werktage } from '../lib/abwesenheit';
@@ -21,6 +21,7 @@ import { arbeitstag, einstellungen } from '../lib/einstellungen';
 import { ausUhrzeit, uhrzeit, uhrzeitFeld } from '../lib/zeiten';
 import { FUNKTION_BUERO } from '../lib/benutzername';
 import { DatumWahl } from '../ui/DatumWahl';
+import { ZeitFeld } from '../ui/ZeitFeld';
 import { Pille } from '../ui/Segment';
 import { baustellenSuchen } from '../lib/suche';
 import { warnungenZusammen, type WetterTag } from '../lib/wetter';
@@ -832,6 +833,9 @@ export function Planung() {
                         // Schmal (ein Tag, in Halbtagen bis ein Tag) = Uhrzeit über dem Namen
                         const eng = halb ? bis - ab <= 1 : bis === ab;
                         const zeit = plan.beginn_min != null ? uhrzeit(plan.beginn_min) : null;
+                        // Hinweis (21.11.2026): Beginn am Nachmittag, aber an diesen Tagen die einzige Baustelle — meist ein Überbleibsel
+                        const allein = ansicht === 'ist' ? [] : spaeterBeginnAllein(plan, anzeigePlaene.filter((x) => x.team_id === team.id), startIso, anzahlTage);
+                        const alleinText = allein.length ? `Beginn ${zeit}, aber ${allein.map((t) => tagKurz(ausIso(t))).join(', ')} die einzige Baustelle — stimmt die Zeit?` : null;
                         const tagIndex = (k: number) => (halb ? Math.floor((ab + k) / 2) : ab + k);
                         return (
                           <button
@@ -844,7 +848,7 @@ export function Planung() {
                               const k = Math.min(n - 1, Math.max(0, Math.floor((e.clientX - r.left) / (r.width / n))));
                               setTagWahl({ teamId: team.id, datum: iso(addTage(start, tagIndex(k))) });
                             }}
-                            title={[`${name} · ${plan.baustelle?.konto_nr ?? ''}${ansicht === 'ist' && lesend ? ' · gemeldet' : ''}`, felderText(plan), plan.hinweis && `«${plan.hinweis}»`].filter(Boolean).join('\n')}
+                            title={[`${name} · ${plan.baustelle?.konto_nr ?? ''}${ansicht === 'ist' && lesend ? ' · gemeldet' : ''}`, felderText(plan), plan.hinweis && `«${plan.hinweis}»`, alleinText].filter(Boolean).join('\n')}
                             aria-label={`${team.bezeichnung}: ${zeit ? `ab ${zeit}, ` : ''}${name}, ${lang(ausIso(plan.von))} bis ${lang(ausIso(plan.bis))} — Tag öffnen`}
                             style={{ gridColumn: `${ab + 1} / ${bis + 2}`, gridRow: spur + 1 }}
                             className={
@@ -858,12 +862,12 @@ export function Planung() {
                             {links && <span className="-ml-1 text-xs text-ink3" aria-hidden="true">‹</span>}
                             {eng ? (
                               <>
-                                {zeit && <span className="text-[11px] font-bold leading-none tabular-nums text-ink">{zeit}</span>}
+                                {zeit && <span className={'text-[11px] font-bold leading-none tabular-nums ' + (alleinText ? 'text-amber-deep' : 'text-ink')}>{zeit}{alleinText && ' ?'}</span>}
                                 <span className={'min-w-0 font-semibold text-ink2 [overflow-wrap:anywhere] ' + (zeit ? 'truncate text-[11px] leading-tight' : 'line-clamp-2 text-[11px] leading-[1.15]')}>{name}</span>
                               </>
                             ) : (
                               <>
-                                {zeit && <span className="shrink-0 rounded-[6px] bg-surface-2 px-1.5 py-px text-[11px] font-bold tabular-nums text-ink">{zeit}</span>}
+                                {zeit && <span className={'shrink-0 rounded-[6px] px-1.5 py-px text-[11px] font-bold tabular-nums ' + (alleinText ? 'bg-amber-soft text-amber-deep' : 'bg-surface-2 text-ink')}>{zeit}{alleinText && ' ?'}</span>}
                                 <span className="min-w-0 truncate text-[12.5px] font-semibold text-ink2">{name}</span>
                                 {/* Hinweis fürs Team (0049): kleines Zeichen, der Text steht im Tooltip und im Tag */}
                                 {plan.hinweis && <MessageSquareText size={12} className="shrink-0 text-ink3" aria-label="mit Hinweis" />}
@@ -1289,7 +1293,10 @@ function TagDialog({
           await log(p.id, 'bis', p.bis, vorher.bis);
           if (nachher && p.baustelle) {
             // Der Rest nach dem Tag ist derselbe Einsatz: Leute nötig, Beginn, Treffpunkt und Hinweis gehen mit (0049)
-            const r2 = await c.from('jahresplan').insert({ team_id: team.id, baustelle_id: p.baustelle.id, von: nachher.von, bis: nachher.bis, ...felderVon(p) });
+            // Beginn am Nachmittag geht nicht mit (21.11.2026) — er galt meist nur wegen einer zweiten Baustelle
+            const fRest = felderVon(p);
+            if ('beginn_min' in fRest) fRest.beginn_min = beginnFuerRest(fRest.beginn_min) ?? null;
+            const r2 = await c.from('jahresplan').insert({ team_id: team.id, baustelle_id: p.baustelle.id, von: nachher.von, bis: nachher.bis, ...fRest });
             if (r2.error) throw r2.error;
           }
         } else if (nachher) {
@@ -1388,6 +1395,12 @@ function TagDialog({
                     )}
                     {/* Wetter an der Baustelle (MeteoSchweiz) — ohne Ort das Gebiet der Firma */}
                     {p.baustelle && (() => { const x = wetterVon?.(p.baustelle.id); return x ? <WetterZeile w={x.w} gebiet={x.gebiet} /> : null; })()}
+                    {/* Einzige Baustelle des Tages, aber Beginn am Nachmittag (21.11.2026) — meist vom Aufteilen übrig */}
+                    {geplant.length === 1 && p.beginn_min != null && p.beginn_min >= 12 * 60 && (
+                      <span className="mt-1.5 block rounded-[8px] bg-amber-soft px-2 py-1 text-[11.5px] font-medium text-amber-deep">
+                        Beginn {uhrzeit(p.beginn_min)}, aber die einzige Baustelle an diesem Tag — stimmt die Zeit?
+                      </span>
+                    )}
                   </span>
                   {(() => { const t = p.von === p.bis ? 'Einsatz ändern' : 'Ganzen Einsatz ändern'; return (
                     <button type="button" onClick={() => onEinsatz(p)} title={t} aria-label={t}
@@ -1721,7 +1734,8 @@ function EinsatzDialog({
           saetze.push(`${z.baustelle?.bezeichnung ?? 'Einsatz'} neu ${spanne(sch.von, sch.bis)}`);
         } else if (sch.art === 'neu') {
           const z = nach.get(sch.vorlage)!;
-          const felderZ: EinsatzFelder = felderFehlen ? {} : { beginn_min: sch.beginn_min !== undefined ? sch.beginn_min : z.beginn_min, treffpunkt: z.treffpunkt, hinweis: z.hinweis };
+          // Ohne eigene Zeit für den Rest: ein Nachmittags-Beginn geht nicht mit (21.11.2026, Stauffacher Di–Mi ab 13:00)
+          const felderZ: EinsatzFelder = felderFehlen ? {} : { beginn_min: sch.beginn_min !== undefined ? sch.beginn_min : beginnFuerRest(z.beginn_min) ?? null, treffpunkt: z.treffpunkt, hinweis: z.hinweis };
           const i1 = await c.from('jahresplan').insert({ team_id: z.team_id, baustelle_id: z.baustelle_id, von: sch.von, bis: sch.bis, ...felderZ });
           if (i1.error) throw i1.error;
         } else {
@@ -1866,7 +1880,8 @@ function EinsatzDialog({
               <div className="grid gap-4 sm:grid-cols-2">
                 <label className="block">
                   <span className="mb-1.5 block text-xs font-medium text-ink2">Beginn</span>
-                  <input type="time" step={300} className="field" value={beginn} onChange={(e) => setBeginn(e.target.value)} aria-label="Beginn" />
+                  {/* Immer 24 h (21.11.2026, Amir: «warum 1 PM?») — das native Feld richtet sich nach der Sprache des Browsers */}
+                  <ZeitFeld wert={beginn} aendern={setBeginn} label="Beginn" klasse="field tabular-nums" />
                   <span className="mt-1 block text-[11px] text-ink3">Leer = {uhrzeit(firmenBeginn)} wie immer</span>
                 </label>
               </div>

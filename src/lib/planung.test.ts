@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { arbeitstage, ausschnitt, besetzung, einteilungenBuendeln, ersatzVorschlaege, halbtagSpuren, heuteUndNaechster, istBalken, konflikte, konflikteBuendeln, naechsterTeamName, ohneTag, planAm, planHinweise, planIst, spuren, tageZwischen, ueberschneiden, zeitraumVorschlag, type EinsatzSoll, type VerlaufZeile } from './planung';
+import { arbeitstage, ausschnitt, besetzung, einteilungenBuendeln, beginnFuerRest, ersatzVorschlaege, halbtagSpuren, heuteUndNaechster, spaeterBeginnAllein, istBalken, konflikte, konflikteBuendeln, naechsterTeamName, ohneTag, planAm, planHinweise, planIst, spuren, tageZwischen, ueberschneiden, zeitraumVorschlag, type EinsatzSoll, type VerlaufZeile } from './planung';
 import { ausIso } from './datum';
 
 describe('planung', () => {
@@ -36,6 +36,26 @@ describe('planung', () => {
       { id: 'frueh', von: '2026-11-23', bis: '2026-11-23', beginn_min: 420 },
     ], '2026-11-23', 7);
     expect(Object.fromEntries(r.map((x) => [x.plan.id, x.spur]))).toEqual({ frueh: 0, spaet: 1 });
+  });
+
+  it('nimmt beim Aufteilen nur einen Beginn am Morgen mit (21.11.2026)', () => {
+    expect(beginnFuerRest(780)).toBeNull();
+    expect(beginnFuerRest(420)).toBe(420);
+    expect(beginnFuerRest(null)).toBeNull();
+    expect(beginnFuerRest(undefined)).toBeUndefined();
+  });
+
+  it('meldet einen Nachmittags-Beginn an Tagen ohne zweite Baustelle (Stauffacher Di–Mi ab 13:00)', () => {
+    const team = [
+      { id: 's', von: '2026-11-23', bis: '2026-11-23', beginn_min: 420 },
+      { id: 't1', von: '2026-11-23', bis: '2026-11-23', beginn_min: 780 },
+      { id: 't2', von: '2026-11-24', bis: '2026-11-25', beginn_min: 780 },
+      { id: 'w', von: '2026-11-26', bis: '2026-11-27', beginn_min: null },
+    ];
+    expect(spaeterBeginnAllein(team[1], team, '2026-11-23', 7)).toEqual([]);
+    expect(spaeterBeginnAllein(team[2], team, '2026-11-23', 7)).toEqual(['2026-11-24', '2026-11-25']);
+    expect(spaeterBeginnAllein(team[0], team, '2026-11-23', 7)).toEqual([]);
+    expect(spaeterBeginnAllein(team[3], team, '2026-11-23', 7)).toEqual([]);
   });
 
   it('Halbtage: Vormittag/Nachmittag nach Beginn, ganze Tage ohne Zeit (Team 1, KW 48)', () => {

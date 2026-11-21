@@ -52,6 +52,32 @@ export function spuren<T extends Zeitraum & { beginn_min?: number | null }>(plae
 export const MITTAG_MIN = 12 * 60;
 
 /**
+ * Beginn beim Aufteilen eines Einsatzes (21.11.2026, Amir/Arbnor): Ein Beginn am Nachmittag gehört fast immer zu einem
+ * Tag mit zwei Baustellen («am Vormittag dort, ab 13:00 hier»). Wird der Einsatz geteilt, gilt das für den Rest meist
+ * nicht mehr — darum geht ein Nachmittags-Beginn nicht mit, ein Beginn am Morgen schon.
+ */
+export function beginnFuerRest(beginn: number | null | undefined): number | null | undefined {
+  return beginn != null && beginn >= MITTAG_MIN ? null : beginn;
+}
+
+/**
+ * Hinweis in der Planung: beginnt ein Einsatz erst am Nachmittag, obwohl das Team an mindestens einem seiner Tage keine
+ * andere Baustelle hat? Dann ist die Zeit meist ein Überbleibsel (Stauffacherstrasse Di–Mi ab 13:00, 21.11.2026).
+ * Geprüft wird nur im Fenster `start` + `tage`.
+ */
+export function spaeterBeginnAllein<T extends Zeitraum & { id: string; beginn_min?: number | null }>(plan: T, teamPlaene: T[], start: string, tage: number): string[] {
+  if (plan.beginn_min == null || plan.beginn_min < MITTAG_MIN) return [];
+  const a = ausschnitt(plan, start, tage);
+  if (!a) return [];
+  const allein: string[] = [];
+  for (let i = a.ab; i <= a.bis; i++) {
+    const tag = iso(addTage(ausIso(start), i));
+    if (!teamPlaene.some((x) => x.id !== plan.id && x.von <= tag && x.bis >= tag)) allein.push(tag);
+  }
+  return allein;
+}
+
+/**
  * Halbtage-Ansicht (21.11.2026, Konzept B): jeder Tag hat Vormittag (Index 2·Tag) und Nachmittag (2·Tag + 1).
  * Je Tag: Beginn ab 12:00 → Nachmittag, sonst Vormittag; ohne Uhrzeit → wo frei ist. Ein Vormittags-Einsatz ohne
  * Nachmittags-Einsatz am selben Tag füllt den ganzen Tag. Gleicher Einsatz an Folgetagen ohne Lücke = ein Block.
