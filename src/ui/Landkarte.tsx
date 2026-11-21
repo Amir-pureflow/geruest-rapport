@@ -6,7 +6,8 @@
  */
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import type { KartenPunkt } from '../lib/karte';
+import { wegeAm, type KartenPunkt } from '../lib/karte';
+import { uhrzeit } from '../lib/zeiten';
 // Bibliothek, Worker und Kartenstile gemeinsam mit dem Ort der Baustelle (Verwaltung)
 import { maplibregl, START, STIL_KARTE as KARTE, STIL_LUFTBILD as LUFTBILD } from './kartenstil';
 
@@ -19,10 +20,35 @@ const schutz = (s: string) => s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<':
 function pinElement(p: KartenPunkt, an: boolean, wahl: () => void): HTMLElement {
   const h = document.createElement('div');
   h.className = 'rp-icon';
-  const teams = p.teams.map((t) => t.team).join(' · ');
-  h.innerHTML = `<div class="rp-pin${an ? ' rp-pin-an' : ''}" title="${schutz(p.baustelle.bezeichnung ?? '')}"><span class="rp-pin-team">${schutz(teams)}</span><span class="rp-pin-leute">${p.leute}</span></div>`;
+  // 21.11.2026 (Amir: zweimal «Team 1 · 2» verwirrt): Reihenfolge im roten Feld, dahinter die Uhrzeit,
+  // die Personenzahl klein und grau mit Symbol — die rote Zahl sah aus wie «zweiter Einsatz»
+  const teams = p.teams.map((t) =>
+    (t.stopps && t.stopps > 1 && t.reihe ? `<span class="rp-pin-nr">${t.reihe}</span>` : '')
+    + `<span class="rp-pin-team">${schutz(t.team)}</span>`
+    + (t.beginn_min !== null ? `<span class="rp-pin-trenn">·</span><span class="rp-pin-zeit">${uhrzeit(t.beginn_min)}</span>` : '')).join('<span class="rp-pin-trenn">|</span>');
+  const mitNr = p.teams[0]?.stopps && p.teams[0].stopps > 1;
+  h.innerHTML = `<div class="rp-pin${an ? ' rp-pin-an' : ''}${mitNr ? ' rp-pin-mitnr' : ''}" title="${schutz(p.baustelle.bezeichnung ?? '')}">${teams}<span class="rp-pin-leute" title="${p.leute} ${p.leute === 1 ? 'Person' : 'Leute'}">${LEUTE_SVG}${p.leute}</span></div>`;
   h.addEventListener('click', (e) => { e.stopPropagation(); wahl(); });
   return h;
+}
+
+const LEUTE_SVG = '<svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>';
+
+/** Gestrichelte Linie je Team mit mehreren Baustellen am Tag, in der Reihenfolge nach Beginn (21.11.2026) */
+function wegeZeichnen(m: maplibregl.Map, punkte: KartenPunkt[]) {
+  if (!m.isStyleLoaded()) return;
+  const daten = {
+    type: 'FeatureCollection' as const,
+    features: wegeAm(punkte).map((w) => ({
+      type: 'Feature' as const, properties: { team: w.team },
+      geometry: { type: 'LineString' as const, coordinates: w.halte.map((h) => [h.punkt.baustelle.lon!, h.punkt.baustelle.lat!]) },
+    })),
+  };
+  const quelle = m.getSource('rp-wege') as maplibregl.GeoJSONSource | undefined;
+  if (quelle) { quelle.setData(daten); return; }
+  m.addSource('rp-wege', { type: 'geojson', data: daten });
+  m.addLayer({ id: 'rp-wege', type: 'line', source: 'rp-wege', layout: { 'line-cap': 'round', 'line-join': 'round' },
+    paint: { 'line-color': '#e0301e', 'line-width': 3, 'line-opacity': 0.75, 'line-dasharray': [0.1, 2.2] } });
 }
 
 function werkhofElement(): HTMLElement {
@@ -64,6 +90,7 @@ export function Landkarte({ punkte, werkhof, wartet = false, auswahl, onAuswahl,
   onSchliessen?: () => void;
 }) {
   const box = useRef<HTMLDivElement>(null);
+  const punkteJetzt = useRef(punkte);
   const karte = useRef<maplibregl.Map | null>(null);
   const marken = useRef<maplibregl.Marker[]>([]);
   const wahl = useRef(onAuswahl);
@@ -109,6 +136,8 @@ export function Landkarte({ punkte, werkhof, wartet = false, auswahl, onAuswahl,
     m.touchZoomRotate.disableRotation();
     m.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'bottom-right');
     karte.current = m;
+    // Wege nach jedem Stil (erstes Laden, Karte ↔ Luftbild) neu — setStyle wirft eigene Ebenen weg
+    m.on('style.load', () => wegeZeichnen(m, punkteJetzt.current));
     // Einblenden beim ersten vollständigen Bild mit den Baustellen (Stil, Kacheln, Schrift da — wie «load») — nicht erst bei
     // «idle», das wartete zusätzlich auf das Einblenden der letzten Beschriftung. Spätestens nach 4 s (langsames Netz)
     const zeigen = () => { if (!wartetJetzt.current && m.loaded()) { setBereit(true); m.off('render', zeigen); } };
@@ -136,6 +165,8 @@ export function Landkarte({ punkte, werkhof, wartet = false, auswahl, onAuswahl,
     if (!m) return;
     for (const x of marken.current) x.remove();
     marken.current = [];
+    punkteJetzt.current = punkte;
+    wegeZeichnen(m, punkte);
     if (werkhof) marken.current.push(new maplibregl.Marker({ element: werkhofElement() }).setLngLat([werkhof.lon, werkhof.lat]).addTo(m));
     for (const p of punkte) {
       const an = p.baustelle.id === auswahl;

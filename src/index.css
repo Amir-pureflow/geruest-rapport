@@ -574,9 +574,19 @@
 }
 .rp-pin:hover { transform: translate(-50%, calc(-100% - 11px)); }
 .rp-pin-leute {
-  display: inline-grid; place-items: center; min-width: 20px; height: 20px; padding: 0 6px; border-radius: 999px;
-  background: var(--color-accent); color: #fff; font-size: 11px; font-variant-numeric: tabular-nums;
+  display: inline-flex; align-items: center; gap: 3px; height: 20px; padding: 0 6px 0 2px;
+  color: var(--color-ink3); font-size: 11px; font-weight: 600; font-variant-numeric: tabular-nums;
 }
+/* Team auf mehreren Baustellen (21.11.2026): Reihenfolge rot vorne, Uhrzeit rot hinter dem Team */
+.rp-pin-mitnr { padding-left: 5px; }
+.rp-pin-nr {
+  display: inline-grid; place-items: center; min-width: 20px; height: 20px; padding: 0 5px; border-radius: 7px;
+  background: var(--color-accent); color: #fff; font-size: 11px; font-weight: 700; font-variant-numeric: tabular-nums;
+}
+.rp-pin-zeit { color: var(--color-accent); font-weight: 700; font-variant-numeric: tabular-nums; }
+.rp-pin-trenn { color: var(--color-ink3); }
+.rp-pin-an .rp-pin-leute, .rp-pin-an .rp-pin-trenn { color: rgb(255 255 255 / 0.7); }
+.rp-pin-an .rp-pin-zeit { color: #ff9b85; }
 .rp-pin-an { background: var(--color-ink); color: #fff; border-color: var(--color-ink); }
 .rp-pin-an::after { border-top-color: var(--color-ink); }
 .rp-werkhof {

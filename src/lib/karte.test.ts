@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { punktPasst, punkteAm } from './karte';
+import { punktPasst, punkteAm, wegeAm } from './karte';
 
 const B1 = { id: 'b1', konto_nr: '901675', bezeichnung: 'Wohnüberbauung Brünnenpark, Haus B', strasse: 'Brünnenstrasse 120', plz: '3018', ort: 'Bern', lat: 46.94, lon: 7.39 };
 const B2 = { id: 'b2', konto_nr: '902583', bezeichnung: 'Fassade Monbijoustrasse 55', strasse: null, plz: null, ort: null, lat: null, lon: null };
@@ -40,5 +40,25 @@ describe('punktPasst — Suche auf der Karte', () => {
     expect(punktPasst(p, '901675')).toBe(true);
     expect(punktPasst(p, 'brünnen bern')).toBe(true);
     expect(punktPasst(p, 'team 2')).toBe(false);
+  });
+});
+
+describe('Team auf mehreren Baustellen (21.11.2026)', () => {
+  const teams = new Map([['t1', { name: 'Team 1', chef: null }], ['t2', { name: 'Team 2', chef: null }]]);
+  const A = { id: 'a', konto_nr: '1', bezeichnung: 'A', lat: 46.95, lon: 7.45 };
+  const B = { id: 'b', konto_nr: '2', bezeichnung: 'B', lat: 46.96, lon: 7.46 };
+  it('nummeriert nach Beginn, nicht nach Reihenfolge in der Datenbank', () => {
+    const r = punkteAm({ einsaetze: [{ team_id: 't1', baustelle: B, beginn_min: 780 }, { team_id: 't1', baustelle: A, beginn_min: 420 }, { team_id: 't2', baustelle: A }], teams, leute: new Map([['t1', 2]]) });
+    const tA = r.mitOrt.find((p) => p.baustelle.id === 'a')!.teams.find((t) => t.teamId === 't1')!;
+    const tB = r.mitOrt.find((p) => p.baustelle.id === 'b')!.teams[0];
+    expect([tA.reihe, tB.reihe, tA.stopps]).toEqual([1, 2, 2]);
+    expect(r.mitOrt.find((p) => p.baustelle.id === 'a')!.teams.find((t) => t.teamId === 't2')!.reihe).toBeUndefined();
+    const w = wegeAm(r.mitOrt);
+    expect(w).toHaveLength(1);
+    expect(w[0].halte.map((h) => h.punkt.baustelle.id)).toEqual(['a', 'b']);
+  });
+  it('ohne Uhrzeit kommt zuletzt', () => {
+    const r = punkteAm({ einsaetze: [{ team_id: 't1', baustelle: A }, { team_id: 't1', baustelle: B, beginn_min: 600 }], teams, leute: new Map() });
+    expect(r.mitOrt.find((p) => p.baustelle.id === 'b')!.teams[0].reihe).toBe(1);
   });
 });

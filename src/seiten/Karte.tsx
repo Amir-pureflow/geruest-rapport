@@ -20,7 +20,7 @@ import { besetzung, type Versetzung } from '../lib/planung';
 import { leuteAm, type KartenPerson } from '../lib/tageskarte';
 import { feiertag } from '../lib/feiertage';
 import { adresseText } from '../lib/adresse';
-import { punktPasst, punkteAm, type KartenPunkt, type PunktBaustelle } from '../lib/karte';
+import { punktPasst, punkteAm, wegeAm, type KartenPunkt, type PunktBaustelle } from '../lib/karte';
 import { eigeneFirma } from '../lib/einstellungen';
 import { FUNKTION_BUERO } from '../lib/benutzername';
 import { uhrzeit } from '../lib/zeiten';
@@ -122,6 +122,7 @@ export function Karte() {
   const anzahl = (daten?.punkte.mitOrt.length ?? 0) + (daten?.punkte.ohneOrt.length ?? 0);
   const leer = !laedt && daten && anzahl === 0;
   const heute = iso(new Date());
+  const wege = useMemo(() => wegeAm(sichtbar), [sichtbar]);
   const gewaehlt = auswahl ? [...(daten?.punkte.mitOrt ?? []), ...(daten?.punkte.ohneOrt ?? [])].find((p) => p.baustelle.id === auswahl) ?? null : null;
 
   return (
@@ -201,6 +202,20 @@ export function Karte() {
               <Landkarte punkte={sichtbar} werkhof={daten?.werkhof ?? null} wartet={!daten && laedt} auswahl={auswahl} onAuswahl={(id) => setAuswahl(id)} luftbild={luftbild}
                 blase={gewaehlt && <TeamBlase punkt={gewaehlt} tag={tag} />} onSchliessen={() => setAuswahl(null)} />
             </Suspense>
+            {/* Teams auf mehreren Baustellen: der Tag in einer Zeile (21.11.2026) — die Linie auf der Karte zeigt den Weg */}
+            {wege.length > 0 && (
+              <div className="pointer-events-none absolute bottom-3 left-3 right-14 z-[500] space-y-0.5 rounded-[14px] bg-white/95 px-3.5 py-2 text-[12.5px] leading-snug text-ink2 shadow-[0_6px_16px_-8px_rgb(17_17_19/0.35)]">
+                {wege.slice(0, 3).map((w) => (
+                  <p key={w.teamId} className="truncate">
+                    <b className="font-semibold text-ink">{w.team}:</b>{' '}
+                    {w.halte.map((h, i) => (
+                      <span key={h.punkt.baustelle.id}>{i > 0 && ' → '}{h.beginn_min !== null && <b className="font-semibold tabular-nums text-accent-deep">{uhrzeit(h.beginn_min)} </b>}{h.punkt.baustelle.bezeichnung || h.punkt.baustelle.konto_nr}{i === 0 && h.treffpunkt === 'werkhof' && ' (ab Werkhof)'}</span>
+                    ))}
+                  </p>
+                ))}
+                {wege.length > 3 && <p className="text-[11.5px] text-ink3">und {wege.length - 3} weitere Teams auf mehreren Baustellen</p>}
+              </div>
+            )}
             <div className="absolute right-3 top-3 z-[500] flex schiene schiene-weiss shadow-[0_2px_8px_-2px_rgb(17_17_19/0.25)]" role="group" aria-label="Kartenart">
               {([false, true] as const).map((lb) => (
                 <button key={String(lb)} type="button" aria-pressed={luftbild === lb} onClick={() => setLuftbild(lb)}
