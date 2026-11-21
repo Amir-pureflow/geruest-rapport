@@ -112,7 +112,7 @@ function freitagVon(tag: string): string {
   return wt <= 4 ? iso(addTage(d, 4 - wt)) : tag;
 }
 
-const SPUR_HOEHE = 40;
+const SPUR_HOEHE = 46;
 /** Teamspalte: am Handy schmal, am PC mit Platz für die Namen — als CSS-Variable, damit Raster und Mindestbreite mitgehen */
 const TEAM_SPALTE_KLASSE = '[--team:152px] md:[--team:250px]';
 
@@ -862,13 +862,13 @@ export function Planung() {
                             {links && <span className="-ml-1 text-xs text-ink3" aria-hidden="true">‹</span>}
                             {eng ? (
                               <>
-                                {zeit && <span className={'text-[11px] font-bold leading-none tabular-nums ' + (alleinText ? 'text-amber-deep' : 'text-ink')}>{zeit}{alleinText && ' ?'}</span>}
-                                <span className={'min-w-0 font-semibold text-ink2 [overflow-wrap:anywhere] ' + (zeit ? 'truncate text-[11px] leading-tight' : 'line-clamp-2 text-[11px] leading-[1.15]')}>{name}</span>
+                                {zeit && <span className={'text-[12px] font-bold leading-none tabular-nums ' + (alleinText ? 'text-amber-deep' : 'text-ink')}>{zeit}{alleinText && ' ?'}</span>}
+                                <span className={'min-w-0 font-semibold text-ink2 [overflow-wrap:anywhere] ' + (zeit ? 'truncate text-[12.5px] leading-tight' : 'line-clamp-2 text-[12.5px] leading-[1.15]')}>{name}</span>
                               </>
                             ) : (
                               <>
-                                {zeit && <span className={'shrink-0 rounded-[6px] px-1.5 py-px text-[11px] font-bold tabular-nums ' + (alleinText ? 'bg-amber-soft text-amber-deep' : 'bg-surface-2 text-ink')}>{zeit}{alleinText && ' ?'}</span>}
-                                <span className="min-w-0 truncate text-[12.5px] font-semibold text-ink2">{name}</span>
+                                {zeit && <span className={'shrink-0 rounded-[7px] px-1.5 py-0.5 text-[12.5px] font-bold tabular-nums ' + (alleinText ? 'bg-amber-soft text-amber-deep' : 'bg-surface-2 text-ink')}>{zeit}{alleinText && ' ?'}</span>}
+                                <span className="min-w-0 truncate text-[14px] font-semibold text-ink2">{name}</span>
                                 {/* Hinweis fürs Team (0049): kleines Zeichen, der Text steht im Tooltip und im Tag */}
                                 {plan.hinweis && <MessageSquareText size={12} className="shrink-0 text-ink3" aria-label="mit Hinweis" />}
                                 {/* Kontonummer erst ab drei Tagen — bei kürzeren Balken ginge sonst der Name unter */}
