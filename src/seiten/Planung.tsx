@@ -1812,91 +1812,85 @@ function EinsatzDialog({
 
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-ink/30 p-0 backdrop-blur-[2px] sm:items-center sm:p-4" onMouseDown={(e) => { if (e.target === e.currentTarget) onSchliessen(); }}>
-      <div role="dialog" aria-modal="true" aria-labelledby="einsatz-titel" className="max-h-[92vh] w-full max-w-[540px] overflow-y-auto rounded-t-[24px] bg-white p-5 shadow-[0_30px_80px_-20px_rgb(17_17_19/0.45)] sm:rounded-[24px] sm:p-6">
-        <div className="mb-5 flex items-center justify-between gap-3">
-          <span className="flex items-center gap-3">
-            <span className="grid h-10 w-10 place-items-center rounded-[12px] bg-accent text-white shadow-[0_4px_10px_-4px_rgb(224_48_30/0.6)]"><CalendarPlus size={19} strokeWidth={2.2} aria-hidden="true" /></span>
-            <span>
-              <span id="einsatz-titel" className="block font-display text-lg font-semibold text-ink">{bestehend ? 'Einsatz ändern' : 'Einsatz planen'}</span>
-              <span className="block text-xs text-ink3">Team, Baustelle, Zeitraum — und was das Team wissen muss</span>
-            </span>
+      <div role="dialog" aria-modal="true" aria-labelledby="einsatz-titel" className="max-h-[92vh] w-full max-w-[560px] overflow-y-auto rounded-t-[28px] bg-white p-5 shadow-[0_30px_80px_-20px_rgb(17_17_19/0.45)] sm:rounded-[28px] sm:p-6">
+        {/* Konzept «Einsatz-Dialog» (21.11.2026, Amir: «das Graue mit dem roten Hover gefällt mir nicht»): eine Liste,
+            Umschalter wie in der Kopfzeile, «Fürs Team» ohne Kasten */}
+        <div className="mb-5 flex items-start justify-between gap-3">
+          <span className="min-w-0">
+            <span id="einsatz-titel" className="block font-display text-xl font-semibold tracking-[-0.015em] text-ink">{bestehend ? 'Einsatz ändern' : 'Einsatz planen'}</span>
+            <span className="block truncate text-[13.5px] text-ink3">{[team?.bezeichnung, baustelle?.bezeichnung].filter(Boolean).join(' · ') || 'Team, Baustelle, Zeitraum'}</span>
           </span>
-          <button type="button" onClick={onSchliessen} aria-label="Schliessen" className="grid h-9 w-9 place-items-center rounded-full text-ink3 hover:bg-surface-2 hover:text-ink"><X size={18} /></button>
+          <button type="button" onClick={onSchliessen} aria-label="Schliessen" className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-surface-2 text-ink3 hover:text-ink"><X size={17} /></button>
         </div>
 
         <div className="space-y-5">
-          <div>
-            <span className="lbl">Team</span>
-            <Auswahl label="Team" optionen={teams.map((t) => ({ wert: t.id, text: t.bezeichnung, unter: t.chefmonteur?.name }))} wert={teamId} aendern={teamWaehlen} />
+          <div className="rounded-[18px] bg-ground">
+            <div className="flex items-center gap-3 px-4 py-3">
+              <span className="w-20 shrink-0 text-[13.5px] font-semibold text-ink3">Team</span>
+              <span className="min-w-0 flex-1">
+                <Auswahl art="zeile" label="Team" optionen={teams.map((t) => ({ wert: t.id, text: t.bezeichnung, unter: t.chefmonteur?.name }))} wert={teamId} aendern={teamWaehlen} />
+              </span>
+            </div>
+            <div className="border-t border-line px-4 py-3">
+              {baustelle ? (
+                <button type="button" onClick={() => setBaustelle(null)} className="flex w-full items-center gap-3 text-left" title="Andere Baustelle wählen">
+                  <span className="w-20 shrink-0 text-[13.5px] font-semibold text-ink3">Baustelle</span>
+                  <span className="flex min-w-0 flex-1 items-center gap-2">
+                    <span className="knr bg-white">{baustelle.konto_nr}</span>
+                    <span className="truncate text-[15px] font-semibold text-ink">{baustelle.bezeichnung || 'Baustelle'}</span>
+                  </span>
+                  <ChevronRight size={16} className="shrink-0 text-ink3" aria-hidden="true" />
+                </button>
+              ) : (
+                <div>
+                  <span className="mb-2 block text-[13.5px] font-semibold text-ink3">Baustelle</span>
+                  <BaustellenWahl baustellen={baustellen} waehlen={setBaustelle} autoFokus />
+                </div>
+              )}
+            </div>
           </div>
 
           <div>
-            <span className="lbl">Baustelle</span>
-            {baustelle ? (
-              <div className="flex items-center justify-between gap-3 rounded-[14px] border border-ink/10 bg-gradient-to-br from-white to-[#f6f3ee] px-3.5 py-3">
-                <span className="flex min-w-0 items-center gap-2.5">
-                  <span className="knr">{baustelle.konto_nr}</span>
-                  <span className="truncate text-sm font-semibold text-ink">{baustelle.bezeichnung || 'Baustelle'}</span>
-                </span>
-                <button type="button" className="shrink-0 text-xs font-semibold text-steel" onClick={() => setBaustelle(null)}>ändern</button>
-              </div>
-            ) : (
-              <BaustellenWahl baustellen={baustellen} waehlen={setBaustelle} autoFokus />
-            )}
-          </div>
-
-          <div>
-            <span className="lbl">Zeitraum</span>
-            <div className="mb-3 flex flex-wrap gap-1.5">
+            <p className="mb-2 flex items-baseline justify-between px-1 text-[11.5px] font-bold uppercase tracking-[0.07em] text-ink3">
+              <span>Zeitraum</span>
+              {von && bis && bis >= von && <span className="text-[12px] font-semibold normal-case tracking-normal">{arbeitstage(zeitraum)} {arbeitstage(zeitraum) === 1 ? 'Arbeitstag' : 'Arbeitstage'}</span>}
+            </p>
+            <div className="grid grid-cols-4 schiene" role="group" aria-label="Zeitraum wählen">
               {SCHNELL.map((s) => {
                 const z = zeitraumVorschlag(s.art, tag);
                 const an = z.von === von && z.bis === bis;
                 return (
-                  <Pille key={s.art} an={an} onClick={() => { setVon(z.von); setBis(z.bis); }}>{s.label}</Pille>
+                  <button key={s.art} type="button" aria-pressed={an} onClick={() => { setVon(z.von); setBis(z.bis); }}
+                    className={'h-9 truncate px-1 text-[13px] font-semibold transition ' + (an ? 'schiene-an' : '')}>{s.label}</button>
                 );
               })}
             </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <span className="mb-1 block text-xs text-ink3">von</span>
-                <DatumWahl wert={von} aendern={(v) => { setVon(v); if (v > bis) setBis(v); }} label="von" schnell={false} leerErlaubt={false} />
-              </div>
-              <div>
-                <span className="mb-1 block text-xs text-ink3">bis</span>
-                <DatumWahl wert={bis} aendern={setBis} min={von} label="bis" schnell={false} leerErlaubt={false} />
-              </div>
+            <div className="mt-2.5 grid grid-cols-[1fr_auto_1fr] items-center gap-2">
+              <DatumWahl wert={von} aendern={(v) => { setVon(v); if (v > bis) setBis(v); }} label="von" schnell={false} leerErlaubt={false} />
+              <span className="text-ink3" aria-hidden="true">→</span>
+              <DatumWahl wert={bis} aendern={setBis} min={von} label="bis" schnell={false} leerErlaubt={false} />
             </div>
-            {von && bis && bis >= von && (
-              <p className="mt-2 text-xs text-ink2">
-                {lang(ausIso(von))} bis {lang(ausIso(bis))} · <b className="text-ink">{arbeitstage(zeitraum)} {arbeitstage(zeitraum) === 1 ? 'Arbeitstag' : 'Arbeitstage'}</b>
-              </p>
-            )}
           </div>
 
           {/* Einsatzfelder (0049, Amir 24.10.2026): alles freiwillig — leer lassen heisst planen wie bisher */}
           {!felderFehlen && (
-            <div className="space-y-4 rounded-[16px] border border-line bg-ground/50 p-4">
-              <p className="lbl mb-0">Fürs Team <span className="font-normal normal-case tracking-normal text-ink3">· alles freiwillig</span></p>
-              <div className="grid gap-4 sm:grid-cols-2">
-                <label className="block">
-                  <span className="mb-1.5 block text-xs font-medium text-ink2">Beginn</span>
-                  {/* Immer 24 h (21.11.2026, Amir: «warum 1 PM?») — das native Feld richtet sich nach der Sprache des Browsers */}
-                  <ZeitFeld wert={beginn} aendern={setBeginn} label="Beginn" klasse="field tabular-nums" />
-                  <span className="mt-1 block text-[11px] text-ink3">Leer = {uhrzeit(firmenBeginn)} wie immer</span>
-                </label>
-              </div>
-              <div>
-                <span className="mb-1.5 block text-xs font-medium text-ink2">Treffpunkt</span>
-                <div className="flex flex-wrap gap-1.5">
-                  {(['werkhof', 'baustelle'] as const).map((t) => (
-                    <Pille key={t} an={treffpunkt === t} onClick={() => setTreffpunkt(treffpunkt === t ? null : t)}>{t === 'werkhof' ? 'Im Werkhof' : 'Direkt auf der Baustelle'}</Pille>
+            <div>
+              <p className="mb-2 flex items-baseline justify-between px-1 text-[11.5px] font-bold uppercase tracking-[0.07em] text-ink3">
+                <span>Fürs Team</span><span className="text-[12px] font-semibold normal-case tracking-normal">freiwillig</span>
+              </p>
+              <div className="grid grid-cols-[8.5rem_1fr] items-center gap-2.5">
+                {/* Immer 24 h (21.11.2026, Amir: «warum 1 PM?») — das native Feld richtet sich nach der Sprache des Browsers */}
+                <ZeitFeld wert={beginn} aendern={setBeginn} label="Beginn" klasse="field h-11 tabular-nums" />
+                <div className="grid grid-cols-3 schiene" role="group" aria-label="Treffpunkt">
+                  {([['werkhof', 'Werkhof'], ['baustelle', 'Baustelle'], [null, '—']] as const).map(([t, text]) => (
+                    <button key={String(t)} type="button" aria-pressed={treffpunkt === t} onClick={() => setTreffpunkt(t)}
+                      title={t === null ? 'Kein Treffpunkt angegeben' : t === 'werkhof' ? 'Treffpunkt im Werkhof' : 'Direkt auf der Baustelle'}
+                      className={'h-9 px-1 text-[13px] font-semibold transition ' + (treffpunkt === t ? 'schiene-an' : '')}>{text}</button>
                   ))}
                 </div>
               </div>
-              <label className="block">
-                <span className="mb-1.5 block text-xs font-medium text-ink2">Hinweis fürs Team</span>
-                <input className="field" value={hinweis} maxLength={200} onChange={(e) => setHinweis(e.target.value)} placeholder="z. B. Kran kommt um 9, Schlüssel beim Hauswart" />
-              </label>
+              <p className="mt-1 px-1 text-[11px] text-ink3">Beginn leer = {uhrzeit(firmenBeginn)} wie immer</p>
+              <input className="field mt-2.5" value={hinweis} maxLength={200} onChange={(e) => setHinweis(e.target.value)} placeholder="Hinweis, z. B. Kran kommt um 9, Schlüssel beim Hauswart" aria-label="Hinweis fürs Team" />
             </div>
           )}
 
@@ -1953,10 +1947,7 @@ function EinsatzDialog({
           )}
 
           {bestehend && (
-            <label className="block">
-              <span className="lbl">Grund der Änderung <span className="font-normal text-ink3">(freiwillig)</span></span>
-              <input className="field" value={grund} onChange={(e) => setGrund(e.target.value)} placeholder="z. B. Kunde verschiebt, Material fehlt" />
-            </label>
+            <input className="field -mt-2" value={grund} onChange={(e) => setGrund(e.target.value)} placeholder="Grund der Änderung, z. B. Kunde verschiebt (freiwillig)" aria-label="Grund der Änderung" />
           )}
 
           {bestehend && verlauf.length > 0 && (
@@ -1986,16 +1977,16 @@ function EinsatzDialog({
                 <button type="button" onClick={() => setLoeschenFragen(false)} className="font-semibold text-ink3 hover:text-ink">Nein</button>
               </span>
             ) : (
-              <button type="button" onClick={() => setLoeschenFragen(true)} className="inline-flex items-center gap-1.5 text-xs font-semibold text-accent-deep hover:text-accent"><Trash2 size={14} aria-hidden="true" />Einsatz entfernen</button>
+              <button type="button" onClick={() => setLoeschenFragen(true)} className="inline-flex items-center gap-1.5 text-[13px] font-semibold text-ink3 hover:text-accent-deep"><Trash2 size={14} aria-hidden="true" />Entfernen</button>
             )
           ) : <span />}
           <span className="flex items-center gap-2">
-            <button type="button" className="btn-ghost" onClick={onSchliessen}>Abbrechen</button>
+            <button type="button" className="h-11 rounded-[14px] px-4 text-sm font-semibold text-ink2 hover:bg-surface-2" onClick={onSchliessen}>Abbrechen</button>
             <button
               type="button"
               disabled={!gueltig || speichert}
               onClick={() => void speichern()}
-              className="inline-flex items-center gap-1.5 rounded-full bg-gradient-to-br from-[#ff6d4c] via-accent to-[#9c1409] px-5 py-2 text-sm font-semibold text-white shadow-[0_10px_22px_-10px_rgb(224_48_30/0.7),inset_0_1px_0_rgb(255_255_255/0.3)] transition hover:-translate-y-px disabled:translate-y-0 disabled:opacity-50"
+              className="inline-flex h-11 items-center gap-1.5 rounded-[14px] bg-ink px-5 text-sm font-semibold text-white shadow-[0_8px_18px_-10px_rgb(17_17_19/0.6)] transition hover:bg-ink/90 disabled:opacity-40"
             >
               {speichert ? 'Speichert …' : bestehend ? 'Speichern' : 'Einplanen'}
             </button>

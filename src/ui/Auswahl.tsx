@@ -25,7 +25,8 @@ export function Auswahl({
   /** Suche zeigen — Standard: ab mehr als zehn Einträgen */
   suche?: boolean;
   leer?: string;
-  art?: 'feld' | 'pille';
+  /** «zeile»: ohne Rahmen, für eine Zeile in einem Listenblock (Einsatz-Dialog, 21.11.2026) */
+  art?: 'feld' | 'pille' | 'zeile';
   /** Symbol vorne in der Pille */
   icon?: ReactNode;
 }) {
@@ -66,7 +67,9 @@ export function Auswahl({
     setText('');
   }
 
-  const knopf = art === 'pille'
+  const knopf = art === 'zeile'
+    ? 'flex w-full items-center gap-2.5 bg-transparent py-0 text-left text-[15px] font-semibold text-ink outline-none'
+    : art === 'pille'
     ? 'inline-flex max-w-full items-center gap-2 rounded-full border bg-white py-2 pl-3 pr-2.5 text-xs font-semibold text-ink shadow-[0_1px_2px_rgb(17_17_19/0.06)] transition ' + (offen ? 'border-accent' : 'border-ink/10 hover:border-ink/20')
     : 'field flex items-center gap-2.5 text-left ' + (gewaehlt?.vorne ? 'py-[0.55rem] ' : '') + (offen ? 'border-accent' : '');
 
