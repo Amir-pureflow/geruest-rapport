@@ -468,7 +468,7 @@ export function Erfassung() {
   // Alle aktiven Baustellen zum Durchblättern — ersetzt den Papierzettel, wenn Nummer UND Name entfallen sind
   const [alleBaustellen, setAlleBaustellen] = useState<Baustelle[] | null>(null);
   const [zeigeListe, setZeigeListe] = useState(false);
-  const [laedtTeam, setLaedtTeam] = useState(false);
+  const [laedtTeam, setLaedtTeam] = useState(() => !!supabase && !!localStorage.getItem(TEAM_KEY)); // ab dem ersten Bild, sonst blitzt die Suche auf
   const [zuletzt, setZuletzt] = useState<string[]>(zuletztLesen);
   const [weitereTeams, setWeitereTeams] = useState(0);
   const [baustelle, setBaustelle] = useState<Baustelle | null>(null);
@@ -1889,18 +1889,28 @@ export function Erfassung() {
 
         <section>
           <p className="mb-2 flex items-baseline justify-between gap-2 px-1 text-[11.5px] font-bold uppercase tracking-[0.07em] text-ink3">
-            <span>{!baustelle || waehlenOffen ? 'Wo wart ihr?' : zweite ? 'Baustellen' : 'Baustelle'}</span>
+            <span>{laedtTeam && !baustelle && !waehlenOffen ? 'Baustelle' : !baustelle || waehlenOffen ? 'Wo wart ihr?' : zweite ? 'Baustellen' : 'Baustelle'}</span>
             {baustelle && !waehlenOffen && zweite && zweiteAusPlan && <span className="text-[12px] font-semibold normal-case tracking-normal">2 laut Plan</span>}
           </p>
           {/* Kompakte Wahl (Konzept C, 21.11.2026): Suchzeile, drei Vorschläge, alle Baustellen — statt grosser Kacheln.
               Die Suchzeile öffnet das Feld mit Ziffernblock darunter (Regel 2: Handschuhe). */}
-          {(!baustelle || waehlenOffen) && !wahlZweite && (
+          {/* Beim Laden ein ruhiger Platzhalter statt der Suchzeile: meist steht gleich die geplante Baustelle da,
+              sonst blitzte die Suche eine Sekunde auf und verschwand wieder (22.11.2026) */}
+          {laedtTeam && !baustelle && !waehlenOffen && !wahlZweite && (
+            <div className="card flex h-[76px] items-center gap-3 p-4" aria-busy="true" aria-label="Baustelle lädt">
+              <span className="h-10 w-10 shrink-0 animate-pulse rounded-[12px] bg-line" />
+              <span className="flex-1 space-y-2">
+                <span className="block h-3.5 w-2/3 animate-pulse rounded bg-line" />
+                <span className="block h-3 w-1/3 animate-pulse rounded bg-line" />
+              </span>
+            </div>
+          )}
+          {(!baustelle || waehlenOffen) && !wahlZweite && !(laedtTeam && !baustelle && !waehlenOffen) && (
             <div className="card p-3">
               <button type="button" onClick={() => { setZeigeAndere(true); setZiffern(''); }}
                 className="flex h-12 w-full items-center gap-2.5 rounded-[12px] border border-line-strong bg-surface px-3.5 text-left text-[15px] text-ink3">
                 <Search size={17} aria-hidden="true" /> Nummer oder Name …
               </button>
-              {laedtTeam && kacheln.length === 0 && <p className="px-1 pt-3 text-sm text-ink3">Lädt …</p>}
               <div className="mt-1.5 divide-y divide-line">
                 {kacheln.filter((b) => b.id !== zweite?.id).slice(0, 3).map((b, i) => {
                   const an = baustelle?.id === b.id;
