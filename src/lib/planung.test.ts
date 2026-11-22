@@ -80,8 +80,10 @@ describe('planung', () => {
     expect(zeitraumVorschlag('woche', di)).toEqual({ von: '2026-10-06', bis: '2026-10-09' });
     expect(zeitraumVorschlag('zwei', di)).toEqual({ von: '2026-10-06', bis: '2026-10-16' });
     expect(zeitraumVorschlag('vier', di)).toEqual({ von: '2026-10-06', bis: '2026-10-30' });
-    // Samstag: «bis Freitag» wäre rückwärts — dann nur der Tag selbst
-    expect(zeitraumVorschlag('woche', ausIso('2026-10-10'))).toEqual({ von: '2026-10-10', bis: '2026-10-10' });
+    // Sa/So: bis zum nächsten Freitag — nicht gleich wie «nur dieser Tag»
+    expect(zeitraumVorschlag('woche', ausIso('2026-10-10'))).toEqual({ von: '2026-10-10', bis: '2026-10-16' });
+    expect(zeitraumVorschlag('woche', ausIso('2026-11-22'))).toEqual({ von: '2026-11-22', bis: '2026-11-27' });
+    expect(zeitraumVorschlag('zwei', ausIso('2026-11-22'))).toEqual({ von: '2026-11-22', bis: '2026-12-04' });
   });
 
   it('zählt nur Montag bis Freitag als Arbeitstage', () => {

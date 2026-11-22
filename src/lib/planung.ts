@@ -118,10 +118,10 @@ export function halbtagSpuren<T extends Zeitraum & { id: string; beginn_min?: nu
 
 export type Schnellwahl = 'tag' | 'woche' | 'zwei' | 'vier';
 
-/** Freitag derselben Woche (Sa/So: der Tag selbst — am Wochenende plant man nicht «bis Freitag»). */
+/** Freitag derselben Woche; Sa/So: der nächste Freitag (sonst wäre «Bis Freitag» gleich «Nur dieser Tag», 22.11.2026). */
 function freitagVon(d: Date): Date {
   const wt = (d.getDay() + 6) % 7; // Mo = 0
-  return wt <= 4 ? addTage(d, 4 - wt) : d;
+  return addTage(d, wt <= 4 ? 4 - wt : 11 - wt);
 }
 
 /** Schnellwahl ab einem Tag: nur dieser Tag, bis Freitag, zwei oder vier Wochen (jeweils bis Freitag). */
