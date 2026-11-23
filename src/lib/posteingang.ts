@@ -117,23 +117,27 @@ function personZeile(name: string, vor: Record<string, unknown> | null, nach: Re
 function planZeilen(e: Eintrag): string[] {
   const posten = postenVon(e);
   const baustellen = posten.filter(([k]) => k.startsWith('b:'));
-  const z: string[] = [];
+  // Baustellen nach Beginnzeit (ohne Zeit = am Morgen), nicht «Neu» vor «geändert» (23.11.2026: 13:00 stand vor 7:00)
+  const gruppen: { zeit: number; zeilen: string[] }[] = [];
+  const zeitVon = (p: Posten) => zahl((obj(p.nachher) ?? obj(p.vorher))?.beginn) ?? 0;
   const weg = baustellen.filter(([, p]) => obj(p.vorher) && !obj(p.nachher));
   const neu = baustellen.filter(([, p]) => !obj(p.vorher) && obj(p.nachher));
   const name = (p: Posten) => text(obj(p.nachher)?.baustelle) ?? text(obj(p.vorher)?.baustelle) ?? text(p.titel) ?? 'Baustelle';
   if (weg.length === 1 && neu.length === 1) {
-    z.push(`${name(neu[0][1])} statt ${name(weg[0][1])}${einsatzDetails(obj(neu[0][1].nachher)!)}`);
+    gruppen.push({ zeit: zeitVon(neu[0][1]), zeilen: [`${name(neu[0][1])} statt ${name(weg[0][1])}${einsatzDetails(obj(neu[0][1].nachher)!)}`] });
   } else {
-    for (const [, p] of neu) z.push(`Neu: ${name(p)}${einsatzDetails(obj(p.nachher)!)}`);
-    for (const [, p] of weg) z.push(`Fällt weg: ${name(p)}`);
+    for (const [, p] of neu) gruppen.push({ zeit: zeitVon(p), zeilen: [`Neu: ${name(p)}${einsatzDetails(obj(p.nachher)!)}`] });
+    for (const [, p] of weg) gruppen.push({ zeit: zeitVon(p), zeilen: [`Fällt weg: ${name(p)}`] });
   }
   const geaendert = baustellen.filter(([, p]) => obj(p.vorher) && obj(p.nachher));
   for (const [, p] of geaendert) {
     const aenderungen = einsatzAenderungen(obj(p.vorher)!, obj(p.nachher)!);
     // Mehrere Baustellen im Bündel: sagen, welche gemeint ist
     const vor = baustellen.length > 1 ? `${name(p)}: ` : '';
-    for (const a of aenderungen) z.push(vor + a);
+    gruppen.push({ zeit: zeitVon(p), zeilen: aenderungen.map((a) => vor + a) });
   }
+  // sort ist stabil: bei gleicher Zeit bleibt Neu → Fällt weg → geändert
+  const z: string[] = gruppen.sort((x, y) => x.zeit - y.zeit).flatMap((g) => g.zeilen);
   for (const [k, p] of posten) {
     if (!k.startsWith('m:')) continue;
     const s = personZeile(text(p.titel) ?? 'Jemand', obj(p.vorher), obj(p.nachher));

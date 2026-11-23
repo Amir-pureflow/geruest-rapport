@@ -57,6 +57,14 @@ describe('eintragText · Plan des Teams', () => {
     expect(t.zeilen).toEqual(['Neu: Kramgasse 41', 'Brünnenpark: Beginn wieder wie immer', 'Brünnenpark: Hinweis entfernt']);
   });
 
+  it('mehrere Baustellen nach Beginnzeit, nicht «Neu» zuerst', () => {
+    const t = eintragText(eintrag({ inhalt: { posten: {
+      'b:a': { vorher: null, nachher: ort('Stauffacherstrasse 62', { beginn: 780 }) },
+      'b:b': { vorher: ort('Schosshaldenstrasse 44', { beginn: 390 }), nachher: ort('Schosshaldenstrasse 44', { beginn: 420 }) },
+    } } }), HEUTE);
+    expect(t.zeilen).toEqual(['Schosshaldenstrasse 44: Beginn 7:00 statt 6:30', 'Neu: Stauffacherstrasse 62 (ab 13:00)']);
+  });
+
   it('Leute: dazu, weg, zurück, fehlt, doch da, nicht mehr eingeteilt', () => {
     const t = eintragText(eintrag({ inhalt: { posten: {
       'm:1': { titel: 'Marco Keller', vorher: { s: 'nicht' }, nachher: { s: 'da' }, zeit: '1' },
