@@ -12,7 +12,7 @@ import { alleOderFehler, stuecke } from '../lib/abfrage';
 import { useAuffrischen, useNeuesteAnfrage } from '../lib/auffrischen';
 import { addTage, ausIso, iso, kurz, kw, lang, montag, WOCHENTAGE } from '../lib/datum';
 import {
-  arbeitstage, besetzung, beginnFuerRest, ersatzVorschlaege, halbtagSpuren, heuteUndNaechster, istBalken, konflikte, konflikteBuendeln, naechsterTeamName, ohneTag, planAm, planIst, spuren, ueberschneiden, zeitraumVorschlag,
+  arbeitstage, besetzung, beginnFuerRest, ersatzVorschlaege, halbtagSpuren, heuteUndNaechster, spaeterBeginnAllein, istBalken, konflikte, konflikteBuendeln, naechsterTeamName, ohneTag, planAm, planIst, spuren, ueberschneiden, zeitraumVorschlag,
   type FehltGemeldet, type KonfliktBlock, type Schnellwahl, type TagesBesetzung, type VerlaufZeile, type Versetzung, type Zeitraum,
 } from '../lib/planung';
 import { artText, werktage } from '../lib/abwesenheit';
@@ -112,7 +112,7 @@ function freitagVon(tag: string): string {
   return wt <= 4 ? iso(addTage(d, 4 - wt)) : tag;
 }
 
-const SPUR_HOEHE = 40;
+const SPUR_HOEHE = 46;
 /** Teamspalte: am Handy schmal, am PC mit Platz für die Namen — als CSS-Variable, damit Raster und Mindestbreite mitgehen */
 const TEAM_SPALTE_KLASSE = '[--team:152px] md:[--team:250px]';
 
@@ -827,10 +827,16 @@ export function Planung() {
                       {balken.map(({ plan, spur, ab, bis, links, rechts }) => {
                         const f = farbeVon(plan.baustelle?.id ?? plan.id);
                         const name = plan.baustelle?.bezeichnung || 'Baustelle';
-                        // Der Einsatz, von dem man kommt: blauer Rahmen (Umriss, damit die Farbe des Balkens bleibt)
-                        // Wochenraster wieder im alten Look (21.11.2026, Amir) — Kopfzeile und Dialoge bleiben neu
-                        const mehrTage = halb ? bis - ab >= 2 : bis > ab;
+                        // Der Einsatz, von dem man kommt: blauer Rahmen
                         const balkenMarkiert = teamMarkiert && !!mark?.baustelle && plan.baustelle?.id === mark.baustelle && plan.von <= mark.tag && plan.bis >= mark.tag;
+                        // Konzept A (21.11.2026): weisser Balken, Baustellenfarbe nur als Streifen links, Uhrzeit vorne.
+                        // Schmal (ein Tag, in Halbtagen bis ein Tag) = Uhrzeit über dem Namen
+                        const eng = halb ? bis - ab <= 1 : bis === ab;
+                        const zeit = plan.beginn_min != null ? uhrzeit(plan.beginn_min) : null;
+                        // Hinweis (21.11.2026): Beginn am Nachmittag, aber an diesen Tagen die einzige Baustelle — meist ein Überbleibsel
+                        const allein = ansicht === 'ist' ? [] : spaeterBeginnAllein(plan, anzeigePlaene.filter((x) => x.team_id === team.id), startIso, anzahlTage);
+                        const alleinText = allein.length ? `Beginn ${zeit}, aber ${allein.map((t) => tagKurz(ausIso(t))).join(', ')} die einzige Baustelle — stimmt die Zeit?` : null;
+                        const tagIndex = (k: number) => (halb ? Math.floor((ab + k) / 2) : ab + k);
                         return (
                           <button
                             key={plan.id + '-' + ab}
@@ -840,26 +846,36 @@ export function Planung() {
                               const r = e.currentTarget.getBoundingClientRect();
                               const n = bis - ab + 1;
                               const k = Math.min(n - 1, Math.max(0, Math.floor((e.clientX - r.left) / (r.width / n))));
-                              setTagWahl({ teamId: team.id, datum: iso(addTage(start, halb ? Math.floor((ab + k) / 2) : ab + k)) });
+                              setTagWahl({ teamId: team.id, datum: iso(addTage(start, tagIndex(k))) });
                             }}
-                            title={[`${name} · ${plan.baustelle?.konto_nr ?? ''}${ansicht === 'ist' && lesend ? ' · gemeldet' : ''}`, felderText(plan), plan.hinweis && `«${plan.hinweis}»`].filter(Boolean).join('\n')}
-                            aria-label={`${team.bezeichnung}: ${name}, ${lang(ausIso(plan.von))} bis ${lang(ausIso(plan.bis))} — Tag öffnen`}
+                            title={[`${name} · ${plan.baustelle?.konto_nr ?? ''}${ansicht === 'ist' && lesend ? ' · gemeldet' : ''}`, felderText(plan), plan.hinweis && `«${plan.hinweis}»`, alleinText].filter(Boolean).join('\n')}
+                            aria-label={`${team.bezeichnung}: ${zeit ? `ab ${zeit}, ` : ''}${name}, ${lang(ausIso(plan.von))} bis ${lang(ausIso(plan.bis))} — Tag öffnen`}
                             style={{ gridColumn: `${ab + 1} / ${bis + 2}`, gridRow: spur + 1 }}
                             className={
-                              'relative z-10 mx-1 flex min-w-0 items-center gap-2 bg-gradient-to-br px-2.5 text-left ring-1 shadow-[0_1px_2px_rgb(17_17_19/0.05),0_6px_14px_-10px_rgb(17_17_19/0.35)] transition hover:-translate-y-px hover:shadow-[0_1px_2px_rgb(17_17_19/0.05),0_12px_22px_-12px_rgb(17_17_19/0.45)] ' +
-                              f.balken + ' ' + (links ? 'rounded-l-[4px]' : 'rounded-l-[10px]') + ' ' + (rechts ? 'rounded-r-[4px]' : 'rounded-r-[10px]') +
+                              'relative z-10 mx-1 flex min-w-0 overflow-hidden border border-line bg-white pr-2 text-left text-ink shadow-[0_1px_2px_rgb(40_30_20/0.05)] transition hover:-translate-y-px hover:shadow-[0_1px_2px_rgb(40_30_20/0.05),0_10px_20px_-12px_rgb(40_30_20/0.35)] ' +
+                              (eng ? 'flex-col justify-center gap-px pl-2.5 ' : 'items-center gap-2 pl-3 ') +
+                              (links ? 'rounded-l-[4px]' : 'rounded-l-[10px]') + ' ' + (rechts ? 'rounded-r-[4px]' : 'rounded-r-[10px]') +
                               (balkenMarkiert ? ' outline-2 outline-offset-2 outline-steel' : '')
                             }
                           >
-                            {links && <span className="-ml-1 text-xs opacity-60" aria-hidden="true">‹</span>}
-                            {mehrTage && <span className={'h-2 w-2 shrink-0 rounded-full ' + f.punkt} aria-hidden="true" />}
-                            {/* Eintägige Einsätze: Name auf zwei Zeilen statt «Wohnüber…» */}
-                            <span className={'min-w-0 font-semibold ' + (mehrTage ? 'truncate text-[12.5px]' : 'line-clamp-2 text-[11px] leading-[1.15] [overflow-wrap:anywhere]')}>{name}</span>
-                            {/* Hinweis fürs Team (0049): kleines Zeichen, der Text steht im Tooltip und im Tag */}
-                            {plan.hinweis && <MessageSquareText size={12} className="shrink-0 opacity-70" aria-label="mit Hinweis" />}
-                            {/* Kontonummer erst ab drei Tagen — bei kürzeren Balken ginge sonst der Name unter */}
-                            {(halb ? bis - ab >= 5 : bis - ab >= 2) && <span className="ml-auto hidden shrink-0 font-mono text-[11px] opacity-70 lg:inline">{plan.baustelle?.konto_nr}</span>}
-                            {rechts && <span className="-mr-1 text-xs opacity-60" aria-hidden="true">›</span>}
+                            <span className={'absolute inset-y-0 left-0 w-[3px] ' + f.punkt} aria-hidden="true" />
+                            {links && <span className="-ml-1 text-xs text-ink3" aria-hidden="true">‹</span>}
+                            {eng ? (
+                              <>
+                                {zeit && <span className={'text-[12px] font-bold leading-none tabular-nums ' + (alleinText ? 'text-amber-deep' : 'text-ink')}>{zeit}{alleinText && ' ?'}</span>}
+                                <span className={'min-w-0 font-semibold text-ink2 [overflow-wrap:anywhere] ' + (zeit ? 'truncate text-[12.5px] leading-tight' : 'line-clamp-2 text-[12.5px] leading-[1.15]')}>{name}</span>
+                              </>
+                            ) : (
+                              <>
+                                {zeit && <span className={'shrink-0 rounded-[7px] px-1.5 py-0.5 text-[12.5px] font-bold tabular-nums ' + (alleinText ? 'bg-amber-soft text-amber-deep' : 'bg-surface-2 text-ink')}>{zeit}{alleinText && ' ?'}</span>}
+                                <span className="min-w-0 truncate text-[14px] font-semibold text-ink2">{name}</span>
+                                {/* Hinweis fürs Team (0049): kleines Zeichen, der Text steht im Tooltip und im Tag */}
+                                {plan.hinweis && <MessageSquareText size={12} className="shrink-0 text-ink3" aria-label="mit Hinweis" />}
+                                {/* Kontonummer erst ab drei Tagen — bei kürzeren Balken ginge sonst der Name unter */}
+                                {(halb ? bis - ab >= 5 : bis - ab >= 2) && <span className="ml-auto hidden shrink-0 font-mono text-[11px] text-ink3 lg:inline">{plan.baustelle?.konto_nr}</span>}
+                              </>
+                            )}
+                            {rechts && <span className="-mr-1 ml-auto text-xs text-ink3" aria-hidden="true">›</span>}
                           </button>
                         );
                       })}
@@ -897,7 +913,7 @@ export function Planung() {
                         // Ein geplanter Tag ohne Leute zeigt dagegen «0» (steht auch in «Zu lösen»).
                         const leer = ((n === 0 && !geplantHier) || (istFrei(d) && !geplantHier)) && pillen.length === 0;
                         // Personenzahl nur, wenn sie vom Team abweicht (Konzept A, 21.11.2026) — sonst stand fünfmal «3» da
-                        const zahlZeigen = true;
+                        const zahlZeigen = n !== fest.length || n === 0;
                         const zelleMarkiert = teamMarkiert && dIso === mark?.tag;
                         // Wetter an den Baustellen des Teams (nur mit Ort — ohne Ort steht das Gebiet oben im Kopf)
                         const wetterHier = einsaetzeHier.map((p) => (p.baustelle ? wetter.ort.get(`${p.baustelle.id}|${dIso}`) : undefined)).filter((w): w is WetterTag => !!w);
@@ -912,7 +928,7 @@ export function Planung() {
                                 {zuLoesen && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-amber" title="zu lösen — siehe oben" aria-hidden="true" />}
                                 <WetterWarnung liste={wetterWarn} ort={einsaetzeHier.map((p) => p.baustelle?.bezeichnung || 'Baustelle').join(', ')} />
                                 {zahlZeigen && (
-                                  <span className={'inline-flex items-center gap-0.5 ' + 'text-ink3'} title={`${n} ${n === 1 ? 'Person' : 'Leute'} an diesem Tag (Team: ${fest.length})`}>
+                                  <span className={'inline-flex items-center gap-0.5 ' + (n < fest.length ? 'font-semibold text-amber-deep' : 'text-ink3')} title={`${n} ${n === 1 ? 'Person' : 'Leute'} an diesem Tag (Team: ${fest.length})`}>
                                     <Users size={11} aria-hidden="true" /><span>{n}</span>
                                   </span>
                                 )}
@@ -941,7 +957,8 @@ export function Planung() {
           ) : (
             <>
               <span>Tag antippen = Leute und Baustelle für diesen Tag</span>
-              <span className="inline-flex items-center gap-1"><Users size={11} aria-hidden="true" /> Leute an dem Tag</span>
+              <span><b className="font-bold tabular-nums text-ink">7:00</b> Beginn</span>
+              <span className="inline-flex items-center gap-1"><Users size={11} aria-hidden="true" /> Leute — nur wenn es nicht das ganze Team ist</span>
               <span className="inline-flex items-center gap-1"><span className="h-1.5 w-1.5 rounded-full bg-amber" aria-hidden="true" /> zu lösen</span>
               <span><b className="rounded-full bg-good-soft px-1.5 text-good-deep">+ Name</b> für den Tag dazu</span>
               <span><b className="rounded-full bg-amber-soft px-1.5 text-amber-deep">− Name</b> in einem anderen Team</span>
