@@ -1012,7 +1012,9 @@ export function Cockpit() {
                     const tag = z.tage.find((t) => t.datum === offen!.datum);
                     if (!tag) return null;
                     const faelle = verdachtsfaelle.filter((f) => (f.meldung.team?.id ?? OHNE_TEAM) === z.team.id && f.meldung.datum === offen!.datum);
-                    const baustellen = [...new Map(detail.filter((e) => e.tagesmeldung.baustelle).map((e) => [e.tagesmeldung.baustelle!.konto_nr, e.tagesmeldung.baustelle!])).values()];
+                    // Nach Uhrzeit, nicht nach Meldereihenfolge (23.11.2026: Nachmittags-Baustelle stand oben)
+                    const beginn = (e: (typeof detail)[number]) => ausSpalten(e)[0]?.von ?? 24 * 60;
+                    const baustellen = [...new Map([...detail].sort((x, y) => beginn(x) - beginn(y)).filter((e) => e.tagesmeldung.baustelle).map((e) => [e.tagesmeldung.baustelle!.konto_nr, e.tagesmeldung.baustelle!])).values()];
                     const mehrereBaustellen = baustellen.length > 1;
                     const personenN = new Set(detail.map((e) => e.mitarbeiter.id)).size;
                     // Fotos jeder Meldung des Tages — bisher nur bei Hinweisen sichtbar (11.11.2026, Amir: «warum steht 1 Foto»).
@@ -1037,7 +1039,7 @@ export function Cockpit() {
                             Darunter je Eintrag eine Zeile: erst der normale Tag, dann Zusatzarbeit — jede mit eigener Korrektur. */}
                         <div className="divide-y divide-line rounded-[12px] border border-line">
                           {[...detail.reduce((m, e) => m.set(e.mitarbeiter.id, [...(m.get(e.mitarbeiter.id) ?? []), e]), new Map<string, typeof detail>()).values()].map((eintraege) => {
-                            const reihe = [...eintraege].sort((a, b) => Number(b.tagesmeldung.normalfall) - Number(a.tagesmeldung.normalfall));
+                            const reihe = [...eintraege].sort((a, b) => Number(b.tagesmeldung.normalfall) - Number(a.tagesmeldung.normalfall) || beginn(a) - beginn(b));
                             const person = reihe[0].mitarbeiter;
                             return (
                               <div key={person.id} className="space-y-1.5 px-3 py-2">
