@@ -268,20 +268,31 @@ export function planAm(jetzt: PlanStand[], verlauf: VerlaufZeile[], zeitpunkt: s
   return [...stand.values()];
 }
 
-/** Gemeldete Tage → Balken: dieselbe Baustelle an aufeinanderfolgenden Daten ist ein Balken. */
-export function istBalken(tage: { team_id: string; datum: string; baustelle_id: string }[]): PlanStand[] {
-  const einmal = [...new Map(tage.map((t) => [`${t.team_id}|${t.baustelle_id}|${t.datum}`, t])).values()]
+/**
+ * Gemeldete Tage → Balken: dieselbe Baustelle an aufeinanderfolgenden Daten ist ein Balken. `beginn_min` = gemeldeter
+ * Beginn (früheste Zeit des Tages); der Balken zeigt ihn, wenn er an allen seinen Tagen gleich ist (23.11.2026).
+ */
+export function istBalken(tage: { team_id: string; datum: string; baustelle_id: string; beginn_min?: number | null }[]): (PlanStand & { beginn_min: number | null })[] {
+  const jeTag = new Map<string, { team_id: string; datum: string; baustelle_id: string; beginn_min: number | null }>();
+  for (const t of tage) {
+    const k = `${t.team_id}|${t.baustelle_id}|${t.datum}`;
+    const alt = jeTag.get(k);
+    const b = t.beginn_min ?? null;
+    jeTag.set(k, { ...t, beginn_min: alt ? (alt.beginn_min === null ? b : b === null ? alt.beginn_min : Math.min(alt.beginn_min, b)) : b });
+  }
+  const einmal = [...jeTag.values()]
     .sort((a, b) => a.team_id.localeCompare(b.team_id) || a.baustelle_id.localeCompare(b.baustelle_id) || a.datum.localeCompare(b.datum));
-  const out: PlanStand[] = [];
+  const out: (PlanStand & { beginn_min: number | null; gleich: boolean })[] = [];
   for (const t of einmal) {
     const letzter = out[out.length - 1];
     if (letzter && letzter.team_id === t.team_id && letzter.baustelle_id === t.baustelle_id && iso(addTage(ausIso(letzter.bis), 1)) === t.datum) {
       letzter.bis = t.datum;
+      if (letzter.beginn_min !== t.beginn_min) letzter.gleich = false;
     } else {
-      out.push({ id: `ist|${t.team_id}|${t.baustelle_id}|${t.datum}`, team_id: t.team_id, baustelle_id: t.baustelle_id, von: t.datum, bis: t.datum });
+      out.push({ id: `ist|${t.team_id}|${t.baustelle_id}|${t.datum}`, team_id: t.team_id, baustelle_id: t.baustelle_id, von: t.datum, bis: t.datum, beginn_min: t.beginn_min, gleich: true });
     }
   }
-  return out;
+  return out.map(({ gleich, ...p }) => ({ ...p, beginn_min: gleich ? p.beginn_min : null }));
 }
 
 export interface EinteilungsGruppe {

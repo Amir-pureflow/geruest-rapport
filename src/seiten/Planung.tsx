@@ -2,7 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { gemerkt, merken } from '../lib/merker';
 import * as Doppelt from '../lib/doppelt';
 import { useSearchParams } from 'react-router-dom';
-import { Archive, ArrowRightLeft, CalendarDays, CalendarPlus, ChevronLeft, ChevronRight, CircleCheck, History, Info, MapPin, MessageSquareText, MousePointerClick, Pencil, Plus, Search, Trash2, TriangleAlert, Undo2, Users, X } from 'lucide-react';
+import { Archive, ArrowRightLeft, CalendarDays, CalendarPlus, ChevronLeft, ChevronRight, History, Info, MapPin, MessageSquareText, MousePointerClick, Pencil, Plus, Search, Trash2, TriangleAlert, Undo2, Users, X } from 'lucide-react';
 import { Shell } from '../ui/Shell';
 import { Dialog, Avatar } from '../ui/Dialog';
 import { Auswahl } from '../ui/Auswahl';
@@ -57,7 +57,7 @@ interface EinsatzFelder { soll_leute?: number | null; beginn_min?: number | null
 interface Plan extends EinsatzFelder { id: string; team_id: string | null; von: string; bis: string; baustelle: Baustelle | null }
 interface Person { id: string; name: string; funktion: string }
 interface Mitglied { team_id: string; mitarbeiter: (Person & { aktiv: boolean }) | null }
-interface IstZeile { team_id: string | null; datum: string; baustelle: { id: string; konto_nr: string; bezeichnung: string | null } | null; zeiteintrag: { mitarbeiter_id: string }[] }
+interface IstZeile { team_id: string | null; datum: string; baustelle: { id: string; konto_nr: string; bezeichnung: string | null } | null; zeiteintrag: { mitarbeiter_id: string; von_min?: number | null }[] }
 interface Abw { datum: string; mitarbeiter_id: string; art: string }
 
 /** Ruhige Töne je Baustelle — dieselbe Baustelle hat in jeder Woche dieselbe Farbe. */
@@ -255,7 +255,7 @@ export function Planung() {
       alleOderFehler<Versetzung>((von, bis) => c.from('einsatz_person').select('datum,mitarbeiter_id,team_id').gte('datum', startIso).lte('datum', endeIso).order('id').range(von, bis)),
       alleOderFehler<Abw>((von, bis) => c.from('abwesenheit').select('datum,mitarbeiter_id,art').gte('datum', startIso).lte('datum', endeIso).order('id').range(von, bis)),
       mitVergangenem
-        ? alleOderFehler<IstZeile>((von, bis) => c.from('tagesmeldung').select('team_id,datum,baustelle:baustelle_id(id,konto_nr,bezeichnung),zeiteintrag(mitarbeiter_id)').gte('datum', startIso).lte('datum', istBis).order('id').range(von, bis))
+        ? alleOderFehler<IstZeile>((von, bis) => c.from('tagesmeldung').select('team_id,datum,baustelle:baustelle_id(id,konto_nr,bezeichnung),zeiteintrag(mitarbeiter_id,von_min)').gte('datum', startIso).lte('datum', istBis).order('id').range(von, bis))
         : Promise.resolve({ data: [] as IstZeile[], error: null }),
       mitVergangenem
         ? alleOderFehler<VerlaufZeile>((von, bis) => c.from('plan_verlauf').select('tabelle,datensatz_id,aktion,vorher,nachher,zeit').eq('tabelle', 'jahresplan').gte('zeit', montagFrueh.toISOString()).order('zeit').order('id').range(von, bis))
@@ -387,8 +387,10 @@ export function Planung() {
   const anzeigePlaene: Plan[] = useMemo(() => {
     if (ansicht === 'plan' || !mitVergangenheit) return plaene;
     if (ansicht === 'montag') return montagPlaene;
-    return istBalken(ist.filter((z) => z.team_id && z.baustelle).map((z) => ({ team_id: z.team_id!, datum: z.datum, baustelle_id: z.baustelle!.id })))
-      .map((p) => ({ id: p.id, team_id: p.team_id, von: p.von, bis: p.bis, baustelle: baustelleVon(p.baustelle_id) }));
+    // Gemeldeter Beginn = früheste Zeit der Meldung (23.11.2026: vorher ohne Uhrzeit, obwohl der Plan eine hatte)
+    const fruehste = (z: IstZeile) => z.zeiteintrag.reduce<number | null>((m, e) => (e.von_min == null ? m : m === null ? e.von_min : Math.min(m, e.von_min)), null);
+    return istBalken(ist.filter((z) => z.team_id && z.baustelle).map((z) => ({ team_id: z.team_id!, datum: z.datum, baustelle_id: z.baustelle!.id, beginn_min: fruehste(z) })))
+      .map((p) => ({ id: p.id, team_id: p.team_id, von: p.von, bis: p.bis, beginn_min: p.beginn_min, baustelle: baustelleVon(p.baustelle_id) }));
   }, [ansicht, mitVergangenheit, plaene, montagPlaene, ist, baustelleVon]);
   const lesend = ansicht !== 'plan' && mitVergangenheit;
   const teamName = (id: string | null) => teams.find((t) => t.id === id)?.bezeichnung ?? 'anderes Team';
@@ -641,7 +643,7 @@ export function Planung() {
               <div className="flex schiene max-[699px]:hidden" role="group" aria-label="Tage">
                 {([false, true] as const).map((h) => (
                   <button key={String(h)} type="button" onClick={() => setHalbtage(h)} aria-pressed={halbtage === h} disabled={ansicht === 'ist'}
-                    title={ansicht === 'ist' ? 'Bei «Wirklich gewesen» gibt es keine Uhrzeiten' : undefined}
+                    title={ansicht === 'ist' ? 'Halbtage gibt es nur im Plan, nicht bei «Wirklich gewesen»' : undefined}
                     className={'h-8 px-3.5 text-xs font-semibold transition disabled:opacity-50 ' + (halbtage === h ? 'schiene-an' : '')}>
                     {h ? 'Halbtage' : 'Ganze Tage'}
                   </button>
@@ -691,7 +693,7 @@ export function Planung() {
         {fehler && <p className="rounded-[12px] border border-accent/40 bg-accent-soft px-4 py-3 text-sm text-accent-deep">{fehler}</p>}
         {rueckmeldung && <p className="rounded-[12px] border border-good/30 bg-good-soft px-4 py-2.5 text-sm font-medium text-good-deep" role="status">{rueckmeldung}</p>}
 
-        {/* «alles besetzt» nur, wenn ab heute überhaupt etwas geplant ist — eine leere Woche ist nicht «besetzt» */}
+        {/* «Zu lösen» nur, wenn es Konflikte gibt */}
         {!laedt && !lesend && teams.length > 0 && endeIso >= heuteIso && (konfliktBloecke.length > 0 || plaene.some((p) => p.bis >= heuteIso)) && (
           <ZuLoesen
             liste={konfliktBloecke}
@@ -1052,13 +1054,8 @@ function ZuLoesen({ liste, heuteIso, naechster, teamName, name, baustelle, artAm
 }) {
   const [alle, setAlle] = useState(false);
   const ANZAHL = 5;
-  if (liste.length === 0) {
-    return (
-      <p className="flex items-center gap-2 rounded-[14px] border border-good/25 bg-good-soft/60 px-4 py-2.5 text-sm text-good-deep" role="status">
-        <CircleCheck size={16} aria-hidden="true" /> Ab heute alles besetzt — nichts zu lösen in dieser Ansicht.
-      </p>
-    );
-  }
+  // Nichts zu lösen: kein Kasten (23.11.2026, Amir: «entfern das») — nur wenn es etwas gibt, steht hier etwas
+  if (liste.length === 0) return null;
   const vorname = (id: string) => name(id).split(' ')[0];
   const zeile = (k: KonfliktBlock): { text: string; zusatz?: string; knoepfe: { text: string; aktion: () => void; haupt?: boolean; titel?: string }[] } => {
     const team = teamName(k.team_id);

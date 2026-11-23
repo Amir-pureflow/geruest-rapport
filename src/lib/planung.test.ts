@@ -197,6 +197,15 @@ describe('istBalken — gemeldete Tage zu Balken', () => {
     ]);
     expect(b.map((x) => `${x.baustelle_id} ${x.von}–${x.bis}`)).toEqual(['eig 2026-10-05–2026-10-06', 'eig 2026-10-08–2026-10-08', 'vik 2026-10-07–2026-10-07', 'vik 2026-10-09–2026-10-09']);
   });
+  it('gemeldeter Beginn: früheste Zeit je Tag, am Balken nur wenn an allen Tagen gleich', () => {
+    const b = istBalken([
+      { team_id: 't1', datum: '2026-11-23', baustelle_id: 'a', beginn_min: 420 },
+      { team_id: 't1', datum: '2026-11-23', baustelle_id: 'a', beginn_min: 405 },
+      { team_id: 't1', datum: '2026-11-23', baustelle_id: 'b', beginn_min: 765 },
+      { team_id: 't1', datum: '2026-11-24', baustelle_id: 'b', beginn_min: 420 },
+    ]);
+    expect(b.map((x) => `${x.baustelle_id} ${x.beginn_min}`)).toEqual(['a 405', 'b null']);
+  });
 });
 
 describe('einteilungenBuendeln — «bis Freitag» als eine Zeile', () => {
