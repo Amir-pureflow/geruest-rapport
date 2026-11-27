@@ -1,0 +1,4 @@
+supabase/migrations/
+supabase/functions/
+supabase/.temp/
+supabase/.branches/
