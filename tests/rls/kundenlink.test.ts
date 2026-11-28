@@ -48,17 +48,25 @@ describe('Kunden-Link: was er zeigt', () => {
     expect(await r.text()).toMatch(/Link ist ungültig/);
   });
 
-  it.fails('BEKANNTER FEHLER (Entscheid Amir: Kunde soll keine Namen sehen): der Link zeigt Namen und Stunden einzelner Mitarbeitender — das PDF zeigt bewusst nur Tarifklassen', async () => {
+  it('Link zeigt nur Tarifklassen, keine Namen (Entscheid Amir, behoben 28.11.2026)', async () => {
     const d = await (await holen(F.A.token)).json();
-    expect(JSON.stringify(d.positionen)).not.toMatch(/Chef A|Monteur A|Temp A/);
+    expect(JSON.stringify(d)).not.toMatch(/Chef A|Monteur A|Temp A/);
+    expect(d.positionen.map((p: { bezeichnung: string }) => p.bezeichnung)).toEqual([
+      'Gruppenleiter/in · 8.75 h', 'Gerüstmonteur/in · 17.50 h', 'Etappenzuschlag', 'Lieferwagen bis 3,5 t · 1.00 h', 'Materialmiete (9 % pro Monat)',
+    ]);
+    expect(d.positionen.map((p: { betrag_rappen: number }) => p.betrag_rappen)).toEqual([105875, 189000, 28000, 16500, 30544]);
   });
 
-  it.fails('BEKANNTER FEHLER: Kopf-Betrag und Positionen können auseinanderlaufen — der Link zeigt beides ungeprüft', async () => {
-    // Nachstellen, was RegieDetail.betragAktualisieren bei einem Abbruch hinterlässt: Positionen neu, Kopf alt
-    sql(`update regierapport set betrag_rappen = 339375 where id='${F.A.rapport}';`);
+  it('Veralteter Kopf-Betrag: der Link rechnet aus den Zeilen, auf 5 Rappen (behoben 28.11.2026)', async () => {
+    // Alter Stand aus der Zeit vor 0056 (Abbruch in RegieDetail.betragAktualisieren: Positionen neu, Kopf alt).
+    // Heute verhindert die DB das — darum am Trigger vorbei (replica) nachstellen.
+    sql(`set session_replication_role = replica; update regierapport set betrag_rappen = 339375 where id='${F.A.rapport}'; set session_replication_role = origin;`);
+    expect(sql(`select betrag_rappen from regierapport where id='${F.A.rapport}';`)).toBe('339375');
     const d = await (await holen(F.A.token)).json();
     const summe = d.positionen.reduce((s: number, p: { betrag_rappen: number }) => s + p.betrag_rappen, 0);
-    expect(d.betrag_rappen).toBe(summe); // 339375 ≠ 369919
+    expect(summe).toBe(369919);
+    expect(d.betrag_rappen).toBe(369920); // nicht der veraltete Kopf 339375
+    expect(d.rundung_rappen).toBe(1);
   });
 
   it('auch ein Rapport, der gerade überarbeitet wird (Entwurf), zeigt über den alten Link Beträge', async () => {
@@ -66,7 +74,7 @@ describe('Kunden-Link: was er zeigt', () => {
     sql(`update regierapport set status='entwurf' where id='${F.A.rapport}';`);
     const d = await (await holen(F.A.token)).json();
     expect(d.status).toBe('entwurf');
-    expect(d.betrag_rappen).toBe(369919); // heute so — Befund, siehe Bericht
+    expect(d.betrag_rappen).toBe(369920); // im Entwurf rechnet die DB neu: 3'699.19 → 3'699.20 — Befund «Link läuft nie ab» bleibt
   });
 });
 
@@ -106,17 +114,21 @@ describe('Kunden-Link: was der Kunde tun kann', () => {
     expect(sql(`select status from regierapport where id='${F.B.rapport}';`)).toBe('versendet');
   });
 
-  it.fails('BEKANNTER FEHLER: nach der Bestätigung kann das Büro Beträge und Positionen noch ändern', async () => {
+  it('nach der Bestätigung sind Betrag, Positionen und Stand gesperrt (behoben 28.11.2026)', async () => {
     await antworten({ token: F.A.token, aktion: 'bestaetigt' });
     const c = await anmelden('A', 'buero');
-    await c.from('regie_position').update({ betrag_rappen: 999999 }).eq('regierapport_id', F.A.rapport).eq('tarif_code', 'etappe');
-    await c.from('regierapport').update({ betrag_rappen: 1000 }).eq('id', F.A.rapport);
-    // Richtig wäre: bestätigt = eingefroren (oder mindestens festgehalten, was bestätigt wurde)
-    expect(sql(`select betrag_rappen from regierapport where id='${F.A.rapport}';`)).toBe('369919');
+    const e1 = await c.from('regie_position').update({ betrag_rappen: 999999 }).eq('regierapport_id', F.A.rapport).eq('tarif_code', 'etappe');
+    const e2 = await c.from('regierapport').update({ betrag_rappen: 1000 }).eq('id', F.A.rapport);
+    const e3 = await c.from('regierapport').update({ status: 'entwurf' }).eq('id', F.A.rapport);
+    const e4 = await c.from('regie_position').delete().eq('regierapport_id', F.A.rapport);
+    expect([e1.error, e2.error, e3.error, e4.error].every(Boolean)).toBe(true);
+    expect(sql(`select betrag_rappen||'/'||status from regierapport where id='${F.A.rapport}';`)).toBe('369919/bestaetigt');
+    expect(sql(`select sum(betrag_rappen) from regie_position where regierapport_id='${F.A.rapport}';`)).toBe('369919');
   });
 
-  it.fails('BEKANNTER FEHLER: es wird nirgends festgehalten, WELCHER Betrag bestätigt wurde', async () => {
+  it('der bestätigte Betrag wird festgehalten: am Rapport und im Zustellnachweis (behoben 28.11.2026)', async () => {
     await antworten({ token: F.A.token, aktion: 'bestaetigt' });
+    expect(sql(`select bestaetigt_betrag_rappen from regierapport where id='${F.A.rapport}';`)).toBe('369919');
     const log = sql(`select coalesce(detail::text,'') from zustellung_log where regierapport_id='${F.A.rapport}' and ereignis='bestaetigt';`);
     expect(log).toMatch(/369919/);
   });

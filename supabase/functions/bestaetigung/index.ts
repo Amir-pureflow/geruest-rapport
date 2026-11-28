@@ -8,9 +8,13 @@
 //
 // Seit 13.10.2026: bestätigen/zurückfragen nur, solange der Rapport beim Kunden ist (versendet, Rückfrage, Frist
 // abgelaufen) — nicht im Entwurf, auch nicht nach «zurück auf Entwurf». Kommentar höchstens 2000 Zeichen.
+// Seit 28.11.2026 (Prüfung): Positionen nur nach Tarifklasse, ohne Namen der Mitarbeitenden (wie das PDF); Total aus
+// den Zeilen, auf 5 Rappen gerundet; Bestätigen nur, wenn der Stand in DERSELBEN Änderung noch «beim Kunden» ist —
+// die Datenbank hält den bestätigten Betrag fest und sperrt danach Betrag und Positionen (Migration 0056).
 // Fotos und PDF nur aus den Ordnern dieses Rapports bzw. seiner Meldung (siehe ../_shared/zugang.ts).
 import { createClient } from 'npm:@supabase/supabase-js@2';
 import { pfadPasst } from '../_shared/zugang.ts';
+import { gruppieren, totalAusZeilen, type Position } from '../_shared/tarifklassen.ts';
 
 /** In diesen Ständen liegt der Rapport beim Kunden — nur dann zählt seine Antwort. */
 const BEIM_KUNDEN = ['versendet', 'rueckfrage', 'frist_abgelaufen'];
@@ -40,7 +44,7 @@ Deno.serve(async (req) => {
       if (!token) return antwort(400, { fehler: 'token fehlt' });
       const { data: r } = await supa
         .from('regierapport')
-        .select('id, nummer, status, betrag_rappen, versendet_am, frist_bis, empfaenger_email, tagesmeldung_id, beschrieb, pdf_pfad, baustelle:baustelle_id(bezeichnung, konto_nr), tagesmeldung:tagesmeldung_id(datum, client_uuid)')
+        .select('id, nummer, status, betrag_rappen, bestaetigt_betrag_rappen, versendet_am, frist_bis, empfaenger_email, tagesmeldung_id, beschrieb, pdf_pfad, baustelle:baustelle_id(bezeichnung, konto_nr), tagesmeldung:tagesmeldung_id(datum, client_uuid)')
         .eq('link_token', token)
         .single();
       if (!r) return antwort(404, { fehler: 'Dieser Link ist ungültig.' });
@@ -53,9 +57,12 @@ Deno.serve(async (req) => {
       // Positionen — der Kunde soll sehen, wofür er zeichnet
       const { data: pos } = await supa
         .from('regie_position')
-        .select('bezeichnung, betrag_rappen, tarif_code')
+        .select('tarif_code, bezeichnung, menge_hundertstel, ansatz_rappen, betrag_rappen')
         .eq('regierapport_id', r.id)
         .order('tarif_code');
+      const zeilen = (pos ?? []) as Position[];
+      const { personal, rest } = gruppieren(zeilen);
+      const { rundung, total } = totalAusZeilen(zeilen, r.betrag_rappen);
 
       // Fotos: von der Team-Meldung und nachgereichte am Rapport — signierte Links, 1 Stunde
       const { data: fotos } = await supa
@@ -86,14 +93,19 @@ Deno.serve(async (req) => {
         nummer: (r as { nummer?: string | null }).nummer ?? null,
         pdf_url: pdfUrl,
         status: r.status,
-        betrag_rappen: r.betrag_rappen,
+        // Bestätigt → der festgehaltene Betrag; sonst das Total aus den Zeilen (= Kopf, seit 0056 von der DB nachgeführt)
+        betrag_rappen: (r as { bestaetigt_betrag_rappen?: number | null }).bestaetigt_betrag_rappen ?? (zeilen.length ? total : r.betrag_rappen),
+        rundung_rappen: zeilen.length ? rundung : 0,
         versendet_am: r.versendet_am,
         frist_bis: r.frist_bis,
         bezeichnung: bs?.bezeichnung ?? null,
         konto_nr: bs?.konto_nr ?? null,
         datum: tm?.datum ?? null,
         beschrieb: (r as { beschrieb?: string | null }).beschrieb ?? null,
-        positionen: (pos ?? []).map((p: { bezeichnung: string; betrag_rappen: number }) => ({ bezeichnung: p.bezeichnung, betrag_rappen: p.betrag_rappen })),
+        positionen: [...personal, ...rest].map((z) => ({
+          bezeichnung: z.me === 'h' ? `${z.text} · ${(z.menge / 100).toFixed(2)} h` : z.text,
+          betrag_rappen: z.summe,
+        })),
         fotos: fotoUrls,
       });
     }
@@ -119,12 +131,25 @@ Deno.serve(async (req) => {
         aktion === 'bestaetigt'
           ? { status: 'bestaetigt', bestaetigt_am: new Date().toISOString() }
           : { status: 'rueckfrage' };
-      await supa.from('regierapport').update(update).eq('id', r.id);
+      // Nur, wenn der Rapport in DIESEM Moment noch beim Kunden ist (vorher: erst prüfen, dann ohne Bedingung schreiben —
+      // dazwischen konnte das Büro ihn auf Entwurf zurücknehmen). Die DB prüft dasselbe noch einmal (Migration 0056).
+      const { data: geaendert, error: fehlerUpdate } = await supa
+        .from('regierapport')
+        .update(update)
+        .eq('id', r.id)
+        .in('status', BEIM_KUNDEN)
+        .select('id, status, betrag_rappen, bestaetigt_betrag_rappen');
+      if (fehlerUpdate || !geaendert || geaendert.length === 0) {
+        const { data: jetzt } = await supa.from('regierapport').select('status').eq('id', r.id).single();
+        if (jetzt?.status === 'bestaetigt') return antwort(200, { status: 'bestaetigt' });
+        return antwort(409, { fehler: 'Dieser Rapport wird gerade überarbeitet. Sie erhalten ihn neu per Mail.' });
+      }
       await supa.from('zustellung_log').insert({
         regierapport_id: r.id,
         an: r.empfaenger_email ?? 'kunde',
         ereignis: aktion,
-        detail: notiz ? { kommentar: notiz } : null,
+        // Welcher Betrag galt, als der Kunde geantwortet hat — steht im Zustellnachweis (Prüfung 28.11.2026)
+        detail: { ...(notiz ? { kommentar: notiz } : {}), betrag_rappen: geaendert[0].bestaetigt_betrag_rappen ?? geaendert[0].betrag_rappen },
       });
       return antwort(200, { status: update.status });
     }

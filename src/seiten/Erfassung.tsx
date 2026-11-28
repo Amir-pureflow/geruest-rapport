@@ -610,6 +610,8 @@ export function Erfassung() {
   // Sperre gegen Doppeltippen: das Beenden der Aufnahme dauert eine Sekunde, ein zweiter Tipp darf nichts auslösen
   const [speichert, setSpeichert] = useState(false);
   const speichertRef = useRef(false);
+  /** Warnung «schon in einem anderen Team gemeldet» einmal gezeigt — der zweite Druck auf «Tag melden» speichert (28.11.2026) */
+  const zweiTeamsGesehen = useRef('');
   /**
    * Die Abweichung, die gerade in der Warteschlange liegt (Fehler vom 03.10.2026).
    *
@@ -658,7 +660,7 @@ export function Erfassung() {
   const [heuteGemeldet, setHeuteGemeldet] = useState<Gemeldet[]>([]);
   // An diesem Tag schon eine Normalmeldung (egal welche Baustelle) → erst nachfragen, statt still eine zweite anzulegen.
   // `gruende`: warum «ersetzen» nicht geht (13.10.2026, lib/ersetzen.ts) — null, solange die Prüfung läuft; leer = es geht.
-  const [doppelt, setDoppelt] = useState<{ baustellen: string[]; bisherMin: number; neuMin: number; alte: AlteMeldung[]; gruende: string[] | null } | null>(null);
+  const [doppelt, setDoppelt] = useState<{ baustellen: string[]; bisherMin: number; neuMin: number; alte: AlteMeldung[]; gruende: string[] | null; gleicheBaustelle: boolean } | null>(null);
   /** Konnte die App nicht prüfen, was für den Tag schon gemeldet ist? Dann sagen — nicht still so tun, als wäre nichts da. */
   const [pruefFehler, setPruefFehler] = useState(false);
   /** Normalminuten je Person in Meldungen ANDERER Teams an diesem Tag (Gäste, Versetzte) — für Normal/Über */
@@ -1402,11 +1404,32 @@ export function Erfassung() {
     let andereJetzt = andere;
     try { andereJetzt = await andereLaden(dabei.map((p) => p.id)); } catch { /* letzter Stand */ }
 
+    // Dieselbe Person schon in einem ANDEREN Team gemeldet? Dann zählen ihre Stunden zweimal (Prüfung 28.11.2026).
+    // Das kann stimmen (Vormittag hier, Nachmittag dort) — darum nur warnen, einmal; der zweite Druck speichert.
+    if (art === 'normal') {
+      const schonWoanders = dabei.filter((p) => andereJetzt.some((z) => z.mitarbeiter_id === p.id));
+      const schluessel = `${teamId}|${tagIso}|${schonWoanders.map((p) => p.id).sort().join(',')}`;
+      if (schonWoanders.length > 0 && zweiTeamsGesehen.current !== schluessel) {
+        zweiTeamsGesehen.current = schluessel;
+        const namen = schonWoanders.map((p) => p.name).join(', ');
+        setHinweis(`Achtung: ${namen} ${schonWoanders.length === 1 ? 'ist' : 'sind'} an diesem Tag schon in einem anderen Team gemeldet — die Stunden zählen dann zweimal. Wirklich in beiden Teams gearbeitet? Dann nochmals drücken. Sonst ${schonWoanders.length === 1 ? 'die Person' : 'die Personen'} hier abhaken.`);
+        return;
+      }
+    }
+
     if (art === 'normal') {
       const bisher = aktuell.filter((m) => m.normalfall);
       const gleiche = bisher.filter((m) => m.baustelle_id === baustelle.id);
       if (gleiche.some((m) => m.freigegeben)) {
         setHinweis(`Für ${baustelle.bezeichnung ?? baustelle.konto_nr} ist an diesem Tag schon eine Meldung vom Bauführer freigegeben. Änderungen macht der Bauführer in der Wochenübersicht.`);
+        return;
+      }
+      // Eine Meldung je Team, Tag und Baustelle (Entscheid Amir 28.11.2026, DB-Regel 0057): für DIESELBE Baustelle gibt
+      // es kein «Zusätzlich», nur ersetzen. «Zusätzlich» bleibt für eine zweite Baustelle am selben Tag.
+      const zielBaustellen = new Set([baustelle.id, ...(teile ? teile.map((b) => b.id) : [])]);
+      const gleicheBaustelle = bisher.some((m) => zielBaustellen.has(m.baustelle_id));
+      if (modus === 'zusaetzlich' && gleicheBaustelle) {
+        setHinweis(`Für ${baustelle.bezeichnung ?? baustelle.konto_nr} habt ihr an diesem Tag schon gemeldet — «Frühere ersetzen» wählen. Für eine zweite Baustelle zuerst die andere Baustelle antippen.`);
         return;
       }
       if (bisher.length > 0 && modus === 'normal') {
@@ -1418,6 +1441,7 @@ export function Erfassung() {
           neuMin: dabei.reduce((s, p) => { const w = wirksam(anw[p.id]); return s + w.min + w.ueber; }, 0),
           alte,
           gruende: null,
+          gleicheBaustelle,
         });
         const passt = (d: { alte: AlteMeldung[] } | null) => !!d && d.alte === alte;
         void ersetzenPruefen(supabase, alte)
@@ -2306,13 +2330,16 @@ export function Erfassung() {
               <strong>{istHeute ? 'Heute' : 'An diesem Tag'} habt ihr schon gemeldet: {doppelt.baustellen.map(anzeigeName).join(', ')}</strong>
               {' '}— {stunden(doppelt.bisherMin)} h für das Team zusammen.
             </p>
-            {/* «Ersetzen» nur, wenn der Server bestätigt, dass jede frühere Meldung noch unberührt ist (lib/ersetzen.ts) */}
+            {/* «Ersetzen» nur, wenn der Server bestätigt, dass jede frühere Meldung noch unberührt ist (lib/ersetzen.ts).
+                «Zusätzlich» nur für eine ANDERE Baustelle — dieselbe Baustelle zweimal am Tag gibt es nicht (0057). */}
             {doppelt.gruende === null ? (
               <>
                 <p className="text-sm text-ink2">Prüfe, ob die frühere Meldung noch ersetzt werden kann …</p>
-                <button type="button" disabled={speichert} className="btn-ghost w-full py-2.5 text-sm disabled:opacity-70" onClick={() => void speichern('zusaetzlich')}>
-                  Zusätzlich speichern (zweite Baustelle) · dann {stunden(doppelt.bisherMin + doppelt.neuMin)} h
-                </button>
+                {!doppelt.gleicheBaustelle && (
+                  <button type="button" disabled={speichert} className="btn-ghost w-full py-2.5 text-sm disabled:opacity-70" onClick={() => void speichern('zusaetzlich')}>
+                    Zusätzlich speichern (zweite Baustelle) · dann {stunden(doppelt.bisherMin + doppelt.neuMin)} h
+                  </button>
+                )}
               </>
             ) : doppelt.gruende.length === 0 ? (
               <>
@@ -2320,9 +2347,11 @@ export function Erfassung() {
                   Frühere ersetzen
                   <span className="mt-0.5 block text-xs font-normal opacity-90">Am Tag stehen dann {stunden(doppelt.neuMin)} h (Team zusammen).</span>
                 </button>
-                <button type="button" disabled={speichert} className="btn-ghost w-full py-2.5 text-sm disabled:opacity-70" onClick={() => void speichern('zusaetzlich')}>
-                  Zusätzlich speichern (zweite Baustelle) · dann {stunden(doppelt.bisherMin + doppelt.neuMin)} h
-                </button>
+                {!doppelt.gleicheBaustelle && (
+                  <button type="button" disabled={speichert} className="btn-ghost w-full py-2.5 text-sm disabled:opacity-70" onClick={() => void speichern('zusaetzlich')}>
+                    Zusätzlich speichern (zweite Baustelle) · dann {stunden(doppelt.bisherMin + doppelt.neuMin)} h
+                  </button>
+                )}
               </>
             ) : (
               <>
@@ -2333,10 +2362,12 @@ export function Erfassung() {
                   </ul>
                   <p>Änderungen an der früheren Meldung macht der Bauführer in der Wochenübersicht.</p>
                 </div>
-                <button type="button" disabled={speichert} className="cta py-4 disabled:opacity-70" onClick={() => void speichern('zusaetzlich')}>
-                  Zusätzlich speichern (zweite Baustelle)
-                  <span className="mt-0.5 block text-xs font-normal opacity-90">Am Tag stehen dann {stunden(doppelt.bisherMin + doppelt.neuMin)} h (Team zusammen).</span>
-                </button>
+                {!doppelt.gleicheBaustelle && (
+                  <button type="button" disabled={speichert} className="cta py-4 disabled:opacity-70" onClick={() => void speichern('zusaetzlich')}>
+                    Zusätzlich speichern (zweite Baustelle)
+                    <span className="mt-0.5 block text-xs font-normal opacity-90">Am Tag stehen dann {stunden(doppelt.bisherMin + doppelt.neuMin)} h (Team zusammen).</span>
+                  </button>
+                )}
               </>
             )}
             <button type="button" className="btn-ghost w-full py-2.5 text-sm" onClick={() => setDoppelt(null)}>Abbrechen</button>

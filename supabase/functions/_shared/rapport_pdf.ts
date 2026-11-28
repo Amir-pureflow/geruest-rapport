@@ -7,37 +7,9 @@
 import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFImage } from 'npm:pdf-lib@1.17.1';
 import type { SupabaseClient } from 'npm:@supabase/supabase-js@2';
 import { pfadPasst } from './zugang.ts';
+import { chf, gruppieren, totalAusZeilen, type Klassenzeile, type Position } from './tarifklassen.ts';
 
-/** Tarifcodes → Kundenbezeichnung, Einheit, Gruppe (Quelle: fixtures/tarife_sguv_2026.json). */
-const TARIF: Record<string, { text: string; me: string; gruppe: 'personal' | 'fahrzeuge' | 'zuschlag' }> = {
-  bauf: { text: 'Bauführer/in', me: 'h', gruppe: 'personal' },
-  objekt: { text: 'Objektleiter/in', me: 'h', gruppe: 'personal' },
-  gruppe: { text: 'Gruppenleiter/in', me: 'h', gruppe: 'personal' },
-  monteur: { text: 'Gerüstmonteur/in', me: 'h', gruppe: 'personal' },
-  mitarbeiter: { text: 'Gerüstbaumitarbeiter/in', me: 'h', gruppe: 'personal' },
-  lern3: { text: 'Lernende 3. Lehrjahr', me: 'h', gruppe: 'personal' },
-  lern2: { text: 'Lernende 2. Lehrjahr', me: 'h', gruppe: 'personal' },
-  lern1: { text: 'Lernende 1. Lehrjahr', me: 'h', gruppe: 'personal' },
-  lieferwagen_35: { text: 'Lieferwagen bis 3,5 t', me: 'h', gruppe: 'fahrzeuge' },
-  transporter_8: { text: 'Mannschaftstransporter bis 8 Pers.', me: 'h', gruppe: 'fahrzeuge' },
-  lkw_16: { text: 'Lastwagen bis 16 t', me: 'h', gruppe: 'fahrzeuge' },
-  lkw_16_kran: { text: 'Lastwagen bis 16 t mit Kran', me: 'h', gruppe: 'fahrzeuge' },
-  lkw_32: { text: 'Lastwagen bis 32 t', me: 'h', gruppe: 'fahrzeuge' },
-  lkw_32_kran: { text: 'Lastwagen bis 32 t mit Kran', me: 'h', gruppe: 'fahrzeuge' },
-  zug_4wd_6: { text: 'Zugfahrzeug 4WD bis 6 t', me: 'h', gruppe: 'fahrzeuge' },
-  anhaenger_12: { text: 'Anhänger 2-achsig bis 12 t', me: 'h', gruppe: 'fahrzeuge' },
-  etappe: { text: 'Etappenzuschlag', me: 'pa', gruppe: 'zuschlag' },
-  materialmiete: { text: 'Materialmiete (9 % pro Monat)', me: 'pa', gruppe: 'zuschlag' },
-};
-
-const ORDNUNG = ['bauf', 'objekt', 'gruppe', 'monteur', 'mitarbeiter', 'lern3', 'lern2', 'lern1'];
-
-export function chf(rappen: number): string {
-  const v = Math.round(rappen);
-  const ganz = Math.floor(Math.abs(v) / 100).toString().replace(/\B(?=(\d{3})+(?!\d))/g, "'");
-  const rp = (Math.abs(v) % 100).toString().padStart(2, '0');
-  return `${v < 0 ? '-' : ''}${ganz}.${rp}`;
-}
+export { chf };
 function menge(hundertstel: number): string {
   return (hundertstel / 100).toFixed(3);
 }
@@ -47,7 +19,6 @@ function datumCh(iso: string | null | undefined): string {
   return d.toLocaleDateString('de-CH', { timeZone: 'Europe/Zurich', day: '2-digit', month: '2-digit', year: 'numeric' });
 }
 
-interface Position { tarif_code: string; bezeichnung: string; menge_hundertstel: number; ansatz_rappen: number; betrag_rappen: number }
 
 export interface RapportDaten {
   nummer: string | null;
@@ -76,23 +47,6 @@ async function bildEinbetten(doc: PDFDocument, b: Uint8Array): Promise<PDFImage 
     if (b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47) return await doc.embedPng(b);
   } catch { /* weglassen */ }
   return null;
-}
-
-/** Positionen nach Tarifklasse zusammenfassen — der Kunde sieht Klassen, nicht Namen. */
-function gruppieren(positionen: Position[]) {
-  const m = new Map<string, { code: string; menge: number; ansatz: number; summe: number }>();
-  for (const p of positionen) {
-    const e = m.get(p.tarif_code) ?? { code: p.tarif_code, menge: 0, ansatz: p.ansatz_rappen, summe: 0 };
-    e.menge += p.menge_hundertstel;
-    e.summe += p.betrag_rappen;
-    if (!e.ansatz) e.ansatz = p.ansatz_rappen;
-    m.set(p.tarif_code, e);
-  }
-  const alle = [...m.values()];
-  const rang = (c: string) => { const i = ORDNUNG.indexOf(c); return i < 0 ? 99 : i; };
-  const personal = alle.filter((z) => TARIF[z.code]?.gruppe === 'personal').sort((a, b) => rang(a.code) - rang(b.code));
-  const rest = alle.filter((z) => TARIF[z.code]?.gruppe !== 'personal');
-  return { personal, rest };
 }
 
 /** Zeilenumbruch auf Breite. */
@@ -192,16 +146,18 @@ export async function pdfBauen(d: RapportDaten): Promise<Uint8Array> {
   y -= 18;
   t('Regie Tarif 2026/27', cText, y, { f: fett, g: 10 }); y -= 18;
   const { personal, rest } = gruppieren(d.positionen);
-  const zeile = (z: { code: string; menge: number; ansatz: number; summe: number }) => {
-    const info = TARIF[z.code] ?? { text: z.code, me: 'h' };
-    t(info.text, cText, y, { g: 10 }); t(info.me, cMe, y, { g: 10 });
+  const zeile = (z: Klassenzeile) => {
+    t(z.text, cText, y, { g: 10 }); t(z.me, cMe, y, { g: 10 });
     t(menge(z.menge), cMenge, y, { g: 10, rechts: true }); t(chf(z.ansatz), cPreis, y, { g: 10, rechts: true }); t(chf(z.summe), cSumme, y, { g: 10, rechts: true });
     y -= 13;
   };
   if (personal.length) { t('Stundensätze', cText, y, { f: fett, g: 10 }); y -= 14; personal.forEach(zeile); y -= 6; }
   if (rest.length) { t('Kleinmaschinen + Fahrzeuge / Zuschläge', cText, y, { f: fett, g: 10 }); y -= 14; rest.forEach(zeile); y -= 6; }
   y -= 8;
-  const total = d.betrag_rappen ?? d.positionen.reduce((s, p) => s + p.betrag_rappen, 0);
+  // Total immer aus den Zeilen (nicht aus dem Kopf-Betrag), auf 5 Rappen gerundet — Prüfung 28.11.2026: der Kopf
+  // konnte veralten, dann stand unter den Zeilen eine andere Summe. Die Rundung steht als eigene Zeile da.
+  const { rundung, total } = totalAusZeilen(d.positionen, d.betrag_rappen);
+  if (rundung !== 0) { t('Rundung', cText, y, { g: 10 }); t(chf(rundung), cSumme, y, { g: 10, rechts: true }); y -= 14; }
   t('Summe:', cText, y, { f: fett, g: 10 });
   t(chf(total), cSumme, y, { f: fett, g: 10, rechts: true });
   seite.drawLine({ start: { x: cSumme - 80, y: y - 3 }, end: { x: cSumme, y: y - 3 }, thickness: 0.8, color: tinte });

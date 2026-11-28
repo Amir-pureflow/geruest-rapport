@@ -93,6 +93,10 @@ function fehltWas(message: string): string {
  * Gibt zusätzlich zurück, ob der Eintrag je durchkommen kann.
  */
 function fehlerDeuten(err: { code?: string; message: string }): { text: string; endgueltig: boolean } {
+  if (err.code === 'RPD01') {
+    // Migration 0057: je Team, Tag und Baustelle nur EINE Meldung (Entscheid Amir 28.11.2026). Meldung bleibt auf dem Gerät.
+    return { text: 'Für diese Baustelle hat das Team an diesem Tag schon gemeldet (anderes Gerät?). Die Meldung bleibt auf dem Gerät — öffnen und «Frühere ersetzen» wählen oder den Bauführer anrufen.', endgueltig: true };
+  }
   if (err.code === '23503') {
     // Fremdschlüssel: die Meldung zeigt auf ein Team, eine Baustelle oder eine Person, die es auf dem Server nicht (mehr) gibt.
     const was = fehltWas(err.message);

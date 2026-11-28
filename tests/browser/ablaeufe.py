@@ -86,7 +86,8 @@ def tag_melden(browser, w, h):
 
 
 def kunde_bestaetigt(browser, w, h):
-    sql(f"update regierapport set status='versendet', bestaetigt_am=null where link_token='{TOKEN_A}';")
+    # Zurücksetzen am Sperr-Trigger vorbei (bestätigt ist seit 0056 eingefroren) — nur Testvorbereitung
+    sql(f"set session_replication_role = replica; update regierapport set status='versendet', bestaetigt_am=null, bestaetigt_betrag_rappen=null where link_token='{TOKEN_A}'; set session_replication_role = origin;")
     ctx = kontext(browser, w, h)
     page = ctx.new_page()
     page.goto(f'{APP}/b/{TOKEN_A}')
@@ -121,6 +122,33 @@ def excel(browser):
     return pfad
 
 
+def regie_bearbeiten(browser, w, h):
+    """Regie-Entwurf: Etappenzuschlag per Doppelklick weg → DB rechnet Miete und Total nach, nichts doppelt (Reparatur 1)."""
+    rid = 'aaaaaaaa-0000-4000-8000-000000000091'
+    sql(f"""set session_replication_role = replica;
+      update regierapport set status='entwurf', bestaetigt_am=null, bestaetigt_betrag_rappen=null where id='{rid}';
+      insert into regie_position (regierapport_id, tarif_code, bezeichnung, menge_hundertstel, ansatz_rappen, betrag_rappen)
+        select '{rid}', 'etappe', 'Etappenzuschlag', 100, 28000, 28000
+        where not exists (select 1 from regie_position where regierapport_id='{rid}' and tarif_code='etappe');
+      update regie_position set betrag_rappen=30544, ansatz_rappen=30544 where regierapport_id='{rid}' and tarif_code='materialmiete';
+      set session_replication_role = origin;
+      update regierapport set betrag_rappen = 0 where id='{rid}';""")  # letzte Zeile: DB rechnet den Kopf neu (3'699.20)
+    ctx = kontext(browser, w, h)
+    page = ctx.new_page()
+    anmelden(page, 'buero@testbau-a.test', 'bauf')
+    page.goto(APP + '/regie/aaaaaaaa-0000-4000-8000-000000000091')
+    page.get_by_text("3'699.20").first.wait_for(timeout=20000)
+    page.screenshot(path=os.path.join(AUS, f'regie_{w}_vorher.png'), full_page=True)
+    page.get_by_role('button', name='Etappenzuschlag').dblclick()
+    page.wait_for_timeout(3000)
+    page.screenshot(path=os.path.join(AUS, f'regie_{w}_nachher.png'), full_page=True)
+    s = sql("select (select count(*) from regie_position where regierapport_id='aaaaaaaa-0000-4000-8000-000000000091' and tarif_code='etappe')||'/'||betrag_rappen from regierapport where id='aaaaaaaa-0000-4000-8000-000000000091';")
+    # ohne Etappe: 3'113.75 + Miete 280.24 = 3'393.99 → 3'394.00
+    sichtbar = page.get_by_text("3'394.00").count() > 0
+    notiere(f'Regie: Doppelklick Etappe, Total aus der DB ({w}px)', s == '0/339400' and sichtbar, f'DB {s} (erwartet 0/339400), Anzeige 3394.00: {sichtbar}')
+    ctx.close()
+
+
 def zusatzauftrag(browser, w, h):
     ctx = kontext(browser, w, h)
     page = ctx.new_page()
@@ -141,6 +169,8 @@ def main():
         for w, h in [(360, 740), (1366, 860)]:
             kunde_bestaetigt(b, w, h)
         x = excel(b)
+        for w, h in [(390, 844), (1366, 860)]:
+            regie_bearbeiten(b, w, h)
         for w, h in [(390, 844), (1366, 860)]:
             zusatzauftrag(b, w, h)
         b.close()

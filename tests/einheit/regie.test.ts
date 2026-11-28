@@ -5,7 +5,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { positionenAusEintraegen, summe, type RegiePosition } from '../../src/lib/regie';
-import { formatChf, materialmiete, modellfallVersetzen, positionBetrag, tarifNachCode, ETAPPE_MIN_RAPPEN } from '../../src/lib/tarif';
+import { formatChf, materialmiete, modellfallVersetzen, positionBetrag, rund5, tarifNachCode, totalAnzeige, ETAPPE_MIN_RAPPEN } from '../../src/lib/tarif';
 import { pdfBauen, type RapportDaten } from '../../supabase/functions/_shared/rapport_pdf';
 import { zeileMit } from '../ersatz/pdf-lib';
 
@@ -19,16 +19,16 @@ describe('Tarif', () => {
     expect(ETAPPE_MIN_RAPPEN).toBe(28000);                        // Fr. 280.00 pauschal
   });
 
-  it('Modellfall aus dem Konzept: Fr. 955.93', () => {
+  it('Modellfall aus dem Konzept: Fr. 955.93, auf 5 Rappen Fr. 955.95', () => {
     // 2 Monteure × 2.0 h = 4.00 h × 108.00 = 432.00
     // Lieferwagen 1.00 h × 165.00             = 165.00
     // Etappenzuschlag                          = 280.00
     // Zwischensumme                            = 877.00
-    // Materialmiete 9 % von 877.00 = 78.93     →  955.93
+    // Materialmiete 9 % von 877.00 = 78.93     →  955.93 → auf 5 Rappen 955.95
     const r = modellfallVersetzen();
     expect(r.zwischenRappen).toBe(87700);
     expect(r.materialmieteRappen).toBe(7893);
-    expect(formatChf(r.totalRappen)).toBe('Fr. 955.93');
+    expect(formatChf(r.totalRappen)).toBe('Fr. 955.95');
   });
 
   it('Materialmiete rundet auf den Rappen (Zwischenwert, wird erst im Total auf 5 Rappen gerundet)', () => {
@@ -37,10 +37,17 @@ describe('Tarif', () => {
   });
 
   // Entscheid Amir 28.11.2026: Das Total des Regierapports wird auf 5 Rappen gerundet.
-  it.fails("BEKANNTER FEHLER: Total wird nicht auf 5 Rappen gerundet (3'699.19 statt 3'699.20)", () => {
-    // 3'699.19 → nächstes Vielfaches von 0.05 = 3'699.20; 955.93 → 955.95
-    const t = modellfallVersetzen();
-    expect(t.totalRappen % 5).toBe(0);
+  it('Total auf 5 Rappen (behoben 28.11.2026)', () => {
+    // 3'699.19 → 3'699.20 · 955.93 → 955.95 · 12.02 → 12.00 · 12.03 → 12.05 · 0.02 → 0.00
+    expect(modellfallVersetzen().totalRappen % 5).toBe(0);
+    expect([369919, 95593, 1202, 1203, 2, 0].map(rund5)).toEqual([369920, 95595, 1200, 1205, 0, 0]);
+  });
+
+  it('Anzeige: alter, ungerundet versendeter Rapport behält seinen Betrag; veralteter Kopf → Zeilen gelten', () => {
+    expect(totalAnzeige(369919, 369919)).toBe(369919); // vor der Regel versendet (Mail sagte 3'699.19)
+    expect(totalAnzeige(369919, 369920)).toBe(369920); // neu: Kopf von der DB gerundet
+    expect(totalAnzeige(369919, 339375)).toBe(369920); // Kopf veraltet → Zeilen auf 5 Rappen
+    expect(totalAnzeige(369919, null)).toBe(369920);
   });
 });
 
@@ -52,10 +59,11 @@ describe('Positionen aus den Stunden', () => {
     expect(p.betrag_rappen).toBe(8964);
   });
 
-  it.fails('BEKANNTER FEHLER: Beschriftung zeigt «0.8 h», die Menge ist aber 0.83 h', () => {
-    // Bezeichnung rundet auf eine Stelle (toFixed(1)), Menge auf zwei. Auf dem Rapport widersprechen sich die Zahlen.
-    const [p] = positionenAusEintraegen([person('Luan', 'monteur', 50)]);
+  it('Beschriftung = Menge: 50 Min. → «0.83 h», 8.75 h, 8.4 h (behoben 28.11.2026)', () => {
+    const [p, q, r] = positionenAusEintraegen([person('Luan', 'monteur', 50), person('Ana', 'monteur', 525), person('Ben', 'monteur', 504)]);
     expect(p.bezeichnung).toBe('Luan · 0.83 h');
+    expect(q.bezeichnung).toBe('Ana · 8.75 h');
+    expect(r.bezeichnung).toBe('Ben · 8.4 h');
   });
 
   it('Überstunden werden mit demselben Ansatz verrechnet (kein Zuschlag)', () => {
@@ -85,6 +93,7 @@ describe('Positionen aus den Stunden', () => {
     const zwischen = summe(pers) + tarifNachCode('lieferwagen_35').ansatz_rappen + ETAPPE_MIN_RAPPEN;
     expect(zwischen).toBe(339375);
     expect(zwischen + materialmiete(zwischen)).toBe(369919);
+    expect(rund5(zwischen + materialmiete(zwischen))).toBe(369920); // Total auf 5 Rappen
   });
 
   it('Betrag einer Position = Menge × Ansatz, auch bei km-Ansätzen mit Rappen-Rest', () => {
@@ -113,15 +122,17 @@ const teamPositionen = (): RegiePosition[] => {
 };
 
 describe('Regierapport-PDF (echter Baustein)', () => {
-  it('Summe im PDF = Betrag in der App, wenn Kopf und Zeilen übereinstimmen', async () => {
+  it('Alter, vor der 5-Rappen-Regel versendeter Rapport: PDF zeigt weiter den Betrag aus der Mail', async () => {
     const pos = teamPositionen();
     await pdfBauen(rapport(pos, summe(pos)));
     expect(zeileMit('Summe:')).toEqual(['Summe:', "3'699.19"]);
+    expect(zeileMit('Rundung')).toEqual([]);
   });
 
-  it.fails("BEKANNTER FEHLER: PDF-Summe nicht auf 5 Rappen gerundet (Entscheid Amir: 3'699.20)", async () => {
+  it("PDF-Summe auf 5 Rappen mit eigener Rundungszeile: 3'699.19 + 0.01 = 3'699.20 (behoben 28.11.2026)", async () => {
     const pos = teamPositionen();
-    await pdfBauen(rapport(pos, summe(pos)));
+    await pdfBauen(rapport(pos, rund5(summe(pos))));
+    expect(zeileMit('Rundung')).toEqual(['Rundung', '0.01']);
     expect(zeileMit('Summe:')).toEqual(['Summe:', "3'699.20"]);
   });
 
@@ -134,17 +145,24 @@ describe('Regierapport-PDF (echter Baustein)', () => {
     expect(zeileMit('Materialmiete (9 % pro Monat)')).toEqual(['Materialmiete (9 % pro Monat)', 'pa', '1.000', '305.44', '305.44']);
   });
 
-  it.fails('BEKANNTER FEHLER: PDF-Summe folgt dem Kopf-Betrag, nicht den Zeilen', async () => {
+  it('Veralteter Kopf-Betrag: PDF rechnet aus den Zeilen (behoben 28.11.2026)', async () => {
     // Szenario: Bauführer schaltet «Materialmiete» ein; die Zeile wird gespeichert, das Nachführen des Kopf-Betrags
     // (RegieDetail.betragAktualisieren, eigene Anfrage ohne Fehlerprüfung) scheitert oder die App wird geschlossen.
     // Kopf bleibt 3'393.75, Zeilen ergeben 3'699.19 → PDF zeigt 3'393.75 unter Zeilen, die 3'699.19 ergeben.
     const pos = teamPositionen();
     await pdfBauen(rapport(pos, 339375));
-    expect(zeileMit('Summe:')).toEqual(['Summe:', "3'699.19"]);
+    expect(zeileMit('Summe:')).toEqual(['Summe:', "3'699.20"]);
   });
 
-  it.fails('BEKANNTER FEHLER: Funktion ohne Tarifklasse erscheint als Code «buero» mit Einheit h', async () => {
+  it('Funktion ohne Tarifklasse erscheint als Gerüstmonteur/in, nie als Code «buero» (behoben 28.11.2026)', async () => {
     await pdfBauen(rapport(positionenAusEintraegen([person('Sekretärin', 'buero', 60)]), 10800));
     expect(zeileMit('buero')).toEqual([]);
+    expect(zeileMit('Gerüstmonteur/in')).toEqual(['Gerüstmonteur/in', 'h', '1.000', '108.00', '108.00']);
+  });
+
+  it('Unbekannter Code mit eigenem Ansatz: «Weitere Leistung» statt Code', async () => {
+    await pdfBauen(rapport([{ tarif_code: 'buero', bezeichnung: 'X · 1.0 h', menge_hundertstel: 100, ansatz_rappen: 9500, betrag_rappen: 9500 }], 9500));
+    expect(zeileMit('buero')).toEqual([]);
+    expect(zeileMit('Weitere Leistung')).toEqual(['Weitere Leistung', 'h', '1.000', '95.00', '95.00']);
   });
 });

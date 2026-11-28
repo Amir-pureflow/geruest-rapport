@@ -64,6 +64,26 @@ export function materialmiete(zwischenRappen: number): number {
   return Math.round((zwischenRappen * tarife.zuschlaege.materialmiete_prozent) / 100);
 }
 
+/**
+ * Total auf 5 Rappen runden (Entscheid Amir 28.11.2026), kaufmännisch: 3'699.19 → 3'699.20, 955.93 → 955.95,
+ * 12.02 → 12.00, 12.025 gibt es nicht (Rappen sind ganz). Gerundet wird NUR das Total, nie die einzelnen Positionen —
+ * sonst stimmt «Menge × Ansatz = Betrag» auf dem Rapport nicht mehr. Dieselbe Regel steht in der Datenbank
+ * (regie_rund5, Migration 0056) und im PDF/Kunden-Link (_shared/tarifklassen.ts).
+ */
+export function rund5(rappen: number): number {
+  mussInt(rappen, 'rappen');
+  return Math.sign(rappen) * Math.round(Math.abs(rappen) / 5) * 5;
+}
+
+/**
+ * Angezeigtes Total: gleiche Regel wie PDF und Kunden-Link (_shared/tarifklassen.ts totalAusZeilen). Der Kopf-Betrag
+ * gilt, wenn er höchstens 2 Rappen von den Zeilen abweicht (alte, ungerundet versendete Rapporte), sonst die Zeilen
+ * auf 5 Rappen.
+ */
+export function totalAnzeige(summeZeilen: number, kopf: number | null | undefined): number {
+  return kopf != null && Math.abs(kopf - summeZeilen) <= 2 ? kopf : rund5(summeZeilen);
+}
+
 export function rechneRegie(
   positionen: Position[],
   opts: { mitMaterialmiete?: boolean } = {},
@@ -79,7 +99,7 @@ export function rechneRegie(
     positionen: mitBetrag,
     zwischenRappen,
     materialmieteRappen,
-    totalRappen: zwischenRappen + materialmieteRappen,
+    totalRappen: rund5(zwischenRappen + materialmieteRappen),
   };
 }
 
@@ -113,7 +133,7 @@ export const RUECKFALL_ANSATZ_RAPPEN = 10800;
 /**
  * Der Referenzfall aus dem Konzept (Anhang B): Gerüst versetzen,
  * 2 Monteure × 2 h + Lieferwagen 1 h + Etappenzuschlag + 9 % Materialmiete.
- * Erwartet: Fr. 955.93. Dient Tests und der Start-Demo.
+ * Erwartet: Fr. 955.95 (955.93 auf 5 Rappen gerundet). Dient Tests und der Start-Demo.
  */
 export function modellfallVersetzen(): RegieRechnung {
   return rechneRegie([

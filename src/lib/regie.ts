@@ -8,6 +8,7 @@
  */
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { positionBetrag, tarifNachCode, RUECKFALL_ANSATZ_RAPPEN } from './tarif';
+import { stunden } from './datum';
 
 export interface EintragFuerRegie {
   normal_min: number;
@@ -31,6 +32,9 @@ export interface RegiePosition {
 export function positionenAusEintraegen(eintraege: EintragFuerRegie[]): RegiePosition[] {
   return eintraege.map((e) => {
     const min = e.normal_min + e.ueber_min;
+    // Unbekannte Funktion (z. B. «buero») → Monteursansatz; der Code bleibt erhalten. PDF und Kunden-Link zeigen
+    // solche Zeilen als «Gerüstmonteur/in» (_shared/tarifklassen.ts), nie den internen Code.
+    const code = e.mitarbeiter.funktion;
     let ansatz = RUECKFALL_ANSATZ_RAPPEN;
     try {
       ansatz = tarifNachCode(e.mitarbeiter.funktion).ansatz_rappen;
@@ -39,11 +43,12 @@ export function positionenAusEintraegen(eintraege: EintragFuerRegie[]): RegiePos
     }
     const menge = Math.round((min * 100) / 60);
     return {
-      tarif_code: e.mitarbeiter.funktion,
-      bezeichnung: `${e.mitarbeiter.name} · ${(min / 60).toFixed(1)} h`,
+      tarif_code: code,
+      // Beschriftung = Menge, wie sie gerechnet wird: 50 Min. → «0.83 h» (vorher «0.8 h» neben Menge 0.83)
+      bezeichnung: `${e.mitarbeiter.name} · ${stunden(min)} h`,
       menge_hundertstel: menge,
       ansatz_rappen: ansatz,
-      betrag_rappen: positionBetrag({ code: e.mitarbeiter.funktion, bezeichnung: '', mengeHundertstel: menge, ansatzRappen: ansatz }),
+      betrag_rappen: positionBetrag({ code, bezeichnung: '', mengeHundertstel: menge, ansatzRappen: ansatz }),
     };
   });
 }

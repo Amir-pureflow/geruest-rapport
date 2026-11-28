@@ -5,8 +5,8 @@ import { Shell } from '../ui/Shell';
 import { FotoGalerie } from '../ui/FotoGalerie';
 import { fotoVerkleinern } from '../lib/foto';
 import { supabase } from '../lib/supabase';
-import { formatChf, materialmiete, tarifNachCode, positionBetrag, ETAPPE_MIN_RAPPEN } from '../lib/tarif';
-import { ausIso, lang } from '../lib/datum';
+import { formatChf, materialmiete, tarifNachCode, positionBetrag, rund5, totalAnzeige, ETAPPE_MIN_RAPPEN } from '../lib/tarif';
+import { ausIso, lang, stunden } from '../lib/datum';
 import { taetigkeitText } from '../lib/zusatzauftrag';
 
 /**
@@ -301,10 +301,35 @@ export function RegieDetail() {
   const mieteZeile = positionen.find((p) => p.tarif_code === 'materialmiete');
   const etappeZeile = positionen.find((p) => p.tarif_code === 'etappe');
   const fahrzeugZeile = positionen.find((p) => p.tarif_code === 'lieferwagen_35');
-  const total = basis + (mieteZeile?.betrag_rappen ?? 0);
   const entwurf = rapport?.status === 'entwurf';
+  const summeZeilen = basis + (mieteZeile?.betrag_rappen ?? 0);
+  const total = entwurf ? rund5(summeZeilen) : totalAnzeige(summeZeilen, rapport?.betrag_rappen);
+  const rundung = total - summeZeilen;
 
-  /** Miete hängt von der Zwischensumme ab — nach jedem Umschalten neu rechnen. */
+  /**
+   * Änderungen an Positionen. Seit Migration 0056 (Prüfung 28.11.2026) führt die DATENBANK Miete und Total in derselben
+   * Transaktion nach (Total = Zeilen, auf 5 Rappen). Hier nur noch: jede Anfrage auf Fehler prüfen, während einer
+   * Änderung alle Knöpfe sperren (vorher legte ein Doppelklick Etappe/Lieferwagen doppelt an) und danach neu laden.
+   * Die Nachführung im Browser bleibt als Rückfall, falls 0056 noch nicht eingespielt ist — sie rechnet gleich.
+   */
+  const [arbeitet, setArbeitet] = useState(false);
+  async function aendern(schritt: () => Promise<{ error: { message: string } | null }>) {
+    if (!supabase || !id || !entwurf || arbeitet) return;
+    setArbeitet(true);
+    setFehler('');
+    try {
+      const { error } = await schritt();
+      if (error) {
+        setFehler('Nicht gespeichert: ' + error.message);
+        return;
+      }
+      await betragAktualisieren();
+    } finally {
+      setArbeitet(false);
+      void laden();
+    }
+  }
+
   async function betragAktualisieren() {
     if (!supabase || !id) return;
     const { data: p } = await supabase
@@ -316,50 +341,53 @@ export function RegieDetail() {
       .filter((x) => x.tarif_code !== 'materialmiete')
       .reduce((s, x) => s + x.betrag_rappen, 0);
     const miete = zeilen.find((x) => x.tarif_code === 'materialmiete');
+    let totalNeu = neuBasis;
     if (miete) {
       const neu = materialmiete(neuBasis);
-      await supabase.from('regie_position').update({ betrag_rappen: neu, ansatz_rappen: neu }).eq('id', miete.id);
+      totalNeu += neu;
+      if (neu !== miete.betrag_rappen) {
+        const { error } = await supabase.from('regie_position').update({ betrag_rappen: neu, ansatz_rappen: neu }).eq('id', miete.id);
+        if (error) setFehler('Materialmiete nicht nachgeführt: ' + error.message);
+      }
     }
-    const { data: p2 } = await supabase.from('regie_position').select('betrag_rappen').eq('regierapport_id', id);
-    const totalNeu = (p2 ?? []).reduce((s, x) => s + x.betrag_rappen, 0);
-    await supabase.from('regierapport').update({ betrag_rappen: totalNeu }).eq('id', id);
-    void laden();
+    const { error } = await supabase.from('regierapport').update({ betrag_rappen: rund5(totalNeu) }).eq('id', id);
+    if (error) setFehler('Total nicht nachgeführt: ' + error.message);
   }
 
   async function etappeUmschalten() {
-    if (!supabase || !id || !entwurf) return;
-    if (etappeZeile) {
-      await supabase.from('regie_position').delete().eq('id', etappeZeile.id);
-    } else {
-      await supabase.from('regie_position').insert({
-        regierapport_id: id,
-        tarif_code: 'etappe',
-        bezeichnung: 'Etappenzuschlag',
-        menge_hundertstel: 100,
-        ansatz_rappen: ETAPPE_MIN_RAPPEN,
-        betrag_rappen: ETAPPE_MIN_RAPPEN,
-      });
-    }
-    await betragAktualisieren();
+    const c = supabase;
+    if (!c || !id) return;
+    await aendern(async () =>
+      etappeZeile
+        ? c.from('regie_position').delete().eq('id', etappeZeile.id)
+        : c.from('regie_position').insert({
+            regierapport_id: id,
+            tarif_code: 'etappe',
+            bezeichnung: 'Etappenzuschlag',
+            menge_hundertstel: 100,
+            ansatz_rappen: ETAPPE_MIN_RAPPEN,
+            betrag_rappen: ETAPPE_MIN_RAPPEN,
+          }),
+    );
   }
 
   /** Der Lieferwagen ist im Regiefall eine Preisposition wie eine Arbeitsstunde — und wird heute leicht vergessen. */
   async function fahrzeugUmschalten() {
-    if (!supabase || !id || !entwurf) return;
-    if (fahrzeugZeile) {
-      await supabase.from('regie_position').delete().eq('id', fahrzeugZeile.id);
-    } else {
-      const ansatz = tarifNachCode('lieferwagen_35').ansatz_rappen;
-      await supabase.from('regie_position').insert({
-        regierapport_id: id,
-        tarif_code: 'lieferwagen_35',
-        bezeichnung: 'Lieferwagen bis 3,5 t · 1.0 h',
-        menge_hundertstel: 100,
-        ansatz_rappen: ansatz,
-        betrag_rappen: ansatz,
-      });
-    }
-    await betragAktualisieren();
+    const c = supabase;
+    if (!c || !id) return;
+    const ansatz = tarifNachCode('lieferwagen_35').ansatz_rappen;
+    await aendern(async () =>
+      fahrzeugZeile
+        ? c.from('regie_position').delete().eq('id', fahrzeugZeile.id)
+        : c.from('regie_position').insert({
+            regierapport_id: id,
+            tarif_code: 'lieferwagen_35',
+            bezeichnung: 'Lieferwagen bis 3,5 t · 1.0 h',
+            menge_hundertstel: 100,
+            ansatz_rappen: ansatz,
+            betrag_rappen: ansatz,
+          }),
+    );
   }
 
   /**
@@ -367,31 +395,34 @@ export function RegieDetail() {
    * Stunden pro Position in Halbstundenschritten anpassen; Betrag rechnet nach Tarif.
    */
   async function stundenAnpassen(p: Position, deltaHundertstel: number) {
-    if (!supabase || !id || !entwurf) return;
+    const c = supabase;
+    if (!c || !id) return;
     const menge = Math.max(0, p.menge_hundertstel + deltaHundertstel);
     if (menge === p.menge_hundertstel) return;
     const betrag = positionBetrag({ code: p.tarif_code, bezeichnung: p.bezeichnung, mengeHundertstel: menge, ansatzRappen: p.ansatz_rappen });
-    const bezeichnung = p.bezeichnung.replace(/\d+(\.\d)? h$/, `${(menge / 100).toFixed(1)} h`);
-    await supabase.from('regie_position').update({ menge_hundertstel: menge, betrag_rappen: betrag, bezeichnung }).eq('id', p.id);
-    await betragAktualisieren();
+    // Beschriftung = Menge: «0.83 h», «8.75 h», «9.3 h» (vorher immer eine Stelle → «0.8 h» neben Menge 0.83)
+    const h = menge / 100;
+    const text = Math.abs(h * 10 - Math.round(h * 10)) < 1e-6 ? h.toFixed(1) : h.toFixed(2);
+    const bezeichnung = p.bezeichnung.replace(/\d+(\.\d+)? h$/, `${text} h`);
+    await aendern(async () => c.from('regie_position').update({ menge_hundertstel: menge, betrag_rappen: betrag, bezeichnung }).eq('id', p.id));
   }
 
   async function mieteUmschalten() {
-    if (!supabase || !id || !entwurf) return;
-    if (mieteZeile) {
-      await supabase.from('regie_position').delete().eq('id', mieteZeile.id);
-    } else {
-      const betrag = materialmiete(basis);
-      await supabase.from('regie_position').insert({
-        regierapport_id: id,
-        tarif_code: 'materialmiete',
-        bezeichnung: 'Materialmiete 9 %',
-        menge_hundertstel: 100,
-        ansatz_rappen: betrag,
-        betrag_rappen: betrag,
-      });
-    }
-    await betragAktualisieren();
+    const c = supabase;
+    if (!c || !id) return;
+    const betrag = materialmiete(basis);
+    await aendern(async () =>
+      mieteZeile
+        ? c.from('regie_position').delete().eq('id', mieteZeile.id)
+        : c.from('regie_position').insert({
+            regierapport_id: id,
+            tarif_code: 'materialmiete',
+            bezeichnung: 'Materialmiete 9 %',
+            menge_hundertstel: 100,
+            ansatz_rappen: betrag,
+            betrag_rappen: betrag,
+          }),
+    );
   }
 
   async function anhangWaehlen(e: ChangeEvent<HTMLInputElement>) {
@@ -526,8 +557,8 @@ export function RegieDetail() {
                     <span className="flex flex-none items-center gap-1.5">
                       {entwurf && !FIXE_POSITIONEN.has(p.tarif_code) && (
                         <>
-                          <button type="button" onClick={() => void stundenAnpassen(p, -50)} className="btn-ghost px-2 py-0.5" title="−0.5 h">−</button>
-                          <button type="button" onClick={() => void stundenAnpassen(p, 50)} className="btn-ghost px-2 py-0.5" title="+0.5 h">+</button>
+                          <button type="button" onClick={() => void stundenAnpassen(p, -50)} disabled={arbeitet} className="btn-ghost px-2 py-0.5" title="−0.5 h">−</button>
+                          <button type="button" onClick={() => void stundenAnpassen(p, 50)} disabled={arbeitet} className="btn-ghost px-2 py-0.5" title="+0.5 h">+</button>
                         </>
                       )}
                       <span className="w-24 text-right font-mono tabular-nums">{formatChf(p.betrag_rappen)}</span>
@@ -537,15 +568,21 @@ export function RegieDetail() {
               </div>
               {entwurf && (
                 <div className="mt-3 flex flex-wrap gap-2">
-                  <button type="button" onClick={() => void fahrzeugUmschalten()} className={'chip ' + (fahrzeugZeile ? 'chip-on' : '')}>
+                  <button type="button" onClick={() => void fahrzeugUmschalten()} disabled={arbeitet} className={'chip ' + (fahrzeugZeile ? 'chip-on' : '')}>
                     Lieferwagen 1 h
                   </button>
-                  <button type="button" onClick={() => void etappeUmschalten()} className={'chip ' + (etappeZeile ? 'chip-on' : '')}>
+                  <button type="button" onClick={() => void etappeUmschalten()} disabled={arbeitet} className={'chip ' + (etappeZeile ? 'chip-on' : '')}>
                     Etappenzuschlag
                   </button>
-                  <button type="button" onClick={() => void mieteUmschalten()} className={'chip ' + (mieteZeile ? 'chip-on' : '')}>
+                  <button type="button" onClick={() => void mieteUmschalten()} disabled={arbeitet} className={'chip ' + (mieteZeile ? 'chip-on' : '')}>
                     Materialmiete 9 %
                   </button>
+                </div>
+              )}
+              {rundung !== 0 && (
+                <div className="mt-3 flex items-baseline justify-between text-sm text-ink3">
+                  <span>Rundung auf 5 Rappen</span>
+                  <span className="font-mono tabular-nums">{formatChf(rundung)}</span>
                 </div>
               )}
               <div className="mt-4 flex items-baseline justify-between border-t border-line pt-3">
@@ -716,8 +753,8 @@ export function RegieDetail() {
                       </p>
                       {m.zeiteintrag.length > 0 && (
                         <p className="text-ink2">
-                          {m.zeiteintrag.map((z) => `${z.mitarbeiter?.name ?? '?'} ${((z.normal_min + z.ueber_min) / 60).toFixed(1)} h`).join(' · ')}
-                          <span className="text-ink3"> · zusammen {(total / 60).toFixed(1)} h</span>
+                          {m.zeiteintrag.map((z) => `${z.mitarbeiter?.name ?? '?'} ${stunden(z.normal_min + z.ueber_min)} h`).join(' · ')}
+                          <span className="text-ink3"> · zusammen {stunden(total)} h</span>
                         </p>
                       )}
                       {m.foto?.length > 0 && (

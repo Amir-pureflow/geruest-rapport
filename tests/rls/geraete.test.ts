@@ -155,17 +155,50 @@ describe('Funkloch auf dem Teamgerät', () => {
 
 describe('Zwei Geräte gleichzeitig', () => {
   // Entscheid Amir 28.11.2026: je Team, Tag und Baustelle nur EINE Meldung — eine zweite ersetzt die erste.
-  it.fails('BEKANNTER FEHLER: zwei Geräte melden dasselbe Team am selben Tag auf derselben Baustelle — beide zählen, Stunden doppelt', async () => {
+  it('zwei Geräte melden dasselbe Team am selben Tag auf derselben Baustelle: die zweite wird abgelehnt (behoben 28.11.2026)', async () => {
     // Gerät 1 = Chefmonteur, Gerät 2 = Büro-Zugang im Teamgerät («Erfassung (Test)»). Je 3 × 525 Min.
     const g1 = await geraet('A', 'chef');
     const g2 = await geraet('A', 'buero');
-    await g1.c.from('tagesmeldung').insert({ id: crypto.randomUUID(), client_uuid: crypto.randomUUID(), team_id: F.A.team, datum: gestern, baustelle_id: F.A.baustelle, normalfall: true });
-    await g2.c.from('tagesmeldung').insert({ id: crypto.randomUUID(), client_uuid: crypto.randomUUID(), team_id: F.A.team, datum: gestern, baustelle_id: F.A.baustelle, normalfall: true });
-    // Richtig wäre: die zweite Meldung wird erkannt (abgelehnt oder als «ersetzt» markiert) → 1 Meldung. Heute: 2.
+    const [r1, r2] = await Promise.all([g1, g2].map((g) =>
+      g.c.from('tagesmeldung').insert({ id: crypto.randomUUID(), client_uuid: crypto.randomUUID(), team_id: F.A.team, datum: gestern, baustelle_id: F.A.baustelle, normalfall: true })));
+    // Gleichzeitig: genau eine kommt durch, die andere bekommt RPD01
+    expect([r1.error?.code ?? 'ok', r2.error?.code ?? 'ok'].sort()).toEqual(['RPD01', 'ok']);
     expect(sql(`select count(*) from tagesmeldung where team_id='${F.A.team}' and datum='${gestern}' and baustelle_id='${F.A.baustelle}';`)).toBe('1');
   });
 
-  it.fails('BEKANNTER FEHLER: dieselbe Person in den Meldungen zweier Teams am selben Tag — Stunden doppelt', async () => {
+  it('Doppelmeldung aus dem Funkloch: der Server lehnt ab, die Meldung bleibt mit Grund auf dem Gerät (nichts verloren)', async () => {
+    // Gerät 1 meldet mit Netz; Gerät 2 hat denselben Tag ohne Netz gemeldet und sendet später
+    const g1 = await geraet('A', 'buero');
+    await g1.c.from('tagesmeldung').insert({ id: crypto.randomUUID(), client_uuid: crypto.randomUUID(), team_id: F.A.team, datum: gestern, baustelle_id: F.A.baustelle, normalfall: true });
+    const g2 = await geraet('A', 'chef');
+    zugangMerken({ user: g2.user, firma: F.A.firma, name: F.A.name });
+    const p = meldung(F.A.team, F.A.baustelle, [F.A.chef, F.A.monteur]);
+    await enqueueMeldung(p);
+    const r = await flushNachSupabase(g2.c);
+    expect(r.gesendet).toBe(0);
+    expect(await offeneAnzahl()).toBe(1); // liegt noch auf dem Gerät
+    const lokal = (await db.meldungen.toArray())[0] as unknown as { kopfFehler?: string; payload: MeldungPayload };
+    expect(lokal.kopfFehler).toMatch(/schon gemeldet/);
+    expect(lokal.payload.eintraege).toHaveLength(2); // beide Zeilen noch da
+    expect(sql(`select count(*) from tagesmeldung where team_id='${F.A.team}' and datum='${gestern}';`)).toBe('1');
+    // Dasselbe Gerät darf dieselbe Meldung nach einem Abbruch wieder senden (gleiche client_uuid) — kein Fehler
+    const wieder = await g1.c.from('tagesmeldung').upsert({ id: crypto.randomUUID(), client_uuid: sql(`select client_uuid from tagesmeldung where team_id='${F.A.team}' and datum='${gestern}';`), team_id: F.A.team, datum: gestern, baustelle_id: F.A.baustelle, normalfall: true }, { onConflict: 'client_uuid', ignoreDuplicates: true });
+    expect(wieder.error).toBeNull();
+  });
+
+  it('zweite Baustelle am selben Tag und Zusatzarbeit (keine Normalmeldung) gehen weiter', async () => {
+    const g = await geraet('A', 'buero');
+    const b2 = crypto.randomUUID();
+    sql(`insert into baustelle (id, konto_nr, strasse, plz, ort, bezeichnung, status, kunde_id, firma_id) values ('${b2}', '900002', 'Zweitstrasse', '3000', 'Bern', 'Baustelle A2', 'aktiv', '${F.A.kunde}', '${F.A.firma}');`);
+    const neu = (baustelle: string, normalfall: boolean) => ({ id: crypto.randomUUID(), client_uuid: crypto.randomUUID(), team_id: F.A.team, datum: gestern, baustelle_id: baustelle, normalfall });
+    const r = await g.c.from('tagesmeldung').insert([neu(F.A.baustelle, true), neu(b2, true), neu(F.A.baustelle, false)]);
+    expect(r.error).toBeNull();
+    expect(sql(`select count(*) from tagesmeldung where team_id='${F.A.team}' and datum='${gestern}';`)).toBe('3');
+  });
+
+  // Entscheid: dieselbe Person in zwei Teams kann stimmen (Vormittag hier, Nachmittag dort) — die DB lässt es zu, das
+  // Teamgerät warnt einmal (Erfassung.tsx «schon in einem anderen Team gemeldet»). Der Test bleibt als Mahnung stehen.
+  it.fails('BEKANNTER FEHLER (nur Warnung, Entscheid): dieselbe Person in den Meldungen zweier Teams am selben Tag — Stunden doppelt', async () => {
     const team2 = crypto.randomUUID();
     sql(`insert into team (id, bezeichnung, aktiv, firma_id) values ('${team2}', 'Team A2', true, '${F.A.firma}');`);
     const g = await geraet('A', 'buero');

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { useParams } from 'react-router-dom';
 import { Marke, Wortmarke } from '../ui/Shell';
 import { supabaseUrl } from '../lib/supabase';
 import { formatChf } from '../lib/tarif';
@@ -13,6 +13,8 @@ import { ausIso, lang } from '../lib/datum';
 interface Daten {
   status: string;
   betrag_rappen: number | null;
+  /** Differenz zur Rundung auf 5 Rappen (Total − Summe der Zeilen) */
+  rundung_rappen?: number;
   versendet_am: string | null;
   frist_bis: string | null;
   bezeichnung: string | null;
@@ -91,8 +93,8 @@ export function Bestaetigung() {
     <div className="min-h-screen">
       <header className="appbar">
         <div className="mx-auto flex h-14 max-w-md items-center justify-between px-5">
-          <Link to="/" className="flex items-center gap-2.5" aria-label="Zur App"><Marke /><Wortmarke /></Link>
-          <Link to="/" className="btn-ghost text-xs">‹ Zur App</Link>
+          {/* Kein «Zur App»: der Kunde hat kein Konto (Prüfung 28.11.2026) */}
+          <span className="flex items-center gap-2.5"><Marke /><Wortmarke /></span>
         </div>
       </header>
       <main className="mx-auto max-w-md px-5 py-8 space-y-5">
@@ -138,6 +140,12 @@ export function Bestaetigung() {
                     </div>
                   ))}
                 </div>
+                {!!daten.rundung_rappen && (
+                  <div className="flex items-center justify-between gap-2 py-1.5 text-sm text-ink3">
+                    <span>Rundung</span>
+                    <span className="font-mono tabular-nums">{formatChf(daten.rundung_rappen)}</span>
+                  </div>
+                )}
                 {daten.betrag_rappen != null && (
                   <div className="mt-2 flex items-center justify-between border-t border-line pt-2">
                     <span className="font-display font-semibold">Total</span>

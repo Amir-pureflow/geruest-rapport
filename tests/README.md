@@ -54,6 +54,8 @@ npx supabase@2 stop --workdir tests/lokal
 | `einheit/sperre.test.ts` | Die Sperre selbst |
 | `rls/firmen.test.ts` | Firma A sieht/ändert nichts von Firma B (jede Tabelle, jede Rolle, Speicher) |
 | `rls/kundenlink.test.ts` | Kunden-Link: was er zeigt, was der Kunde tun kann; PDF-Function |
+| `rls/regie_betrag.test.ts` | Regie-Betrag aus den Zeilen, 5 Rappen, Sperre im Versand/nach Bestätigung (Migration 0056) |
+| `einheit/zeitfeld.test.ts` | Uhrzeit-Feld lehnt «1775» ab |
 | `rls/geraete.test.ts` | Funkloch, App schliessen, zwei Geräte gleichzeitig (echte Warteschlange der App) |
 | `browser/*.py` | Rundgang je Rolle auf 360/390/1366 px; Tag melden, Kunde bestätigt, Excel, Freigabe, Verwaltung |
 

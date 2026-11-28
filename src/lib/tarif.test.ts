@@ -12,15 +12,15 @@ import {
 } from './tarif';
 
 describe('Referenzfall «Gerüst versetzen» (Konzept Anhang B)', () => {
-  it('ergibt exakt Fr. 955.93', () => {
+  it('ergibt Fr. 955.95 (955.93 auf 5 Rappen gerundet)', () => {
     const r = modellfallVersetzen();
     expect(r.positionen[0].betragRappen).toBe(43200); // 2×2h×108.–
     expect(r.positionen[1].betragRappen).toBe(16500); // Lieferwagen 1h
     expect(r.positionen[2].betragRappen).toBe(28000); // Etappe
     expect(r.zwischenRappen).toBe(87700);
     expect(r.materialmieteRappen).toBe(7893); // 9 %
-    expect(r.totalRappen).toBe(95593);
-    expect(formatChf(r.totalRappen)).toBe('Fr. 955.93');
+    expect(r.totalRappen).toBe(95595);
+    expect(formatChf(r.totalRappen)).toBe('Fr. 955.95');
   });
 
   it('alle Beträge sind Integer (nie Floats)', () => {
