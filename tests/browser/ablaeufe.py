@@ -85,6 +85,29 @@ def tag_melden(browser, w, h):
     ctx.close()
 
 
+def nachtarbeit(browser, w, h):
+    """Teamgerät: Nachtschicht 22:00–02:00 (Entscheid Amir 28.11.2026: zählt zum Starttag)."""
+    sql("delete from zeiteintrag where tagesmeldung_id in (select id from tagesmeldung where team_id='aaaaaaaa-0000-4000-8000-0000000000a1' and datum=current_date); delete from tagesmeldung where team_id='aaaaaaaa-0000-4000-8000-0000000000a1' and datum=current_date;")
+    ctx = kontext(browser, w, h)
+    page = ctx.new_page()
+    anmelden(page, 'chef@testbau-a.test')
+    page.goto(APP + '/erfassung')
+    page.wait_for_timeout(2500)
+    page.get_by_role('button', name='Zeit entfernen').first.click()  # Nachmittag weg, nur noch eine Zeit
+    von = page.locator('input[aria-label=von]').first
+    von.click(); von.press_sequentially('2200'); von.press('Enter')
+    bis = page.locator('input[aria-label=bis]').first
+    bis.click(); bis.press_sequentially('0200'); bis.press('Enter')
+    page.wait_for_timeout(500)
+    plus1 = page.get_by_text('+1', exact=True).count() > 0
+    page.screenshot(path=os.path.join(AUS, f'nacht_{w}.png'), full_page=True)
+    page.get_by_role('button', name='Tag melden').click()
+    page.wait_for_timeout(5000)
+    r = sql("select count(*)||'/'||coalesce(sum(z.normal_min+z.ueber_min),0)||'/'||coalesce(max(z.bis_min),0) from zeiteintrag z join tagesmeldung t on t.id=z.tagesmeldung_id where t.team_id='aaaaaaaa-0000-4000-8000-0000000000a1' and t.datum=current_date;")
+    notiere(f'Nachtarbeit 22:00–02:00 ({w}px)', r == '3/720/1560' and plus1, f'DB {r} (erwartet 3/720/1560), «+1» sichtbar: {plus1}')
+    ctx.close()
+
+
 def kunde_bestaetigt(browser, w, h):
     # Zurücksetzen am Sperr-Trigger vorbei (bestätigt ist seit 0056 eingefroren) — nur Testvorbereitung
     sql(f"set session_replication_role = replica; update regierapport set status='versendet', bestaetigt_am=null, bestaetigt_betrag_rappen=null where link_token='{TOKEN_A}'; set session_replication_role = origin;")
@@ -166,6 +189,8 @@ def main():
         b = p.chromium.launch()
         for w, h in [(360, 740), (390, 844), (1366, 860)]:
             tag_melden(b, w, h)
+        for w, h in [(360, 740), (1366, 860)]:
+            nachtarbeit(b, w, h)
         for w, h in [(360, 740), (1366, 860)]:
             kunde_bestaetigt(b, w, h)
         x = excel(b)

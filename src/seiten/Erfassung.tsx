@@ -15,7 +15,7 @@ import { addTage, iso, lang, stunden } from '../lib/datum';
 import { fotoVerkleinern } from '../lib/foto';
 import { kennzeichen } from '../lib/fahrzeug';
 import { arbeitstag, einstellungen, lieferwagenTagRp, normaltagMin, notizPflichtAbMin, znueni } from '../lib/einstellungen';
-import { MAX_SPANNEN, ausUhrzeit, aufteilen, kannPauseAbziehen, mittagMinuten, mittagText, pauseAbziehen, pauseZaehlen, spanneVollstaendig, spannenMinuten, spannenOffen, spannenTeilen, spannenUeberlappen, standardSpannen, umfasstPause, uhrzeit, uhrzeitFeld, zuSpalten, type Spanne } from '../lib/zeiten';
+import { MAX_SPANNEN, ausUhrzeit, aufteilen, kannPauseAbziehen, mittagMinuten, mittagText, pauseAbziehen, pauseZaehlen, spanneVollstaendig, spannenMinuten, spannenOffen, spannenTeilen, spannenUeberlappen, standardSpannen, umfasstPause, uhrzeit, uhrzeitFeld, zuSpalten, bisMitNacht, TAG_MIN, type Spanne } from '../lib/zeiten';
 import { baustellenSuchen } from '../lib/suche';
 import { FUNKTION_BUERO } from '../lib/benutzername';
 import { vorratLesen, vorratSchreiben } from '../lib/vorrat';
@@ -206,6 +206,8 @@ function MittagHinweis({ spannen }: { spannen: Spanne[] }) {
 
 /** Beschriftung einer Zeile: ab Mittagsbeginn der Firma (Standard 12:00) «Nachmittag», die erste sonst «Vormittag», eine weitere davor «nach Pause» (Znüni-Abzug). */
 function spannenName(s: Spanne, i: number): string {
+  // «Nacht», wenn die Zeit über Mitternacht geht (0059) — vorher stand bei 22:00–02:00 «Nachmittag»
+  if (s.bis !== null && s.bis > TAG_MIN) return 'Nacht';
   return s.von >= arbeitstag().mittagVon ? 'Nachmittag' : i === 0 ? 'Vormittag' : 'nach Pause';
 }
 
@@ -224,7 +226,14 @@ function SpannenEditor({ spannen, setSpannen, klein = false, plus = '+ Nachmitta
     : 'rounded-[10px] border bg-surface text-center font-mono font-semibold tabular-nums focus:border-accent focus:outline-none ' + (klein ? 'h-10 w-[5rem] text-[14px] min-[380px]:w-[5.4rem]' : 'h-12 w-[5rem] text-lg min-[380px]:w-[5.6rem] sm:w-28');
   const aendern = (i: number, teil: 'von' | 'bis', text: string) => {
     const v = ausUhrzeit(text);
-    setSpannen(spannen.map((s, j): Spanne => (j !== i ? s : teil === 'von' ? { ...s, von: v ?? s.von } : { ...s, bis: v })));
+    // Nachtarbeit (28.11.2026): «bis» vor «von» in der LETZTEN Zeit = am nächsten Tag (z. B. 22:00–02:00), zählt zum Starttag
+    const letzte = spannen.reduce((m, s, j) => (s.von >= spannen[m].von ? j : m), 0);
+    const ende = (von: number, bis: number | null) => (bis === null ? null : i === letzte ? bisMitNacht(von, bis) : bis % TAG_MIN);
+    setSpannen(spannen.map((s, j): Spanne => {
+      if (j !== i) return s;
+      if (teil === 'von') { const von = v ?? s.von; return { ...s, von, bis: ende(von, s.bis) }; }
+      return { ...s, bis: ende(s.von, v) };
+    }));
   };
   // Raster statt fester Breite: Die Beschriftung bekommt genau so viel Platz, wie «Nachmittag» braucht — vorher (w-9)
   // lag das Zeitfeld über dem Wort (Amir, 09.10.2026: «sieht nicht clean aus»). Die Felder stehen trotzdem bündig untereinander.
@@ -244,7 +253,12 @@ function SpannenEditor({ spannen, setSpannen, klein = false, plus = '+ Nachmitta
               {mitLabel && <span className={'whitespace-nowrap pr-1 leading-none text-ink3 ' + (karte ? 'w-[4.6rem] text-[12.5px] font-semibold' : 'text-[11px] font-medium')}>{spannenName(s, i)}</span>}
               <ZeitFeld wert={uhrzeitFeld(s.von)} aendern={(t) => aendern(i, 'von', t)} label="von" klasse={feld + ' border-line'} />
               <span className="text-ink3">–</span>
-              <ZeitFeld wert={uhrzeitFeld(s.bis)} aendern={(t) => aendern(i, 'bis', t)} label="bis" klasse={feld + (s.bis === null ? ' border-amber/70' : ' border-line')} />
+              <span className="relative">
+                <ZeitFeld wert={uhrzeitFeld(s.bis)} aendern={(t) => aendern(i, 'bis', t)} label="bis" klasse={feld + (s.bis === null ? ' border-amber/70' : ' border-line')} />
+                {s.bis !== null && s.bis > TAG_MIN && (
+                  <span className="pointer-events-none absolute -right-1 -top-1.5 rounded-full bg-steel px-1.5 text-[10px] font-bold leading-4 text-white" title="am nächsten Tag — zählt zum Starttag">+1</span>
+                )}
+              </span>
               {i > 0 ? (
                 nachPause
                   ? (z.immer

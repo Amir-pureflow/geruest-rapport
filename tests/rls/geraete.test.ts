@@ -166,6 +166,27 @@ describe('Funkloch auf dem Teamgerät', () => {
   });
 });
 
+describe('Nachtarbeit (0059)', () => {
+  it('22:00–02:00 kommt an: bis_min 1560, 240 Min. am Starttag', async () => {
+    const g = await geraet('A', 'chef');
+    zugangMerken({ user: g.user, firma: F.A.firma, name: F.A.name });
+    const p = meldung(F.A.team, F.A.baustelle, [F.A.chef]);
+    p.eintraege = p.eintraege.map((z) => ({ ...z, normal_min: 240, ueber_min: 0, von_min: 1320, bis_min: 1560, von2_min: null, bis2_min: null, von3_min: null, bis3_min: null }));
+    await enqueueMeldung(p);
+    const r = await flushNachSupabase(g.c);
+    expect(r.gesendet).toBe(1);
+    expect(sql(`select t.datum||'/'||z.von_min||'/'||z.bis_min||'/'||z.normal_min from zeiteintrag z join tagesmeldung t on t.id=z.tagesmeldung_id where t.id='${p.id}';`)).toBe(`${gestern}/1320/1560/240`);
+  });
+  it('Beginn über 24 h oder Ende über 48 h lehnt die DB ab', async () => {
+    const g = await geraet('A', 'buero');
+    const m = crypto.randomUUID();
+    await g.c.from('tagesmeldung').insert({ id: m, client_uuid: crypto.randomUUID(), team_id: F.A.team, datum: gestern, baustelle_id: F.A.baustelle, normalfall: true });
+    const z = (von: number, bis: number) => g.c.from('zeiteintrag').insert({ tagesmeldung_id: m, mitarbeiter_id: F.A.monteur, normal_min: 60, ueber_min: 0, von_min: von, bis_min: bis });
+    expect((await z(1500, 1560)).error).not.toBeNull();
+    expect((await z(1320, 2900)).error).not.toBeNull();
+  });
+});
+
 describe('Zwei Geräte gleichzeitig', () => {
   // Entscheid Amir 28.11.2026: je Team, Tag und Baustelle nur EINE Meldung — eine zweite ersetzt die erste.
   it('zwei Geräte melden dasselbe Team am selben Tag auf derselben Baustelle: die zweite wird abgelehnt (behoben 28.11.2026)', async () => {

@@ -101,17 +101,33 @@ export function mittagMinuten(spannen: Spanne[], a: Arbeitstag = ARBEITSTAG_STAN
   return spannen.reduce((s, x) => (spanneVollstaendig(x) ? s + Math.max(0, Math.min(x.bis, a.mittagBis) - Math.max(x.von, a.mittagVon)) : s), 0);
 }
 
-/** 420 → «7:00», 1020 → «17:00». Für Anzeige. */
+/**
+ * Nachtarbeit (Entscheid Amir 28.11.2026): eine Schicht über Mitternacht zählt zum STARTTAG. Gespeichert wird das Ende
+ * als Minuten über 24 h (22:00–02:00 → von 1320, bis 1560), damit «bis − von» überall stimmt. Nur die letzte Zeit des
+ * Tages kann über Mitternacht gehen, und höchstens 14 h lang — «13:00–12:00» bleibt ein Tippfehler («bis vor von»).
+ */
+export const NACHT_MAX_MIN = 14 * 60;
+export const TAG_MIN = 24 * 60;
+
+/** «bis» vor «von» = nächster Tag, wenn die Schicht dann höchstens 14 h dauert. Sonst unverändert (→ «verkehrt»). */
+export function bisMitNacht(von: number, bis: number): number {
+  const b = bis % TAG_MIN;
+  return b <= von && b + TAG_MIN - von <= NACHT_MAX_MIN ? b + TAG_MIN : b;
+}
+
+/** 420 → «7:00», 1020 → «17:00», 1560 (02:00 am Folgetag) → «2:00». Für Anzeige. */
 export function uhrzeit(min: number): string {
-  const h = Math.floor(min / 60);
-  const m = min % 60;
+  const t = ((min % TAG_MIN) + TAG_MIN) % TAG_MIN;
+  const h = Math.floor(t / 60);
+  const m = t % 60;
   return `${h}:${String(m).padStart(2, '0')}`;
 }
 
 /** 420 → «07:00» — das Format, das <input type="time"> erwartet. */
 export function uhrzeitFeld(min: number | null): string {
   if (min === null) return '';
-  return `${String(Math.floor(min / 60)).padStart(2, '0')}:${String(min % 60).padStart(2, '0')}`;
+  const t = ((min % TAG_MIN) + TAG_MIN) % TAG_MIN;
+  return `${String(Math.floor(t / 60)).padStart(2, '0')}:${String(t % 60).padStart(2, '0')}`;
 }
 
 /** «07:00» → 420. Ungültiges → null. */
@@ -296,5 +312,5 @@ export function ausSpalten(z: Partial<ZeitSpalten> | null | undefined): { von: n
 /** Spalten → Text für die Anzeige: «7:00–12:00 · 13:00–17:00», mit Znüni-Abzug «7:00–9:00 · 9:30–12:00 · 13:00–17:00». Ohne Zeiten: null. */
 export function zeitenText(z: Partial<ZeitSpalten> | null | undefined): string | null {
   if (!z || z.von_min === null || z.von_min === undefined || z.bis_min === null || z.bis_min === undefined) return null;
-  return ausSpalten(z).map((s) => `${uhrzeit(s.von)}–${uhrzeit(s.bis)}`).join(' · ');
+  return ausSpalten(z).map((s) => `${uhrzeit(s.von)}–${uhrzeit(s.bis)}${s.bis > TAG_MIN ? ' (+1)' : ''}`).join(' · ');
 }

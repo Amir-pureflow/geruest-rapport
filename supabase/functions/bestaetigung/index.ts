@@ -15,6 +15,7 @@
 import { createClient } from 'npm:@supabase/supabase-js@2';
 import { pfadPasst } from '../_shared/zugang.ts';
 import { gruppieren, totalAusZeilen, type Position } from '../_shared/tarifklassen.ts';
+import { ABGELAUFEN_TEXT, linkAbgelaufen } from '../_shared/linkfrist.ts';
 
 /** In diesen Ständen liegt der Rapport beim Kunden — nur dann zählt seine Antwort. */
 const BEIM_KUNDEN = ['versendet', 'rueckfrage', 'frist_abgelaufen'];
@@ -44,7 +45,7 @@ Deno.serve(async (req) => {
       if (!token) return antwort(400, { fehler: 'token fehlt' });
       const { data: r } = await supa
         .from('regierapport')
-        .select('id, nummer, status, betrag_rappen, bestaetigt_betrag_rappen, versendet_am, frist_bis, empfaenger_email, tagesmeldung_id, beschrieb, pdf_pfad, baustelle:baustelle_id(bezeichnung, konto_nr), tagesmeldung:tagesmeldung_id(datum, client_uuid)')
+        .select('id, nummer, status, betrag_rappen, bestaetigt_betrag_rappen, bestaetigt_am, versendet_am, frist_bis, empfaenger_email, tagesmeldung_id, beschrieb, pdf_pfad, baustelle:baustelle_id(bezeichnung, konto_nr), tagesmeldung:tagesmeldung_id(datum, client_uuid)')
         .eq('link_token', token)
         .single();
       if (!r) return antwort(404, { fehler: 'Dieser Link ist ungültig.' });
@@ -52,6 +53,10 @@ Deno.serve(async (req) => {
       // sonst den halbfertigen Zwischenstand über den alten Link (Prüfung 28.11.2026). Er bekommt den Rapport neu per Mail.
       if (r.status === 'entwurf') {
         return antwort(200, { status: 'entwurf', nummer: (r as { nummer?: string | null }).nummer ?? null });
+      }
+      // 60 Tage nach Versand bzw. 30 Tage nach Bestätigung (Entscheid Amir 28.11.2026) — dann nichts mehr zeigen
+      if (linkAbgelaufen(r as { status: string; versendet_am: string | null; bestaetigt_am?: string | null }, Date.now())) {
+        return antwort(410, { fehler: ABGELAUFEN_TEXT });
       }
       await supa.from('zustellung_log').insert({
         regierapport_id: r.id,
@@ -122,10 +127,11 @@ Deno.serve(async (req) => {
       }
       const { data: r } = await supa
         .from('regierapport')
-        .select('id, status, empfaenger_email')
+        .select('id, status, empfaenger_email, versendet_am, bestaetigt_am')
         .eq('link_token', token)
         .single();
       if (!r) return antwort(404, { fehler: 'Dieser Link ist ungültig.' });
+      if (linkAbgelaufen(r, Date.now())) return antwort(410, { fehler: ABGELAUFEN_TEXT });
       if (r.status === 'bestaetigt') return antwort(200, { status: 'bestaetigt' }); // idempotent
       if (!BEIM_KUNDEN.includes(r.status)) {
         return antwort(409, { fehler: 'Dieser Rapport wird gerade überarbeitet. Sie erhalten ihn neu per Mail.' });

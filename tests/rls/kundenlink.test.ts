@@ -77,6 +77,21 @@ describe('Kunden-Link: was er zeigt', () => {
   });
 });
 
+describe('Kunden-Link läuft ab (Entscheid Amir 28.11.2026)', () => {
+  it('61 Tage nach Versand: 410, keine Beträge; bestätigen geht nicht mehr', async () => {
+    sql(`update regierapport set versendet_am = now() - interval '61 days' where id='${F.A.rapport}';`);
+    const r = await holen(F.A.token);
+    expect(r.status).toBe(410);
+    expect(await r.text()).not.toMatch(/betrag_rappen|positionen|fotos/);
+    expect((await antworten({ token: F.A.token, aktion: 'bestaetigt' })).status).toBe(410);
+    expect(sql(`select status from regierapport where id='${F.A.rapport}';`)).toBe('versendet');
+  });
+  it('neu versendet (versendet_am frisch): wieder offen', async () => {
+    sql(`update regierapport set versendet_am = now() - interval '59 days' where id='${F.A.rapport}';`);
+    expect((await holen(F.A.token)).status).toBe(200);
+  });
+});
+
 describe('Kunden-Link: was der Kunde tun kann', () => {
   it('Betrag lässt sich über die Antwort nicht ändern', async () => {
     const r = await antworten({ token: F.A.token, aktion: 'bestaetigt', betrag_rappen: 1, status: 'entwurf' });
