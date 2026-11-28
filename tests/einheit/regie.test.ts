@@ -31,9 +31,16 @@ describe('Tarif', () => {
     expect(formatChf(r.totalRappen)).toBe('Fr. 955.93');
   });
 
-  it('Materialmiete rundet auf den Rappen (nicht auf 5 Rappen)', () => {
-    // 9 % von 3'393.75 = 305.4375 → 305.44 (kaufmännisch auf 1 Rappen). Ob 5-Rappen-Rundung gilt: Frage an Amir.
+  it('Materialmiete rundet auf den Rappen (Zwischenwert, wird erst im Total auf 5 Rappen gerundet)', () => {
+    // 9 % von 3'393.75 = 305.4375 → 305.44 (kaufmännisch auf 1 Rappen).
     expect(materialmiete(339375)).toBe(30544);
+  });
+
+  // Entscheid Amir 28.11.2026: Das Total des Regierapports wird auf 5 Rappen gerundet.
+  it.fails("BEKANNTER FEHLER: Total wird nicht auf 5 Rappen gerundet (3'699.19 statt 3'699.20)", () => {
+    // 3'699.19 → nächstes Vielfaches von 0.05 = 3'699.20; 955.93 → 955.95
+    const t = modellfallVersetzen();
+    expect(t.totalRappen % 5).toBe(0);
   });
 });
 
@@ -110,6 +117,12 @@ describe('Regierapport-PDF (echter Baustein)', () => {
     const pos = teamPositionen();
     await pdfBauen(rapport(pos, summe(pos)));
     expect(zeileMit('Summe:')).toEqual(['Summe:', "3'699.19"]);
+  });
+
+  it.fails("BEKANNTER FEHLER: PDF-Summe nicht auf 5 Rappen gerundet (Entscheid Amir: 3'699.20)", async () => {
+    const pos = teamPositionen();
+    await pdfBauen(rapport(pos, summe(pos)));
+    expect(zeileMit('Summe:')).toEqual(['Summe:', "3'699.20"]);
   });
 
   it('Jede Tabellenzeile: Menge × Preis = Summe', async () => {

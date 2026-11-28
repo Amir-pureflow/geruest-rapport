@@ -61,7 +61,7 @@ describe('Ein Tag, eine Person', () => {
 
   it('Pause «immer»: wer erst um 9:10 beginnt, dem wird nichts abgezogen (die Pause liegt nicht ganz in der Zeit)', () => {
     // 9:10–12:00 = 170 Min., 13:00–17:00 = 240 Min. → 410 Min. Die Pause 9:00–9:15 überschneidet sich nur teilweise.
-    // Heute: kein Abzug (410). Ob 5 Min. (9:10–9:15) abgezogen werden müssten, ist eine offene Frage an Amir.
+    // Kein Abzug (410). Entscheid Amir 28.11.2026: so bleibt es («wie es momentan ist bei Gerüst»).
     const s = pauseAbziehen([{ von: h(9, 10), bis: h(12) }, { von: h(13), bis: h(17) }], GERUEST_PAUSE);
     expect(spannenMinuten(s)).toBe(410);
   });

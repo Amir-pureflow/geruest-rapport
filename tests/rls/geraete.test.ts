@@ -154,6 +154,7 @@ describe('Funkloch auf dem Teamgerät', () => {
 });
 
 describe('Zwei Geräte gleichzeitig', () => {
+  // Entscheid Amir 28.11.2026: je Team, Tag und Baustelle nur EINE Meldung — eine zweite ersetzt die erste.
   it.fails('BEKANNTER FEHLER: zwei Geräte melden dasselbe Team am selben Tag auf derselben Baustelle — beide zählen, Stunden doppelt', async () => {
     // Gerät 1 = Chefmonteur, Gerät 2 = Büro-Zugang im Teamgerät («Erfassung (Test)»). Je 3 × 525 Min.
     const g1 = await geraet('A', 'chef');

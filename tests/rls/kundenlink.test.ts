@@ -48,7 +48,7 @@ describe('Kunden-Link: was er zeigt', () => {
     expect(await r.text()).toMatch(/Link ist ungültig/);
   });
 
-  it.fails('BEKANNTER FEHLER (Frage): der Link zeigt Namen und Stunden einzelner Mitarbeitender — das PDF zeigt bewusst nur Tarifklassen', async () => {
+  it.fails('BEKANNTER FEHLER (Entscheid Amir: Kunde soll keine Namen sehen): der Link zeigt Namen und Stunden einzelner Mitarbeitender — das PDF zeigt bewusst nur Tarifklassen', async () => {
     const d = await (await holen(F.A.token)).json();
     expect(JSON.stringify(d.positionen)).not.toMatch(/Chef A|Monteur A|Temp A/);
   });
