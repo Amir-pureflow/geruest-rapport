@@ -100,7 +100,7 @@ describe('temporaerBueroBlaetter — je Büro ein Blatt', () => {
       ['Ali Kamal', DI, '903673', 480, 0],
       ['Baum Leo', DI, '903673', 300, 0],
     ]);
-    expect(adecco.personen).toEqual([
+    expect(adecco.personen).toMatchObject([
       { name: 'Ali Kamal', normal_min: 1020, ueber_min: 60, total_min: 1080 },
       { name: 'Baum Leo', normal_min: 300, ueber_min: 0, total_min: 300 },
     ]);
@@ -169,7 +169,7 @@ describe('subunternehmerBlaetter — je Firma ein Blatt (13.10.2026)', () => {
       e(santos, MO, 300), e(huber, MO, 480), e(ali, MO, 480),
     ]);
     expect(b.map((x) => x.buero)).toEqual(['Krasniqi Gerüste GmbH', 'Santos Montagen']);
-    expect(b[0].personen).toEqual([
+    expect(b[0].personen).toMatchObject([
       { name: 'Berisha Driton', normal_min: 480, ueber_min: 0, total_min: 480 },
       { name: 'Krasniqi Arben', normal_min: 720, ueber_min: 30, total_min: 750 },
     ]);

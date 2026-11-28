@@ -143,7 +143,9 @@ export function monatsSpalten(z: LohnZeile, wochen: Date[]): number[] {
 }
 
 export interface BueroZeile {
+  /** Anzeigename — bei zwei Personen gleichen Namens im selben Blatt mit Nummer («Ben Temp (2)») */
   name: string;
+  person_id: string;
   datum: string;
   konto_nr: string;
   normal_min: number;
@@ -155,7 +157,7 @@ export interface BueroBlatt {
   /** Person × Tag × Konto-Nr., sortiert nach Name, Datum, Konto */
   zeilen: BueroZeile[];
   /** Summe je Person — die Rechnung des Büros muss direkt prüfbar sein */
-  personen: { name: string; normal_min: number; ueber_min: number; total_min: number }[];
+  personen: { id: string; name: string; normal_min: number; ueber_min: number; total_min: number }[];
   total_min: number;
 }
 
@@ -188,7 +190,7 @@ function gruppenBlaetter(eintraege: LohnEintrag[], gruppe: (p: LohnPerson) => st
     const konto = e.konto_nr ?? '—';
     const zeilen = bueros.get(buero) ?? new Map<string, BueroZeile>();
     const key = `${e.mitarbeiter.id}|${e.datum}|${konto}`;
-    const z = zeilen.get(key) ?? { name: e.mitarbeiter.name, datum: e.datum, konto_nr: konto, normal_min: 0, ueber_min: 0 };
+    const z = zeilen.get(key) ?? { name: e.mitarbeiter.name, person_id: e.mitarbeiter.id, datum: e.datum, konto_nr: konto, normal_min: 0, ueber_min: 0 };
     z.normal_min += e.normal_min;
     z.ueber_min += e.ueber_min;
     zeilen.set(key, z);
@@ -197,14 +199,20 @@ function gruppenBlaetter(eintraege: LohnEintrag[], gruppe: (p: LohnPerson) => st
   return [...bueros.entries()]
     .sort(([a], [b]) => a.localeCompare(b, 'de'))
     .map(([buero, m]) => {
+      // Summe je PERSON (id), nicht je Name: zwei Temporäre «Ben Temp» wurden sonst zusammengezählt (Prüfung 28.11.2026).
+      // Gleiche Namen im selben Blatt bekommen eine Nummer, damit das Büro sie auseinanderhalten kann.
+      const ids = new Map<string, string[]>();
+      for (const z of m.values()) { const l = ids.get(z.name) ?? []; if (!l.includes(z.person_id)) l.push(z.person_id); ids.set(z.name, l); }
+      for (const l of ids.values()) l.sort();
+      for (const z of m.values()) { const l = ids.get(z.name)!; if (l.length > 1) z.name = `${z.name} (${l.indexOf(z.person_id) + 1})`; }
       const zeilen = [...m.values()].sort((a, b) => nameSort(a, b) || a.datum.localeCompare(b.datum) || a.konto_nr.localeCompare(b.konto_nr));
-      const proPerson = new Map<string, { name: string; normal_min: number; ueber_min: number; total_min: number }>();
+      const proPerson = new Map<string, { id: string; name: string; normal_min: number; ueber_min: number; total_min: number }>();
       for (const z of zeilen) {
-        const p = proPerson.get(z.name) ?? { name: z.name, normal_min: 0, ueber_min: 0, total_min: 0 };
+        const p = proPerson.get(z.person_id) ?? { id: z.person_id, name: z.name, normal_min: 0, ueber_min: 0, total_min: 0 };
         p.normal_min += z.normal_min;
         p.ueber_min += z.ueber_min;
         p.total_min += z.normal_min + z.ueber_min;
-        proPerson.set(z.name, p);
+        proPerson.set(z.person_id, p);
       }
       const personen = [...proPerson.values()].sort(nameSort);
       return { buero, zeilen, personen, total_min: personen.reduce((s, p) => s + p.total_min, 0) };

@@ -125,7 +125,7 @@ export async function teamStand(c: SupabaseClient, datum: Date): Promise<TeamSta
     c.from('team').select('id,bezeichnung,chefmonteur:chefmonteur_id(name)').eq('aktiv', true),
     c
       .from('tagesmeldung')
-      .select('team_id,erfasst_am,normalfall,abweichung_typ,baustelle:baustelle_id(konto_nr,bezeichnung),zeiteintrag(mitarbeiter_id,normal_min,ueber_min)')
+      .select('team_id,erfasst_am,getippt_am,normalfall,abweichung_typ,baustelle:baustelle_id(konto_nr,bezeichnung),zeiteintrag(mitarbeiter_id,normal_min,ueber_min)')
       .eq('datum', tagIso),
   ]);
 
@@ -133,6 +133,7 @@ export async function teamStand(c: SupabaseClient, datum: Date): Promise<TeamSta
   type MeldZeile = {
     team_id: string | null;
     erfasst_am: string | null;
+    getippt_am?: string | null;
     normalfall: boolean;
     abweichung_typ: string | null;
     baustelle: { konto_nr: string; bezeichnung: string | null } | { konto_nr: string; bezeichnung: string | null }[] | null;
@@ -154,7 +155,8 @@ export async function teamStand(c: SupabaseClient, datum: Date): Promise<TeamSta
   return ((teams.data ?? []) as unknown as TeamZeile[])
     .map((t) => {
       const chef = Array.isArray(t.chefmonteur) ? t.chefmonteur[0] : t.chefmonteur;
-      const liste = (proTeam.get(t.id) ?? []).sort((a, b) => (a.erfasst_am ?? '').localeCompare(b.erfasst_am ?? ''));
+      // «gemeldet um» = wann getippt wurde (0058); alte Meldungen ohne getippt_am: Ankunft beim Server
+      const liste = (proTeam.get(t.id) ?? []).map((m) => (m.getippt_am ? { ...m, erfasst_am: m.getippt_am } : m)).sort((a, b) => (a.erfasst_am ?? '').localeCompare(b.erfasst_am ?? ''));
       const erste = liste[0];
       const b = erste ? (Array.isArray(erste.baustelle) ? erste.baustelle[0] : erste.baustelle) : null;
       return {

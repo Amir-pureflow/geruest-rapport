@@ -147,7 +147,8 @@ export function ZahlKarte({
             <Icon size={18} strokeWidth={2.2} />
           </span>
         )}
-        <span className="truncate text-sm font-semibold text-ink">{titel}</span>
+        {/* Trennen statt abschneiden: auf 360 px stand «Überst…» (Prüfung 28.11.2026) */}
+        <span className="min-w-0 hyphens-auto break-words text-sm font-semibold leading-tight text-ink">{titel}</span>
       </span>
       <span className="block">
         <KachelWert wert={wert} />

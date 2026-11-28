@@ -55,11 +55,13 @@ describe('Temporärbüro und Subunternehmer', () => {
     expect(subunternehmerBlaetter([e('2026-11-23', sub, 504, 0)])[0].buero).toBe('Gerüst Sub GmbH');
   });
 
-  it.fails('BEKANNTER FEHLER: zwei Temporäre mit gleichem Namen werden in «Summe je Person» zusammengezählt', () => {
-    // Ben Temp (p-ben) 525 Min., Ben Temp (p-ben2) 504 Min. — zwei Personen, die Summe je Person geht nach Namen.
-    // Richtig wären zwei Summenzeilen (525 und 504), heute steht eine mit 1029 Min.
+  it('zwei Temporäre mit gleichem Namen: zwei Summen, mit Nummer unterscheidbar (behoben 28.11.2026)', () => {
+    // Ben Temp (p-ben) 525 Min., Ben Temp (p-ben2) 504 Min. → zwei Summenzeilen 525 und 504 (vorher eine mit 1029)
     const [b] = temporaerBueroBlaetter([e('2026-11-23', ben, 504, 21), e('2026-11-23', ben2, 504, 0)]);
     expect(b.personen.length).toBe(2);
+    expect(b.personen.map((p) => p.total_min).sort()).toEqual([504, 525]);
+    expect(new Set(b.personen.map((p) => p.name)).size).toBe(2);
+    expect(b.zeilen.every((z) => /^Ben Temp \([12]\)$/.test(z.name))).toBe(true);
   });
 });
 

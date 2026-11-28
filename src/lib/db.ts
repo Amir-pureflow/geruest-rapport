@@ -196,6 +196,8 @@ export interface MeldungPayload {
   transkript_sprache?: string | null;
   /** Subunternehmer hatten den Lieferwagen der Firma (Migration 0036) — nur gesetzt, wenn ja; sonst fehlt das Feld ganz. */
   lieferwagen?: boolean;
+  /** Wann «Tag melden» gedrückt wurde (Uhr des Geräts, Migration 0058) — für «gemeldet um», auch nach einem Funkloch */
+  getippt_am?: string;
   eintraege: {
     id: string;
     mitarbeiter_id: string;
@@ -344,6 +346,8 @@ async function belegeAblegen(clientUuid: string, audio?: Blob, fotos: Blob[] = [
 
 /** Tagesmeldung lokal ablegen. Gibt die client_uuid zurück. `namen` (Person → Name) nur für den Bildschirm. */
 export async function enqueueMeldung(payload: MeldungPayload, audio?: Blob, fotos: Blob[] = [], namen?: Record<string, string>): Promise<string> {
+  // Zeitpunkt des Tippens mitgeben — die Ankunft beim Server kann nach einem Funkloch Stunden später sein (Prüfung 28.11.2026)
+  if (!payload.getippt_am) payload = { ...payload, getippt_am: new Date().toISOString() };
   const e = neuerEintrag(payload as unknown as Record<string, unknown>, namen);
   await db.meldungen.add(e);
   const belegFehler = await belegeAblegen(e.client_uuid, audio, fotos);

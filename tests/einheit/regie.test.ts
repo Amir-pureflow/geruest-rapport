@@ -166,3 +166,15 @@ describe('Regierapport-PDF (echter Baustein)', () => {
     expect(zeileMit('Weitere Leistung')).toEqual(['Weitere Leistung', 'h', '1.000', '95.00', '95.00']);
   });
 });
+
+describe('Tarifliste läuft ab (behoben 28.11.2026: vorher still weiter)', () => {
+  it('ohne Hinweis bis 61 Tage vorher, dann «bald», nach dem 31.03.2027 «abgelaufen»', async () => {
+    const { tarifHinweis, TARIF_GUELTIG_BIS } = await import('../../src/lib/tarif');
+    expect(TARIF_GUELTIG_BIS).toBe('2027-03-31');
+    expect(tarifHinweis('2026-11-28')).toBeNull();
+    expect(tarifHinweis('2027-01-29')).toBeNull(); // 61 Tage vorher
+    expect(tarifHinweis('2027-01-30')?.art).toBe('bald'); // 60 Tage
+    expect(tarifHinweis('2027-03-31')?.text).toMatch(/noch bis 31\.03\.2027 \(0 Tage\)/);
+    expect(tarifHinweis('2027-04-01')?.art).toBe('abgelaufen');
+  });
+});

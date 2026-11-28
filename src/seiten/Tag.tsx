@@ -21,7 +21,7 @@ import { initialen, teamFarbe, teamKuerzel } from '../lib/teamStil';
 interface Team { id: string; bezeichnung: string; fahrzeug: string | null; chefmonteur: { name: string } | null }
 interface Meldung {
   id: string; team_id: string; normalfall: boolean; abweichung_typ: string | null; wer_hats_gewollt: string | null;
-  transkript: string | null; transkript_sprache?: string | null; audio_sekunden: number | null; erfasst_am: string;
+  transkript: string | null; transkript_sprache?: string | null; audio_sekunden: number | null; erfasst_am: string; getippt_am?: string | null;
   baustelle: { konto_nr: string; bezeichnung: string | null } | null;
   zeiteintrag: { normal_min: number; ueber_min: number; mitarbeiter_id: string; mitarbeiter: { name: string } | null }[];
   foto: { id: string }[];
@@ -114,7 +114,7 @@ export function Tag() {
     if (!still) setLaedt(true);
     const [t, m, p] = await Promise.all([
       c.from('team').select('id,bezeichnung,fahrzeug,chefmonteur:chefmonteur_id(name)').eq('aktiv', true).order('bezeichnung'),
-      c.from('tagesmeldung').select('id,team_id,normalfall,abweichung_typ,wer_hats_gewollt,transkript,transkript_sprache,audio_sekunden,erfasst_am,baustelle:baustelle_id(konto_nr,bezeichnung),zeiteintrag(normal_min,ueber_min,mitarbeiter_id,mitarbeiter:mitarbeiter_id(name)),foto(id)').eq('datum', tagIso).order('erfasst_am'),
+      c.from('tagesmeldung').select('id,team_id,normalfall,abweichung_typ,wer_hats_gewollt,transkript,transkript_sprache,audio_sekunden,erfasst_am,getippt_am,baustelle:baustelle_id(konto_nr,bezeichnung),zeiteintrag(normal_min,ueber_min,mitarbeiter_id,mitarbeiter:mitarbeiter_id(name)),foto(id)').eq('datum', tagIso).order('erfasst_am'),
       c.from('jahresplan').select('team_id,baustelle:baustelle_id(konto_nr,bezeichnung)').lte('von', tagIso).gte('bis', tagIso),
     ]);
     if (!aktuell()) return;
@@ -124,7 +124,8 @@ export function Tag() {
     if (still && fehlerText) return;
     const neu: TagDaten = {
       teams: ((t.data ?? []) as unknown as Team[]).sort((a, b) => a.bezeichnung.localeCompare(b.bezeichnung, 'de', { numeric: true })),
-      meldungen: (m.data ?? []) as unknown as Meldung[],
+      // «gemeldet um» = wann getippt wurde (0058), nicht wann es nach einem Funkloch ankam; alte Meldungen: Ankunft
+      meldungen: ((m.data ?? []) as unknown as Meldung[]).map((x) => (x.getippt_am ? { ...x, erfasst_am: x.getippt_am } : x)),
       plan: (p.data ?? []) as unknown as Plan[],
     };
     if (!fehlerText) merken(schluessel, neu);

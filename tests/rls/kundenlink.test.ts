@@ -69,12 +69,11 @@ describe('Kunden-Link: was er zeigt', () => {
     expect(d.rundung_rappen).toBe(1);
   });
 
-  it('auch ein Rapport, der gerade überarbeitet wird (Entwurf), zeigt über den alten Link Beträge', async () => {
-    // Nach «Korrigieren» geht der Rapport zurück auf Entwurf, der Link bleibt gleich. Der Kunde sieht den Zwischenstand.
+  it('ein Rapport, der gerade überarbeitet wird (Entwurf), zeigt über den alten Link KEINE Beträge (behoben 28.11.2026)', async () => {
+    // Nach «Korrigieren» geht der Rapport zurück auf Entwurf, der Link bleibt gleich — er zeigt nur noch «wird überarbeitet»
     sql(`update regierapport set status='entwurf' where id='${F.A.rapport}';`);
     const d = await (await holen(F.A.token)).json();
-    expect(d.status).toBe('entwurf');
-    expect(d.betrag_rappen).toBe(369920); // im Entwurf rechnet die DB neu: 3'699.19 → 3'699.20 — Befund «Link läuft nie ab» bleibt
+    expect(d).toEqual({ status: 'entwurf', nummer: 'A-1' });
   });
 });
 

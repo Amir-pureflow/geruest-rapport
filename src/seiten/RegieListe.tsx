@@ -10,7 +10,7 @@ import { Shell } from '../ui/Shell';
 import { supabase } from '../lib/supabase';
 import { alle, stuecke } from '../lib/abfrage';
 import { iso } from '../lib/datum';
-import { formatChf } from '../lib/tarif';
+import { formatChf, tarifHinweis } from '../lib/tarif';
 import { baustellenSuchen } from '../lib/suche';
 
 interface Zeile {
@@ -146,6 +146,8 @@ function BaustellenWahl({ baustellen, wert, setzen }: { baustellen: { konto_nr: 
 }
 
 export function RegieListe() {
+  /** SGUV-Liste läuft ab? (Prüfung 28.11.2026) */
+  const tarifWarnung = useMemo(() => tarifHinweis(iso(new Date())), []);
   const [zeilen, setZeilen] = useState<Zeile[]>([]);
   const [logs, setLogs] = useState<LogZeile[]>([]);
   const [laedt, setLaedt] = useState(true);
@@ -221,6 +223,11 @@ export function RegieListe() {
 
   return (
     <Shell zurueck>
+      {tarifWarnung && (
+        <p className={'mb-4 rounded-xl px-4 py-3 text-sm ' + (tarifWarnung.art === 'abgelaufen' ? 'bg-accent-soft text-accent-deep' : 'bg-amber-soft text-ink')} role="status">
+          {tarifWarnung.text}
+        </p>
+      )}
       <div className="space-y-5">
         <header className="flex flex-wrap items-end justify-between gap-x-6 gap-y-2">
           <div>

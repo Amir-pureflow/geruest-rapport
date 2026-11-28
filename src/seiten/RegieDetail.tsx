@@ -5,8 +5,8 @@ import { Shell } from '../ui/Shell';
 import { FotoGalerie } from '../ui/FotoGalerie';
 import { fotoVerkleinern } from '../lib/foto';
 import { supabase } from '../lib/supabase';
-import { formatChf, materialmiete, tarifNachCode, positionBetrag, rund5, totalAnzeige, ETAPPE_MIN_RAPPEN } from '../lib/tarif';
-import { ausIso, lang, stunden } from '../lib/datum';
+import { formatChf, materialmiete, tarifNachCode, positionBetrag, rund5, totalAnzeige, tarifHinweis, ETAPPE_MIN_RAPPEN } from '../lib/tarif';
+import { ausIso, iso, lang, stunden } from '../lib/datum';
 import { taetigkeitText } from '../lib/zusatzauftrag';
 
 /**
@@ -124,6 +124,8 @@ const EREIGNIS_LABEL: Record<string, string> = {
 };
 
 export function RegieDetail() {
+  /** SGUV-Liste läuft ab? (Prüfung 28.11.2026) */
+  const tarifWarnung = useMemo(() => tarifHinweis(iso(new Date())), []);
   const { id } = useParams();
   const [rapport, setRapport] = useState<Rapport | null>(null);
 
@@ -499,6 +501,11 @@ export function RegieDetail() {
 
   return (
     <Shell zurueck krume={rapport.nummer ?? 'Regierapport'}>
+      {entwurf && tarifWarnung && (
+        <p className={'mb-4 rounded-xl px-4 py-3 text-sm ' + (tarifWarnung.art === 'abgelaufen' ? 'bg-accent-soft text-accent-deep' : 'bg-amber-soft text-ink')} role="status">
+          {tarifWarnung.text}
+        </p>
+      )}
       <div className="space-y-6">
         <header className="flex items-start justify-between gap-4">
           <div className="min-w-0">

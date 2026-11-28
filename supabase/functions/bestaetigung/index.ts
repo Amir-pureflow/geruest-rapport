@@ -48,6 +48,11 @@ Deno.serve(async (req) => {
         .eq('link_token', token)
         .single();
       if (!r) return antwort(404, { fehler: 'Dieser Link ist ungültig.' });
+      // Im Entwurf (Büro überarbeitet nach einer Rückfrage) keine Beträge, Positionen, Fotos oder PDF — der Kunde sah
+      // sonst den halbfertigen Zwischenstand über den alten Link (Prüfung 28.11.2026). Er bekommt den Rapport neu per Mail.
+      if (r.status === 'entwurf') {
+        return antwort(200, { status: 'entwurf', nummer: (r as { nummer?: string | null }).nummer ?? null });
+      }
       await supa.from('zustellung_log').insert({
         regierapport_id: r.id,
         an: r.empfaenger_email ?? 'kunde',

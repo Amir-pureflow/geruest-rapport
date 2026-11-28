@@ -124,6 +124,21 @@ export function tarifNachCode(code: string): { bezeichnung: string; ansatz_rappe
 
 export const ETAPPE_MIN_RAPPEN: number = tarife.zuschlaege.etappe_min_rappen;
 
+/** Bis wann die eingebaute SGUV-Liste gilt (JJJJ-MM-TT). */
+export const TARIF_GUELTIG_BIS: string = tarife.gueltig_bis;
+
+/**
+ * Warnung, wenn die eingebaute Tarifliste bald abläuft oder abgelaufen ist (Prüfung 28.11.2026: sie galt still bis
+ * 31.03.2027 weiter). Ab 60 Tagen vorher ein Hinweis, danach eine Warnung. Sonst null. `heute` als JJJJ-MM-TT.
+ */
+export function tarifHinweis(heute: string, bis: string = TARIF_GUELTIG_BIS): { art: 'bald' | 'abgelaufen'; text: string } | null {
+  const tage = Math.round((Date.parse(bis + 'T12:00:00Z') - Date.parse(heute + 'T12:00:00Z')) / 86400000);
+  const datum = `${bis.slice(8, 10)}.${bis.slice(5, 7)}.${bis.slice(0, 4)}`;
+  if (tage < 0) return { art: 'abgelaufen', text: `Die SGUV-Regietarife in Rapporto galten bis ${datum}. Die Beträge können veraltet sein — bitte neue Tarifliste an PureFlow schicken.` };
+  if (tage <= 60) return { art: 'bald', text: `Die SGUV-Regietarife in Rapporto gelten noch bis ${datum} (${tage} ${tage === 1 ? 'Tag' : 'Tage'}). Bitte die neue Tarifliste rechtzeitig an PureFlow schicken.` };
+  return null;
+}
+
 /**
  * Rückfallansatz (Rappen pro Stunde) für Zeiteinträge, deren Funktion keinen Tarifcode hat:
  * der Ansatz Gerüstmonteur/in (Fr. 108.–). Wird in regie.ts und im Cockpit verwendet.

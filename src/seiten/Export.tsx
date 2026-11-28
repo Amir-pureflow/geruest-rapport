@@ -10,7 +10,7 @@ import { MONATE, ZahlKarte } from '../ui/Karten';
 import { Blaettern, Schalter, Segment, SegmentZahl } from '../ui/Segment';
 import { bueroExcel, rapportExcel } from '../lib/excel';
 import { lieferwagenTage, type LieferZeile } from '../lib/lieferwagen';
-import { ARTEN, artText } from '../lib/abwesenheit';
+import { ARTEN, artText, amTagImTeam, type Einteilung, type Mitgliedschaft } from '../lib/abwesenheit';
 import { alle } from '../lib/abfrage';
 import { useNeuesteAnfrage } from '../lib/auffrischen';
 import { ankerAusUrl, ankerFuer, jahresBereich, monatBlaettern, type ZeitraumArt } from '../lib/zeitraum';
@@ -260,21 +260,30 @@ export function Export() {
             return q.order('datum').order('id').range(von, bis);
           }))
           : Promise.resolve([] as LieferZeile[]),
-        // Abwesenheiten (0036): Ferien, Krank … — bei einem Team nur dessen Leute
+        // Abwesenheiten (0036): Ferien, Krank … — bei einem Team nur, wer AN DEM TAG zum Team gehörte (Mitgliedschaft
+        // von–bis, Einteilung der Planung geht vor). Vorher galt die heutige Zugehörigkeit (Prüfung 28.11.2026).
         lohnSichtbar
           ? mitName('Abwesenheiten', (async () => {
+            let mitglieder: Mitgliedschaft[] = [];
+            let einteilungen: Einteilung[] = [];
             let ids: string[] | null = null;
             if (teamId !== ALLE) {
-              const { data: tm, error } = await c.from('team_mitglied').select('mitarbeiter_id').eq('team_id', teamId).is('bis', null);
-              if (error) throw new Error(error.message);
-              ids = ((tm ?? []) as { mitarbeiter_id: string }[]).map((x) => x.mitarbeiter_id);
+              const [tm, ep] = await Promise.all([
+                c.from('team_mitglied').select('mitarbeiter_id,team_id,von,bis').eq('team_id', teamId).lte('von', bisIso).or(`bis.is.null,bis.gte.${vonIso}`),
+                alle<Einteilung>((von, bis) => c.from('einsatz_person').select('mitarbeiter_id,team_id,datum').gte('datum', vonIso).lte('datum', bisIso).order('datum').order('id').range(von, bis)),
+              ]);
+              if (tm.error) throw new Error(tm.error.message);
+              mitglieder = (tm.data ?? []) as Mitgliedschaft[];
+              einteilungen = ep;
+              ids = [...new Set([...mitglieder.map((x) => x.mitarbeiter_id), ...einteilungen.filter((x) => x.team_id === teamId).map((x) => x.mitarbeiter_id)])];
             }
             if (ids && ids.length === 0) return [] as AbwZeile[];
-            return alle<AbwZeile>((von, bis) => {
+            const liste = await alle<AbwZeile>((von, bis) => {
               let q = c.from('abwesenheit').select('datum,art,minuten,mitarbeiter:mitarbeiter_id(id,name,typ,temporaerbuero,subunternehmer_firma)').gte('datum', vonIso).lte('datum', bisIso);
               if (ids) q = q.in('mitarbeiter_id', ids);
               return q.order('datum').order('id').range(von, bis);
             });
+            return teamId === ALLE ? liste : liste.filter((a) => amTagImTeam(a.mitarbeiter.id, a.datum, teamId, mitglieder, einteilungen));
           })())
           : Promise.resolve([] as AbwZeile[]),
       ]);

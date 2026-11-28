@@ -104,3 +104,19 @@ export function summeJePerson(liste: Abwesenheit[]): Map<string, Map<Abwesenheit
   }
   return m;
 }
+
+/** Mitgliedschaft mit Zeitraum (team_mitglied: von ≤ Tag ≤ bis, bis leer = noch dabei). */
+export interface Mitgliedschaft { mitarbeiter_id: string; team_id: string; von: string; bis: string | null }
+/** Einteilung eines Tages aus der Planung (einsatz_person, 0036): an DIESEM Tag in DIESEM Team. */
+export interface Einteilung { mitarbeiter_id: string; team_id: string; datum: string }
+
+/**
+ * Gehört eine Person an einem Tag zum Team? Die Einteilung des Tages gilt vor der festen Mitgliedschaft; sonst zählt,
+ * ob sie an DIESEM Tag Mitglied war, nicht heute (Prüfung 28.11.2026: der Export filterte Abwesenheiten nach der
+ * heutigen Zugehörigkeit — wer das Team gewechselt hatte, verlor seine Ferien im alten Team oder brachte sie ins neue mit).
+ */
+export function amTagImTeam(personId: string, datum: string, teamId: string, mitglieder: Mitgliedschaft[], einteilungen: Einteilung[]): boolean {
+  const e = einteilungen.find((x) => x.mitarbeiter_id === personId && x.datum === datum);
+  if (e) return e.team_id === teamId;
+  return mitglieder.some((m) => m.mitarbeiter_id === personId && m.team_id === teamId && m.von <= datum && (m.bis === null || m.bis >= datum));
+}

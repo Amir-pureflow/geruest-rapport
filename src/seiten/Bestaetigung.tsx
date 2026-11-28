@@ -55,6 +55,12 @@ export function Bestaetigung() {
           setMeldung(j.fehler ?? 'Dieser Link ist ungültig.');
           return;
         }
+        if (j.status === 'entwurf') {
+          // Das Büro überarbeitet den Rapport — keine Zwischenstände zeigen (Prüfung 28.11.2026)
+          setZustand('fehler');
+          setMeldung('Dieser Regierapport wird gerade überarbeitet. Sie erhalten ihn neu per Mail.');
+          return;
+        }
         setDaten(j);
         setZustand(j.status === 'bestaetigt' ? 'fertig' : 'offen');
         if (j.status === 'bestaetigt') setMeldung('Dieser Regierapport wurde bereits bestätigt. Vielen Dank!');

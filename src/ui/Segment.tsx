@@ -89,11 +89,12 @@ export function Blaettern({
 }) {
   const [haupt, ...rest] = titel.split(' · ');
   return (
-    <div className="leiste inline-flex items-center">
+    <div className="leiste inline-flex max-w-full items-center">
       <button type="button" aria-label={labelZurueck} onClick={zurueck} className="leiste-pfeil"><ChevronLeft size={17} /></button>
       <span className={'flex items-center justify-center gap-2 whitespace-nowrap px-2 text-sm font-bold tabular-nums text-ink ' + breite}>
         {haupt}
-        {rest.length > 0 && <span className="font-medium text-ink3">{rest.join(' · ')}</span>}
+        {/* Unter 400 px nur «KW 48» — sonst ragte die Leiste mit Datum und «Heute» über den Rand (Prüfung 28.11.2026) */}
+        {rest.length > 0 && <span className="hidden font-medium text-ink3 min-[400px]:inline">{rest.join(' · ')}</span>}
       </span>
       <button type="button" aria-label={labelVor} onClick={vor} disabled={vorGesperrt} className="leiste-pfeil disabled:opacity-30"><ChevronRight size={17} /></button>
       {heute && (

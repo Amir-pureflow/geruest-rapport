@@ -99,7 +99,7 @@ describe('Funkloch auf dem Teamgerät', () => {
     void getippt;
   });
 
-  it.fails('BEKANNTER FEHLER: «gemeldet um» ist die Zeit des Eintreffens, nicht des Tippens (Tagesübersicht zeigt erfasst_am)', async () => {
+  it('«gemeldet um» ist die Zeit des Tippens, auch nach einem Funkloch (getippt_am, behoben 28.11.2026)', async () => {
     const g = await geraet('A', 'chef', { an: true });
     zugangMerken({ user: g.user, firma: F.A.firma, name: F.A.name });
     const getippt = Date.now();
@@ -109,9 +109,22 @@ describe('Funkloch auf dem Teamgerät', () => {
     await new Promise((r) => setTimeout(r, 4000)); // Funkloch dauert 4 s (in echt: über Nacht)
     g.offline.an = false;
     await flushNachSupabase(g.c);
-    const ankunft = Number(sql(`select (extract(epoch from erfasst_am)*1000)::bigint from tagesmeldung where id='${p.id}';`));
-    expect(ankunft).toBeGreaterThan(0); // die Meldung ist angekommen
-    expect(Math.abs(ankunft - getippt)).toBeLessThan(1000); // heute: ~4 s daneben (Zeit des Eintreffens)
+    const [ankunft, tipp] = sql(`select (extract(epoch from erfasst_am)*1000)::bigint||'|'||(extract(epoch from getippt_am)*1000)::bigint from tagesmeldung where id='${p.id}';`).split('|').map(Number);
+    expect(ankunft - getippt).toBeGreaterThan(3500); // erfasst_am bleibt die Ankunft (Beleg), ~4 s später
+    expect(Math.abs(tipp - getippt)).toBeLessThan(1000); // getippt_am = Zeit des Tippens
+  });
+
+  it('getippt_am: Handyuhr in der Zukunft oder viel zu alt → Ankunftszeit gilt; einmal gesetzt bleibt es', async () => {
+    const g = await geraet('A', 'buero');
+    const neu = (getippt_am: string) => ({ id: crypto.randomUUID(), client_uuid: crypto.randomUUID(), team_id: F.A.team, datum: gestern, baustelle_id: F.A.baustelle, normalfall: false, getippt_am });
+    const zukunft = neu(new Date(Date.now() + 3600_000).toISOString());
+    const alt = neu(new Date(Date.now() - 30 * 86400_000).toISOString());
+    expect((await g.c.from('tagesmeldung').insert([zukunft, alt])).error).toBeNull();
+    expect(sql(`select count(*) from tagesmeldung where id in ('${zukunft.id}','${alt.id}') and getippt_am is null;`)).toBe('2');
+    const ok = neu(new Date(Date.now() - 3600_000).toISOString());
+    await g.c.from('tagesmeldung').insert(ok);
+    await g.c.from('tagesmeldung').update({ getippt_am: new Date().toISOString() }).eq('id', ok.id);
+    expect(Number(sql(`select (extract(epoch from getippt_am)*1000)::bigint from tagesmeldung where id='${ok.id}';`))).toBeCloseTo(Date.parse(ok.getippt_am), -3);
   });
 
   it('nochmals senden nach abgebrochener Antwort erzeugt keine doppelten Stunden', async () => {
