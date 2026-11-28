@@ -181,3 +181,5 @@ $$;
 drop trigger if exists regierapport_loeschen_schutz on regierapport;
 create trigger regierapport_loeschen_schutz before delete on regierapport
   for each row execute function regierapport_loeschen_schutz();
+
+notify pgrst, 'reload schema';
